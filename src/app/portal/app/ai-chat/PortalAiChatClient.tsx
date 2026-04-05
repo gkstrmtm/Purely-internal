@@ -2942,7 +2942,19 @@ export function PortalAiChatClient() {
               <>
                 {(() => {
                   let assistantIdx = 0;
-                  const lastAssistantIndex = (() => {
+                  const lastAssistantIndexForFooter = (() => {
+                    // When regenerating, we insert an optimistic "thinking" assistant bubble at the end.
+                    // Anchor the footer controls to that bubble so they don't jump up to a prior message.
+                    if (regenerating) {
+                      for (let i = messages.length - 1; i >= 0; i--) {
+                        const m = messages[i];
+                        if (m?.role !== "assistant") continue;
+                        return i;
+                      }
+                      return -1;
+                    }
+
+                    // Normal case: anchor to the last real assistant message.
                     for (let i = messages.length - 1; i >= 0; i--) {
                       const m = messages[i];
                       if (m?.role !== "assistant") continue;
@@ -2963,7 +2975,7 @@ export function PortalAiChatClient() {
                   return messages.map((m, i) => {
                     const variant = m.role === "assistant" ? (assistantIdx++ % 2 === 0 ? "dark" : "light") : undefined;
                     const isThinking = m.id.startsWith("optimistic-assistant-") && m.role === "assistant";
-                    const isLastAssistant = !isThinking && m.role === "assistant" && i === lastAssistantIndex;
+                    const isLastAssistant = m.role === "assistant" && i === lastAssistantIndexForFooter;
                     const isLastUser = m.role === "user" && i === lastUserIndex;
                     const showAmbiguousContacts = isLastAssistant && Boolean(ambiguousContacts && ambiguousContacts.length);
                     const showChoices = isLastAssistant && Boolean(assistantChoices && assistantChoices.length);
@@ -2971,6 +2983,7 @@ export function PortalAiChatClient() {
                       isLastAssistant && Boolean(canvasUiAmbiguity && Array.isArray(canvasUiAmbiguity.candidates) && canvasUiAmbiguity.candidates.length);
 
                     const canCopy = m.role === "assistant" && Boolean(String(m.text || "").trim());
+                    const canDictate = m.role === "assistant" && !isThinking && Boolean(String(m.text || "").trim());
                     return (
                       <div key={m.id}>
                         <MessageBubble
@@ -2986,13 +2999,15 @@ export function PortalAiChatClient() {
                                   type="button"
                                   className={classNames(
                                     "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
-                                    (dictating || regenerating || sending) && "opacity-60",
+                                    (!canDictate || dictating || regenerating || sending) && "opacity-60",
                                   )}
                                   onClick={() => void dictateAssistantMessage(m.id)}
-                                  disabled={dictating || regenerating || sending}
+                                  disabled={!canDictate || dictating || regenerating || sending}
                                   aria-label={dictationPlayingMessageId === m.id ? "Stop dictation" : "Dictate last assistant message"}
                                   title={
-                                    dictating && dictatingMessageId === m.id
+                                    !canDictate
+                                      ? "Nothing to dictate"
+                                      : dictating && dictatingMessageId === m.id
                                       ? "Dictating…"
                                       : dictationPlayingMessageId === m.id
                                         ? "Stop dictation"
@@ -3041,7 +3056,7 @@ export function PortalAiChatClient() {
                                   <IconEdit size={16} />
                                 </button>
                               ) : null}
-                              {m.role === "assistant" ? (
+                              {m.role === "assistant" && !isThinking ? (
                                 <button
                                   type="button"
                                   className={classNames(

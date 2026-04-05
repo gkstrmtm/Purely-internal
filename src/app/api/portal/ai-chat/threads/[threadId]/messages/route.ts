@@ -285,6 +285,19 @@ function userRefusedToClarify(textRaw: unknown): boolean {
   );
 }
 
+function defaultNoPreferenceExecutePlan(reason: string) {
+  return {
+    mode: "execute" as const,
+    workTitle: "Proceeding without further clarification",
+    explanation: reason,
+    steps: [
+      { key: "booking.settings.get", title: "Fetch booking settings", args: {} },
+      { key: "booking.calendars.get", title: "Fetch booking calendars", args: {} },
+      { key: "booking.form.get", title: "Fetch booking form", args: {} },
+    ],
+  };
+}
+
 async function extractPdfText(bytes: Buffer): Promise<string> {
   const mod: any = await import("pdf-parse");
   const pdfParse: any = mod?.default ?? mod;
@@ -3391,6 +3404,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             });
 
             if (plan2) plan = plan2;
+
+            // If the model still tries to clarify after a no-preference/refusal, proceed deterministically.
+            if (plan?.mode === "clarify") {
+              plan = defaultNoPreferenceExecutePlan(
+                refused
+                  ? "User indicated no preference; proceeding with a default first step."
+                  : "Clarify question repeated; proceeding with a default first step.",
+              );
+            }
           } catch {
             // ignore and keep original plan
           }
