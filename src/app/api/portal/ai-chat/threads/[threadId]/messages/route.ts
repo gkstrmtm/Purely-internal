@@ -2749,6 +2749,20 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       await (prisma as any).portalAiChatMessage.deleteMany({ where: { ownerId, threadId, id: { in: assistantIdsToDelete } } });
     }
 
+    // Force a true re-evaluation: clear any stale pending state that could cause replaying
+    // a previously proposed plan or re-asking the same clarify question.
+    try {
+      const prevCtx =
+        persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext)
+          ? (persistedThreadContext as any)
+          : {};
+      const nextCtx = { ...prevCtx, pendingConfirm: null, pendingPlan: null, pendingPlanClarify: null };
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
+      persistedThreadContext = nextCtx;
+    } catch {
+      // best-effort only
+    }
+
     // Re-run the full agent pipeline using the latest user prompt, but avoid inserting
     // a duplicate user message (this should behave like a real retry/regenerate).
     redoLatestUserText = lastUserText.slice(0, 4000);
@@ -3294,14 +3308,21 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         if (!mode) return "";
         const prior = String(priorAssistantTextToAvoid || "").trim();
         const priorBlock = prior ? `\n\nPrior assistant response (do not repeat verbatim):\n${prior.slice(0, 1200)}` : "";
+        const redoExtra =
+          mode === "redo"
+            ? "\n- Re-evaluate the task and tool selection from scratch.\n- If the previous attempt failed or asked unhelpful questions, choose a different approach (prefer safe GET/diagnostics first, then targeted updates).\n- Do NOT reuse the same plan/steps unless they are clearly the best option."
+            : "";
         return (
-          "\n\nSystem note: The user clicked Try Again / edited their last message. Replace the previous assistant response. Do NOT repeat the same wording. If your prior answer was vague or missed constraints, correct it now. Keep it concise and action-oriented." +
+          "\n\nSystem note: The user clicked Try Again / edited their last message. Replace the previous assistant response. Do NOT repeat the same wording." +
+          redoExtra +
+          "\n- If your prior answer was vague or missed constraints, correct it now.\n- Keep it concise and action-oriented." +
           priorBlock
         );
       })();
 
       const effectivePlanningText = (intentNote ? `${effectivePlanningTextBase}${intentNote}` : effectivePlanningTextBase).slice(0, 8000);
       const shouldReplayPendingExecutePlan =
+        !redoLastAssistant &&
         Boolean(pendingPlan) &&
         pendingPlanMode === "execute" &&
         !isConfirmOnly &&
