@@ -3474,7 +3474,7 @@ export type PortalAgentActionProposal = {
 export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }): string {
   const includeAiChat = opts?.includeAiChat ?? true;
   const lines = [
-    "Available actions (choose at most 2):",
+    "Available actions (choose up to 6):",
     "- tasks.create: Create a portal task (fields: title, description?, assignedToUserId?, dueAtIso?)",
     "- tasks.create_for_all: Create the same task for every team member (fields: title, description?, dueAtIso?)",
     "- tasks.update: Update a task (fields: taskId, status?, title?, description?, assignedToUserId?, dueAtIso?)",

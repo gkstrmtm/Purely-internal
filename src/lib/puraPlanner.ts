@@ -178,6 +178,33 @@ function summarizeActiveThreadEntities(threadContext: unknown): string {
   return rows.length ? rows.join("\n") : "(none)";
 }
 
+function summarizeFunnelBuilderContext(threadContext: unknown): string {
+  const ctx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
+    ? (threadContext as Record<string, unknown>)
+    : null;
+  if (!ctx) return "(none)";
+
+  const lines: string[] = [];
+
+  const lastFunnel = ctx.lastFunnel && typeof ctx.lastFunnel === "object" && !Array.isArray(ctx.lastFunnel) ? (ctx.lastFunnel as any) : null;
+  const lastFunnelId = typeof lastFunnel?.id === "string" ? String(lastFunnel.id).trim() : "";
+  const lastFunnelName = typeof lastFunnel?.name === "string" ? String(lastFunnel.name).trim() : typeof lastFunnel?.label === "string" ? String(lastFunnel.label).trim() : "";
+  if (lastFunnelId || lastFunnelName) lines.push(`- lastFunnel: ${lastFunnelName || "(unnamed)"}${lastFunnelId ? ` [id=${lastFunnelId.slice(0, 24)}]` : ""}`);
+
+  const lastFunnelPage = ctx.lastFunnelPage && typeof ctx.lastFunnelPage === "object" && !Array.isArray(ctx.lastFunnelPage) ? (ctx.lastFunnelPage as any) : null;
+  const lastPageId = typeof lastFunnelPage?.id === "string" ? String(lastFunnelPage.id).trim() : "";
+  const lastPageLabel = typeof lastFunnelPage?.label === "string" ? String(lastFunnelPage.label).trim() : "";
+  const lastPageFunnelId = typeof lastFunnelPage?.funnelId === "string" ? String(lastFunnelPage.funnelId).trim() : "";
+  if (lastPageId || lastPageLabel) {
+    lines.push(`- lastFunnelPage: ${lastPageLabel || "(unnamed)"}${lastPageId ? ` [id=${lastPageId.slice(0, 24)}]` : ""}${lastPageFunnelId ? ` funnelId=${lastPageFunnelId.slice(0, 24)}` : ""}`);
+  }
+
+  const lastCanvasUrl = typeof (ctx as any).lastCanvasUrl === "string" ? String((ctx as any).lastCanvasUrl).trim() : "";
+  if (lastCanvasUrl) lines.push(`- lastCanvasUrl: ${lastCanvasUrl.slice(0, 240)}`);
+
+  return lines.length ? lines.join("\n") : "(none)";
+}
+
 export async function planPuraActions(opts: {
   text: string;
   url?: string;
@@ -216,6 +243,9 @@ export async function planPuraActions(opts: {
     "- Only output mode=clarify when there is NO plausible active entity in thread context and the missing detail is truly required.",
     "- If required specifics are missing or ambiguous, output mode=clarify with ONE short question.",
     "- IMPORTANT: If the user answers a question with 'I don't care', 'either', 'whichever', or 'you pick', that is NO PREFERENCE. Choose a sensible default and proceed (mode=execute).",
+    "- IMPORTANT: If the user answers a disambiguation question with 'both', 'do both', 'all of them', or 'all pages', do NOT ask which one to start with.",
+    "  Proceed in a sensible order and include multiple steps if needed (up to 6 total steps).",
+    "  Example: if they say 'do both pages', plan steps that apply the change to each relevant page.",
     "- IMPORTANT: For booking calendar selection, NEVER ask the user for a calendar ID.",
     "  If a step needs calendarId but it isn't known, still output mode=execute and omit calendarId;",
     "  the system will auto-pick on 'any/doesn't matter/don't care/either' or show clickable calendar choices.",
@@ -225,6 +255,10 @@ export async function planPuraActions(opts: {
     "  - Do NOT use example emails (example.com / info@example.com).",
     "  - If the user didn't provide a value, omit that field; do the parts you are sure about.",
     "- Prefer using $ref hints that continue the active thread context instead of asking the user to restate the obvious.",
+    "- Funnel Builder page work:",
+    "  - If the user asks to build/edit the layout for a page, prefer funnel_builder.pages.generate_html (not just contentMarkdown) so the visual layout updates.",
+    "  - If the user says 'do both' when asked which page, plan one step per page (use $ref:{\"$ref\":\"funnel_page\",\"hint\":...} hints derived from page titles/slugs mentioned in the conversation).",
+    "  - Do NOT loop on asking which page first when you can proceed with a reasonable default order.",
     "- Never output manual step-by-step portal instructions unless mode=explain.",
     "- IMPORTANT (AI-first audits): If the user asks you to analyze/audit/find weak spots/suggest improvements, you MUST output mode=execute.",
     "  - Start by calling relevant read-only GET actions to gather context (e.g., booking.settings.get, booking.form.get, booking.site.get, booking.calendars.get, funnel_builder.funnels.get/pages.list/pages.get if needed).",
@@ -314,6 +348,8 @@ export async function planPuraActions(opts: {
     threadSummary || "(none)",
     "\nOwner time zone (if known):",
     ownerTimeZone || "(unknown)",
+    "\nFunnel Builder context (explicit):",
+    summarizeFunnelBuilderContext(opts.threadContext),
     "\nActive entities from thread context (prefer these for follow-ups):",
     activeEntities,
     "\nThread context JSON (may help with follow-ups):",

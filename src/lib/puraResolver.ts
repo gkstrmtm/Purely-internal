@@ -2687,8 +2687,9 @@ async function resolveFunnelPageId(opts: {
     return { kind: "ok", pageId: String(r.id), label: String(r.title || r.slug || "Page"), funnelId };
   }
 
-  // If the user says "any" / "doesn't matter", prefer the current page in context when possible.
-  if (hintMeansAny(hint)) {
+  // If the user says "any" / "doesn't matter" / "both", prefer the current page in context when possible.
+  // Note: single-page actions still need one pageId; "both" means "you choose which to start with".
+  if (hintMeansAny(hint) || hintMeansBoth(hint)) {
     if (lastPageId && (!funnelIdHint || funnelIdHint === lastFunnelId)) {
       return { kind: "ok", pageId: lastPageId.slice(0, 120), label: "Current page", funnelId: funnelIdHint || lastFunnelId || funnelId };
     }
@@ -2879,6 +2880,19 @@ function hintMeansAny(raw: string): boolean {
     /\b(any|either|whatever|anything)\b/.test(s) ||
     /\b(i\s*(don't|dont)\s*care|name\s+it\s+anything|anything\s+is\s+fine)\b/.test(s)
   );
+}
+
+function hintMeansBoth(raw: string): boolean {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (!s) return false;
+
+  if (s === "both" || s === "both of them" || s === "do both" || s === "all" || s === "all of them" || s === "all pages") {
+    return true;
+  }
+
+  return /\b(do\s+both|both\s+of\s+them|all\s+of\s+them|all\s+pages|both)\b/i.test(s);
 }
 
 function hintRefersToActiveContext(raw: string): boolean {
