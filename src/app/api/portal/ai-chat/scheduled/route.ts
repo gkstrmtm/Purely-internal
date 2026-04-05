@@ -169,6 +169,7 @@ export async function GET(req: Request) {
     threadTitle: threadMetaById.get(String(r.threadId))?.title || "Chat",
     displayText: toDisplayText(r.text),
     sendAt: r.sendAt ? new Date(r.sendAt).toISOString() : null,
+    recurrenceTimeZone: getScheduledRecurrenceTimeZone(r.attachmentsJson) || null,
     repeatEveryMinutes:
       typeof r.repeatEveryMinutes === "number" && Number.isFinite(r.repeatEveryMinutes)
         ? Math.max(0, Math.floor(r.repeatEveryMinutes))

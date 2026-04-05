@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
+import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { useToast } from "@/components/ToastProvider";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
@@ -811,6 +812,7 @@ export function PortalAiChatClient() {
       threadTitle: string;
       displayText: string;
       sendAt: string | null;
+      recurrenceTimeZone?: string | null;
       repeatEveryMinutes: number;
       lastRunAt?: string | null;
       lastRunOk?: boolean | null;
@@ -2156,6 +2158,7 @@ export function PortalAiChatClient() {
           threadTitle: String(r.threadTitle || "Chat"),
           displayText: String(r.displayText || ""),
           sendAt: r.sendAt ? String(r.sendAt) : null,
+          recurrenceTimeZone: r.recurrenceTimeZone ? String(r.recurrenceTimeZone) : null,
           repeatEveryMinutes:
             typeof r.repeatEveryMinutes === "number" && Number.isFinite(r.repeatEveryMinutes)
               ? Math.max(0, Math.floor(r.repeatEveryMinutes))
@@ -2981,6 +2984,9 @@ export function PortalAiChatClient() {
                         <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
                           Next: {r.sendAt ? formatLocalDateTime(new Date(r.sendAt)) : "-"}
                         </span>
+                        {r.recurrenceTimeZone ? (
+                          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">TZ: {r.recurrenceTimeZone}</span>
+                        ) : null}
                         <span
                           className={classNames(
                             "rounded-full border px-2 py-0.5",
@@ -3018,27 +3024,17 @@ export function PortalAiChatClient() {
                   <div className="mt-3 grid gap-3 sm:grid-cols-3">
                     <div>
 
-                    {(canvasDragging || sidebarDragging) && (
-                      <div
-                        className="fixed inset-0 z-9999 cursor-col-resize"
-                        style={{ background: "transparent" }}
-                        onMouseDown={(e) => {
-                          // Prevent iframe/text selection from interrupting the drag.
-                          e.preventDefault();
-                        }}
-                      />
-                    )}
                       <div className="text-xs font-semibold text-zinc-500">Schedule</div>
-                      <input
-                        type="datetime-local"
+                      <LocalDateTimePicker
                         value={edit.sendAtLocal}
-                        onChange={(e) =>
+                        onChange={(v) =>
                           setScheduledEditing((prev) => ({
                             ...prev,
-                            [r.id]: { ...edit, sendAtLocal: e.target.value },
+                            [r.id]: { ...edit, sendAtLocal: v },
                           }))
                         }
-                        className="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                        disablePast
+                        buttonClassName="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-left text-sm text-zinc-900 hover:bg-zinc-50"
                       />
                     </div>
 

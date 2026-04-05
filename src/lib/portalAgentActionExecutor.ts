@@ -16200,10 +16200,12 @@ async function runDirectAction(opts: {
         }
 
         const existingTz = getScheduledRecurrenceTimeZone(r?.attachmentsJson);
+        // Important: when the user says "change these to 9am" they mean *their* wall-clock time.
+        // If we have a device timezone hint, prefer it over any existing stored recurrence timezone.
         const tz = (
           explicitTimeZone ||
-          existingTz ||
           String(clientTimeZone || "").trim() ||
+          existingTz ||
           String(memberTimeZone || "").trim() ||
           String(ownerTimeZone || "").trim() ||
           "UTC"
@@ -16276,6 +16278,7 @@ async function runDirectAction(opts: {
           channel: channel || null,
           timeLocal,
           timeZone: explicitTimeZone || null,
+          clientTimeZone: clientTimeZone || null,
           matched: rows.length,
           updated: updates.length,
           skipped: skipped.slice(0, 40),
