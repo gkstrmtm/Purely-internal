@@ -106,6 +106,32 @@ function extractFunnelIdFromUrl(raw: string | undefined | null): string | null {
   return m?.[1] ? String(m[1]).trim().slice(0, 120) : null;
 }
 
+function extractFunnelIdFromThreadContext(threadContext: unknown): string | null {
+  if (!threadContext || typeof threadContext !== "object" || Array.isArray(threadContext)) return null;
+
+  const lastCanvasUrl = typeof (threadContext as any).lastCanvasUrl === "string" ? String((threadContext as any).lastCanvasUrl).trim() : "";
+  const fromLastCanvas = extractFunnelIdFromUrl(lastCanvasUrl);
+  if (fromLastCanvas) return fromLastCanvas;
+
+  const runs = Array.isArray((threadContext as any).runs) ? ((threadContext as any).runs as any[]) : [];
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const run = runs[i];
+    const runCanvasUrl = typeof run?.canvasUrl === "string" ? String(run.canvasUrl).trim() : "";
+    const fromRunCanvas = extractFunnelIdFromUrl(runCanvasUrl);
+    if (fromRunCanvas) return fromRunCanvas;
+
+    const steps = Array.isArray(run?.steps) ? (run.steps as any[]) : [];
+    for (let j = steps.length - 1; j >= 0; j--) {
+      const step = steps[j];
+      const linkUrl = typeof step?.linkUrl === "string" ? String(step.linkUrl).trim() : "";
+      const fromLink = extractFunnelIdFromUrl(linkUrl);
+      if (fromLink) return fromLink;
+    }
+  }
+
+  return null;
+}
+
 function extractAutomationIdFromUrl(raw: string | undefined | null): string | null {
   const u = safeParseUrl(raw);
   if (!u) return null;
@@ -975,6 +1001,14 @@ async function resolveFunnelId(opts: {
   if (!hintRaw && fromUrl) {
     const row = await prisma.creditFunnel
       .findFirst({ where: { ownerId, id: fromUrl }, select: { id: true, name: true, slug: true } })
+      .catch(() => null);
+    if (row?.id) return { kind: "ok", funnelId: String(row.id), funnelName: String(row.name || row.slug || "Funnel") };
+  }
+
+  const fromCtx = !hintRaw || hintRefersToActiveContext(hintRaw) ? extractFunnelIdFromThreadContext(opts.threadContext) : null;
+  if ((!hintRaw || hintRefersToActiveContext(hintRaw)) && fromCtx) {
+    const row = await prisma.creditFunnel
+      .findFirst({ where: { ownerId, id: fromCtx }, select: { id: true, name: true, slug: true } })
       .catch(() => null);
     if (row?.id) return { kind: "ok", funnelId: String(row.id), funnelName: String(row.name || row.slug || "Funnel") };
   }
@@ -3240,7 +3274,12 @@ export async function resolvePlanArgs(opts: {
 
   if (needsFunnelIdOnly.has(stepKeyLower)) {
     const existingFunnelId = typeof (args as any).funnelId === "string" ? String((args as any).funnelId).trim().slice(0, 120) : "";
-    let funnelId = existingFunnelId || extractFunnelIdFromUrl(opts.url) || getLastEntityId(opts.threadContext, "lastFunnel") || "";
+    let funnelId =
+      existingFunnelId ||
+      extractFunnelIdFromUrl(opts.url) ||
+      extractFunnelIdFromThreadContext(opts.threadContext) ||
+      getLastEntityId(opts.threadContext, "lastFunnel") ||
+      "";
 
     if (!funnelId) {
       const rawHintParts = [
@@ -3267,7 +3306,12 @@ export async function resolvePlanArgs(opts: {
 
   if (needsFunnelPageIds.has(stepKeyLower)) {
     const existingFunnelId = typeof (args as any).funnelId === "string" ? String((args as any).funnelId).trim().slice(0, 120) : "";
-    let funnelId = existingFunnelId || extractFunnelIdFromUrl(opts.url) || getLastEntityId(opts.threadContext, "lastFunnel") || "";
+    let funnelId =
+      existingFunnelId ||
+      extractFunnelIdFromUrl(opts.url) ||
+      extractFunnelIdFromThreadContext(opts.threadContext) ||
+      getLastEntityId(opts.threadContext, "lastFunnel") ||
+      "";
 
     if (!funnelId) {
       const rf = await resolveFunnelId({ ownerId, hint: String(opts.userHint || "").trim(), url: opts.url, threadContext: opts.threadContext });

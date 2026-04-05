@@ -1879,7 +1879,14 @@ export function PortalAiChatClient() {
       });
       const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error || "Action failed");
-      return json as { assistantMessage?: Message; linkUrl?: string | null; clientUiActions?: unknown[]; openScheduledTasks?: boolean };
+      return json as {
+        assistantMessage?: Message;
+        assistantChoices?: AssistantChoice[];
+        ambiguousContacts?: AmbiguousContact[];
+        linkUrl?: string | null;
+        clientUiActions?: unknown[];
+        openScheduledTasks?: boolean;
+      };
     },
     [activeThreadId, clientTimeZoneHeaders],
   );
@@ -1903,6 +1910,23 @@ export function PortalAiChatClient() {
       const threadIdForAction = activeThreadId;
       try {
         const json = await executeAgentAction(a.key, a.args || {});
+
+        if (threadIdForAction) {
+          setThreadUiState(threadIdForAction, (prev) => ({
+            ...prev,
+            ambiguousContacts:
+              (json as any)?.ambiguousContacts && Array.isArray((json as any).ambiguousContacts) && (json as any).ambiguousContacts.length
+                ? ((json as any).ambiguousContacts as AmbiguousContact[])
+                : null,
+            assistantChoices:
+              (json as any)?.assistantChoices && Array.isArray((json as any).assistantChoices) && (json as any).assistantChoices.length
+                ? ((json as any).assistantChoices as AssistantChoice[])
+                : null,
+            canvasUiAmbiguity: null,
+            canvasUiResumeActions: null,
+          }));
+        }
+
         if (json.assistantMessage && threadIdForAction) {
           updateThreadMessages(threadIdForAction, (prev) => [...prev, json.assistantMessage as Message]);
         }
@@ -1927,7 +1951,7 @@ export function PortalAiChatClient() {
         setRunningActionKey(null);
       }
     },
-    [activeThreadId, askConfirm, executeAgentAction, executeClientUiActions, loadThreads, runningActionKey, toast, updateThreadMessages],
+    [activeThreadId, askConfirm, executeAgentAction, executeClientUiActions, loadThreads, runningActionKey, setThreadUiState, toast, updateThreadMessages],
   );
 
   const openInCanvas = useCallback(
