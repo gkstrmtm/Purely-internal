@@ -10,6 +10,7 @@ export function AiFlowSimClient(props: { slug: string }) {
   );
   const [url, setUrl] = useState<string>("/portal/app/services/funnel-builder");
   const [execute, setExecute] = useState<boolean>(false);
+  const [threadContextText, setThreadContextText] = useState<string>("{}\n");
   const [loading, setLoading] = useState(false);
   const [resp, setResp] = useState<SimResponse | null>(null);
   const [err, setErr] = useState<string>("");
@@ -20,10 +21,22 @@ export function AiFlowSimClient(props: { slug: string }) {
     setLoading(true);
     setErr("");
     try {
+      let threadContext: any = undefined;
+      const raw = threadContextText.trim();
+      if (raw) {
+        try {
+          threadContext = JSON.parse(raw);
+        } catch {
+          setErr("threadContext must be valid JSON");
+          setLoading(false);
+          return;
+        }
+      }
+
       const r = await fetch("/api/portal/ai-flow-sim", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text, url, execute, maxRounds: 3 }),
+        body: JSON.stringify({ text, url, execute, maxRounds: 3, threadContext }),
       });
       const json = await r.json().catch(() => null);
       if (!r.ok) {
@@ -63,6 +76,17 @@ export function AiFlowSimClient(props: { slug: string }) {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             style={{ width: "100%", padding: 10, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+          />
+        </label>
+
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontWeight: 600 }}>Thread context JSON (optional)</div>
+          <textarea
+            value={threadContextText}
+            onChange={(e) => setThreadContextText(e.target.value)}
+            rows={6}
+            style={{ width: "100%", padding: 10, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+            placeholder='{"lastFunnel":{"id":"...","label":"..."}}'
           />
         </label>
 
