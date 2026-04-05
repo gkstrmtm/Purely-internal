@@ -3048,6 +3048,69 @@ export async function resolvePlanArgs(opts: {
   const ownerId = String(opts.ownerId);
   const stepKeyLower = String(opts.stepKey || "").toLowerCase();
   let args: Record<string, unknown> = opts.args && typeof opts.args === "object" && !Array.isArray(opts.args) ? opts.args : {};
+
+  const looksLikePlaceholderValue = (v: unknown): boolean => {
+    const s = typeof v === "string" ? v.trim() : "";
+    if (!s) return false;
+    if (/placeholder/i.test(s)) return true;
+    if ((s.startsWith("<") && s.endsWith(">")) || s.includes("<") || s.includes(">")) return true;
+    if (s.includes("{{") || s.includes("}}")) return true;
+    return false;
+  };
+
+  const normalizeCommonIdArgs = (obj: Record<string, unknown>): Record<string, unknown> => {
+    // Some models emit snake_case ids; action schemas expect camelCase.
+    // Also, placeholders should be treated as missing so inference can kick in.
+    const mapping: Array<[string, string]> = [
+      ["funnel_id", "funnelId"],
+      ["page_id", "pageId"],
+      ["form_id", "formId"],
+      ["domain_id", "domainId"],
+      ["product_id", "productId"],
+      ["thread_id", "threadId"],
+      ["message_id", "messageId"],
+      ["calendar_id", "calendarId"],
+      ["booking_id", "bookingId"],
+    ];
+
+    let out = obj;
+    for (const [from, to] of mapping) {
+      if (!(from in out)) continue;
+      const fromVal = (out as any)[from];
+      if (!(to in out) || !(out as any)[to]) {
+        out = { ...out, [to]: fromVal };
+      }
+      const cloned = { ...out } as any;
+      delete cloned[from];
+      out = cloned;
+    }
+
+    for (const k of Object.keys(out)) {
+      if (!/Id$/.test(k)) continue;
+      if (looksLikePlaceholderValue((out as any)[k])) {
+        const cloned = { ...out } as any;
+        delete cloned[k];
+        out = cloned;
+      }
+    }
+
+    return out;
+  };
+
+  const slugifyLike = (raw: string): string => {
+    const s = String(raw || "")
+      .trim()
+      .toLowerCase()
+      .replace(/https?:\/\//g, " ")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-/, "")
+      .replace(/-$/, "")
+      .slice(0, 64);
+    return s;
+  };
+
+  args = normalizeCommonIdArgs(args);
   let extraContextPatch: Record<string, unknown> | undefined = undefined;
   let resolvedContact: { id: string; name: string } | null = null;
   let resolvedInboxThread: { id: string; channel: "email" | "sms" } | null = null;
@@ -3133,6 +3196,14 @@ export async function resolvePlanArgs(opts: {
     for (const k of ["time", "newTime", "sendTime", "atTime", "at", "when"]) {
       if (k in args) delete (args as any)[k];
     }
+  }
+
+  if (stepKeyLower === "funnel.create") {
+    const nameRaw = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "";
+    const name = nameRaw || "Appointment Booking Funnel";
+    const slugRaw = typeof (args as any).slug === "string" ? String((args as any).slug).trim().slice(0, 60) : "";
+    const slug = slugifyLike(slugRaw || name) || "appointment-booking-funnel";
+    args = { name, slug };
   }
 
   if (stepKeyLower === "ai_chat.scheduled.update" || stepKeyLower === "ai_chat.scheduled.delete") {
@@ -3287,7 +3358,8 @@ export async function resolvePlanArgs(opts: {
   ]);
 
   if (needsFunnelIdOnly.has(stepKeyLower)) {
-    const existingFunnelId = typeof (args as any).funnelId === "string" ? String((args as any).funnelId).trim().slice(0, 120) : "";
+    const existingFunnelIdRaw = typeof (args as any).funnelId === "string" ? String((args as any).funnelId).trim().slice(0, 120) : "";
+    const existingFunnelId = looksLikePlaceholderValue(existingFunnelIdRaw) ? "" : existingFunnelIdRaw;
     let funnelId =
       existingFunnelId ||
       extractFunnelIdFromUrl(opts.url) ||
@@ -3324,22 +3396,14 @@ export async function resolvePlanArgs(opts: {
       args = { funnelId };
     } else if (stepKeyLower === "funnel_builder.pages.create") {
       const slugRaw = typeof (args as any).slug === "string" ? String((args as any).slug).trim() : "";
-      const title = typeof (args as any).title === "string" ? String((args as any).title).trim().slice(0, 200) : null;
+      const title =
+        typeof (args as any).title === "string"
+          ? String((args as any).title).trim().slice(0, 200)
+          : typeof (args as any).name === "string"
+            ? String((args as any).name).trim().slice(0, 200)
+            : null;
       const contentMarkdown = typeof (args as any).contentMarkdown === "string" ? String((args as any).contentMarkdown) : null;
       const sortOrder = typeof (args as any).sortOrder === "number" && Number.isFinite((args as any).sortOrder) ? (args as any).sortOrder : null;
-
-      const slugifyLike = (raw: string): string => {
-        const s = String(raw || "")
-          .trim()
-          .toLowerCase()
-          .replace(/https?:\/\//g, " ")
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/-+/g, "-")
-          .replace(/^-/, "")
-          .replace(/-$/, "")
-          .slice(0, 64);
-        return s;
-      };
 
       // `slug` is required by the strict action schema and the API route.
       // The planner frequently omits it, so generate a safe default from title/hint.
@@ -3380,7 +3444,8 @@ export async function resolvePlanArgs(opts: {
   }
 
   if (needsFunnelPageIds.has(stepKeyLower)) {
-    const existingFunnelId = typeof (args as any).funnelId === "string" ? String((args as any).funnelId).trim().slice(0, 120) : "";
+    const existingFunnelIdRaw = typeof (args as any).funnelId === "string" ? String((args as any).funnelId).trim().slice(0, 120) : "";
+    const existingFunnelId = looksLikePlaceholderValue(existingFunnelIdRaw) ? "" : existingFunnelIdRaw;
     let funnelId =
       existingFunnelId ||
       extractFunnelIdFromUrl(opts.url) ||
@@ -3401,7 +3466,8 @@ export async function resolvePlanArgs(opts: {
       args = { ...args, funnelId };
     }
 
-    const existingPageId = typeof (args as any).pageId === "string" ? String((args as any).pageId).trim().slice(0, 120) : "";
+    const existingPageIdRaw = typeof (args as any).pageId === "string" ? String((args as any).pageId).trim().slice(0, 120) : "";
+    const existingPageId = looksLikePlaceholderValue(existingPageIdRaw) ? "" : existingPageIdRaw;
     if (!existingPageId) {
       const pageHintParts = [
         typeof (args as any).slug === "string" ? String((args as any).slug) : "",

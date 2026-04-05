@@ -154,13 +154,31 @@ export async function POST(req: Request) {
   }> = [];
   const allResults: any[] = [];
 
+  let lastSimClarify: { question: string | null; choices: any[] | null } | null = null;
+  let lastSimResolutionError: string | null = null;
+  let lastSimExecutionError: { action: string; status: number; error: string } | null = null;
+
   for (let round = 0; round < maxRounds; round += 1) {
     const cheatSheet = toolCheatSheetForPrompt(userText, contextUrl);
     const system = buildPlannerSystemPrompt({
       cheatSheet,
       extraSystem:
         round > 0
-          ? "Continuation: keep going until the user request is DONE. Output the next actions now; do not ask for permission."
+          ? [
+              "Continuation: keep going until the user request is DONE.",
+              "Output the next actions now; do not ask for permission.",
+              lastSimClarify
+                ? "The last attempt could not resolve IDs or required fields. Do NOT ask the user to pick. Use discovery tools (list/get) to find the right IDs, then continue. Never use placeholders like <...placeholder...>."
+                : null,
+              lastSimExecutionError
+                ? `The last attempt failed during execution (${lastSimExecutionError.action} status ${lastSimExecutionError.status}). Fix the args and retry using discovery steps if needed. Never guess IDs.`
+                : null,
+              lastSimResolutionError
+                ? `The last attempt failed during arg resolution: ${lastSimResolutionError}. Fix it by listing/looking up entities instead of asking the user.`
+                : null,
+            ]
+              .filter(Boolean)
+              .join("\n")
           : undefined,
     });
 
@@ -171,7 +189,7 @@ export async function POST(req: Request) {
             .slice(0, 1200)
         : "";
 
-    const lastRunSummary = allSteps.length
+    const lastRunSummary = allSteps.length || lastSimClarify || lastSimExecutionError || lastSimResolutionError
       ? {
           executedSteps: allSteps
             .slice(-12)
@@ -185,6 +203,16 @@ export async function POST(req: Request) {
               error: r.error || null,
             }))
             .slice(0, 12),
+          ...(lastSimClarify
+            ? {
+                lastClarify: {
+                  question: lastSimClarify.question,
+                  choices: lastSimClarify.choices,
+                },
+              }
+            : {}),
+          ...(lastSimResolutionError ? { lastResolutionError: lastSimResolutionError } : {}),
+          ...(lastSimExecutionError ? { lastExecutionError: lastSimExecutionError } : {}),
         }
       : null;
 
@@ -207,6 +235,27 @@ export async function POST(req: Request) {
       args?: Record<string, unknown>;
     }> = Array.isArray(decision?.actions) ? decision.actions : [];
 
+    const containsPlaceholderValueDeep = (v: unknown): boolean => {
+      if (typeof v === "string") {
+        const s = v.trim();
+        if (!s) return false;
+        if (/placeholder/i.test(s)) return true;
+        if ((s.startsWith("<") && s.endsWith(">")) || s.includes("{{") || s.includes("}}")) return true;
+        return false;
+      }
+      if (Array.isArray(v)) return v.some((x) => containsPlaceholderValueDeep(x));
+      if (v && typeof v === "object") {
+        for (const val of Object.values(v as Record<string, unknown>)) {
+          if (containsPlaceholderValueDeep(val)) return true;
+        }
+      }
+      return false;
+    };
+
+    const hasPlaceholderArgs = (actionsIn: Array<{ args?: Record<string, unknown> }>): boolean => {
+      return (actionsIn || []).some((a) => containsPlaceholderValueDeep(a?.args || null));
+    };
+
     const roundRecord: any = {
       round,
       at: now.toISOString(),
@@ -215,6 +264,51 @@ export async function POST(req: Request) {
       resolved: [],
       executed: [],
     };
+
+    // Reset “last failure” signals when the model outputs a new plan.
+    lastSimClarify = null;
+    lastSimResolutionError = null;
+    lastSimExecutionError = null;
+
+    if (actions.length && hasPlaceholderArgs(actions) && round + 1 < maxRounds) {
+      const system2 = buildPlannerSystemPrompt({
+        cheatSheet,
+        extraSystem: [
+          "You used placeholder IDs/values in tool args (like <...placeholder...>). That is invalid.",
+          "Output a new action plan that uses discovery tools (list/get) to find real IDs, or relies on context IDs (e.g. the funnel you just created).",
+          "Do not ask the user to pick. Do not guess IDs.",
+          "Output JSON actions only.",
+        ].join("\n"),
+      });
+
+      const modelText2 = String(
+        await generateText({ system: system2, user, temperature: 0.3 }),
+      ).trim();
+      const decision2 = parseChatWrapperDecision(modelText2);
+      const actions2 = Array.isArray((decision2 as any)?.actions)
+        ? (decision2 as any).actions
+        : [];
+
+      roundRecord.sentToModelPlaceholderRetry = {
+        system: system2,
+        user,
+        toolCheatSheet: cheatSheet,
+      };
+      roundRecord.modelReturnedPlaceholderRetry = {
+        rawText: modelText2,
+        parsedDecision: decision2,
+      };
+
+      if (actions2.length) {
+        decision = decision2;
+        actions = actions2;
+        roundRecord.modelReturned = {
+          rawText: modelText2,
+          parsedDecision: decision2,
+          retryUsed: "placeholders",
+        };
+      }
+    }
 
     if (!actions.length) {
       const assistantText = stripEmptyAssistantBullets(
@@ -393,32 +487,13 @@ export async function POST(req: Request) {
       });
 
       if (!resolved.ok) {
-        roundRecord.clarify = {
-          question: resolved.clarifyQuestion || null,
-          choices: (resolved as any).choices || null,
-        };
-        rounds.push(roundRecord);
-
-        return NextResponse.json(
-          {
-            ok: true,
-            request: {
-              text: userText,
-              url: contextUrl || null,
-              threadId: requestedThreadId || null,
-              execute,
-              autoContinuePastConfirm,
-              maxRounds,
-              threadContext,
-            },
-            tools: { availableActionKeys },
-            rounds,
-            allSteps,
-            allResults,
-            finalContext: threadContext,
-          },
-          { status: 200 },
-        );
+        const question = resolved.clarifyQuestion || null;
+        const choices = (resolved as any).choices || null;
+        roundRecord.clarify = { question, choices };
+        lastSimClarify = { question, choices };
+        lastSimResolutionError = question;
+        roundRecord.stopReason = "resolve-failed";
+        break;
       }
 
       const args =
@@ -477,10 +552,26 @@ export async function POST(req: Request) {
         };
         roundRecord.executed.push(record);
         allResults.push(record);
+
+        if (!record.ok) {
+          lastSimExecutionError = {
+            action: String(key),
+            status: Number(record.status) || 0,
+            error: String(record.error || "Execution failed").slice(0, 800),
+          };
+          roundRecord.stopReason = "execution-failed";
+          break;
+        }
       }
     }
 
     rounds.push(roundRecord);
+
+    // If we stopped early in this round due to resolution/execution failures,
+    // continue to the next round so the model can replan (up to maxRounds).
+    if (roundRecord.stopReason && round + 1 < maxRounds) {
+      continue;
+    }
   }
 
   return NextResponse.json(
