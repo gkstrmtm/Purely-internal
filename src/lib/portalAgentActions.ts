@@ -52,6 +52,28 @@ export async function resolvePortalAgentId(args: Record<string, any>, key: strin
 }
 import { z } from "zod";
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return Boolean(v) && typeof v === "object" && !Array.isArray(v);
+}
+
+function normalizeBookingQuestionKind(raw: unknown): "short" | "long" | "single_choice" | "multiple_choice" | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  if (!s) return null;
+  if (s === "short" || s === "short answer" || s === "text" || s === "input" || s === "single line" || s === "single_line") return "short";
+  if (s === "long" || s === "long answer" || s === "textarea" || s === "multi line" || s === "multi_line") return "long";
+  if (s === "single_choice" || s === "single choice" || s === "radio" || s === "dropdown" || s === "select") return "single_choice";
+  if (s === "multiple_choice" || s === "multiple choice" || s === "checkbox" || s === "multi select" || s === "multi_select") return "multiple_choice";
+  return null;
+}
+
+function looksLikeHtml(raw: unknown): raw is string {
+  if (typeof raw !== "string") return false;
+  const s = raw.trim();
+  if (!s) return false;
+  return /<\s*\w+[\s>]/.test(s);
+}
+
 export const PortalAgentActionKeySchema = z.enum([
   "tasks.create",
   "tasks.create_for_all",
@@ -815,20 +837,61 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "funnel_builder.pages.update": z
-    .object({
-      funnelId: z.string().trim().min(1).max(120),
-      pageId: z.string().trim().min(1).max(120),
-      title: z.string().trim().max(200).optional().nullable(),
-      contentMarkdown: z.string().optional().nullable(),
-      sortOrder: z.number().finite().optional().nullable(),
-      editorMode: z.enum(["MARKDOWN", "BLOCKS", "CUSTOM_HTML"]).optional().nullable(),
-      customHtml: z.string().optional().nullable(),
-      blocksJson: z.unknown().optional().nullable(),
-      customChatJson: z.unknown().optional().nullable(),
-      slug: z.string().trim().max(64).optional().nullable(),
-      seo: z.unknown().optional().nullable(),
-    })
-    .strict(),
+    .preprocess((raw) => {
+      if (!isPlainObject(raw)) return raw;
+      const r = raw as Record<string, any>;
+      const out: Record<string, unknown> = {};
+
+      if (typeof r.funnelId === "string") out.funnelId = r.funnelId;
+      if (typeof r.pageId === "string") out.pageId = r.pageId;
+      if (r.title !== undefined) out.title = r.title;
+      if (r.sortOrder !== undefined) out.sortOrder = r.sortOrder;
+      else if (r.order !== undefined) out.sortOrder = r.order;
+      if (r.editorMode !== undefined) out.editorMode = r.editorMode;
+      if (r.slug !== undefined) out.slug = r.slug;
+      else if (r.pageSlug !== undefined) out.slug = r.pageSlug;
+      if (r.seo !== undefined) out.seo = r.seo;
+      if (r.blocksJson !== undefined) out.blocksJson = r.blocksJson;
+      else if (r.blocks !== undefined) out.blocksJson = r.blocks;
+      if (r.customChatJson !== undefined) out.customChatJson = r.customChatJson;
+
+      const customHtml = r.customHtml ?? r.html ?? r.contentHtml ?? r.bodyHtml;
+      if (customHtml !== undefined) out.customHtml = customHtml;
+
+      const contentMarkdown = r.contentMarkdown ?? r.markdown ?? r.bodyMarkdown;
+      if (contentMarkdown !== undefined) out.contentMarkdown = contentMarkdown;
+
+      // Common alias: people/models use `content`.
+      if (r.content !== undefined && out.contentMarkdown === undefined && out.customHtml === undefined) {
+        if (looksLikeHtml(r.content)) {
+          out.customHtml = r.content;
+          out.editorMode = (out.editorMode as any) ?? "CUSTOM_HTML";
+        } else {
+          out.contentMarkdown = r.content;
+          out.editorMode = (out.editorMode as any) ?? "MARKDOWN";
+        }
+      }
+
+      // If HTML is set but editorMode omitted, default to CUSTOM_HTML.
+      if (out.customHtml !== undefined && out.editorMode === undefined) out.editorMode = "CUSTOM_HTML";
+
+      return out;
+    },
+    z
+      .object({
+        funnelId: z.string().trim().min(1).max(120),
+        pageId: z.string().trim().min(1).max(120),
+        title: z.string().trim().max(200).optional().nullable(),
+        contentMarkdown: z.string().optional().nullable(),
+        sortOrder: z.number().finite().optional().nullable(),
+        editorMode: z.enum(["MARKDOWN", "BLOCKS", "CUSTOM_HTML"]).optional().nullable(),
+        customHtml: z.string().optional().nullable(),
+        blocksJson: z.unknown().optional().nullable(),
+        customChatJson: z.unknown().optional().nullable(),
+        slug: z.string().trim().max(64).optional().nullable(),
+        seo: z.unknown().optional().nullable(),
+      })
+      .strict()),
 
   "funnel_builder.pages.delete": z
     .object({
@@ -2563,54 +2626,113 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "booking.form.update": z
-    .object({
-      // The portal UI config includes a version field; tolerate it so the agent can
-      // round-trip configs without getting rejected by strict validation.
-      version: z.number().int().optional().nullable(),
-      thankYouMessage: z.string().max(500).optional().nullable(),
-      phone: z
-        .union([
-          z
-            .object({
-              enabled: z.boolean().optional().nullable(),
-              required: z.boolean().optional().nullable(),
-            })
-            .strip(),
-          z.boolean(),
-          z.string().trim().max(40),
-        ])
-        .optional()
-        .nullable(),
-      notes: z
-        .union([
-          z
-            .object({
-              enabled: z.boolean().optional().nullable(),
-              required: z.boolean().optional().nullable(),
-            })
-            .strip(),
-          z.boolean(),
-          z.string().trim().max(40),
-        ])
-        .optional()
-        .nullable(),
-      questions: z
-        .array(
-          z
-            .object({
-              id: z.string().trim().min(1).max(50).optional().nullable(),
-              label: z.string().trim().min(1).max(120),
-              required: z.boolean().optional().nullable(),
-              kind: z.enum(["short", "long", "single_choice", "multiple_choice"]).optional().nullable(),
-              options: z.array(z.string().trim().min(1).max(60)).max(12).optional().nullable(),
-            })
-            .strip(),
-        )
-        .max(20)
-        .optional()
-        .nullable(),
-    })
-    .strict(),
+    .preprocess((raw) => {
+      if (!isPlainObject(raw)) return raw;
+      const r = raw as Record<string, any>;
+
+      // Build a strict, schema-shaped object and drop common alias keys.
+      const out: Record<string, unknown> = {};
+      if (r.version !== undefined) out.version = r.version;
+
+      const thankYouMessage =
+        r.thankYouMessage ??
+        r.thankyouMessage ??
+        r.thankYouText ??
+        r.thankYouNote ??
+        r.thankYouPageMessage ??
+        r.thankYouPageText;
+      if (thankYouMessage !== undefined) out.thankYouMessage = thankYouMessage;
+
+      const phone = r.phone ?? r.phoneField ?? r.includePhone;
+      if (phone !== undefined) out.phone = phone;
+
+      const notes = r.notes ?? r.notesField ?? r.includeNotes;
+      if (notes !== undefined) out.notes = notes;
+
+      const questionsRaw = r.questions ?? r.customQuestions ?? r.formQuestions;
+      if (Array.isArray(questionsRaw)) {
+        out.questions = questionsRaw.map((q: unknown) => {
+          if (!isPlainObject(q)) return q as any;
+          const qq = q as Record<string, any>;
+
+          const label =
+            (typeof qq.label === "string" ? qq.label : null) ??
+            (typeof qq.text === "string" ? qq.text : null) ??
+            (typeof qq.question === "string" ? qq.question : null);
+
+          const kind = (typeof qq.kind === "string" ? (qq.kind as string) : null) ?? (typeof qq.type === "string" ? (qq.type as string) : null);
+          const normalizedKind = normalizeBookingQuestionKind(kind);
+
+          const optionsRaw = qq.options ?? qq.choices ?? qq.items;
+          let options: unknown = optionsRaw;
+          if (typeof optionsRaw === "string") {
+            options = optionsRaw
+              .split(/\s*,\s*/)
+              .map((s: string) => s.trim())
+              .filter(Boolean);
+          }
+
+          const outQ: Record<string, unknown> = {};
+          if (qq.id !== undefined) outQ.id = qq.id;
+          if (label != null) outQ.label = label;
+          if (qq.required !== undefined) outQ.required = qq.required;
+          if (normalizedKind != null) outQ.kind = normalizedKind;
+          if (Array.isArray(options)) outQ.options = options;
+          return outQ;
+        });
+      }
+
+      return out;
+    },
+    z
+      .object({
+        // The portal UI config includes a version field; tolerate it so the agent can
+        // round-trip configs without getting rejected by strict validation.
+        version: z.number().int().optional().nullable(),
+        thankYouMessage: z.string().max(500).optional().nullable(),
+        phone: z
+          .union([
+            z
+              .object({
+                enabled: z.boolean().optional().nullable(),
+                required: z.boolean().optional().nullable(),
+              })
+              .strip(),
+            z.boolean(),
+            z.string().trim().max(40),
+          ])
+          .optional()
+          .nullable(),
+        notes: z
+          .union([
+            z
+              .object({
+                enabled: z.boolean().optional().nullable(),
+                required: z.boolean().optional().nullable(),
+              })
+              .strip(),
+            z.boolean(),
+            z.string().trim().max(40),
+          ])
+          .optional()
+          .nullable(),
+        questions: z
+          .array(
+            z
+              .object({
+                id: z.string().trim().min(1).max(50).optional().nullable(),
+                label: z.string().trim().min(1).max(120),
+                required: z.boolean().optional().nullable(),
+                kind: z.enum(["short", "long", "single_choice", "multiple_choice"]).optional().nullable(),
+                options: z.array(z.string().trim().min(1).max(60)).max(12).optional().nullable(),
+              })
+              .strip(),
+          )
+          .max(20)
+          .optional()
+          .nullable(),
+      })
+      .strict()),
 
   "booking.site.get": z
     .object({})
@@ -3320,7 +3442,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- funnel_builder.funnels.delete: Delete a funnel (fields: funnelId)",
     "- funnel_builder.pages.list: List pages for a funnel (fields: funnelId)",
     "- funnel_builder.pages.create: Create a page (fields: funnelId, slug, title?, contentMarkdown?, sortOrder?)",
-    "- funnel_builder.pages.update: Update a page (fields: funnelId, pageId, title?, contentMarkdown?, sortOrder?, editorMode?, customHtml?, blocksJson?, customChatJson?, slug?, seo?)",
+    "- funnel_builder.pages.update: Update a page (fields: funnelId, pageId, title?, contentMarkdown? (NOT content), sortOrder?, editorMode=MARKDOWN|BLOCKS|CUSTOM_HTML?, customHtml?, blocksJson?, customChatJson?, slug?, seo?)",
     "- funnel_builder.pages.delete: Delete a page (fields: funnelId, pageId)",
     "- funnel_builder.pages.generate_html: Generate/update a page’s custom HTML with AI (fields: funnelId, pageId, prompt, currentHtml?, attachments?, contextKeys?, contextMedia?)",
     "- funnel_builder.pages.export_custom_html: Generate and store custom HTML from blocks (fields: funnelId, pageId, blocksJson?, title?, setEditorMode?)",
@@ -3558,7 +3680,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- booking.settings.get: Get booking settings",
     "- booking.settings.update: Update booking settings (fields: enabled?, title?, description?, durationMinutes?, timeZone?, slug?, meetingPlatform?, photoUrl?, meetingLocation?, meetingDetails?, appointmentPurpose?, toneDirection?, notificationEmails?)",
     "- booking.form.get: Get booking form config",
-    "- booking.form.update: Update booking form config (fields: thankYouMessage?, phone?, notes?, questions?)",
+    "- booking.form.update: Update booking form config (fields: thankYouMessage?, phone?, notes?, questions?; questions[] items use {label, kind=short|long|single_choice|multiple_choice?, options?})",
     "- booking.site.get: Get booking public site config",
     "- booking.site.update: Update booking public site primary domain (fields: primaryDomain?)",
     "- booking.suggestions.slots: List suggested available booking slots (fields: startAtIso?, days?, durationMinutes?, limit?)",

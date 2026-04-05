@@ -3099,6 +3099,57 @@ export async function resolvePlanArgs(opts: {
     }
   }
 
+  // Funnel Builder page actions need funnelId + pageId. The planner often omits them,
+  // but we can usually infer them from the current URL / thread context / user hint.
+  const needsFunnelPageIds = new Set([
+    "funnel_builder.pages.update",
+    "funnel_builder.pages.delete",
+    "funnel_builder.pages.generate_html",
+    "funnel_builder.pages.export_custom_html",
+    "funnel_builder.custom_code_block.generate",
+  ]);
+
+  if (needsFunnelPageIds.has(stepKeyLower)) {
+    const existingFunnelId = typeof (args as any).funnelId === "string" ? String((args as any).funnelId).trim().slice(0, 120) : "";
+    let funnelId = existingFunnelId || extractFunnelIdFromUrl(opts.url) || getLastEntityId(opts.threadContext, "lastFunnel") || "";
+
+    if (!funnelId) {
+      const rf = await resolveFunnelId({ ownerId, hint: String(opts.userHint || "").trim(), url: opts.url, threadContext: opts.threadContext });
+      if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question, ...(rf.choices ? { choices: rf.choices } : {}) };
+      funnelId = rf.funnelId;
+      resolvedFunnel = { id: rf.funnelId, name: rf.funnelName };
+    } else {
+      resolvedFunnel = resolvedFunnel || { id: funnelId, name: "Funnel" };
+    }
+
+    if (typeof (args as any).funnelId !== "string" || String((args as any).funnelId).trim() !== funnelId) {
+      args = { ...args, funnelId };
+    }
+
+    const existingPageId = typeof (args as any).pageId === "string" ? String((args as any).pageId).trim().slice(0, 120) : "";
+    if (!existingPageId) {
+      const pageHintParts = [
+        typeof (args as any).slug === "string" ? String((args as any).slug) : "",
+        typeof (args as any).title === "string" ? String((args as any).title) : "",
+        String(opts.userHint || ""),
+      ]
+        .map((s) => String(s || "").trim())
+        .filter(Boolean);
+
+      const pageHint = pageHintParts.join(" ").slice(0, 400);
+      const rp = await resolveFunnelPageId({
+        ownerId,
+        hint: pageHint,
+        url: opts.url,
+        threadContext: opts.threadContext,
+        funnelIdHint: funnelId,
+      });
+      if (rp.kind !== "ok") return { ok: false, clarifyQuestion: rp.question, ...(rp.choices ? { choices: rp.choices } : {}) };
+      args = { ...args, pageId: rp.pageId, funnelId: rp.funnelId };
+      resolvedFunnelPage = { id: rp.pageId, label: rp.label, funnelId: rp.funnelId };
+    }
+  }
+
   // Special-case: for funnel HTML generation, treat booking calendar selection as an explicit disambiguation step.
   if (stepKeyLower === "funnel_builder.pages.generate_html") {
     const prompt = typeof (args as any).prompt === "string" ? String((args as any).prompt).trim() : "";
