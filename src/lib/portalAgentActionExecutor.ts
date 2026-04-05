@@ -20411,16 +20411,51 @@ async function runDirectAction(opts: {
       const startTimeLocal = String((args as any).startTimeLocal || "").trim();
       const endTimeLocal = String((args as any).endTimeLocal || "").trim();
 
-      const hhmm = (s: string): { h: number; m: number } | null => {
-        const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(s);
-        if (!m?.[1] || !m?.[2]) return null;
-        return { h: Number(m[1]), m: Number(m[2]) };
+      const parseTimeLocal = (raw: string): { h: number; m: number; normalized: string } | null => {
+        const s = String(raw || "")
+          .trim()
+          .toLowerCase()
+          .replace(/\./g, "")
+          .replace(/\s+/g, " ");
+        if (!s) return null;
+        if (s === "noon") return { h: 12, m: 0, normalized: "12:00" };
+        if (s === "midnight") return { h: 0, m: 0, normalized: "00:00" };
+
+        const m = /^(\d{1,2})(?::(\d{1,2}))?\s*(am|pm|a|p)?$/.exec(s);
+        if (!m) return null;
+
+        const hourRaw = Number(m[1]);
+        const minRaw = typeof m[2] === "string" && m[2].length ? Number(m[2]) : 0;
+        const mer = (m[3] || "").trim();
+
+        if (!Number.isFinite(hourRaw) || !Number.isFinite(minRaw)) return null;
+        if (minRaw < 0 || minRaw > 59) return null;
+
+        let hour = hourRaw;
+        const hasMer = mer === "am" || mer === "pm" || mer === "a" || mer === "p";
+        if (hasMer) {
+          if (hour < 1 || hour > 12) return null;
+          const isPm = mer === "pm" || mer === "p";
+          hour = hour % 12;
+          if (isPm) hour += 12;
+        } else {
+          if (hour < 0 || hour > 23) return null;
+        }
+
+        const normalized = `${String(hour).padStart(2, "0")}:${String(minRaw).padStart(2, "0")}`;
+        return { h: hour, m: minRaw, normalized };
       };
 
-      const st = hhmm(startTimeLocal);
-      const et = hhmm(endTimeLocal);
+      const st = parseTimeLocal(startTimeLocal);
+      const et = parseTimeLocal(endTimeLocal);
       if (!st || !et) {
-        return { status: 400, json: { ok: false, error: "Invalid time format. Use HH:mm like 09:00." } };
+        return {
+          status: 400,
+          json: {
+            ok: false,
+            error: "Invalid time format. Use HH:mm (09:00) or common forms like 9am / 5pm / 9:30am.",
+          },
+        };
       }
 
       const replaceExisting = typeof (args as any).replaceExisting === "boolean" ? Boolean((args as any).replaceExisting) : true;
@@ -20506,8 +20541,8 @@ async function runDirectAction(opts: {
           timeZone: zone,
           startDateLocal,
           endDateLocal,
-          startTimeLocal,
-          endTimeLocal,
+          startTimeLocal: st.normalized,
+          endTimeLocal: et.normalized,
           isoWeekdays: isoWeekdaysSet ? Array.from(isoWeekdaysSet.values()).sort((a, b) => a - b) : null,
           replaceExisting,
           deletedCount,

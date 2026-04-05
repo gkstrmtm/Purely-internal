@@ -80,6 +80,7 @@ const SendMessageSchema = z
     choice: ChoiceSchema,
     widgetSuggestion: WidgetSuggestionSchema,
     redoLastAssistant: z.boolean().optional(),
+    editMessageId: z.string().trim().min(1).max(200).optional(),
   })
   .refine(
     (d) =>
@@ -2688,9 +2689,20 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     return next;
   };
 
+  const editMessageIdRaw = typeof (parsed.data as any).editMessageId === "string" ? String((parsed.data as any).editMessageId).trim().slice(0, 200) : "";
+  const editMessageId = editMessageIdRaw || "";
+  const isEdit = Boolean(editMessageId);
+
   const redoLastAssistant = Boolean((parsed.data as any).redoLastAssistant);
   let redoLatestUserText: string | null = null;
+  let redoLatestUserMessageId: string | null = null;
+  let priorAssistantTextToAvoid: string | null = null;
   let skipUserInsert = false;
+
+  if (isEdit && redoLastAssistant) {
+    return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
+  }
+
   if (redoLastAssistant) {
     const recent = await (prisma as any).portalAiChatMessage.findMany({
       where: { ownerId, threadId },
@@ -2700,25 +2712,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     });
 
     const ordered = Array.isArray(recent) ? [...recent].reverse() : [];
-    let lastAssistantIdx = -1;
-    for (let i = ordered.length - 1; i >= 0; i--) {
-      if (String(ordered[i]?.role) === "assistant") {
-        lastAssistantIdx = i;
-        break;
-      }
-    }
-
-    if (lastAssistantIdx < 0) {
-      return NextResponse.json({ ok: false, error: "No assistant message to redo." }, { status: 400 });
-    }
-
-    const lastAssistant = ordered[lastAssistantIdx];
     let lastUser: any = null;
-    for (let i = lastAssistantIdx - 1; i >= 0; i--) {
-      if (String(ordered[i]?.role) === "user") {
-        lastUser = ordered[i];
-        break;
-      }
+    for (let i = ordered.length - 1; i >= 0; i--) {
+      if (String(ordered[i]?.role) !== "user") continue;
+      const t = String(ordered[i]?.text || "").trim();
+      if (!t) continue;
+      lastUser = ordered[i];
+      break;
     }
 
     const lastUserText = String(lastUser?.text || "").trim();
@@ -2726,12 +2726,33 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       return NextResponse.json({ ok: false, error: "No user message found to redo." }, { status: 400 });
     }
 
-    // Delete the last assistant message so the next run replaces it.
-    await (prisma as any).portalAiChatMessage.deleteMany({ where: { id: lastAssistant.id, ownerId, threadId } });
+    const lastUserCreatedAt = lastUser?.createdAt ? new Date(lastUser.createdAt) : null;
+    if (!lastUserCreatedAt || !Number.isFinite(lastUserCreatedAt.getTime())) {
+      return NextResponse.json({ ok: false, error: "No user message found to redo." }, { status: 400 });
+    }
 
-    // Re-run the full agent pipeline using the last user prompt, but avoid inserting
+    const assistantAfterLastUser = ordered.filter(
+      (m) => String(m?.role) === "assistant" && m?.createdAt && new Date(m.createdAt) > lastUserCreatedAt,
+    );
+    if (!assistantAfterLastUser.length) {
+      return NextResponse.json({ ok: false, error: "No assistant message to redo." }, { status: 400 });
+    }
+
+    const lastAssistantToAvoid = assistantAfterLastUser
+      .slice()
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .slice(-1)[0];
+    priorAssistantTextToAvoid = String(lastAssistantToAvoid?.text || "").trim().slice(0, 4000) || null;
+
+    const assistantIdsToDelete = assistantAfterLastUser.map((m) => String(m.id)).filter(Boolean);
+    if (assistantIdsToDelete.length) {
+      await (prisma as any).portalAiChatMessage.deleteMany({ where: { ownerId, threadId, id: { in: assistantIdsToDelete } } });
+    }
+
+    // Re-run the full agent pipeline using the latest user prompt, but avoid inserting
     // a duplicate user message (this should behave like a real retry/regenerate).
     redoLatestUserText = lastUserText.slice(0, 4000);
+    redoLatestUserMessageId = String(lastUser?.id || "").trim() || null;
     skipUserInsert = true;
   }
 
@@ -2770,6 +2791,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   const imageUrls = imageUrlsFromAttachments(attachments as any[], req.url);
   const isConfirmOnly = Boolean(confirmToken) && !cleanText && !choice && !attachments.length;
   const isSuggestionOnly = Boolean(widgetSuggestion) && !confirmToken && !cleanText && !choice && !attachments.length;
+
+  if (isEdit) {
+    if (!cleanText) {
+      return NextResponse.json({ ok: false, error: "Text required" }, { status: 400 });
+    }
+    if (confirmToken || redoLastAssistant || choice || widgetSuggestion || attachments.length) {
+      return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
+    }
+  }
 
   if (widgetSuggestion?.key && widgetSuggestion.title && widgetSuggestion.actionIds.length) {
     const prevCtx =
@@ -2996,6 +3026,65 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     .filter(Boolean)
     .join("\n");
 
+  let editedUserMsg: any = null;
+  if (isEdit && editMessageId) {
+    const target = await (prisma as any).portalAiChatMessage.findFirst({
+      where: { id: editMessageId, ownerId, threadId, role: "user" },
+      select: { id: true, role: true, text: true, attachmentsJson: true, createdAt: true, sendAt: true, sentAt: true },
+    });
+
+    if (!target) {
+      return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    }
+
+    const allRows = await (prisma as any).portalAiChatMessage.findMany({
+      where: { ownerId, threadId },
+      orderBy: { createdAt: "asc" },
+      take: 1000,
+      select: { id: true, role: true, text: true, createdAt: true },
+    });
+
+    const idx = Array.isArray(allRows) ? allRows.findIndex((m: any) => String(m?.id) === String(editMessageId)) : -1;
+    if (idx < 0) {
+      return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    }
+
+    const after = allRows.slice(idx + 1);
+    const assistantToAvoid = after.filter((m: any) => String(m?.role) === "assistant" && String(m?.text || "").trim());
+    priorAssistantTextToAvoid = priorAssistantTextToAvoid || (assistantToAvoid.map((m: any) => String(m.text || "").trim()).join("\n\n").slice(0, 4000) || null);
+
+    const idsToDelete = after.map((m: any) => String(m?.id)).filter(Boolean);
+    if (idsToDelete.length) {
+      await (prisma as any).portalAiChatMessage.deleteMany({ where: { ownerId, threadId, id: { in: idsToDelete } } });
+    }
+
+    editedUserMsg = await (prisma as any).portalAiChatMessage.update({
+      where: { id: editMessageId },
+      data: { text: effectiveText },
+      select: {
+        id: true,
+        role: true,
+        text: true,
+        attachmentsJson: true,
+        createdAt: true,
+        sendAt: true,
+        sentAt: true,
+      },
+    });
+
+    // Editing behaves like a retry/regenerate: no new user message should be inserted.
+    skipUserInsert = true;
+
+    // Clear stale plan/confirm state because we just rewrote history.
+    const prevCtx =
+      persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext)
+        ? (persistedThreadContext as any)
+        : {};
+    const nextCtx = { ...prevCtx, pendingConfirm: null, pendingPlan: null, pendingPlanClarify: null };
+    await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
+    persistedThreadContext = nextCtx;
+  }
+
   const userMsg = isConfirmOnly || skipUserInsert
     ? null
     : await (prisma as any).portalAiChatMessage.create({
@@ -3041,6 +3130,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     }
   }
 
+  const responseUserMessage = (editedUserMsg as any) || (userMsg as any) || null;
+
+  const latestUserMessageIdForContext = responseUserMessage?.role === "user" && responseUserMessage?.id
+    ? String(responseUserMessage.id)
+    : redoLatestUserMessageId
+      ? String(redoLatestUserMessageId)
+      : null;
+
   // 0) Load recent thread messages for planning/context.
   const modelRows = await (prisma as any).portalAiChatMessage.findMany({
     where: { ownerId, threadId },
@@ -3050,7 +3147,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   });
 
   const modelMessages: Array<{ role: "user" | "assistant"; text: string }> = modelRows
-    .filter((m: any) => (userMsg ? m.id !== (userMsg as any).id : true))
+    .filter((m: any) => (latestUserMessageIdForContext ? String(m.id) !== String(latestUserMessageIdForContext) : true))
     .map((m: any) => ({
       role: m.role === "assistant" ? "assistant" : "user",
       text: String(m.text || "").slice(0, 2000),
@@ -3181,7 +3278,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         Boolean(pendingClarifyOriginalUserText) &&
         (didClickChoice || hasNewUserText);
 
-      const effectivePlanningText = shouldContinuePendingClarifyPlan
+      const effectivePlanningTextBase = shouldContinuePendingClarifyPlan
         ? [
             pendingClarifyOriginalUserText,
             "\n\nUser answer:",
@@ -3191,6 +3288,19 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             .join("\n")
             .slice(0, 4000)
         : effectiveText;
+
+      const intentNote = (() => {
+        const mode = redoLastAssistant ? "redo" : isEdit ? "edit" : "";
+        if (!mode) return "";
+        const prior = String(priorAssistantTextToAvoid || "").trim();
+        const priorBlock = prior ? `\n\nPrior assistant response (do not repeat verbatim):\n${prior.slice(0, 1200)}` : "";
+        return (
+          "\n\nSystem note: The user clicked Try Again / edited their last message. Replace the previous assistant response. Do NOT repeat the same wording. If your prior answer was vague or missed constraints, correct it now. Keep it concise and action-oriented." +
+          priorBlock
+        );
+      })();
+
+      const effectivePlanningText = (intentNote ? `${effectivePlanningTextBase}${intentNote}` : effectivePlanningTextBase).slice(0, 8000);
       const shouldReplayPendingExecutePlan =
         Boolean(pendingPlan) &&
         pendingPlanMode === "execute" &&
@@ -3297,7 +3407,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               pendingPlanClarify: {
                 at: now.toISOString(),
                 question: String(plan.clarifyingQuestion || "").trim().slice(0, 800),
-                originalUserText: String(effectivePlanningText || "").trim().slice(0, 4000),
+                originalUserText: String(effectivePlanningTextBase || "").trim().slice(0, 4000),
               },
             }
           : {
@@ -3305,13 +3415,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               pendingPlanClarify: {
                 at: now.toISOString(),
                 question: String(plan.clarifyingQuestion || "").trim().slice(0, 800),
-                originalUserText: String(effectivePlanningText || "").trim().slice(0, 4000),
+                originalUserText: String(effectivePlanningTextBase || "").trim().slice(0, 4000),
               },
             };
 
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
         await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: plan.clarifyingQuestion });
-        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+        return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
       }
 
       if (plan?.mode === "explain" && plan.explanation) {
@@ -3339,7 +3449,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
         await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: plan.explanation });
-        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+        return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
       }
 
       if (plan?.mode === "execute" && Array.isArray(plan.steps) && plan.steps.length) {
@@ -3443,7 +3553,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               });
               return NextResponse.json({
                 ok: true,
-                userMessage: userMsg,
+                userMessage: responseUserMessage,
                 assistantMessage: assistantMsg,
                 assistantActions: [],
                 autoActionMessage: null,
@@ -3546,7 +3656,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           }
           return NextResponse.json({
             ok: true,
-            userMessage: userMsg,
+            userMessage: responseUserMessage,
             assistantMessage: assistantMsg,
             assistantActions: [],
             autoActionMessage: null,
@@ -3667,7 +3777,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             }
             return NextResponse.json({
               ok: true,
-              userMessage: userMsg,
+              userMessage: responseUserMessage,
               assistantMessage: assistantMsg,
               assistantActions: [],
               autoActionMessage: null,
@@ -3855,7 +3965,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: assistantTextFinal });
 
         const openScheduledTasks = resolvedSteps.some((s) => String((s as any)?.key || "").startsWith("ai_chat.scheduled."));
-        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions, openScheduledTasks });
+        return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions, openScheduledTasks });
       }
     } catch {
       // If planning fails, fall through to existing behavior.
@@ -3900,7 +4010,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         return NextResponse.json({
           ok: true,
-          userMessage: userMsg,
+          userMessage: responseUserMessage,
           assistantMessage: assistantMsg,
           assistantActions: [],
           autoActionMessage: null,
@@ -3917,7 +4027,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   // AI-first: no deterministic routing/shortcuts, and no deterministic assistant bubble copy.
   return NextResponse.json({
     ok: true,
-    userMessage: userMsg,
+    userMessage: responseUserMessage,
     assistantMessage: null,
     assistantActions: [],
     autoActionMessage: null,

@@ -743,6 +743,7 @@ export function PortalAiChatClient() {
   const [threadDraftsById, setThreadDraftsById] = useState<Record<string, ThreadDraftState>>(() => ({
     [DRAFT_THREAD_KEY]: createEmptyThreadDraftState(),
   }));
+  const [editingMessageIdByThread, setEditingMessageIdByThread] = useState<Record<string, string | null>>(() => ({}));
   const [sendingThreadIds, setSendingThreadIds] = useState<Set<string>>(() => new Set());
   const [draftSending, setDraftSending] = useState(false);
   const [dictating, setDictating] = useState(false);
@@ -854,6 +855,7 @@ export function PortalAiChatClient() {
   const sendInFlightRef = useRef<Set<string>>(new Set());
   const activeThreadIdRef = useRef<string | null>(null);
   const threadDraftsRef = useRef<Record<string, ThreadDraftState>>({ [DRAFT_THREAD_KEY]: createEmptyThreadDraftState() });
+  const editingMessageIdByThreadRef = useRef<Record<string, string | null>>({});
   const threadsRef = useRef<Thread[]>([]);
   const messagesByThreadRef = useRef<Record<string, Message[]>>({ [DRAFT_THREAD_KEY]: [] });
 
@@ -870,6 +872,8 @@ export function PortalAiChatClient() {
   const canvasUiResumeActions = activeThreadUiState.canvasUiResumeActions;
   const input = activeThreadDraft.input;
   const pendingAttachments = activeThreadDraft.pendingAttachments;
+  const editingMessageId = editingMessageIdByThread[activeThreadKey] ?? null;
+  const isEditing = Boolean(editingMessageId);
   const requestedThreadId = (searchParams?.get("thread") || "").trim() || null;
 
   useEffect(() => {
@@ -887,6 +891,14 @@ export function PortalAiChatClient() {
   useEffect(() => {
     threadDraftsRef.current = threadDraftsById;
   }, [threadDraftsById]);
+
+  useEffect(() => {
+    editingMessageIdByThreadRef.current = editingMessageIdByThread;
+  }, [editingMessageIdByThread]);
+
+  const setThreadEditingMessageId = useCallback((threadKey: string, messageId: string | null) => {
+    setEditingMessageIdByThread((prev) => ({ ...prev, [threadKey]: messageId }));
+  }, []);
 
   const setThreadUiState = useCallback(
     (threadKey: string, updater: (prev: ThreadUiState) => ThreadUiState) => {
@@ -1403,10 +1415,28 @@ export function PortalAiChatClient() {
       const initialThreadKey = initialThreadId ?? DRAFT_THREAD_KEY;
       if (sendInFlightRef.current.has(initialThreadKey)) return;
 
+      const editingIdForSend = editingMessageIdByThreadRef.current[initialThreadKey] ?? null;
+      const isEditSend = Boolean(editingIdForSend);
+
       const draftAtSend = threadDraftsRef.current[initialThreadKey] ?? createEmptyThreadDraftState();
       const text = typeof overrideText === "string" ? overrideText : draftAtSend.input.trim();
       const attachments = draftAtSend.pendingAttachments;
       if (!text && !attachments.length && !choice) return;
+
+      if (isEditSend) {
+        if (!initialThreadId) {
+          toast.error("No active chat to edit.");
+          return;
+        }
+        if (choice) {
+          toast.error("Cannot edit and select a choice.");
+          return;
+        }
+        if (attachments.length) {
+          toast.error("Remove attachments before editing.");
+          return;
+        }
+      }
 
       let threadIdForSend = initialThreadId;
       let createdThread: Thread | null = null;
@@ -1416,6 +1446,10 @@ export function PortalAiChatClient() {
       if (sendLockKey === DRAFT_THREAD_KEY) setDraftSending(true);
       else setThreadSending(sendLockKey, true);
       if (!threadIdForSend) {
+        if (isEditSend) {
+          toast.error("No active chat to edit.");
+          return;
+        }
         try {
           const created = await fetch("/api/portal/ai-chat/threads", {
             method: "POST",
@@ -1453,21 +1487,189 @@ export function PortalAiChatClient() {
       const optimisticId = newClientId();
       const nowIso = new Date().toISOString();
 
-      const optimisticUser: Message = {
-        id: `optimistic-user-${optimisticId}`,
-        role: "user",
-        text,
-        attachmentsJson: attachments,
-        createdAt: nowIso,
-        sendAt: null,
-        sentAt: nowIso,
-      };
-
       const optimisticAssistant: Message = {
         id: `optimistic-assistant-${optimisticId}`,
         role: "assistant",
         text: "",
         attachmentsJson: [],
+        createdAt: nowIso,
+        sendAt: null,
+        sentAt: nowIso,
+      };
+
+      if (isEditSend && editingIdForSend && threadIdForSend) {
+        const prevMessagesSnapshot = messagesByThreadRef.current[threadIdForSend] ?? [];
+
+        updateThreadMessages(threadIdForSend, (prev) => {
+          const idx = prev.findIndex((m) => m.id === editingIdForSend);
+          if (idx < 0) return prev;
+          const head = prev.slice(0, idx);
+          const current = prev[idx];
+          const updated: Message = { ...current, text };
+          return [...head, updated, optimisticAssistant];
+        });
+
+        setThreadDraftState(draftRestoreKey, (prev) => ({
+          input: typeof overrideText === "string" ? prev.input : "",
+          pendingAttachments: [],
+        }));
+        setThreadEditingMessageId(threadIdForSend, null);
+        clearThreadUiState(threadIdForSend);
+
+        try {
+          const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
+            method: "POST",
+            headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
+            body: JSON.stringify({
+              editMessageId: editingIdForSend,
+              text,
+              url: window.location.href,
+              ...(canvasUrl ? { canvasUrl } : {}),
+              ...(clientTimeZone ? { clientTimeZone } : {}),
+            }),
+          });
+          const json = await res.json().catch(() => null);
+          if (!json?.ok) throw new Error(json?.error || "Send failed");
+
+          setThreadUiState(threadIdForSend, (prev) => ({
+            ...prev,
+            ambiguousContacts: json.ambiguousContacts && Array.isArray(json.ambiguousContacts) && json.ambiguousContacts.length ? json.ambiguousContacts : null,
+            assistantChoices: json.assistantChoices && Array.isArray(json.assistantChoices) && json.assistantChoices.length ? (json.assistantChoices as AssistantChoice[]) : null,
+            canvasUiAmbiguity: null,
+            canvasUiResumeActions: null,
+          }));
+
+          if (json?.needsConfirm?.token) {
+            const token = String(json.needsConfirm.token || "").trim();
+            const title = String(json.needsConfirm.title || "Confirm").trim() || "Confirm";
+            const message = String(json.needsConfirm.message || "").trim() || "Continue?";
+
+            updateThreadMessages(threadIdForSend, (prev) => {
+              const cleaned = prev.filter((m) => m.id !== optimisticAssistant.id);
+              const next: Message[] = [...cleaned];
+              if (json.userMessage) {
+                const um: Message = json.userMessage as Message;
+                for (let i = 0; i < next.length; i++) {
+                  if (next[i].id === um.id) {
+                    next[i] = um;
+                    break;
+                  }
+                }
+              }
+              if (json.assistantMessage) next.push(json.assistantMessage);
+              return next;
+            });
+
+            const ok = await askConfirm({ title, message, confirmLabel: "Confirm", cancelLabel: "Cancel" });
+            if (!ok) {
+              void loadThreads();
+              return;
+            }
+
+            const res2 = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
+              method: "POST",
+              headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
+              body: JSON.stringify({
+                confirmToken: token,
+                url: window.location.href,
+                ...(canvasUrl ? { canvasUrl } : {}),
+                ...(clientTimeZone ? { clientTimeZone } : {}),
+              }),
+            });
+            const json2 = await res2.json().catch(() => null);
+            if (!json2?.ok) throw new Error(json2?.error || "Action failed");
+
+            const nextCanvasUrl2 = typeof json2?.canvasUrl === "string" && json2.canvasUrl.trim() ? String(json2.canvasUrl).trim() : null;
+            if (nextCanvasUrl2 && activeThreadIdRef.current === threadIdForSend) {
+              setCanvasUrl(nextCanvasUrl2);
+              setCanvasOpen(true);
+              setCanvasModalOpen(false);
+            }
+
+            if (Array.isArray((json2 as any)?.clientUiActions) && (json2 as any).clientUiActions.length) {
+              void executeClientUiActions((json2 as any).clientUiActions, threadIdForSend);
+            }
+
+            const assistantActions2: AssistantAction[] = Array.isArray(json2.assistantActions)
+              ? (json2.assistantActions as AssistantAction[])
+              : [];
+
+            updateThreadMessages(threadIdForSend, (prev) => {
+              const next = [...prev];
+              if (json2.assistantMessage) {
+                const am: Message = json2.assistantMessage as Message;
+                next.push({ ...am, assistantActions: assistantActions2.length ? assistantActions2 : undefined });
+              }
+              return next;
+            });
+
+            void loadThreads();
+            return;
+          }
+
+          const nextCanvasUrl = typeof json?.canvasUrl === "string" && json.canvasUrl.trim() ? String(json.canvasUrl).trim() : null;
+          if (nextCanvasUrl && activeThreadIdRef.current === threadIdForSend) {
+            setCanvasUrl(nextCanvasUrl);
+            setCanvasOpen(true);
+            setCanvasModalOpen(false);
+          }
+
+          if (Array.isArray((json as any)?.clientUiActions) && (json as any).clientUiActions.length) {
+            void executeClientUiActions((json as any).clientUiActions, threadIdForSend);
+          }
+
+          const assistantActions: AssistantAction[] = Array.isArray(json.assistantActions)
+            ? (json.assistantActions as AssistantAction[])
+            : [];
+
+          updateThreadMessages(threadIdForSend, (prev) => {
+            const cleaned = prev.filter((m) => m.id !== optimisticAssistant.id);
+            const next: Message[] = [...cleaned];
+            if (json.userMessage) {
+              const um: Message = json.userMessage as Message;
+              for (let i = 0; i < next.length; i++) {
+                if (next[i].id === um.id) {
+                  next[i] = um;
+                  break;
+                }
+              }
+            }
+            if (json.assistantMessage) {
+              const am: Message = json.assistantMessage as Message;
+              next.push({ ...am, assistantActions: assistantActions.length ? assistantActions : undefined });
+            }
+            return next;
+          });
+
+          if ((json as any)?.openScheduledTasks) {
+            setScheduledOpen(true);
+          }
+
+          void loadThreads();
+          return;
+        } catch (e) {
+          updateThreadMessages(threadIdForSend, () => prevMessagesSnapshot);
+          setThreadEditingMessageId(threadIdForSend, editingIdForSend);
+          setThreadDraftState(draftRestoreKey, (prev) => ({
+            ...prev,
+            input: typeof overrideText === "string" ? prev.input : text,
+            pendingAttachments: [],
+          }));
+          toast.error(e instanceof Error ? e.message : String(e));
+        } finally {
+          sendInFlightRef.current.delete(sendLockKey);
+          if (sendLockKey === DRAFT_THREAD_KEY) setDraftSending(false);
+          else setThreadSending(sendLockKey, false);
+        }
+
+        return;
+      }
+
+      const optimisticUser: Message = {
+        id: `optimistic-user-${optimisticId}`,
+        role: "user",
+        text,
+        attachmentsJson: attachments,
         createdAt: nowIso,
         sendAt: null,
         sentAt: nowIso,
@@ -1859,6 +2061,34 @@ export function PortalAiChatClient() {
     if (regeneratingThreadId === activeThreadId) return;
     const threadIdAtStart = activeThreadId;
 
+    const prevMessagesSnapshot = messagesByThreadRef.current[threadIdAtStart] ?? [];
+    const optimisticId = newClientId();
+    const nowIso = new Date().toISOString();
+    const optimisticAssistant: Message = {
+      id: `optimistic-assistant-${optimisticId}`,
+      role: "assistant",
+      text: "",
+      attachmentsJson: [],
+      createdAt: nowIso,
+      sendAt: null,
+      sentAt: nowIso,
+    };
+
+    updateThreadMessages(threadIdAtStart, (prev) => {
+      let lastAssistantIdx = -1;
+      for (let i = prev.length - 1; i >= 0; i--) {
+        const m = prev[i];
+        if (m?.role !== "assistant") continue;
+        if (String(m.id || "").startsWith("optimistic-assistant-")) continue;
+        lastAssistantIdx = i;
+        break;
+      }
+      if (lastAssistantIdx < 0) return prev;
+      const next = [...prev.slice(0, lastAssistantIdx), ...prev.slice(lastAssistantIdx + 1)];
+      next.push(optimisticAssistant);
+      return next;
+    });
+
     setRegeneratingThreadId(threadIdAtStart);
     try {
       const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdAtStart)}/messages`, {
@@ -1876,6 +2106,7 @@ export function PortalAiChatClient() {
       void loadMessages(threadIdAtStart);
       void loadThreads();
     } catch (e) {
+      updateThreadMessages(threadIdAtStart, () => prevMessagesSnapshot);
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       setRegeneratingThreadId((prev) => (prev === threadIdAtStart ? null : prev));
@@ -1897,9 +2128,10 @@ export function PortalAiChatClient() {
   );
 
   const editUserMessage = useCallback(
-    (textRaw: string) => {
+    (messageId: string, textRaw: string) => {
       const text = String(textRaw || "");
-      setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: text }));
+      setThreadEditingMessageId(activeThreadKey, messageId);
+      setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: text, pendingAttachments: [] }));
       requestAnimationFrame(() => {
         resizeInput();
         try {
@@ -1910,7 +2142,7 @@ export function PortalAiChatClient() {
         }
       });
     },
-    [activeThreadKey, resizeInput, setThreadDraftState],
+    [activeThreadKey, resizeInput, setThreadDraftState, setThreadEditingMessageId],
   );
 
   const left = useMemo(
@@ -2402,6 +2634,23 @@ export function PortalAiChatClient() {
 
   const composerInner = (
     <>
+      {isEditing ? (
+        <div className="mb-2 flex items-center justify-between rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
+          <div className="text-xs font-semibold text-amber-900">Editing your last message</div>
+          <button
+            type="button"
+            className="rounded-xl px-2 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+            onClick={() => {
+              setThreadEditingMessageId(activeThreadKey, null);
+              setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: "", pendingAttachments: [] }));
+              requestAnimationFrame(() => resizeInput());
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : null}
+
       {pendingAttachments.length ? (
         <div className="mb-2 flex flex-wrap gap-2">
           {pendingAttachments.map((a, idx) => (
@@ -2442,9 +2691,9 @@ export function PortalAiChatClient() {
             type="button"
             className={classNames(
               composerControlButtonClass,
-              (uploading || sending) && "opacity-60",
+              (uploading || sending || isEditing) && "opacity-60",
             )}
-            disabled={uploading || sending}
+            disabled={uploading || sending || isEditing}
             onClick={(e) => {
               if (attachMenu) {
                 setAttachMenu(null);
@@ -2467,7 +2716,7 @@ export function PortalAiChatClient() {
           type="file"
           multiple
           className="hidden"
-          disabled={uploading || sending}
+          disabled={uploading || sending || isEditing}
           onChange={(e) => {
             void uploadFiles(e.target.files);
             e.currentTarget.value = "";
@@ -2483,7 +2732,7 @@ export function PortalAiChatClient() {
             requestAnimationFrame(() => resizeInput());
           }}
           rows={1}
-          placeholder={uploading ? "Uploading…" : showWelcomeComposer ? "Tell Pura what you want handled." : "Message"}
+          placeholder={uploading ? "Uploading…" : isEditing ? "Edit message" : showWelcomeComposer ? "Tell Pura what you want handled." : "Message"}
           className={composerTextareaClass}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -2503,8 +2752,8 @@ export function PortalAiChatClient() {
           )}
           onClick={() => void send()}
           disabled={(!input.trim() && !pendingAttachments.length) || sending}
-          aria-label="Send"
-          title="Send"
+          aria-label={isEditing ? "Save edit" : "Send"}
+          title={isEditing ? "Save edit" : "Send"}
         >
           <span className="group-hover:hidden">
             <IconSend />
@@ -2721,7 +2970,7 @@ export function PortalAiChatClient() {
                     const showCanvasUiAmbiguity =
                       isLastAssistant && Boolean(canvasUiAmbiguity && Array.isArray(canvasUiAmbiguity.candidates) && canvasUiAmbiguity.candidates.length);
 
-                    const canCopy = Boolean(String(m.text || "").trim());
+                    const canCopy = m.role === "assistant" && Boolean(String(m.text || "").trim());
                     return (
                       <div key={m.id}>
                         <MessageBubble
@@ -2784,7 +3033,7 @@ export function PortalAiChatClient() {
                                     "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                                     (dictating || regenerating || sending) && "opacity-60",
                                   )}
-                                  onClick={() => editUserMessage(m.text)}
+                                  onClick={() => editUserMessage(m.id, m.text)}
                                   disabled={dictating || regenerating || sending}
                                   aria-label="Edit last user message"
                                   title="Edit"
@@ -2792,19 +3041,21 @@ export function PortalAiChatClient() {
                                   <IconEdit size={16} />
                                 </button>
                               ) : null}
-                              <button
-                                type="button"
-                                className={classNames(
-                                  "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
-                                  !canCopy && "opacity-40",
-                                )}
-                                onClick={() => void copyMessageText(m.text)}
-                                disabled={!canCopy}
-                                aria-label="Copy message"
-                                title={canCopy ? "Copy" : "Nothing to copy"}
-                              >
-                                <IconCopy size={16} />
-                              </button>
+                              {m.role === "assistant" ? (
+                                <button
+                                  type="button"
+                                  className={classNames(
+                                    "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                    !canCopy && "opacity-40",
+                                  )}
+                                  onClick={() => void copyMessageText(m.text)}
+                                  disabled={!canCopy}
+                                  aria-label="Copy message"
+                                  title={canCopy ? "Copy" : "Nothing to copy"}
+                                >
+                                  <IconCopy size={16} />
+                                </button>
+                              ) : null}
                             </>
                           }
                         />
