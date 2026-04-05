@@ -20140,7 +20140,7 @@ async function runDirectAction(opts: {
           // returning the current form config plus the updated site info.
           return { status: 200, json: { ok: true, config: current, site: updatedSite } };
         }
-        return { status: 400, json: { ok: false, error: "No form fields provided." } };
+        return { status: 200, json: { ok: true, config: current, note: "No booking form changes were provided." } };
       }
 
       const next = {

@@ -281,7 +281,7 @@ function userRefusedToClarify(textRaw: unknown): boolean {
   if (!t) return false;
   return (
     /^(no|nah|nope)\b/.test(t) ||
-    /\b(i\s*don'?t\s*know|idk|not\s*sure|whatever|you\s*decide|up\s*to\s*you|doesn'?t\s*matter|any\s+is\s+fine|no\s*preference)\b/.test(t)
+    /\b(i\s*don'?t\s*know|idk|not\s*sure|whatever|you\s*decide|up\s*to\s*you|doesn'?t\s*matter|don'?t\s*care|i\s*don'?t\s*care|either(\s+one)?|whichever|pick\s+(one|whatever)|choose\s+for\s+me|your\s+call|any\s+is\s+fine|no\s*preference)\b/.test(t)
   );
 }
 
@@ -3355,7 +3355,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           try {
             const forced = [
               planningTextWithAttachments,
-              "\n\nSystem note: The user cannot/will not provide more detail. Proceed with best-effort using available thread context and safe GET actions. Do NOT ask another broad clarifying question. If multiple choices exist, pick the most recent active entity or offer clickable choices.",
+              "\n\nSystem note: The user cannot/will not provide more detail (or said they don't care). Proceed best-effort using available thread context.\n- Do NOT ask another broad clarifying question.\n- If you asked the user to choose between options and they have no preference, PICK A DEFAULT and proceed in mode=execute.\n- If IDs are missing, use active thread entities or omit the ID so the system can auto-pick or show clickable choices.",
             ]
               .filter(Boolean)
               .join("\n")
