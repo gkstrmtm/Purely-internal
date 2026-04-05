@@ -3112,10 +3112,18 @@ export async function resolvePlanArgs(opts: {
 
     const cleanEmails = (v: unknown): string[] | undefined => {
       if (!Array.isArray(v)) return undefined;
+      const isLikelyEmail = (s: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+      const isExampleDomain = (email: string): boolean => {
+        const m = /@([^@\s]+)$/.exec(email.toLowerCase());
+        const domain = m?.[1] || "";
+        return domain === "example.com" || domain === "example.org" || domain === "example.net";
+      };
+
       const emails = v
         .filter((x) => typeof x === "string")
         .map((x: string) => x.trim())
         .filter(Boolean)
+        .filter((e) => isLikelyEmail(e) && !isExampleDomain(e))
         .slice(0, 20);
       return emails.length ? emails : undefined;
     };

@@ -218,6 +218,11 @@ export async function planPuraActions(opts: {
     "- IMPORTANT: For booking calendar selection, NEVER ask the user for a calendar ID.",
     "  If a step needs calendarId but it isn't known, still output mode=execute and omit calendarId;",
     "  the system will auto-pick on 'any/doesn't matter' or show clickable calendar choices.",
+    "- IMPORTANT: Booking availability (business hours) is NOT calendar config. If the user asks to set availability like '9am-5pm every day this month', use booking.availability.set_daily (not booking.calendars.update).",
+    "- IMPORTANT: Never invent placeholder values.",
+    "  - Do NOT write things like 'Please provide details about the meeting' as meetingDetails.",
+    "  - Do NOT use example emails (example.com / info@example.com).",
+    "  - If the user didn't provide a value, omit that field; do the parts you are sure about.",
     "- Prefer using $ref hints that continue the active thread context instead of asking the user to restate the obvious.",
     "- Never output manual step-by-step portal instructions unless mode=explain.",
     "- IMPORTANT (AI-first audits): If the user asks you to analyze/audit/find weak spots/suggest improvements, you MUST output mode=execute.",
@@ -438,7 +443,68 @@ export async function planPuraActions(opts: {
       if (!k.startsWith("ai_chat.")) return true;
       return k.startsWith("ai_chat.scheduled.") || k === "ai_chat.cron.run";
     });
-    const plan: PuraPlan = { ...parsed.data, steps };
+    let plan: PuraPlan = { ...parsed.data, steps };
+
+    // Planner guardrail: availability changes should use booking.availability.set_daily.
+    // (The model sometimes tries booking.calendars.update, which doesn't represent business-hour availability.)
+    try {
+      const t = String(text || "").toLowerCase();
+      const looksLikeAvailability = /\bavailability\b|\bavailable\b/.test(t);
+      const mentionsThisMonth = /\bthis\s+month\b/.test(t);
+      const timeRange = (() => {
+        const normalize = (s: string): string => s.replace(/\./g, "").trim().toLowerCase();
+        const m = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b[\s\S]{0,20}\bto\b[\s\S]{0,20}\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/i.exec(text);
+        if (!m?.[1] || !m?.[3] || !m?.[4] || !m?.[6]) return null;
+        const h1 = Number(m[1]);
+        const mm1 = m[2] ? Number(m[2]) : 0;
+        const ap1 = normalize(m[3]);
+        const h2 = Number(m[4]);
+        const mm2 = m[5] ? Number(m[5]) : 0;
+        const ap2 = normalize(m[6]);
+        if (!Number.isFinite(h1) || !Number.isFinite(h2) || h1 < 1 || h1 > 12 || h2 < 1 || h2 > 12) return null;
+        if (!Number.isFinite(mm1) || !Number.isFinite(mm2) || mm1 < 0 || mm1 > 59 || mm2 < 0 || mm2 > 59) return null;
+        const to24 = (hh: number, ap: string) => {
+          const isPm = ap.startsWith("p");
+          return (hh % 12) + (isPm ? 12 : 0);
+        };
+        const a = `${String(to24(h1, ap1)).padStart(2, "0")}:${String(mm1).padStart(2, "0")}`;
+        const b = `${String(to24(h2, ap2)).padStart(2, "0")}:${String(mm2).padStart(2, "0")}`;
+        return { startTimeLocal: a, endTimeLocal: b };
+      })();
+
+      const hasBadStep = plan.mode === "execute" && (plan.steps || []).some((s) => String((s as any)?.key || "").toLowerCase() === "booking.calendars.update");
+      if (hasBadStep && looksLikeAvailability && mentionsThisMonth && timeRange) {
+        const { DateTime } = await import("luxon");
+        const zone = ownerTimeZone || "UTC";
+        const now = DateTime.now().setZone(zone);
+        const startDateLocal = now.startOf("month").toFormat("yyyy-MM-dd");
+        const endDateLocal = now.endOf("month").toFormat("yyyy-MM-dd");
+        const isoWeekdays = /\bweekdays\b/.test(t) ? [1, 2, 3, 4, 5] : /\bweekends\b/.test(t) ? [6, 7] : undefined;
+
+        plan = {
+          ...plan,
+          steps: (plan.steps || []).map((s) => {
+            const k = String((s as any)?.key || "").toLowerCase();
+            if (k !== "booking.calendars.update") return s;
+            return {
+              key: "booking.availability.set_daily" as PortalAgentActionKey,
+              title: "Update booking availability",
+              args: {
+                startDateLocal,
+                endDateLocal,
+                startTimeLocal: timeRange.startTimeLocal,
+                endTimeLocal: timeRange.endTimeLocal,
+                ...(ownerTimeZone ? { timeZone: ownerTimeZone } : {}),
+                ...(isoWeekdays ? { isoWeekdays } : {}),
+                replaceExisting: true,
+              },
+            } as any;
+          }),
+        };
+      }
+    } catch {
+      // best-effort only
+    }
 
     // If the model emits execute with no steps, treat as null.
     if (plan.mode === "execute" && !plan.steps.length) return null;

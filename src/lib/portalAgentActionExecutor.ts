@@ -19906,6 +19906,52 @@ async function runDirectAction(opts: {
       const flags = await getBookingSiteColumnFlags();
       const current = (await ensureBookingSite(ownerId, flags)) as any;
 
+      const followUpQuestions: string[] = [];
+      const isPlaceholderMeetingDetails = (s: string): boolean => {
+        const t = s.trim().toLowerCase();
+        if (!t) return true;
+        if (t === "please provide details about the meeting" || t === "please provide details about the meeting." || t === "tbd" || t === "to be determined") return true;
+        if (/\bplease\s+provide\b/.test(t) && /\bmeeting\b/.test(t)) return true;
+        if (/\b(fill\s+in|add)\b[\s\S]{0,20}\b(details|info)\b/.test(t)) return true;
+        return false;
+      };
+
+      const sanitizeNotificationEmails = (raw: unknown): { value: string[] | null | undefined; removedPlaceholder: boolean } => {
+        if (raw === null) return { value: null, removedPlaceholder: false };
+        if (!Array.isArray(raw)) return { value: undefined, removedPlaceholder: false };
+        const cleaned = raw
+          .filter((x) => typeof x === "string")
+          .map((x: string) => x.trim())
+          .filter(Boolean)
+          .slice(0, 20);
+
+        const isExampleDomain = (email: string): boolean => {
+          const m = /@([^@\s]+)$/.exec(email.toLowerCase());
+          const domain = m?.[1] || "";
+          return domain === "example.com" || domain === "example.org" || domain === "example.net";
+        };
+
+        const filtered = cleaned.filter((e) => !isExampleDomain(e));
+        return { value: filtered.length ? filtered : undefined, removedPlaceholder: filtered.length !== cleaned.length };
+      };
+
+      // Never write placeholder text the model invented; keep the rest of the update.
+      const meetingDetailsRaw = typeof (args as any).meetingDetails === "string" ? String((args as any).meetingDetails) : null;
+      const meetingDetailsSafe =
+        meetingDetailsRaw && !isPlaceholderMeetingDetails(meetingDetailsRaw)
+          ? meetingDetailsRaw.trim().slice(0, 600)
+          : meetingDetailsRaw
+            ? undefined
+            : undefined;
+      if (meetingDetailsRaw && meetingDetailsSafe === undefined) {
+        followUpQuestions.push("What meeting details should appear on your booking page (e.g., dial-in/link instructions, what to prepare, cancellation policy)?");
+      }
+
+      const emailSan = sanitizeNotificationEmails((args as any).notificationEmails);
+      if (emailSan.removedPlaceholder) {
+        followUpQuestions.push("What notification email(s) should receive booking alerts? Reply with one or more emails.");
+      }
+
       let nextSlug = args.slug ? slugify(args.slug) : undefined;
       if (nextSlug && nextSlug.length < 3) nextSlug = undefined;
 
@@ -19933,7 +19979,7 @@ async function runDirectAction(opts: {
         data.meetingLocation = args.meetingLocation === null ? null : args.meetingLocation ?? undefined;
       }
       if (flags.meetingDetails) {
-        data.meetingDetails = args.meetingDetails === null ? null : args.meetingDetails ?? undefined;
+        data.meetingDetails = (args as any).meetingDetails === null ? null : meetingDetailsSafe ?? undefined;
       }
       if (flags.appointmentPurpose) {
         data.appointmentPurpose = args.appointmentPurpose === null ? null : args.appointmentPurpose ?? undefined;
@@ -19943,10 +19989,10 @@ async function runDirectAction(opts: {
       }
       if (flags.notificationEmails) {
         data.notificationEmails =
-          args.notificationEmails === null
+          (args as any).notificationEmails === null
             ? Prisma.DbNull
-            : args.notificationEmails
-              ? ((args.notificationEmails as any[]).length ? args.notificationEmails : Prisma.DbNull)
+            : emailSan.value
+              ? (emailSan.value.length ? emailSan.value : Prisma.DbNull)
               : undefined;
       }
 
@@ -20008,6 +20054,7 @@ async function runDirectAction(opts: {
             meetingPlatform: typeof setupData.meetingPlatform === "string" ? setupData.meetingPlatform : "OTHER",
             updatedAt: updated.updatedAt,
           },
+          ...(followUpQuestions.length ? { followUpQuestions } : {}),
         },
       };
     }
@@ -20354,6 +20401,119 @@ async function runDirectAction(opts: {
       });
 
       return { status: 200, json: { ok: true, slots } };
+    }
+
+    case "booking.availability.set_daily": {
+      const { DateTime } = await import("luxon");
+
+      const startDateLocal = String((args as any).startDateLocal || "").trim();
+      const endDateLocal = String((args as any).endDateLocal || "").trim();
+      const startTimeLocal = String((args as any).startTimeLocal || "").trim();
+      const endTimeLocal = String((args as any).endTimeLocal || "").trim();
+
+      const hhmm = (s: string): { h: number; m: number } | null => {
+        const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(s);
+        if (!m?.[1] || !m?.[2]) return null;
+        return { h: Number(m[1]), m: Number(m[2]) };
+      };
+
+      const st = hhmm(startTimeLocal);
+      const et = hhmm(endTimeLocal);
+      if (!st || !et) {
+        return { status: 400, json: { ok: false, error: "Invalid time format. Use HH:mm like 09:00." } };
+      }
+
+      const replaceExisting = typeof (args as any).replaceExisting === "boolean" ? Boolean((args as any).replaceExisting) : true;
+      const isoWeekdays = Array.isArray((args as any).isoWeekdays)
+        ? ((args as any).isoWeekdays as any[]).filter((n) => typeof n === "number" && Number.isFinite(n)).map((n) => Math.floor(n)).filter((n) => n >= 1 && n <= 7)
+        : null;
+      const isoWeekdaysSet = isoWeekdays && isoWeekdays.length ? new Set(isoWeekdays) : null;
+
+      const siteTz = await prisma.portalBookingSite
+        .findUnique({ where: { ownerId }, select: { timeZone: true } })
+        .then((r) => (typeof (r as any)?.timeZone === "string" ? String((r as any).timeZone).trim() : ""))
+        .catch(() => "");
+
+      const zone = typeof (args as any).timeZone === "string" && String((args as any).timeZone).trim()
+        ? String((args as any).timeZone).trim().slice(0, 80)
+        : siteTz;
+
+      if (!zone) {
+        return {
+          status: 409,
+          json: {
+            ok: false,
+            error: "Missing timeZone for availability. Set a booking time zone in Booking Settings, or retry with a timeZone like 'America/Chicago'.",
+          },
+        };
+      }
+
+      const startDay = DateTime.fromISO(startDateLocal, { zone }).startOf("day");
+      const endDay = DateTime.fromISO(endDateLocal, { zone }).startOf("day");
+      if (!startDay.isValid || !endDay.isValid) {
+        return { status: 400, json: { ok: false, error: "Invalid date format. Use YYYY-MM-DD." } };
+      }
+
+      const maxDays = 62;
+      const dayCount = Math.floor(endDay.diff(startDay, "days").days) + 1;
+      if (!Number.isFinite(dayCount) || dayCount < 1 || dayCount > maxDays) {
+        return { status: 400, json: { ok: false, error: `Date range too large. Max ${maxDays} days.` } };
+      }
+
+      const startMinutes = st.h * 60 + st.m;
+      const endMinutes = et.h * 60 + et.m;
+      if (endMinutes <= startMinutes) {
+        return { status: 400, json: { ok: false, error: "endTimeLocal must be after startTimeLocal." } };
+      }
+
+      const rangeStartUtc = startDay.toUTC();
+      const rangeEndUtc = endDay.plus({ days: 1 }).toUTC();
+
+      let deletedCount = 0;
+      if (replaceExisting) {
+        const del = await prisma.availabilityBlock.deleteMany({
+          where: { userId: ownerId, startAt: { lt: rangeEndUtc.toJSDate() }, endAt: { gt: rangeStartUtc.toJSDate() } },
+        });
+        deletedCount = Number((del as any)?.count) || 0;
+      }
+
+      const blocks: Array<{ userId: string; startAt: Date; endAt: Date }> = [];
+      for (let i = 0; i < dayCount; i += 1) {
+        const day = startDay.plus({ days: i });
+        if (isoWeekdaysSet && !isoWeekdaysSet.has(day.weekday)) continue;
+        const startLocal = day.set({ hour: st.h, minute: st.m, second: 0, millisecond: 0 });
+        const endLocal = day.set({ hour: et.h, minute: et.m, second: 0, millisecond: 0 });
+        if (!startLocal.isValid || !endLocal.isValid) continue;
+        blocks.push({ userId: ownerId, startAt: startLocal.toUTC().toJSDate(), endAt: endLocal.toUTC().toJSDate() });
+      }
+
+      if (!blocks.length) {
+        return {
+          status: 409,
+          json: {
+            ok: false,
+            error: "No availability blocks to create for that range. Check isoWeekdays and date range.",
+          },
+        };
+      }
+
+      const created = await prisma.availabilityBlock.createMany({ data: blocks });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          timeZone: zone,
+          startDateLocal,
+          endDateLocal,
+          startTimeLocal,
+          endTimeLocal,
+          isoWeekdays: isoWeekdaysSet ? Array.from(isoWeekdaysSet.values()).sort((a, b) => a - b) : null,
+          replaceExisting,
+          deletedCount,
+          createdCount: Number((created as any)?.count) || blocks.length,
+        },
+      };
     }
 
     case "booking.reminders.settings.get": {

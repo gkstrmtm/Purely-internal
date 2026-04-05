@@ -369,6 +369,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "dashboard.remove_widget",
   "dashboard.optimize",
   "booking.calendar.create",
+  "booking.availability.set_daily",
   "booking.calendars.get",
   "booking.calendars.update",
   "booking.bookings.list",
@@ -2547,6 +2548,18 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({})
     .strict(),
 
+  "booking.availability.set_daily": z
+    .object({
+      startDateLocal: z.string().trim().min(8).max(10),
+      endDateLocal: z.string().trim().min(8).max(10),
+      startTimeLocal: z.string().trim().min(4).max(5),
+      endTimeLocal: z.string().trim().min(4).max(5),
+      timeZone: z.string().trim().min(1).max(80).optional(),
+      isoWeekdays: z.array(z.number().int().min(1).max(7)).max(7).optional(),
+      replaceExisting: z.boolean().optional(),
+    })
+    .strict(),
+
   "booking.calendars.update": z
     .object({
       calendars: z
@@ -2562,7 +2575,7 @@ export const PortalAgentActionArgsSchemaByKey = {
               meetingDetails: z.string().trim().max(600).optional(),
               notificationEmails: z.array(z.string().trim().email()).max(20).optional(),
             })
-            .strict(),
+            .passthrough(),
         )
         .max(25),
     })
@@ -3684,8 +3697,9 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- dashboard.remove_widget: Remove a dashboard widget (fields: scope?, widgetId)",
     "- dashboard.optimize: Optimize dashboard widgets/layout for a niche (fields: scope?, niche?)",
     "- booking.calendar.create: Create a booking calendar config entry (fields: title, id?, description?, durationMinutes?, meetingLocation?, meetingDetails?, notificationEmails?)",
+    "- booking.availability.set_daily: Set business-hour availability for a date range (fields: startDateLocal, endDateLocal, startTimeLocal, endTimeLocal, timeZone?, isoWeekdays?, replaceExisting?)",
     "- booking.calendars.get: Get booking calendars config",
-    "- booking.calendars.update: Update booking calendars config (fields: calendars[]; each item requires id + title; prefer booking.calendars.get then update+send full objects)",
+    "- booking.calendars.update: Update booking calendars config (fields: calendars[]; each item requires id + title; prefer booking.calendars.get then update; do NOT use this for business-hour availability)",
     "- booking.bookings.list: List upcoming/recent bookings (fields: take?)",
     "- booking.cancel: Cancel a booking (fields: bookingId)",
     "- booking.reschedule: Reschedule a booking start time (fields: bookingId, startAtIso, forceAvailability?)",

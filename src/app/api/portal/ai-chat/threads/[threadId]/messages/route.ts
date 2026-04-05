@@ -3811,9 +3811,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 "- Do NOT explain how to analyze; do the analysis.",
                 "- Ground every recommendation in the provided results (or clearly label as an assumption).",
                 "- Output concise markdown with sections: Findings, Suggested Fixes, Quick Wins.",
+                "- If any step result includes followUpQuestions, include them as a Follow-up section at the end.",
                 "- If key info is missing, ask at most ONE targeted question at the end (optional).",
               ].join("\n")
-            : "You are an assistant in a SaaS portal. Summarize the results of the executed plan for the user. Write concise markdown. Use per-step headings when multiple steps ran. If something failed, mention it. Do not invent details.";
+            : [
+                "You are an assistant in a SaaS portal.",
+                "Summarize the results of the executed plan for the user.",
+                "Write concise markdown.",
+                "Use per-step headings when multiple steps ran.",
+                "If something failed, mention it.",
+                "Do not invent details.",
+                "If any step result includes followUpQuestions, include a Follow-up section at the end listing those questions.",
+              ].join("\n");
 
           assistantTextFinal = stripEmptyAssistantBullets(
             String(
