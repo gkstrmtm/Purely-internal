@@ -3584,6 +3584,33 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         return (actionsIn || []).some((a) => containsPlaceholderValueDeep(a?.args || null));
       };
 
+      const isAutoRepairableClarifyPrompt = (questionRaw: string, choices?: any[] | null): boolean => {
+        if (Array.isArray(choices) && choices.length) return true;
+        const question = String(questionRaw || "").trim().toLowerCase();
+        if (!question) return false;
+
+        if (/^planner repair required:/i.test(question)) return true;
+
+        if (
+          /(what local time|reply like 09:00|which tag should i use|reply with the tag name|nested schedule step|rephrase the schedule|missing its required prompt string)/i.test(
+            question,
+          )
+        ) {
+          return false;
+        }
+
+        const mentionsResolvableEntity =
+          /\b(contact|thread|calendar|booking|funnel|page|automation|task|review|question|campaign|step|user|member|domain|folder|item|report|letter|pull|post|newsletter|schedule|message|id)\b/.test(
+            question,
+          );
+        const looksLikeDiscoveryProblem =
+          /\b(which|what|couldn'?t\s+find|can'?t\s+find|not\s+find|multiple|matching|specific\s+id|exact\s+.*id|paste\s+the\s+.*id|reply\s+with\s+the\s+.*id|need\s+(?:the\s+)?(?:exact\s+)?(?:.*\s+)?id|i\s+need\s+(?:a\s+)?specific\s+id)\b/.test(
+            question,
+          );
+
+        return mentionsResolvableEntity && looksLikeDiscoveryProblem;
+      };
+
 
       const runPlannerOnce = async (opts: { round: number; extraSystem?: string; temperature?: number; lastRunSummary?: any }) => {
         const cheat = toolCheatSheetForPrompt(planningTextWithAttachments, contextUrl);
@@ -3657,7 +3684,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               ? [
                   "Continuation: keep going until the user request is DONE. Output the next actions now; do not ask for permission.",
                   lastAutoClarify
-                    ? "The last attempt could not resolve IDs or required fields. Do NOT ask the user to pick. Use discovery tools (list/get/search) or the provided choices to select REAL IDs, then continue. Never use placeholders like <...> or new_*_id."
+                    ? `The last attempt stalled during resolution: ${String(lastAutoClarify.question || "Missing or ambiguous required fields.").slice(0, 600)} Do NOT ask the user yet if you can discover this yourself. Use discovery tools (list/get/search/get-by-context) or the provided choices to select REAL IDs, then continue. Never use placeholders like <...> or new_*_id.`
                     : null,
                   lastAutoExecutionError
                     ? `The last attempt failed during execution (${lastAutoExecutionError.action} status ${lastAutoExecutionError.status}). Fix args and retry. Never guess IDs; use list/get first if needed.`
@@ -3821,6 +3848,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 break;
               }
 
+              if (isAutoRepairableClarifyPrompt(rawClarifyPrompt, clarifyChoices) && round + 1 < MAX_AUTORUN_ROUNDS) {
+                lastAutoClarify = { question: rawClarifyPrompt || null, choices: null, stepKey: String(key), title };
+                lastAutoResolutionError = rawClarifyPrompt || "Missing/ambiguous required fields";
+                blockedForReplan = true;
+                break;
+              }
+
               let clarifyText = "";
               try {
                 const summary =
@@ -3973,6 +4007,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
           if (clarifyChoices && clarifyChoices.length) {
             lastAutoClarify = { question: rawClarifyPrompt || null, choices: clarifyChoices.slice(0, 8), stepKey: String(key), title };
+            lastAutoResolutionError = rawClarifyPrompt || "Missing/ambiguous required fields";
+            blockedForReplan = true;
+            break;
+          }
+
+          if (isAutoRepairableClarifyPrompt(rawClarifyPrompt, clarifyChoices) && round + 1 < MAX_AUTORUN_ROUNDS) {
+            lastAutoClarify = { question: rawClarifyPrompt || null, choices: null, stepKey: String(key), title };
             lastAutoResolutionError = rawClarifyPrompt || "Missing/ambiguous required fields";
             blockedForReplan = true;
             break;
