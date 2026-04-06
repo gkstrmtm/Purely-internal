@@ -3561,6 +3561,28 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const seenPlanKeys = new Set<string>();
       let finalDirectMessage: string | null = null;
 
+      const containsPlaceholderValueDeep = (v: unknown): boolean => {
+        if (typeof v === "string") {
+          const s = v.trim();
+          if (!s) return false;
+          if (/placeholder/i.test(s)) return true;
+          if ((s.startsWith("<") && s.endsWith(">")) || s.includes("{{") || s.includes("}}")) return true;
+          if (/\bnew[_-]?[a-z0-9_-]*id\b/i.test(s)) return true;
+          return false;
+        }
+        if (Array.isArray(v)) return v.some((x) => containsPlaceholderValueDeep(x));
+        if (v && typeof v === "object") {
+          for (const val of Object.values(v as Record<string, unknown>)) {
+            if (containsPlaceholderValueDeep(val)) return true;
+          }
+        }
+        return false;
+      };
+
+      const hasPlaceholderArgs = (actionsIn: Array<{ args?: Record<string, unknown> }>): boolean => {
+        return (actionsIn || []).some((a) => containsPlaceholderValueDeep(a?.args || null));
+      };
+
 
       const runPlannerOnce = async (opts: { round: number; extraSystem?: string; temperature?: number; lastRunSummary?: any }) => {
         const cheat = toolCheatSheetForPrompt(planningTextWithAttachments, contextUrl);
@@ -3797,6 +3819,48 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                   .join("\n")
               : undefined,
         });
+
+        if (planned.actions.length && hasPlaceholderArgs(planned.actions) && round + 1 < MAX_AUTORUN_ROUNDS) {
+          // Force the model into stepwise planning so it never needs placeholders.
+          const retryExtra = [
+            "You used placeholder IDs/values in tool args (like <...placeholder...>). That is invalid.",
+            "Hard rule: Do NOT output placeholder strings (no <...>, no {{...}}, no *_placeholder, no new_*_id).",
+            "Hard rule: Do NOT output a multi-action plan that depends on IDs created earlier in the SAME response.",
+            "If an ID must be created/discovered first, output EXACTLY ONE action: the discovery/create step, then stop.",
+            "Do not ask the user to pick. Do not guess IDs.",
+            "Output JSON actions only.",
+          ].join("\n");
+          planned = await runPlannerOnce({ round, lastRunSummary, temperature: 0.25, extraSystem: retryExtra });
+
+          // If the retry still has placeholders, truncate to the first safe step or fall back to discovery.
+          if (planned.actions.length && hasPlaceholderArgs(planned.actions)) {
+            const firstSafe = planned.actions.find((a) => !containsPlaceholderValueDeep((a as any)?.args || null));
+            if (firstSafe) {
+              planned = { ...planned, actions: [firstSafe] as any };
+            } else {
+              const hasLastFunnelId = Boolean(localCtx?.lastFunnel && typeof localCtx.lastFunnel?.id === "string" && String(localCtx.lastFunnel.id).trim());
+              planned = {
+                ...planned,
+                actions: hasLastFunnelId
+                  ? ([
+                      {
+                        key: "funnel_builder.pages.list",
+                        title: "Find the funnel pages",
+                        args: { funnelId: String(localCtx.lastFunnel.id).trim().slice(0, 120) },
+                      },
+                    ] as any)
+                  : ([
+                      {
+                        key: "funnel_builder.funnels.list",
+                        title: "Find the funnel",
+                        args: {},
+                      },
+                    ] as any),
+                directMessage: "",
+              } as any;
+            }
+          }
+        }
 
         if (!planned.actions.length) {
           const assistantText = stripEmptyAssistantBullets(planned.directMessage || planned.modelText);

@@ -123,6 +123,34 @@ export function previewResultForPlanner(action: PortalAgentActionKey, result: an
     if (!isPlainObject(result)) return null;
     if ((result as any).ok !== true) return null;
 
+    // Funnel create (returns funnel + seeded pages)
+    if (action === "funnel.create") {
+      const funnelObj = isPlainObject((result as any).funnel) ? ((result as any).funnel as Record<string, unknown>) : null;
+      const funnelId = funnelObj ? safeStr((funnelObj as any).id, 120) : "";
+      const name = funnelObj ? safeStr((funnelObj as any).name, 120) : "";
+      const slug = funnelObj ? safeStr((funnelObj as any).slug, 120) : "";
+
+      const pages = previewList(pickArray(result, "pages"), (p: any) => {
+        if (!isPlainObject(p)) return null;
+        const pageId = safeStr((p as any).id, 120);
+        if (!pageId) return null;
+        const title = safeStr((p as any).title, 120);
+        const pageSlug = safeStr((p as any).slug, 120);
+        const funnelIdForPage = safeStr((p as any).funnelId, 120);
+        return {
+          pageId,
+          title: title || undefined,
+          slug: pageSlug || undefined,
+          funnelId: funnelIdForPage || undefined,
+        };
+      });
+
+      return {
+        funnel: funnelId ? { funnelId, name: name || undefined, slug: slug || undefined } : null,
+        ...(pages.length ? { pages } : {}),
+      };
+    }
+
     // Funnel builder
     if (action === "funnel_builder.funnels.list") {
       const funnels = previewList(pickArray(result, "funnels"), (f: any) => {
@@ -132,9 +160,18 @@ export function previewResultForPlanner(action: PortalAgentActionKey, result: an
         const name = safeStr((f as any).name, 120);
         const slug = safeStr((f as any).slug, 120);
         const updatedAt = safeStr((f as any).updatedAt, 80);
-        return { id, name: name || undefined, slug: slug || undefined, updatedAt: updatedAt || undefined };
+        return { funnelId: id, name: name || undefined, slug: slug || undefined, updatedAt: updatedAt || undefined };
       });
       return funnels.length ? { funnels } : null;
+    }
+
+    if (action === "funnel_builder.funnels.get") {
+      const funnelObj = isPlainObject((result as any).funnel) ? ((result as any).funnel as Record<string, unknown>) : null;
+      const funnelId = funnelObj ? safeStr((funnelObj as any).id, 120) : "";
+      const name = funnelObj ? safeStr((funnelObj as any).name, 120) : "";
+      const slug = funnelObj ? safeStr((funnelObj as any).slug, 120) : "";
+      const status = funnelObj ? safeStr((funnelObj as any).status, 60) : "";
+      return funnelId ? { funnel: { funnelId, name: name || undefined, slug: slug || undefined, status: status || undefined } } : null;
     }
 
     if (action === "funnel_builder.pages.list") {
@@ -147,7 +184,7 @@ export function previewResultForPlanner(action: PortalAgentActionKey, result: an
         const funnelId = safeStr((p as any).funnelId, 120);
         const updatedAt = safeStr((p as any).updatedAt, 80);
         return {
-          id,
+          pageId: id,
           title: title || undefined,
           slug: slug || undefined,
           funnelId: funnelId || undefined,
@@ -155,6 +192,15 @@ export function previewResultForPlanner(action: PortalAgentActionKey, result: an
         };
       });
       return pages.length ? { pages } : null;
+    }
+
+    if (action === "funnel_builder.pages.create" || action === "funnel_builder.pages.update" || action === "funnel_builder.pages.generate_html") {
+      const pageObj = isPlainObject((result as any).page) ? ((result as any).page as Record<string, unknown>) : null;
+      const pageId = pageObj ? safeStr((pageObj as any).id, 120) : "";
+      const funnelId = pageObj ? safeStr((pageObj as any).funnelId, 120) : "";
+      const title = pageObj ? safeStr((pageObj as any).title, 120) : "";
+      const slug = pageObj ? safeStr((pageObj as any).slug, 120) : "";
+      return pageId ? { page: { pageId, funnelId: funnelId || undefined, title: title || undefined, slug: slug || undefined } } : null;
     }
 
     if (action === "funnel_builder.forms.list") {
@@ -165,7 +211,7 @@ export function previewResultForPlanner(action: PortalAgentActionKey, result: an
         const name = safeStr((f as any).name, 120);
         const slug = safeStr((f as any).slug, 120);
         const funnelId = safeStr((f as any).funnelId, 120);
-        return { id, name: name || undefined, slug: slug || undefined, funnelId: funnelId || undefined };
+        return { formId: id, name: name || undefined, slug: slug || undefined, funnelId: funnelId || undefined };
       });
       return forms.length ? { forms } : null;
     }

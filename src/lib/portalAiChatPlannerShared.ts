@@ -99,6 +99,8 @@ export function toolCheatSheetForPrompt(textRaw: string, urlRaw?: string): strin
   lines.push("PROGRESS RULE (very important):");
   lines.push("- When the user tells you to DO something in the portal, keep making progress.");
   lines.push("- If an ID is missing, start with a safe discovery action (list/get/search) to find it.");
+  lines.push("- Never output placeholder IDs/values like <...>, {{...}}, *_placeholder, or new_*_id.");
+  lines.push("- Never output a multi-action plan that depends on IDs created earlier in the SAME response. If an ID will be created/discovered by a tool, output ONLY that one tool action, then stop (you will get another turn with the returned ID).");
   lines.push("- If a name is missing for a create action, pick a short sensible default name and proceed (do not use the whole user request as a name).");
   lines.push("- Ask at most ONE follow-up question, and only after doing any discovery you can.");
   lines.push("");
@@ -245,6 +247,8 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
     "WORK STYLE:",
     "- When the user asks you to do a portal task, use TOOL MODE to make progress.",
     "- Use discovery tools (list/get/search) first when IDs are unknown.",
+    "- Never output placeholder IDs/values like <...>, {{...}}, *_placeholder, or new_*_id.",
+    "- Never output a multi-action plan that depends on IDs created earlier in the SAME response. If an ID will be created/discovered by a tool, output ONLY that one tool action, then stop (you will get another turn with the returned ID).",
     "- Use short sensible defaults for missing names (calendar/funnel/page).",
     "- If you still need something from the user after making progress, ask ONE specific follow-up question.",
     "- In CHAT MODE, summarize what you did and what you need next.",

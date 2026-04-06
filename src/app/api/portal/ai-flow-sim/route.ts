@@ -32,6 +32,32 @@ import {
 } from "@/lib/portalAiChatPlannerShared";
 import { previewResultForPlanner, summarizeIdsFromArgs } from "@/lib/portalAgentPlannerContextPreview";
 
+const pickSafeDiscoveryFallback = (threadContext: Record<string, unknown>): any[] => {
+  const hasLastFunnelId = Boolean(
+    (threadContext as any)?.lastFunnel &&
+      typeof (threadContext as any).lastFunnel?.id === "string" &&
+      String((threadContext as any).lastFunnel.id).trim(),
+  );
+
+  return hasLastFunnelId
+    ? ([
+        {
+          key: "funnel_builder.pages.list",
+          title: "Find the funnel pages",
+          args: {
+            funnelId: String((threadContext as any).lastFunnel.id).trim().slice(0, 120),
+          },
+        },
+      ] as any)
+    : ([
+        {
+          key: "funnel_builder.funnels.list",
+          title: "Find the funnel",
+          args: {},
+        },
+      ] as any);
+};
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -348,7 +374,13 @@ export async function POST(req: Request) {
         cheatSheet,
         extraSystem: [
           "You used placeholder IDs/values in tool args (like <...placeholder...>). That is invalid.",
-          "Output a new action plan that uses discovery tools (list/get) to find real IDs, or relies on context IDs (e.g. the funnel you just created).",
+          "Hard rule: Do NOT output any placeholder strings (no <...>, no {{...}}, no *_placeholder, no new_*_id).",
+          "Hard rule: Do NOT output a multi-action plan that depends on IDs created earlier in the SAME response.",
+          "If an ID must be created/discovered first, output EXACTLY ONE action: the discovery/create step, then stop.",
+          "Examples:",
+          "- If you need a funnelId: output ONLY funnel.create (or funnel_builder.funnels.list + pick one) - do not include pages.create/generate_html until next round.",
+          "- If you need a pageId: output ONLY funnel_builder.pages.list (or pages.create) - do not include generate_html until next round.",
+          "Output a new action plan that uses discovery tools (list/get) to find real IDs, or relies on context IDs.",
           "Do not ask the user to pick. Do not guess IDs.",
           "Output JSON actions only.",
         ].join("\n"),
@@ -384,6 +416,18 @@ export async function POST(req: Request) {
           parsedDecision: decision2,
           retryUsed: "placeholders",
         };
+      }
+    }
+
+    // Final safety: if placeholders still exist, don't execute them.
+    if (actions.length && hasPlaceholderArgs(actions)) {
+      const firstSafe = actions.find((a) => !containsPlaceholderValueDeep((a as any)?.args || null));
+      if (firstSafe) {
+        actions = [firstSafe as any];
+        roundRecord.placeholderPlanTruncated = true;
+      } else {
+        actions = pickSafeDiscoveryFallback(threadContext) as any;
+        roundRecord.fallback = "placeholder-fallback";
       }
     }
 
@@ -487,31 +531,7 @@ export async function POST(req: Request) {
       }
 
       if (!actions.length && isImperativeRequest(userText)) {
-        const hasLastFunnelId = Boolean(
-          (threadContext as any)?.lastFunnel &&
-            typeof (threadContext as any).lastFunnel?.id === "string" &&
-            String((threadContext as any).lastFunnel.id).trim(),
-        );
-
-        actions = hasLastFunnelId
-          ? ([
-              {
-                key: "funnel_builder.pages.list",
-                title: "Find the funnel pages",
-                args: {
-                  funnelId: String((threadContext as any).lastFunnel.id)
-                    .trim()
-                    .slice(0, 120),
-                },
-              },
-            ] as any)
-          : ([
-              {
-                key: "funnel_builder.funnels.list",
-                title: "Find the funnel",
-                args: {},
-              },
-            ] as any);
+        actions = pickSafeDiscoveryFallback(threadContext) as any;
 
         roundRecord.fallback = "imperative-no-actions";
       }
