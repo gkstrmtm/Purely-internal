@@ -151,7 +151,11 @@ export default async function CreditAppCatchallPage({
   }
 
   if (slug.length === 1 && slug[0] === "ai-chat") {
-    return <PortalAiChatClient />;
+    return <PortalAiChatClient basePath="/credit" />;
+  }
+
+  if (slug.length === 2 && slug[0] === "ai-chat") {
+    return <PortalAiChatClient basePath="/credit" initialThreadRef={slug[1] || null} />;
   }
 
   if (slug.length === 1 && slug[0] === "settings") {

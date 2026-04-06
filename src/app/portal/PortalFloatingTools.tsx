@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { buildPortalAiChatThreadHref } from "@/lib/portalAiChatThreadRefs";
 
 type VersionPayload = {
   ok?: boolean;
@@ -867,7 +868,10 @@ export function PortalFloatingTools() {
 
   function continueWithPura() {
     if (typeof window === "undefined") return;
-    const target = chatThreadId ? `${portalBase}/app/ai-chat?thread=${encodeURIComponent(chatThreadId)}` : `${portalBase}/app/ai-chat`;
+    const target = buildPortalAiChatThreadHref({
+      basePath: portalBase,
+      thread: chatThreadId ? { id: chatThreadId } : null,
+    });
     window.dispatchEvent(new CustomEvent("pa.portal.topbar.intent", { detail: { hidden: true } }));
     void router.prefetch(target);
     router.push(target);
