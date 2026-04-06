@@ -42,7 +42,16 @@ const SimRequestSchema = z
     threadId: z.string().trim().min(1).max(200).optional().nullable(),
     execute: z.boolean().optional().default(false),
     autoContinuePastConfirm: z.boolean().optional().default(false),
-    maxRounds: z.number().int().min(1).max(8).optional().default(4),
+    // Intentionally higher than the live-chat loop; this is a simulator.
+    maxRounds: z.number().int().min(1).max(60).optional().default(12),
+    // Time budget for the whole simulation loop (ms). Helps avoid serverless timeouts.
+    maxMs: z.number().int().min(2000).max(120_000).optional().default(30_000),
+    // Safety cap to prevent runaway plans (max resolved steps across all rounds).
+    maxTotalSteps: z.number().int().min(1).max(1000).optional().default(180),
+    // Prevent huge JSON responses when maxRounds is high.
+    maxReturnedRounds: z.number().int().min(1).max(200).optional().default(40),
+    maxReturnedSteps: z.number().int().min(1).max(2000).optional().default(400),
+    maxReturnedResults: z.number().int().min(1).max(2000).optional().default(400),
     threadContext: z.record(z.string(), z.unknown()).optional().nullable(),
   })
   .strict();
@@ -74,7 +83,6 @@ export async function POST(req: Request) {
     );
   }
 
-  const now = new Date();
   const userText = parsed.data.text;
   const requestedUrl = parsed.data.url ? String(parsed.data.url) : "";
   const requestedThreadId = parsed.data.threadId
@@ -83,6 +91,13 @@ export async function POST(req: Request) {
   const execute = Boolean(parsed.data.execute);
   const autoContinuePastConfirm = Boolean(parsed.data.autoContinuePastConfirm);
   const maxRounds = parsed.data.maxRounds;
+  const maxMs = parsed.data.maxMs;
+  const maxTotalSteps = parsed.data.maxTotalSteps;
+  const maxReturnedRounds = parsed.data.maxReturnedRounds;
+  const maxReturnedSteps = parsed.data.maxReturnedSteps;
+  const maxReturnedResults = parsed.data.maxReturnedResults;
+
+  const startedAtMs = Date.now();
 
   const overrideCtx: Record<string, unknown> =
     parsed.data.threadContext &&
@@ -160,6 +175,29 @@ export async function POST(req: Request) {
   let lastSimExecutionError: { action: string; status: number; error: string } | null = null;
 
   for (let round = 0; round < maxRounds; round += 1) {
+    const elapsedMs = Date.now() - startedAtMs;
+    if (elapsedMs >= maxMs) {
+      rounds.push({
+        round,
+        at: new Date().toISOString(),
+        stopReason: "time-budget-exhausted",
+        elapsedMs,
+        maxMs,
+      });
+      break;
+    }
+
+    if (allSteps.length >= maxTotalSteps) {
+      rounds.push({
+        round,
+        at: new Date().toISOString(),
+        stopReason: "step-budget-exhausted",
+        resolvedSteps: allSteps.length,
+        maxTotalSteps,
+      });
+      break;
+    }
+
     const cheatSheet = toolCheatSheetForPrompt(userText, contextUrl);
     const system = buildPlannerSystemPrompt({
       cheatSheet,
@@ -261,7 +299,7 @@ export async function POST(req: Request) {
 
     const roundRecord: any = {
       round,
-      at: now.toISOString(),
+      at: new Date().toISOString(),
       sentToModel: { system, user, toolCheatSheet: cheatSheet },
       modelReturned: { rawText: modelText, parsedDecision: decision },
       resolved: [],
@@ -473,6 +511,11 @@ export async function POST(req: Request) {
     }
 
     for (const a of actions.slice(0, 6)) {
+      if (allSteps.length >= maxTotalSteps) {
+        roundRecord.stopReason = "step-budget-exhausted";
+        break;
+      }
+
       const key = a.key;
       const title = String(a.title || a.key).trim().slice(0, 160) || String(a.key);
       const argsRaw =
@@ -587,15 +630,29 @@ export async function POST(req: Request) {
         execute,
         autoContinuePastConfirm,
         maxRounds,
+        maxMs,
+        maxTotalSteps,
         threadContext,
+      },
+      limits: {
+        returned: {
+          rounds: Math.max(1, Math.min(maxReturnedRounds, rounds.length || 1)),
+          steps: Math.max(1, Math.min(maxReturnedSteps, allSteps.length || 1)),
+          results: Math.max(1, Math.min(maxReturnedResults, allResults.length || 1)),
+        },
+        totals: {
+          rounds: rounds.length,
+          steps: allSteps.length,
+          results: allResults.length,
+        },
       },
       tools: {
         // Explicitly surfaced so it's obvious what "tools" means.
         availableActionKeys,
       },
-      rounds,
-      allSteps,
-      allResults,
+      rounds: rounds.slice(-Math.max(1, Math.min(maxReturnedRounds, 200))),
+      allSteps: allSteps.slice(-Math.max(1, Math.min(maxReturnedSteps, 2000))),
+      allResults: allResults.slice(-Math.max(1, Math.min(maxReturnedResults, 2000))),
       finalContext: threadContext,
     },
     { status: 200 },
