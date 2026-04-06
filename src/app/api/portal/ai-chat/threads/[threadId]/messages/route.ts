@@ -2533,6 +2533,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
           actionKey: typeof ctxJson.liveStatus.actionKey === "string" ? String(ctxJson.liveStatus.actionKey).trim().slice(0, 120) : null,
           title: typeof ctxJson.liveStatus.title === "string" ? String(ctxJson.liveStatus.title).trim().slice(0, 200) : null,
           updatedAt: typeof ctxJson.liveStatus.updatedAt === "string" ? String(ctxJson.liveStatus.updatedAt).trim().slice(0, 80) : null,
+          round: Number.isFinite(Number(ctxJson.liveStatus.round)) ? Math.max(1, Math.min(99, Math.floor(Number(ctxJson.liveStatus.round)))) : null,
+          completedSteps: Number.isFinite(Number(ctxJson.liveStatus.completedSteps)) ? Math.max(0, Math.min(99, Math.floor(Number(ctxJson.liveStatus.completedSteps)))) : null,
+          lastCompletedTitle:
+            typeof ctxJson.liveStatus.lastCompletedTitle === "string" ? String(ctxJson.liveStatus.lastCompletedTitle).trim().slice(0, 200) : null,
         }
       : null;
   const runs = Array.isArray(ctxJson.runs)
@@ -2627,9 +2631,19 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   };
 
   type LiveStatusPhase = "bootstrap" | "planning" | "resolving" | "executing" | "clarifying" | "confirming" | "summarizing";
+  type LiveStatusShape = {
+    phase: LiveStatusPhase;
+    label?: string | null;
+    actionKey?: string | null;
+    title?: string | null;
+    updatedAt?: string | null;
+    round?: number | null;
+    completedSteps?: number | null;
+    lastCompletedTitle?: string | null;
+  };
 
   const normalizeLiveStatus = (
-    status: { phase: LiveStatusPhase; label?: string | null; actionKey?: string | null; title?: string | null; updatedAt?: string | null } | null | undefined,
+    status: LiveStatusShape | null | undefined,
   ) => {
     if (!status) return null;
     return {
@@ -2641,12 +2655,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         typeof status.updatedAt === "string" && status.updatedAt.trim()
           ? String(status.updatedAt).trim().slice(0, 80)
           : now.toISOString(),
+      round: Number.isFinite(Number(status.round)) ? Math.max(1, Math.min(99, Math.floor(Number(status.round)))) : null,
+      completedSteps: Number.isFinite(Number(status.completedSteps)) ? Math.max(0, Math.min(99, Math.floor(Number(status.completedSteps)))) : null,
+      lastCompletedTitle:
+        typeof status.lastCompletedTitle === "string" && status.lastCompletedTitle.trim()
+          ? String(status.lastCompletedTitle).trim().slice(0, 200)
+          : null,
     };
   };
 
   const withLiveStatus = (
     threadContextValue: unknown,
-    status: { phase: LiveStatusPhase; label?: string | null; actionKey?: string | null; title?: string | null; updatedAt?: string | null } | null,
+    status: LiveStatusShape | null,
   ) => {
     const prevCtx = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue) ? (threadContextValue as any) : {};
     return {
@@ -2666,7 +2686,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   };
 
   const persistLiveStatus = async (
-    status: { phase: LiveStatusPhase; label?: string | null; actionKey?: string | null; title?: string | null; updatedAt?: string | null } | null,
+    status: LiveStatusShape | null,
     threadContextValue?: unknown,
   ) => {
     return await persistThreadContext(withLiveStatus(threadContextValue ?? persistedThreadContext, status));
@@ -2978,7 +2998,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     const clientUiActions: any[] = [];
     for (const step of confirmedSteps) {
       threadContext = await persistLiveStatus(
-        { phase: "executing", label: `Running ${step.title || step.key}`, actionKey: step.key, title: step.title },
+        {
+          phase: "executing",
+          label: `Running ${step.title || step.key}`,
+          actionKey: step.key,
+          title: step.title,
+          completedSteps: results.length,
+          lastCompletedTitle: results.length ? confirmedSteps[Math.max(0, results.length - 1)]?.title || null : null,
+        },
         threadContext,
       );
       const exec = await executePortalAgentAction({
@@ -3016,7 +3043,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
     let assistantText = "";
     try {
-      threadContext = await persistLiveStatus({ phase: "summarizing", label: "Summarizing what I just did" }, threadContext);
+      threadContext = await persistLiveStatus(
+        {
+          phase: "summarizing",
+          label: "Summarizing what I just did",
+          completedSteps: confirmedSteps.length,
+          lastCompletedTitle: confirmedSteps[confirmedSteps.length - 1]?.title || null,
+        },
+        threadContext,
+      );
       const resultsForSummary = Array.isArray(results)
         ? results.map((r: any) => {
             const cleaned = stripAssistantVisibleAccountingFields((r as any)?.result);
@@ -3432,7 +3467,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         const keyParsed = PortalAgentActionKeySchema.safeParse(actionKey);
         if (keyParsed.success) {
           threadContext = await persistLiveStatus(
-            { phase: "resolving", label: `Resolving ${title || keyParsed.data}`, actionKey: keyParsed.data, title },
+            { phase: "resolving", label: `Resolving ${title || keyParsed.data}`, actionKey: keyParsed.data, title, completedSteps: 0 },
             threadContext,
           );
           const resolved = await resolvePlanArgs({
@@ -3541,7 +3576,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           })();
 
           threadContext = await persistLiveStatus(
-            { phase: "executing", label: `Running ${title || keyParsed.data}`, actionKey: keyParsed.data, title },
+            { phase: "executing", label: `Running ${title || keyParsed.data}`, actionKey: keyParsed.data, title, completedSteps: 0 },
             threadContext,
           );
           const exec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: keyParsed.data, args: resolvedArgsWithThread });
@@ -3667,7 +3702,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const seenPlanKeys = new Set<string>();
       let finalDirectMessage: string | null = null;
 
-      localCtx = await persistLiveStatus({ phase: "planning", label: "Planning the next step" }, localCtx);
+      localCtx = await persistLiveStatus({ phase: "planning", label: "Planning the next step", round: 1, completedSteps: 0 }, localCtx);
 
       const containsPlaceholderValueDeep = (v: unknown): boolean => {
         if (typeof v === "string") {
@@ -3981,7 +4016,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         const bootstrapStep = buildSafeDiscoveryFallbackStep();
         if (shouldPrimePlannerWithDiscovery(bootstrapStep.key)) {
           localCtx = await persistLiveStatus(
-            { phase: "bootstrap", label: `Scanning context with ${bootstrapStep.title}`, actionKey: bootstrapStep.key, title: bootstrapStep.title },
+            { phase: "bootstrap", label: `Scanning context with ${bootstrapStep.title}`, actionKey: bootstrapStep.key, title: bootstrapStep.title, round: 1, completedSteps: 0 },
             localCtx,
           );
           const resolved = await resolvePlanArgs({
@@ -4004,7 +4039,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             }
 
             localCtx = await persistLiveStatus(
-              { phase: "executing", label: `Running ${bootstrapStep.title}`, actionKey: bootstrapStep.key, title: bootstrapStep.title },
+              { phase: "executing", label: `Running ${bootstrapStep.title}`, actionKey: bootstrapStep.key, title: bootstrapStep.title, round: 1, completedSteps: 0 },
               localCtx,
             );
             const exec = await executePortalAgentAction({
@@ -4035,7 +4070,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       for (let round = 0; round < MAX_AUTORUN_ROUNDS; round += 1) {
         if (Date.now() - autoStartMs > MAX_AUTORUN_MS) break;
         localCtx = await persistLiveStatus(
-          { phase: "planning", label: round > 0 ? "Replanning the next step" : "Planning the next step", title: round > 0 ? `Round ${round + 1}` : null },
+          {
+            phase: "planning",
+            label: round > 0 ? "Replanning the next step" : "Planning the next step",
+            title: round > 0 ? `Round ${round + 1}` : null,
+            round: round + 1,
+            completedSteps: allResolvedSteps.length,
+            lastCompletedTitle: allResolvedSteps[allResolvedSteps.length - 1]?.title || null,
+          },
           localCtx,
         );
         const lastRunSummary = allResolvedSteps.length || lastAutoClarify || lastAutoExecutionError || lastAutoResolutionError || bootstrapDiscoverySummary
@@ -4208,7 +4250,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             const argsRaw = a.args && typeof a.args === "object" && !Array.isArray(a.args) ? (a.args as Record<string, unknown>) : {};
 
             localCtx = await persistLiveStatus(
-              { phase: "resolving", label: `Resolving ${title || key}`, actionKey: key, title },
+              {
+                phase: "resolving",
+                label: `Resolving ${title || key}`,
+                actionKey: key,
+                title,
+                round: round + 1,
+                completedSteps: allResolvedSteps.length,
+                lastCompletedTitle: allResolvedSteps[allResolvedSteps.length - 1]?.title || null,
+              },
               localCtx,
             );
             const resolved = await resolvePlanArgs({ ownerId, stepKey: key, args: argsRaw, userHint: effectiveText, url: contextUrl, threadContext: localCtx });
@@ -4380,7 +4430,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         const argsRaw = a.args && typeof a.args === "object" && !Array.isArray(a.args) ? (a.args as Record<string, unknown>) : {};
 
         localCtx = await persistLiveStatus(
-          { phase: "resolving", label: `Resolving ${title || key}`, actionKey: key, title },
+          {
+            phase: "resolving",
+            label: `Resolving ${title || key}`,
+            actionKey: key,
+            title,
+            round: round + 1,
+            completedSteps: allResolvedSteps.length,
+            lastCompletedTitle: allResolvedSteps[allResolvedSteps.length - 1]?.title || null,
+          },
           localCtx,
         );
         const resolved = await resolvePlanArgs({ ownerId, stepKey: key, args: argsRaw, userHint: effectiveText, url: contextUrl, threadContext: localCtx });
@@ -4480,7 +4538,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         }
 
         localCtx = await persistLiveStatus(
-          { phase: "executing", label: `Running ${title || key}`, actionKey: key, title },
+          {
+            phase: "executing",
+            label: `Running ${title || key}`,
+            actionKey: key,
+            title,
+            round: round + 1,
+            completedSteps: Math.max(0, allResolvedSteps.length - 1),
+            lastCompletedTitle: allResolvedSteps.length > 1 ? allResolvedSteps[allResolvedSteps.length - 2]?.title || null : null,
+          },
           localCtx,
         );
         const exec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: key, args: resolvedArgsWithThread });
@@ -4534,7 +4600,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       let assistantTextFinal = "";
       try {
-        localCtx = await persistLiveStatus({ phase: "summarizing", label: "Summarizing what I just did" }, localCtx);
+        localCtx = await persistLiveStatus(
+          {
+            phase: "summarizing",
+            label: "Summarizing what I just did",
+            round: Math.max(1, Math.min(MAX_AUTORUN_ROUNDS, allResolvedSteps.length ? seenPlanKeys.size || 1 : 1)),
+            completedSteps: allResolvedSteps.length,
+            lastCompletedTitle: allResolvedSteps[allResolvedSteps.length - 1]?.title || null,
+          },
+          localCtx,
+        );
         const resultsForSummary = allResults.map((r: any) => {
           const cleaned = stripAssistantVisibleAccountingFields((r as any)?.result);
           const extractedError =

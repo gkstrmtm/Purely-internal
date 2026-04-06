@@ -119,6 +119,9 @@ type LiveStatus = {
   actionKey?: string | null;
   title?: string | null;
   updatedAt?: string | null;
+  round?: number | null;
+  completedSteps?: number | null;
+  lastCompletedTitle?: string | null;
 };
 
 type CanvasUiCandidate = { role: string; name: string; tag: string; nth: number };
@@ -695,14 +698,49 @@ function normalizeLiveStatus(raw: unknown): LiveStatus | null {
   const actionKey = typeof (raw as any).actionKey === "string" ? String((raw as any).actionKey).trim().slice(0, 120) : "";
   const title = typeof (raw as any).title === "string" ? String((raw as any).title).trim().slice(0, 200) : "";
   const updatedAt = typeof (raw as any).updatedAt === "string" ? String((raw as any).updatedAt).trim().slice(0, 80) : "";
-  if (!phase && !label && !actionKey && !title && !updatedAt) return null;
+  const round = Number.isFinite(Number((raw as any).round)) ? Math.max(1, Math.min(99, Math.floor(Number((raw as any).round)))) : null;
+  const completedSteps = Number.isFinite(Number((raw as any).completedSteps)) ? Math.max(0, Math.min(99, Math.floor(Number((raw as any).completedSteps)))) : null;
+  const lastCompletedTitle =
+    typeof (raw as any).lastCompletedTitle === "string" ? String((raw as any).lastCompletedTitle).trim().slice(0, 200) : "";
+  if (!phase && !label && !actionKey && !title && !updatedAt && round == null && completedSteps == null && !lastCompletedTitle) return null;
   return {
     phase: phase || null,
     label: label || null,
     actionKey: actionKey || null,
     title: title || null,
     updatedAt: updatedAt || null,
+    round,
+    completedSteps,
+    lastCompletedTitle: lastCompletedTitle || null,
   };
+}
+
+function describeLiveStatusMeta(status: LiveStatus | null): string | null {
+  if (!status) return null;
+  const parts: string[] = [];
+  if (typeof status.round === "number" && Number.isFinite(status.round) && status.round > 1) {
+    parts.push(`Round ${status.round}`);
+  }
+  if (typeof status.completedSteps === "number" && Number.isFinite(status.completedSteps) && status.completedSteps > 0) {
+    parts.push(`${status.completedSteps} step${status.completedSteps === 1 ? "" : "s"} done`);
+  }
+  return parts.length ? parts.join(" · ") : null;
+}
+
+function LiveProgressCard({ status }: { status: LiveStatus }) {
+  const meta = describeLiveStatusMeta(status);
+  const lastCompletedTitle = status.lastCompletedTitle?.trim() || null;
+  return (
+    <div className="rounded-3xl border border-brand-blue/15 bg-blue-50/70 px-4 py-3 text-zinc-800 shadow-[0_8px_30px_rgba(29,78,216,0.08)]">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-brand-blue">
+        <ThinkingDots />
+        <span>Pura working</span>
+      </div>
+      <div className="mt-2 text-sm font-semibold text-zinc-900">{status.label || status.title || "Working on it"}</div>
+      {meta ? <div className="mt-1 text-xs font-medium text-zinc-600">{meta}</div> : null}
+      {lastCompletedTitle ? <div className="mt-2 text-xs text-zinc-600">Last completed: {lastCompletedTitle}</div> : null}
+    </div>
+  );
 }
 
 function describeLiveWorkLabel(opts: {
@@ -1091,6 +1129,10 @@ export function PortalAiChatClient({
   const liveWorkStatusLabel = useMemo(() => {
     return activeLiveStatus?.label?.trim() || null;
   }, [activeLiveStatus]);
+  const showActiveLiveProgressCard = useMemo(() => {
+    if (!activeThreadId || !activeLiveStatus) return false;
+    return sending || hasThinkingMessage || regenerating || Boolean(runningActionKey) || Boolean(activeLiveStatus.label);
+  }, [activeLiveStatus, activeThreadId, hasThinkingMessage, regenerating, runningActionKey, sending]);
   const workStatusLabel = useMemo(() => {
     if (liveWorkStatusLabel) return liveWorkStatusLabel;
     if (regenerating && regeneratingTarget?.messageId) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Reworking that response" : "Redoing that response");
@@ -2550,6 +2592,9 @@ export function PortalAiChatClient({
           <div className="space-y-1">
             {threads.map((t) => {
               const active = t.id === activeThreadId;
+              const threadLiveStatus = threadLiveStatusById[t.id] ?? null;
+              const threadLiveMeta = describeLiveStatusMeta(threadLiveStatus);
+              const isWorking = Boolean(threadLiveStatus?.label);
               return (
                 <div
                   key={t.id}
@@ -2567,11 +2612,18 @@ export function PortalAiChatClient({
                     className="w-full rounded-2xl px-3 py-2 pr-10 text-left"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className={classNames("min-w-0 text-sm font-semibold", active ? "text-zinc-900" : "text-zinc-800")}>
-                        <span className="block truncate">
+                      <div className="min-w-0">
+                        <span className={classNames("block truncate text-sm font-semibold", active ? "text-zinc-900" : "text-zinc-800")}>
                           {t.title || "New chat"}
                           {t.isPinned ? <span className="ml-2 text-[11px] font-bold text-zinc-500">PINNED</span> : null}
                         </span>
+                        {isWorking ? (
+                          <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
+                            <span className="inline-flex h-2 w-2 rounded-full bg-brand-blue animate-pulse" />
+                            <span className="truncate">{threadLiveStatus?.label}</span>
+                            {threadLiveMeta ? <span className="hidden truncate text-zinc-500 md:inline">· {threadLiveMeta}</span> : null}
+                          </div>
+                        ) : null}
                       </div>
                       <div className="shrink-0 text-xs font-semibold text-zinc-500">{fmtShortTime(t.lastMessageAt || t.updatedAt)}</div>
                     </div>
@@ -2611,7 +2663,7 @@ export function PortalAiChatClient({
       </div>
     </div>
     ),
-    [activeThreadId, closeThreadMenu, createThread, navigateToThread, selectThread, setScheduledOpen, threadMenu, threadMenuThreadId, threads, threadsLoading],
+    [activeThreadId, closeThreadMenu, createThread, navigateToThread, selectThread, setScheduledOpen, threadLiveStatusById, threadMenu, threadMenuThreadId, threads, threadsLoading],
   );
 
   const mobileSidebar = useMemo(
@@ -2626,6 +2678,9 @@ export function PortalAiChatClient({
             <div className="space-y-1">
               {threads.map((t) => {
                 const active = t.id === activeThreadId;
+                const threadLiveStatus = threadLiveStatusById[t.id] ?? null;
+                const threadLiveMeta = describeLiveStatusMeta(threadLiveStatus);
+                const isWorking = Boolean(threadLiveStatus?.label);
                 return (
                   <div
                     key={t.id}
@@ -2646,11 +2701,18 @@ export function PortalAiChatClient({
                       className="w-full rounded-2xl px-3 py-2 pr-10 text-left"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div className={classNames("min-w-0 text-sm font-semibold", active ? "text-zinc-900" : "text-zinc-800")}>
-                          <span className="block truncate">
+                        <div className="min-w-0">
+                          <span className={classNames("block truncate text-sm font-semibold", active ? "text-zinc-900" : "text-zinc-800")}>
                             {t.title || "New chat"}
                             {t.isPinned ? <span className="ml-2 text-[11px] font-bold text-zinc-500">PINNED</span> : null}
                           </span>
+                          {isWorking ? (
+                            <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
+                              <span className="inline-flex h-2 w-2 rounded-full bg-brand-blue animate-pulse" />
+                              <span className="truncate">{threadLiveStatus?.label}</span>
+                              {threadLiveMeta ? <span className="truncate text-zinc-500">· {threadLiveMeta}</span> : null}
+                            </div>
+                          ) : null}
                         </div>
                         <div className="shrink-0 text-xs font-semibold text-zinc-500">{fmtShortTime(t.lastMessageAt || t.updatedAt)}</div>
                       </div>
@@ -2689,7 +2751,7 @@ export function PortalAiChatClient({
         </div>
       </div>
     ),
-    [activeThreadId, closeThreadMenu, navigateToThread, selectThread, threadMenu, threadMenuThreadId, threads, threadsLoading],
+    [activeThreadId, closeThreadMenu, navigateToThread, selectThread, threadLiveStatusById, threadMenu, threadMenuThreadId, threads, threadsLoading],
   );
 
   const mobileHeaderActions = useMemo(
@@ -3561,6 +3623,11 @@ export function PortalAiChatClient({
                     );
                   });
                 })()}
+                {showActiveLiveProgressCard && activeLiveStatus ? (
+                  <div className="mt-3">
+                    <LiveProgressCard status={activeLiveStatus} />
+                  </div>
+                ) : null}
                 <div ref={endRef} />
               </>
             ) : showWelcomeComposer ? (
