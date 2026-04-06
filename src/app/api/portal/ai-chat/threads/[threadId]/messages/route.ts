@@ -2518,8 +2518,26 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     : {};
   const lastCanvasUrl = typeof ctxJson.lastCanvasUrl === "string" && ctxJson.lastCanvasUrl.trim() ? String(ctxJson.lastCanvasUrl).trim().slice(0, 1200) : null;
   const lastWorkTitle = typeof ctxJson.lastWorkTitle === "string" && ctxJson.lastWorkTitle.trim() ? String(ctxJson.lastWorkTitle).trim().slice(0, 200) : null;
+  const runs = Array.isArray(ctxJson.runs)
+    ? (ctxJson.runs as any[])
+        .slice(-20)
+        .map((run) => ({
+          at: typeof run?.at === "string" ? String(run.at).trim().slice(0, 80) : null,
+          workTitle: typeof run?.workTitle === "string" ? String(run.workTitle).trim().slice(0, 200) : null,
+          assistantMessageId: typeof run?.assistantMessageId === "string" ? String(run.assistantMessageId).trim().slice(0, 200) : null,
+          canvasUrl: typeof run?.canvasUrl === "string" ? String(run.canvasUrl).trim().slice(0, 1200) : null,
+          steps: Array.isArray(run?.steps)
+            ? run.steps.slice(0, 12).map((step: any) => ({
+                key: typeof step?.key === "string" ? String(step.key).trim().slice(0, 120) : "",
+                title: typeof step?.title === "string" ? String(step.title).trim().slice(0, 200) : "",
+                ok: Boolean(step?.ok),
+                linkUrl: typeof step?.linkUrl === "string" ? String(step.linkUrl).trim().slice(0, 1200) : null,
+              }))
+            : [],
+        }))
+    : [];
 
-  return NextResponse.json({ ok: true, messages, threadContext: { lastCanvasUrl, lastWorkTitle } });
+  return NextResponse.json({ ok: true, messages, threadContext: { lastCanvasUrl, lastWorkTitle, runs } });
 }
 
 async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
@@ -3016,6 +3034,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     const runTrace = {
       at: now.toISOString(),
       workTitle: pendingConfirm.workTitle ?? null,
+      assistantMessageId: assistantMsg?.id ?? null,
       steps: confirmedSteps.map((s, idx) => ({
         key: s.key,
         title: s.title,
@@ -3033,7 +3052,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
     const openScheduledTasks = confirmedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
-    return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, clientUiActions, openScheduledTasks });
+    return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, clientUiActions, openScheduledTasks, runTrace });
   }
 
   const attachmentLines = attachments
@@ -3517,6 +3536,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           const runTrace = {
             at: now.toISOString(),
             workTitle: title || keyParsed.data,
+            assistantMessageId: assistantMsg?.id ?? null,
             steps: [{ key: keyParsed.data, title, ok: Boolean((exec as any).ok), linkUrl }],
             canvasUrl,
           };
@@ -3536,7 +3556,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
           if (assistantText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText });
 
-          return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: cua ? [cua] : [], openScheduledTasks: String(keyParsed.data).startsWith("ai_chat.scheduled.") });
+          return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: cua ? [cua] : [], openScheduledTasks: String(keyParsed.data).startsWith("ai_chat.scheduled."), runTrace });
         }
       }
 
@@ -4495,6 +4515,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const runTrace = {
         at: now.toISOString(),
         workTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
+        assistantMessageId: assistantMsg?.id ?? null,
         steps: allResolvedSteps.map((s, idx) => ({ key: s.key, title: s.title, ok: Boolean(allResults[idx]?.ok), linkUrl: allResults[idx]?.linkUrl ?? null })),
         canvasUrl,
       };
@@ -4516,7 +4537,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       if (assistantTextFinal) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: assistantTextFinal });
 
       const openScheduledTasks = allResolvedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
-      return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: allClientUiActions, openScheduledTasks });
+      return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: allClientUiActions, openScheduledTasks, runTrace });
     } catch {
       // If planning fails, fall through to existing behavior.
     }

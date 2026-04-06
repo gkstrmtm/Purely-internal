@@ -67,8 +67,24 @@ export async function POST(req: Request) {
   }
 
   const cua = (exec as any)?.clientUiAction ?? null;
+  const assistantMessage = (exec as any)?.assistantMessage ?? null;
+  const runTrace = {
+    at: new Date().toISOString(),
+    workTitle: String((exec as any)?.assistantMessage?.text || "").trim() ? String(action).slice(0, 120) : String(action).slice(0, 120),
+    assistantMessageId: assistantMessage && typeof assistantMessage.id === "string" ? String(assistantMessage.id).trim().slice(0, 200) : null,
+    steps: [
+      {
+        key: String(action).slice(0, 120),
+        title: String(action).slice(0, 160),
+        ok: Boolean((exec as any)?.ok),
+        linkUrl: typeof (exec as any)?.linkUrl === "string" ? String((exec as any).linkUrl).trim().slice(0, 1200) : null,
+      },
+    ],
+    canvasUrl: typeof (exec as any)?.linkUrl === "string" ? String((exec as any).linkUrl).trim().slice(0, 1200) : null,
+  };
   return NextResponse.json({
     ...(exec as any),
+    runTrace,
     clientUiActions: Array.isArray((exec as any)?.clientUiActions)
       ? (exec as any).clientUiActions
       : cua

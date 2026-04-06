@@ -98,6 +98,21 @@ type AssistantAction = {
   args: Record<string, unknown>;
 };
 
+type RunTraceStep = {
+  key: string;
+  title: string;
+  ok: boolean;
+  linkUrl?: string | null;
+};
+
+type RunTrace = {
+  at: string | null;
+  workTitle: string | null;
+  assistantMessageId?: string | null;
+  canvasUrl?: string | null;
+  steps: RunTraceStep[];
+};
+
 type CanvasUiCandidate = { role: string; name: string; tag: string; nth: number };
 
 type Message = {
@@ -106,6 +121,7 @@ type Message = {
   text: string;
   attachmentsJson: any;
   assistantActions?: AssistantAction[];
+  runTrace?: RunTrace | null;
   displayMode?: ChatMode;
   createdAt: string;
   sendAt: string | null;
@@ -561,6 +577,33 @@ function MessageBubble({
           })}
         </div>
       ) : null}
+
+      {!isUser && !isThinking && msg.runTrace?.steps?.length ? (
+        <div
+          className={classNames(
+            "mt-3 rounded-2xl border px-3 py-2",
+            isWorkAssistant ? "border-white/10 bg-white/5 text-white/90" : "border-zinc-200 bg-white/70 text-zinc-700",
+          )}
+        >
+          <div className={classNames("flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-wide", isWorkAssistant ? "text-white/65" : "text-zinc-500")}>
+            <span>{msg.runTrace.workTitle || "Pura work trace"}</span>
+            <span>{msg.runTrace.steps.length} step{msg.runTrace.steps.length === 1 ? "" : "s"}</span>
+          </div>
+          <div className="mt-2 space-y-1.5">
+            {msg.runTrace.steps.slice(0, 4).map((step, idx) => (
+              <div key={`${step.key}-${idx}`} className="flex items-start gap-2 text-[12px] leading-5">
+                <span className={classNames("mt-[5px] inline-block h-2 w-2 shrink-0 rounded-full", step.ok ? "bg-emerald-500" : "bg-amber-500")} />
+                <span className={classNames(isWorkAssistant ? "text-white/90" : "text-zinc-700")}>{step.title || step.key}</span>
+              </div>
+            ))}
+            {msg.runTrace.steps.length > 4 ? (
+              <div className={classNames("pl-4 text-[11px]", isWorkAssistant ? "text-white/60" : "text-zinc-500")}>
+                +{msg.runTrace.steps.length - 4} more step{msg.runTrace.steps.length - 4 === 1 ? "" : "s"}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 
@@ -584,6 +627,57 @@ function MessageBubble({
 function applyAssistantDisplayMode(message: Message, mode: ChatMode | null | undefined): Message {
   if (!message || message.role !== "assistant") return message;
   return { ...message, displayMode: mode || message.displayMode };
+}
+
+function normalizeRunTrace(raw: unknown): RunTrace | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const stepsRaw = Array.isArray((raw as any).steps) ? ((raw as any).steps as unknown[]) : [];
+  const steps = stepsRaw
+    .map((step) => {
+      if (!step || typeof step !== "object" || Array.isArray(step)) return null;
+      const key = typeof (step as any).key === "string" ? String((step as any).key).trim().slice(0, 120) : "";
+      const title = typeof (step as any).title === "string" ? String((step as any).title).trim().slice(0, 200) : "";
+      return {
+        key,
+        title: title || key,
+        ok: Boolean((step as any).ok),
+        linkUrl: typeof (step as any).linkUrl === "string" ? String((step as any).linkUrl).trim().slice(0, 1200) : null,
+      } satisfies RunTraceStep;
+    })
+    .filter((step): step is RunTraceStep => Boolean(step && (step.title || step.key)))
+    .slice(0, 12);
+
+  if (!steps.length) return null;
+
+  return {
+    at: typeof (raw as any).at === "string" ? String((raw as any).at).trim().slice(0, 80) : null,
+    workTitle: typeof (raw as any).workTitle === "string" ? String((raw as any).workTitle).trim().slice(0, 200) : null,
+    assistantMessageId: typeof (raw as any).assistantMessageId === "string" ? String((raw as any).assistantMessageId).trim().slice(0, 200) : null,
+    canvasUrl: typeof (raw as any).canvasUrl === "string" ? String((raw as any).canvasUrl).trim().slice(0, 1200) : null,
+    steps,
+  };
+}
+
+function attachRunTraceToMessage(message: Message, rawTrace: unknown): Message {
+  const trace = normalizeRunTrace(rawTrace);
+  if (!trace) return message;
+  return { ...message, runTrace: { ...trace, assistantMessageId: message.id } };
+}
+
+function applyRunTracesToMessages(messages: Message[], runsRaw: unknown): Message[] {
+  const runs = Array.isArray(runsRaw) ? runsRaw : [];
+  const traceByMessageId = new Map<string, RunTrace>();
+  for (const raw of runs) {
+    const trace = normalizeRunTrace(raw);
+    if (!trace?.assistantMessageId) continue;
+    traceByMessageId.set(trace.assistantMessageId, trace);
+  }
+
+  return messages.map((message) => {
+    if (message.role !== "assistant") return message;
+    const trace = traceByMessageId.get(message.id);
+    return trace ? { ...message, runTrace: trace } : message;
+  });
 }
 
 export function PortalAiChatClient({
@@ -1104,7 +1198,10 @@ export function PortalAiChatClient({
         setMessagesByThread((prev) => ({
           ...prev,
           [threadId]: Array.isArray(json.messages)
-            ? (json.messages as Message[]).map((message) => applyAssistantDisplayMode(message, messageDisplayModesByIdRef.current[message.id]))
+            ? applyRunTracesToMessages(
+                (json.messages as Message[]).map((message) => applyAssistantDisplayMode(message, messageDisplayModesByIdRef.current[message.id])),
+                json?.threadContext?.runs,
+              )
             : [],
         }));
         const nextLastCanvasUrl =
@@ -1643,7 +1740,7 @@ export function PortalAiChatClient({
                 }
               }
               if (json.assistantMessage) {
-                const assistantMessage = applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend);
+                const assistantMessage = attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace);
                 rememberMessageDisplayMode(assistantMessage.id, assistantMessage.displayMode);
                 next.push(assistantMessage);
               }
@@ -1687,7 +1784,7 @@ export function PortalAiChatClient({
             updateThreadMessages(threadIdForSend, (prev) => {
               const next = [...prev];
               if (json2.assistantMessage) {
-                const am = applyAssistantDisplayMode(json2.assistantMessage as Message, modeAtSend);
+                const am = attachRunTraceToMessage(applyAssistantDisplayMode(json2.assistantMessage as Message, modeAtSend), (json2 as any).runTrace);
                 rememberMessageDisplayMode(am.id, am.displayMode);
                 next.push({ ...am, assistantActions: assistantActions2.length ? assistantActions2 : undefined });
               }
@@ -1726,7 +1823,7 @@ export function PortalAiChatClient({
               }
             }
             if (json.assistantMessage) {
-              const am = applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend);
+              const am = attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace);
               rememberMessageDisplayMode(am.id, am.displayMode);
               next.push({ ...am, assistantActions: assistantActions.length ? assistantActions : undefined });
             }
@@ -1811,7 +1908,7 @@ export function PortalAiChatClient({
             const next: Message[] = [...cleaned];
             if (json.userMessage) next.push(json.userMessage);
             if (json.assistantMessage) {
-              const assistantMessage = applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend);
+              const assistantMessage = attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace);
               rememberMessageDisplayMode(assistantMessage.id, assistantMessage.displayMode);
               next.push(assistantMessage);
             }
@@ -1861,7 +1958,7 @@ export function PortalAiChatClient({
           updateThreadMessages(threadIdForSend, (prev) => {
             const next = [...prev];
             if (json2.assistantMessage) {
-              const am = applyAssistantDisplayMode(json2.assistantMessage as Message, modeAtSend);
+              const am = attachRunTraceToMessage(applyAssistantDisplayMode(json2.assistantMessage as Message, modeAtSend), (json2 as any).runTrace);
               rememberMessageDisplayMode(am.id, am.displayMode);
               next.push({ ...am, assistantActions: assistantActions2.length ? assistantActions2 : undefined });
             }
@@ -1893,7 +1990,7 @@ export function PortalAiChatClient({
           const next: Message[] = [...cleaned];
           if (json.userMessage) next.push(json.userMessage);
           if (json.assistantMessage) {
-            const am = applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend);
+            const am = attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace);
             rememberMessageDisplayMode(am.id, am.displayMode);
             next.push({ ...am, assistantActions: assistantActions.length ? assistantActions : undefined });
           }
@@ -1983,6 +2080,7 @@ export function PortalAiChatClient({
         assistantChoices?: AssistantChoice[];
         ambiguousContacts?: AmbiguousContact[];
         linkUrl?: string | null;
+        runTrace?: RunTrace | null;
         clientUiActions?: unknown[];
         openScheduledTasks?: boolean;
       };
@@ -2028,7 +2126,7 @@ export function PortalAiChatClient({
         }
 
         if (json.assistantMessage && threadIdForAction) {
-          const assistantMessage = applyAssistantDisplayMode(json.assistantMessage as Message, modeAtAction);
+          const assistantMessage = attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtAction), (json as any).runTrace);
           rememberMessageDisplayMode(assistantMessage.id, assistantMessage.displayMode);
           updateThreadMessages(threadIdForAction, (prev) => [...prev, assistantMessage]);
         }
