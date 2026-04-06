@@ -9,6 +9,14 @@ const safeStr = (v: unknown, max = 120): string => {
   return v.trim().replace(/[\r\n\t]+/g, " ").slice(0, max);
 };
 
+const looksLikeUrl = (v: unknown): boolean => {
+  const s = safeStr(v, 240);
+  if (!s) return false;
+  if (s.startsWith("http://") || s.startsWith("https://")) return true;
+  if (s.startsWith("/")) return true;
+  return false;
+};
+
 export function summarizeIdsFromArgs(args: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(args || {})) {
@@ -37,14 +45,67 @@ function pickLabel(obj: Record<string, unknown>): string {
   return (
     safeStr(obj.label, 120) ||
     safeStr(obj.name, 120) ||
+    safeStr(obj.businessName, 120) ||
     safeStr(obj.title, 120) ||
+    safeStr(obj.subject, 120) ||
+    safeStr(obj.excerpt, 120) ||
     safeStr(obj.slug, 120) ||
     safeStr(obj.fileName, 120) ||
     safeStr(obj.tag, 120) ||
+    safeStr(obj.peerAddress, 120) ||
+    safeStr(obj.toNumberE164, 60) ||
+    safeStr(obj.toAddress, 120) ||
+    safeStr(obj.fromAddress, 120) ||
     safeStr(obj.email, 120) ||
     safeStr(obj.phone, 120) ||
+    safeStr(obj.provider, 80) ||
+    safeStr(obj.status, 80) ||
+    safeStr(obj.kind, 80) ||
     ""
   );
+}
+
+function pickId(obj: Record<string, unknown>): string {
+  const direct = safeStr((obj as any).id, 140);
+  if (direct) return direct;
+
+  const candidates = [
+    "userId",
+    "contactId",
+    "threadId",
+    "messageId",
+    "bookingId",
+    "calendarId",
+    "newsletterId",
+    "campaignId",
+    "leadId",
+    "pullId",
+    "reportId",
+    "letterId",
+    "folderId",
+    "itemId",
+    "productId",
+    "postId",
+    "submissionId",
+    "domainId",
+    "recipientId",
+    "subscriptionId",
+    "manualCallId",
+    "recordingId",
+  ];
+
+  for (const key of candidates) {
+    const v = safeStr((obj as any)[key], 140);
+    if (v) return v;
+  }
+
+  const url = safeStr((obj as any).url, 240);
+  if (url && looksLikeUrl(url)) return url;
+
+  const openUrl = safeStr((obj as any).openUrl, 240);
+  if (openUrl && looksLikeUrl(openUrl)) return openUrl;
+
+  return "";
 }
 
 function previewList<T>(arr: any[], mapFn: (x: any) => T | null): T[] {
@@ -216,33 +277,74 @@ export function previewResultForPlanner(action: PortalAgentActionKey, result: an
     }
 
     // Generic fallback: surface the first list-ish array with id + label.
-    const listKeys = [
+    // This is intentionally broad so new list/search actions automatically feed the planner real IDs.
+    const preferredKeys = [
       "funnels",
       "pages",
       "forms",
+      "submissions",
       "tasks",
       "products",
       "posts",
+      "newsletters",
       "folders",
       "items",
+      "images",
       "members",
+      "users",
       "tags",
       "contacts",
+      "leads",
       "automations",
       "bookings",
+      "calendars",
       "threads",
+      "messages",
+      "scheduledMessages",
+      "letters",
+      "pulls",
+      "reports",
+      "campaigns",
+      "manualCalls",
+      "recipients",
+      "subscriptions",
+      "events",
+      "questions",
+      "voices",
+      "agents",
     ];
-    for (const key of listKeys) {
+
+    const seenKeys = new Set<string>();
+    const tryArrayKey = (key: string): any | null => {
+      if (seenKeys.has(key)) return null;
+      seenKeys.add(key);
       const arr = pickArray(result, key);
-      if (!arr.length) continue;
+      if (!arr.length) return null;
+
       const entries = previewList(arr, (x: any) => {
         if (!isPlainObject(x)) return null;
-        const id = safeStr((x as any).id, 120) || safeStr((x as any).userId, 120);
+        const id = pickId(x);
         const label = pickLabel(x);
         if (!id && !label) return null;
         return { id: id || undefined, label: label || undefined };
       });
-      if (entries.length) return { [key]: entries };
+      if (!entries.length) return null;
+      return { [key]: entries };
+    };
+
+    for (const key of preferredKeys) {
+      const preview = tryArrayKey(key);
+      if (preview) return preview;
+    }
+
+    // Final fallback: any top-level array-of-objects (excluding obvious error arrays).
+    for (const [key, value] of Object.entries(result)) {
+      if (key.toLowerCase().includes("error")) continue;
+      if (key.toLowerCase().includes("warning")) continue;
+      if (!Array.isArray(value) || !value.length) continue;
+      if (!isPlainObject(value[0])) continue;
+      const preview = tryArrayKey(key);
+      if (preview) return preview;
     }
   } catch {
     // best-effort
