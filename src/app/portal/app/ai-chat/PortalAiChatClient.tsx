@@ -4176,6 +4176,8 @@ export function PortalAiChatClient({
                         "rounded-full border px-2 py-0.5",
                         run.status === "completed"
                           ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : run.status === "interrupted"
+                            ? "border-zinc-300 bg-zinc-100 text-zinc-700"
                           : run.status === "partial" || run.status === "needs_input"
                             ? "border-amber-200 bg-amber-50 text-amber-900"
                             : "border-red-200 bg-red-50 text-red-800",
