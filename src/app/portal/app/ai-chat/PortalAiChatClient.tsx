@@ -66,6 +66,7 @@ type Thread = {
   updatedAt: string;
   liveStatus?: LiveStatus | null;
   latestRunStatus?: ThreadRunStatus | null;
+  nextStepContext?: NextStepContext | null;
 };
 
 type ThreadRunStatus = {
@@ -107,6 +108,21 @@ function compareThreadsForSidebar(a: Thread, b: Thread): number {
   if (Boolean(a.isPinned) !== Boolean(b.isPinned)) return a.isPinned ? -1 : 1;
   const pinnedDelta = threadTimestampValue(b.pinnedAt) - threadTimestampValue(a.pinnedAt);
   if (pinnedDelta !== 0) return pinnedDelta;
+
+  const priority = (thread: Thread): number => {
+    if (thread.liveStatus?.label) return 0;
+    const runStatus = String(thread.latestRunStatus?.status || "").trim().toLowerCase();
+    if (runStatus === "needs_input" || runStatus === "failed" || runStatus === "interrupted" || runStatus === "partial") return 1;
+    if (thread.nextStepContext) return 2;
+    return 3;
+  };
+
+  const priorityDelta = priority(a) - priority(b);
+  if (priorityDelta !== 0) return priorityDelta;
+
+  const nextStepDelta = threadTimestampValue(b.nextStepContext?.updatedAt) - threadTimestampValue(a.nextStepContext?.updatedAt);
+  if (nextStepDelta !== 0) return nextStepDelta;
+
   const lastMessageDelta = threadTimestampValue(b.lastMessageAt) - threadTimestampValue(a.lastMessageAt);
   if (lastMessageDelta !== 0) return lastMessageDelta;
   return threadTimestampValue(b.updatedAt) - threadTimestampValue(a.updatedAt);
@@ -1702,11 +1718,12 @@ export function PortalAiChatClient({
       const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error || "Failed to load threads");
       const next = Array.isArray(json.threads)
-        ? (json.threads as Array<Thread & { liveStatus?: unknown; latestRunStatus?: unknown }>).map((thread) => ({
+        ? (json.threads as Array<Thread & { liveStatus?: unknown; latestRunStatus?: unknown; nextStepContext?: unknown }>).map((thread) => ({
             ...thread,
             liveStatus: normalizeLiveStatus(thread?.liveStatus),
             latestRunStatus: normalizeThreadRunStatus(thread?.latestRunStatus),
-          }))
+            nextStepContext: normalizeNextStepContext(thread?.nextStepContext),
+          })).sort(compareThreadsForSidebar)
         : [];
       setThreads(next);
       setThreadLiveStatusById((prev) => {
@@ -1719,6 +1736,17 @@ export function PortalAiChatClient({
           nextStatuses[activeThreadIdRef.current] = activeThreadStatus;
         }
         return nextStatuses;
+      });
+      setThreadNextStepContextById((prev) => {
+        const nextContexts: Record<string, NextStepContext | null> = {};
+        for (const thread of next) {
+          nextContexts[thread.id] = normalizeNextStepContext(thread.nextStepContext);
+        }
+        const activeThreadContext = activeThreadIdRef.current ? prev[activeThreadIdRef.current] ?? null : null;
+        if (activeThreadIdRef.current && activeThreadContext && !nextContexts[activeThreadIdRef.current]) {
+          nextContexts[activeThreadIdRef.current] = activeThreadContext;
+        }
+        return nextContexts;
       });
 
       // Default to a draft "new chat" when opening the page.
@@ -1859,10 +1887,11 @@ export function PortalAiChatClient({
 
   const applyStreamedThreadsSnapshot = useCallback((threadsRaw: unknown) => {
     const next = Array.isArray(threadsRaw)
-      ? (threadsRaw as Array<Thread & { liveStatus?: unknown; latestRunStatus?: unknown }>).map((thread) => ({
+      ? (threadsRaw as Array<Thread & { liveStatus?: unknown; latestRunStatus?: unknown; nextStepContext?: unknown }>).map((thread) => ({
           ...thread,
           liveStatus: normalizeLiveStatus(thread?.liveStatus),
           latestRunStatus: normalizeThreadRunStatus(thread?.latestRunStatus),
+          nextStepContext: normalizeNextStepContext(thread?.nextStepContext),
         }))
       : [];
 
@@ -1882,6 +1911,17 @@ export function PortalAiChatClient({
         nextStatuses[activeThreadIdRef.current] = activeThreadStatus;
       }
       return nextStatuses;
+    });
+    setThreadNextStepContextById((prev) => {
+      const nextContexts: Record<string, NextStepContext | null> = {};
+      for (const thread of next) {
+        nextContexts[thread.id] = normalizeNextStepContext(thread.nextStepContext);
+      }
+      const activeThreadContext = activeThreadIdRef.current ? prev[activeThreadIdRef.current] ?? null : null;
+      if (activeThreadIdRef.current && activeThreadContext && !nextContexts[activeThreadIdRef.current]) {
+        nextContexts[activeThreadIdRef.current] = activeThreadContext;
+      }
+      return nextContexts;
     });
   }, []);
 

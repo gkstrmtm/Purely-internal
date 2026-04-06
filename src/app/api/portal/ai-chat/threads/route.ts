@@ -38,6 +38,27 @@ function normalizeLatestRunStatus(raw: unknown) {
   return { status, runId, updatedAt };
 }
 
+function normalizeThreadNextStepContext(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const suggestions = Array.isArray((raw as any).suggestions)
+    ? ((raw as any).suggestions as unknown[])
+        .map((value) => (typeof value === "string" ? String(value).trim().slice(0, 180) : ""))
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
+  const suggestedPrompt =
+    typeof (raw as any).suggestedPrompt === "string" && (raw as any).suggestedPrompt.trim()
+      ? String((raw as any).suggestedPrompt).trim().slice(0, 180)
+      : suggestions[0] || null;
+  const objective = typeof (raw as any).objective === "string" && (raw as any).objective.trim() ? String((raw as any).objective).trim().slice(0, 400) : null;
+  const workTitle = typeof (raw as any).workTitle === "string" && (raw as any).workTitle.trim() ? String((raw as any).workTitle).trim().slice(0, 200) : null;
+  const summaryText = typeof (raw as any).summaryText === "string" && (raw as any).summaryText.trim() ? String((raw as any).summaryText).trim().slice(0, 280) : null;
+  const updatedAt = typeof (raw as any).updatedAt === "string" && (raw as any).updatedAt.trim() ? String((raw as any).updatedAt).trim().slice(0, 80) : null;
+  const canvasUrl = typeof (raw as any).canvasUrl === "string" && (raw as any).canvasUrl.trim() ? String((raw as any).canvasUrl).trim().slice(0, 1200) : null;
+  if (!suggestedPrompt && !objective && !workTitle && !summaryText) return null;
+  return { updatedAt, objective, workTitle, summaryText, suggestedPrompt, suggestions, canvasUrl };
+}
+
 async function loadLatestRunStatusByThread(ownerId: string, threadIds: string[]) {
   const ids = Array.from(new Set((threadIds || []).map((id) => String(id || "").trim()).filter(Boolean))).slice(0, 200);
   if (!ids.length) return new Map<string, { status: string; runId: string | null; updatedAt: string | null }>();
@@ -140,6 +161,7 @@ export async function GET(req: Request) {
         createdAt: t.createdAt,
         updatedAt: t.updatedAt,
         liveStatus: normalizeThreadLiveStatus(ctxJson.liveStatus),
+        nextStepContext: normalizeThreadNextStepContext(ctxJson.nextStepContext),
       };
     });
 
