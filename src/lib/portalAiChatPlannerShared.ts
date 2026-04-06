@@ -253,6 +253,8 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
     "- IMPORTANT: If prior tool results or context already contain real IDs, copy and reuse those exact IDs in later action args.",
     "- IMPORTANT: Treat ACTIVE funnel/page state from context as the primary source of truth over older historical IDs.",
     "- IMPORTANT: If recent results already show the target resource exists, do not recreate it. Reuse its returned ID and continue.",
+    "- IMPORTANT: For editing an existing funnel page's design, colors, layout, copy, images, or embeds, prefer funnel_builder.pages.generate_html.",
+    "- IMPORTANT: Only use funnel_builder.custom_code_block.generate when the user explicitly wants to edit or create a custom code block itself.",
     "- IMPORTANT: When generating page HTML with funnel_builder.pages.generate_html, include the exact funnelId, exact pageId, and a concrete prompt string every time.",
     "- IMPORTANT: If ACTIVE funnel/page state already gives you the needed funnelId/pageId, do not ask a follow-up question. Use those IDs and continue.",
     "- If you still need something from the user after making progress, ask ONE specific follow-up question.",

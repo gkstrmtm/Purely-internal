@@ -4429,8 +4429,22 @@ async function runDirectAction(opts: {
         "- Avoid placeholder braces like {{var}} unless asked.",
       ];
 
+      const exportedCurrentHtmlFromBlocks =
+        !currentHtmlFromClient &&
+        page.editorMode === "BLOCKS" &&
+        Array.isArray(page.blocksJson) &&
+        page.blocksJson.length
+          ? blocksToCustomHtmlDocument({
+              blocks: page.blocksJson as any,
+              pageId: page.id,
+              ownerId,
+              basePath,
+              title: page.title || page.funnel.name || "Funnel page",
+            })
+          : "";
+
       const effectiveCurrentHtml = (
-        (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : page.customHtml || "")
+        (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : exportedCurrentHtmlFromBlocks || page.customHtml || "")
       ).trim();
       const hasCurrentHtml = Boolean(effectiveCurrentHtml);
 
@@ -4537,7 +4551,11 @@ async function runDirectAction(opts: {
 
         const updated = await prisma.creditFunnelPage.update({
           where: { id: page.id },
-          data: { editorMode: "CUSTOM_HTML", customChatJson: nextChat },
+          data: {
+            editorMode: "CUSTOM_HTML",
+            ...(effectiveCurrentHtml ? { customHtml: normalizePortalHostedPaths(effectiveCurrentHtml) } : {}),
+            customChatJson: nextChat,
+          },
           select: {
             id: true,
             slug: true,

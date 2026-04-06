@@ -3618,33 +3618,6 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         return { modelText, actions, directMessage };
       };
 
-      const runAndRecord = async (key: PortalAgentActionKey, title: string, args: Record<string, unknown>) => {
-        allResolvedSteps.push({ key, title, args });
-        const exec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: key, args });
-        const cua = (exec as any).clientUiAction ?? null;
-        const execError = typeof (exec as any).error === "string" ? String((exec as any).error).trim().slice(0, 800) : "";
-        const execResult = (exec as any).result ?? (execError ? { ok: false, error: execError } : null);
-
-        allResults.push({
-          ok: Boolean((exec as any).ok),
-          status: Number((exec as any).status) || 0,
-          action: key,
-          args,
-          result: execResult,
-          linkUrl: (exec as any).linkUrl ?? null,
-          clientUiAction: cua,
-          ...(execError ? { error: execError } : {}),
-        } as any);
-        if (cua) allClientUiActions.push(cua);
-
-        const derivedPatch = deriveThreadContextPatchFromAction(key, args, (exec as any).result);
-        if (derivedPatch && typeof derivedPatch === "object" && !Array.isArray(derivedPatch)) {
-          allContextPatches.push(derivedPatch);
-          localCtx = { ...localCtx, ...(derivedPatch as any) };
-        }
-        return exec;
-      };
-
       for (let round = 0; round < MAX_AUTORUN_ROUNDS; round += 1) {
         if (Date.now() - autoStartMs > MAX_AUTORUN_MS) break;
         const lastRunSummary = allResolvedSteps.length || lastAutoClarify || lastAutoExecutionError || lastAutoResolutionError
@@ -4121,21 +4094,38 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               ? String((cleaned as any).error).trim().slice(0, 500)
               : null;
           const fallbackError = typeof (r as any)?.error === "string" ? String((r as any).error).trim().slice(0, 500) : null;
+          const returnedQuestion =
+            cleaned && typeof cleaned === "object" && !Array.isArray(cleaned) && typeof (cleaned as any).question === "string"
+              ? String((cleaned as any).question).trim().slice(0, 800)
+              : null;
+          const returnedActionsCount =
+            cleaned && typeof cleaned === "object" && !Array.isArray(cleaned) && Array.isArray((cleaned as any).actions)
+              ? Math.min(12, ((cleaned as any).actions as unknown[]).length)
+              : 0;
+          const proposalOnly =
+            String((r as any).action || "") === "funnel_builder.custom_code_block.generate" &&
+            Boolean(returnedQuestion || returnedActionsCount || (cleaned && typeof cleaned === "object" && !Array.isArray(cleaned) && (typeof (cleaned as any).html === "string" || typeof (cleaned as any).css === "string")));
+          const completed = Boolean((r as any).ok) && Number((r as any).status) >= 200 && Number((r as any).status) < 300 && !returnedQuestion && !proposalOnly;
           return {
             ok: Boolean((r as any).ok),
+            completed,
             status: Number((r as any).status) || 0,
             action: (r as any).action,
             args: (r as any).args,
             linkUrl: (r as any).linkUrl ?? null,
             clientUiAction: (r as any).clientUiAction ?? null,
+            question: returnedQuestion,
+            proposalOnly,
+            returnedActionsCount,
             error: extractedError || fallbackError,
             result: cleaned,
           };
         });
 
         const workTitle = allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || "";
-        const okCount = resultsForSummary.filter((r: any) => r && r.ok && Number(r.status) >= 200 && Number(r.status) < 300).length;
+        const okCount = resultsForSummary.filter((r: any) => r && r.completed).length;
         const failedCount = resultsForSummary.filter((r: any) => !r || !r.ok || Number(r.status) < 200 || Number(r.status) >= 300).length;
+        const pendingCount = resultsForSummary.filter((r: any) => r && r.ok && !r.completed).length;
 
         const directMessage = finalDirectMessage ? String(finalDirectMessage).trim().slice(0, 800) : "";
         assistantTextFinal = stripEmptyAssistantBullets(
@@ -4144,8 +4134,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               system: [
                 "You are Pura, an AI assistant inside a SaaS portal.",
                 "Write a normal chat reply (not a report).",
-                "Hard constraint: NEVER claim an action succeeded unless ALL steps have ok=true and a 2xx status.",
+                "Hard constraint: NEVER claim an action succeeded unless ALL steps are completed=true.",
                 "If ANY step has ok=false or a non-2xx status, you must clearly say it failed and what happens next.",
+                "If ANY step returned a question or proposalOnly=true, you must clearly say the work is not finished yet.",
                 "Do not ask the user to do the portal work themselves unless you truly need missing info.",
                 "Formatting rules:",
                 "- 1-3 short paragraphs.",
@@ -4155,6 +4146,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 "Content rules:",
                 "- Say what you did and the outcome in plain language.",
                 "- If something failed, say what failed and the next step.",
+                "- If something is pending because the tool asked a question or only produced a proposal, say that directly and do not pretend the edit happened.",
                 "- If you need the user to choose something, ask ONE specific question.",
               ].join("\n"),
               user: `Action execution results (JSON):\n${JSON.stringify(
@@ -4162,7 +4154,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                   workTitle,
                   steps: allResolvedSteps,
                   results: resultsForSummary,
-                  summary: { total: allResolvedSteps.length, okCount, failedCount },
+                  summary: { total: allResolvedSteps.length, okCount, failedCount, pendingCount },
                   modelDirectMessage: directMessage || null,
                   canvasUrl,
                   userPrompt: String(promptMessage || "").slice(0, 2000),
