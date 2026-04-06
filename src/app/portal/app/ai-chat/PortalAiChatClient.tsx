@@ -592,7 +592,7 @@ function MessageBubble({
           <div className="mt-2 space-y-1.5">
             {msg.runTrace.steps.slice(0, 4).map((step, idx) => (
               <div key={`${step.key}-${idx}`} className="flex items-start gap-2 text-[12px] leading-5">
-                <span className={classNames("mt-[5px] inline-block h-2 w-2 shrink-0 rounded-full", step.ok ? "bg-emerald-500" : "bg-amber-500")} />
+                <span className={classNames("mt-1.25 inline-block h-2 w-2 shrink-0 rounded-full", step.ok ? "bg-emerald-500" : "bg-amber-500")} />
                 <span className={classNames(isWorkAssistant ? "text-white/90" : "text-zinc-700")}>{step.title || step.key}</span>
               </div>
             ))}
@@ -632,20 +632,20 @@ function applyAssistantDisplayMode(message: Message, mode: ChatMode | null | und
 function normalizeRunTrace(raw: unknown): RunTrace | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const stepsRaw = Array.isArray((raw as any).steps) ? ((raw as any).steps as unknown[]) : [];
-  const steps = stepsRaw
-    .map((step) => {
-      if (!step || typeof step !== "object" || Array.isArray(step)) return null;
-      const key = typeof (step as any).key === "string" ? String((step as any).key).trim().slice(0, 120) : "";
-      const title = typeof (step as any).title === "string" ? String((step as any).title).trim().slice(0, 200) : "";
-      return {
-        key,
-        title: title || key,
-        ok: Boolean((step as any).ok),
-        linkUrl: typeof (step as any).linkUrl === "string" ? String((step as any).linkUrl).trim().slice(0, 1200) : null,
-      } satisfies RunTraceStep;
-    })
-    .filter((step): step is RunTraceStep => Boolean(step && (step.title || step.key)))
-    .slice(0, 12);
+  const steps: RunTraceStep[] = [];
+  for (const step of stepsRaw) {
+    if (!step || typeof step !== "object" || Array.isArray(step)) continue;
+    const key = typeof (step as any).key === "string" ? String((step as any).key).trim().slice(0, 120) : "";
+    const title = typeof (step as any).title === "string" ? String((step as any).title).trim().slice(0, 200) : "";
+    if (!key && !title) continue;
+    steps.push({
+      key,
+      title: title || key,
+      ok: Boolean((step as any).ok),
+      linkUrl: typeof (step as any).linkUrl === "string" ? String((step as any).linkUrl).trim().slice(0, 1200) : null,
+    });
+    if (steps.length >= 12) break;
+  }
 
   if (!steps.length) return null;
 
@@ -678,6 +678,36 @@ function applyRunTracesToMessages(messages: Message[], runsRaw: unknown): Messag
     const trace = traceByMessageId.get(message.id);
     return trace ? { ...message, runTrace: trace } : message;
   });
+}
+
+function describeLiveWorkLabel(opts: {
+  text: string;
+  canvasUrl?: string | null;
+  actionKey?: string | null;
+  mode: ChatMode;
+  isRetry?: boolean;
+}): string | null {
+  const haystack = [String(opts.actionKey || ""), String(opts.text || ""), String(opts.canvasUrl || "")]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+  if (!haystack.trim()) return null;
+
+  const prefix = opts.mode === "work" ? (opts.isRetry ? "Reworking" : "Working") : opts.isRetry ? "Rethinking" : "Thinking through";
+
+  if (/\bbooking\.calendars\.get\b|\bcalendar|booking|appointment|availability|meeting\b/.test(haystack)) return `${prefix} booking context`;
+  if (/\btasks?\.|task|todo|checklist|follow[-\s]?up\b/.test(haystack)) return `${prefix} task context`;
+  if (/\binbox\.|\binbox|email|sms|text message|conversation|thread\b/.test(haystack)) return `${prefix} inbox context`;
+  if (/\bcontacts?\.|\bcontact|lead|customer|client|prospect\b/.test(haystack)) return `${prefix} contact context`;
+  if (/\bpeople\.users\.list\b|\bteam|staff|employee|member|owner|user\b/.test(haystack)) return `${prefix} team context`;
+  if (/\bmedia\.|\bmedia|asset|image|photo|video|upload|folder|library\b/.test(haystack)) return `${prefix} media context`;
+  if (/\breporting\.|\breporting|dashboard|analytics|metrics|revenue|sales|stripe|payment\b/.test(haystack)) return `${prefix} reporting context`;
+  if (/\bai_chat\.|\bai chat|chat thread|conversation history\b/.test(haystack)) return `${prefix} chat context`;
+  if (/\bfunnel|landing page|page builder|website|checkout|upsell|downsell|thank you\b/.test(haystack) || String(opts.canvasUrl || "").toLowerCase().includes("/funnel")) {
+    return `${prefix} funnel context`;
+  }
+
+  return null;
 }
 
 export function PortalAiChatClient({
@@ -1012,12 +1042,31 @@ export function PortalAiChatClient({
   }, [pathname, searchParams]);
   const effectiveChatMode: ChatMode = chatMode;
   const hasThinkingMessage = messages.some((msg) => msg.role === "assistant" && String(msg.id || "").startsWith("optimistic-assistant-"));
+  const latestPendingUserText = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (!msg || msg.role !== "user") continue;
+      const text = String(msg.text || "").trim();
+      if (!text) continue;
+      return text;
+    }
+    return "";
+  }, [messages]);
+  const inferredWorkStatusLabel = useMemo(() => {
+    return describeLiveWorkLabel({
+      text: input || latestPendingUserText,
+      canvasUrl,
+      actionKey: runningActionKey,
+      mode: effectiveChatMode,
+      isRetry: regenerating,
+    });
+  }, [canvasUrl, effectiveChatMode, input, latestPendingUserText, regenerating, runningActionKey]);
   const workStatusLabel = useMemo(() => {
-    if (regenerating && regeneratingTarget?.messageId) return effectiveChatMode === "work" ? "Reworking that response" : "Redoing that response";
-    if (runningActionKey) return effectiveChatMode === "work" ? "Working through the next step" : "Thinking through the next step";
-    if (sending || hasThinkingMessage) return effectiveChatMode === "work" ? "Working on it" : "Thinking it through";
+    if (regenerating && regeneratingTarget?.messageId) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Reworking that response" : "Redoing that response");
+    if (runningActionKey) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Working through the next step" : "Thinking through the next step");
+    if (sending || hasThinkingMessage) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Working on it" : "Thinking it through");
     return null;
-  }, [effectiveChatMode, hasThinkingMessage, regenerating, regeneratingTarget?.messageId, runningActionKey, sending]);
+  }, [effectiveChatMode, hasThinkingMessage, inferredWorkStatusLabel, regenerating, regeneratingTarget?.messageId, runningActionKey, sending]);
 
   useEffect(() => {
     activeThreadIdRef.current = activeThreadId;
