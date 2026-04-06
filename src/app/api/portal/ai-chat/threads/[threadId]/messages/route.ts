@@ -2488,6 +2488,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
   const ownerId = auth.session.user.id;
   const memberId = (auth.session.user as any).memberId || ownerId;
   const { threadId } = await ctx.params;
+  const view = (() => {
+    try {
+      return new URL(req.url).searchParams.get("view") || "";
+    } catch {
+      return "";
+    }
+  })();
 
   const thread = await (prisma as any).portalAiChatThread.findFirst({
     where: { id: threadId, ownerId },
@@ -2518,6 +2525,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     : {};
   const lastCanvasUrl = typeof ctxJson.lastCanvasUrl === "string" && ctxJson.lastCanvasUrl.trim() ? String(ctxJson.lastCanvasUrl).trim().slice(0, 1200) : null;
   const lastWorkTitle = typeof ctxJson.lastWorkTitle === "string" && ctxJson.lastWorkTitle.trim() ? String(ctxJson.lastWorkTitle).trim().slice(0, 200) : null;
+  const liveStatus =
+    ctxJson.liveStatus && typeof ctxJson.liveStatus === "object" && !Array.isArray(ctxJson.liveStatus)
+      ? {
+          phase: typeof ctxJson.liveStatus.phase === "string" ? String(ctxJson.liveStatus.phase).trim().slice(0, 80) : null,
+          label: typeof ctxJson.liveStatus.label === "string" ? String(ctxJson.liveStatus.label).trim().slice(0, 200) : null,
+          actionKey: typeof ctxJson.liveStatus.actionKey === "string" ? String(ctxJson.liveStatus.actionKey).trim().slice(0, 120) : null,
+          title: typeof ctxJson.liveStatus.title === "string" ? String(ctxJson.liveStatus.title).trim().slice(0, 200) : null,
+          updatedAt: typeof ctxJson.liveStatus.updatedAt === "string" ? String(ctxJson.liveStatus.updatedAt).trim().slice(0, 80) : null,
+        }
+      : null;
   const runs = Array.isArray(ctxJson.runs)
     ? (ctxJson.runs as any[])
         .slice(-20)
@@ -2537,7 +2554,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
         }))
     : [];
 
-  return NextResponse.json({ ok: true, messages, threadContext: { lastCanvasUrl, lastWorkTitle, runs } });
+  const threadContext = { lastCanvasUrl, lastWorkTitle, liveStatus, runs };
+
+  if (view === "status") {
+    return NextResponse.json({ ok: true, threadContext });
+  }
+
+  return NextResponse.json({ ok: true, messages, threadContext });
 }
 
 async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
@@ -2601,6 +2624,52 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       .trim()
       .slice(0, 80);
     return tz || null;
+  };
+
+  type LiveStatusPhase = "bootstrap" | "planning" | "resolving" | "executing" | "clarifying" | "confirming" | "summarizing";
+
+  const normalizeLiveStatus = (
+    status: { phase: LiveStatusPhase; label?: string | null; actionKey?: string | null; title?: string | null; updatedAt?: string | null } | null | undefined,
+  ) => {
+    if (!status) return null;
+    return {
+      phase: String(status.phase || "planning").trim().slice(0, 80),
+      label: typeof status.label === "string" && status.label.trim() ? String(status.label).trim().slice(0, 200) : null,
+      actionKey: typeof status.actionKey === "string" && status.actionKey.trim() ? String(status.actionKey).trim().slice(0, 120) : null,
+      title: typeof status.title === "string" && status.title.trim() ? String(status.title).trim().slice(0, 200) : null,
+      updatedAt:
+        typeof status.updatedAt === "string" && status.updatedAt.trim()
+          ? String(status.updatedAt).trim().slice(0, 80)
+          : now.toISOString(),
+    };
+  };
+
+  const withLiveStatus = (
+    threadContextValue: unknown,
+    status: { phase: LiveStatusPhase; label?: string | null; actionKey?: string | null; title?: string | null; updatedAt?: string | null } | null,
+  ) => {
+    const prevCtx = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue) ? (threadContextValue as any) : {};
+    return {
+      ...prevCtx,
+      liveStatus: normalizeLiveStatus(status),
+    };
+  };
+
+  const persistThreadContext = async (threadContextValue: unknown, opts?: { touchLastMessageAt?: boolean }) => {
+    const nextCtx = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue) ? (threadContextValue as any) : {};
+    await (prisma as any).portalAiChatThread.update({
+      where: { id: threadId },
+      data: opts?.touchLastMessageAt ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx },
+    });
+    persistedThreadContext = nextCtx;
+    return nextCtx;
+  };
+
+  const persistLiveStatus = async (
+    status: { phase: LiveStatusPhase; label?: string | null; actionKey?: string | null; title?: string | null; updatedAt?: string | null } | null,
+    threadContextValue?: unknown,
+  ) => {
+    return await persistThreadContext(withLiveStatus(threadContextValue ?? persistedThreadContext, status));
   };
 
   const patchArgsForScheduledCreate = (args: Record<string, unknown>, threadContext?: any): Record<string, unknown> => {
@@ -2757,6 +2826,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         pendingAction: null,
         pendingActionClarify: null,
         threadSummary: null,
+        liveStatus: null,
       };
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
       persistedThreadContext = nextCtx;
@@ -2879,7 +2949,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   }
 
   if (isConfirmOnly) {
-    const threadContext = persistedThreadContext;
+    let threadContext = persistedThreadContext;
     const pendingConfirm =
       threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
         ? (threadContext as any).pendingConfirm
@@ -2907,6 +2977,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     }> = [];
     const clientUiActions: any[] = [];
     for (const step of confirmedSteps) {
+      threadContext = await persistLiveStatus(
+        { phase: "executing", label: `Running ${step.title || step.key}`, actionKey: step.key, title: step.title },
+        threadContext,
+      );
       const exec = await executePortalAgentAction({
         ownerId,
         actorUserId: createdByUserId,
@@ -2942,6 +3016,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
     let assistantText = "";
     try {
+      threadContext = await persistLiveStatus({ phase: "summarizing", label: "Summarizing what I just did" }, threadContext);
       const resultsForSummary = Array.isArray(results)
         ? results.map((r: any) => {
             const cleaned = stripAssistantVisibleAccountingFields((r as any)?.result);
@@ -3046,8 +3121,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     const runs = [...prevRuns.slice(-19), runTrace];
 
     const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-      ? { ...(prevCtx as any), pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs }
-      : { pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs };
+      ? { ...(prevCtx as any), pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, liveStatus: null, runs }
+      : { pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, liveStatus: null, runs };
 
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
@@ -3124,7 +3199,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext)
         ? (persistedThreadContext as any)
         : {};
-    const nextCtx = { ...prevCtx, pendingConfirm: null, pendingPlan: null, pendingPlanClarify: null, pendingAction: null, pendingActionClarify: null };
+    const nextCtx = { ...prevCtx, pendingConfirm: null, pendingPlan: null, pendingPlanClarify: null, pendingAction: null, pendingActionClarify: null, liveStatus: null };
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
     persistedThreadContext = nextCtx;
   }
@@ -3216,7 +3291,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
         const prevCanvasUrl = typeof prevCtx.lastCanvasUrl === "string" ? String(prevCtx.lastCanvasUrl).trim() : "";
         if (!prevCanvasUrl || prevCanvasUrl !== canvasUrlRaw) {
-          const nextCtx = { ...prevCtx, lastCanvasUrl: canvasUrlRaw };
+          const nextCtx = { ...prevCtx, lastCanvasUrl: canvasUrlRaw, liveStatus: null };
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
           threadContext = nextCtx;
           fallbackThreadContext = nextCtx;
@@ -3291,8 +3366,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       if (pendingConfirm && !isConfirmOnly) {
         const prevCtx = threadContext;
         const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-          ? { ...(prevCtx as any), pendingConfirm: null }
-          : { pendingConfirm: null };
+          ? { ...(prevCtx as any), pendingConfirm: null, liveStatus: null }
+          : { pendingConfirm: null, liveStatus: null };
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
         threadContext = nextCtx;
       }
@@ -3356,6 +3431,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         const keyParsed = PortalAgentActionKeySchema.safeParse(actionKey);
         if (keyParsed.success) {
+          threadContext = await persistLiveStatus(
+            { phase: "resolving", label: `Resolving ${title || keyParsed.data}`, actionKey: keyParsed.data, title },
+            threadContext,
+          );
           const resolved = await resolvePlanArgs({
             ownerId,
             stepKey: keyParsed.data,
@@ -3437,6 +3516,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               pendingActionClarify: { at: now.toISOString(), question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null },
               pendingPlan: null,
               pendingPlanClarify: null,
+              liveStatus: null,
             };
             await (prisma as any).portalAiChatThread.update({
               where: { id: threadId },
@@ -3460,6 +3540,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             return withThread;
           })();
 
+          threadContext = await persistLiveStatus(
+            { phase: "executing", label: `Running ${title || keyParsed.data}`, actionKey: keyParsed.data, title },
+            threadContext,
+          );
           const exec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: keyParsed.data, args: resolvedArgsWithThread });
           const cua = (exec as any).clientUiAction ?? null;
           const execError = typeof (exec as any).error === "string" ? String((exec as any).error).trim().slice(0, 800) : "";
@@ -3551,6 +3635,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             pendingActionClarify: null,
             pendingPlan: null,
             pendingPlanClarify: null,
+            liveStatus: null,
             runs,
           };
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
@@ -3581,6 +3666,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       let localCtx: any = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? { ...(threadContext as any) } : {};
       const seenPlanKeys = new Set<string>();
       let finalDirectMessage: string | null = null;
+
+      localCtx = await persistLiveStatus({ phase: "planning", label: "Planning the next step" }, localCtx);
 
       const containsPlaceholderValueDeep = (v: unknown): boolean => {
         if (typeof v === "string") {
@@ -3893,6 +3980,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       {
         const bootstrapStep = buildSafeDiscoveryFallbackStep();
         if (shouldPrimePlannerWithDiscovery(bootstrapStep.key)) {
+          localCtx = await persistLiveStatus(
+            { phase: "bootstrap", label: `Scanning context with ${bootstrapStep.title}`, actionKey: bootstrapStep.key, title: bootstrapStep.title },
+            localCtx,
+          );
           const resolved = await resolvePlanArgs({
             ownerId,
             stepKey: bootstrapStep.key,
@@ -3912,6 +4003,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               localCtx = { ...localCtx, ...(resolved.contextPatch as any) };
             }
 
+            localCtx = await persistLiveStatus(
+              { phase: "executing", label: `Running ${bootstrapStep.title}`, actionKey: bootstrapStep.key, title: bootstrapStep.title },
+              localCtx,
+            );
             const exec = await executePortalAgentAction({
               ownerId,
               actorUserId: createdByUserId,
@@ -3939,6 +4034,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       for (let round = 0; round < MAX_AUTORUN_ROUNDS; round += 1) {
         if (Date.now() - autoStartMs > MAX_AUTORUN_MS) break;
+        localCtx = await persistLiveStatus(
+          { phase: "planning", label: round > 0 ? "Replanning the next step" : "Planning the next step", title: round > 0 ? `Round ${round + 1}` : null },
+          localCtx,
+        );
         const lastRunSummary = allResolvedSteps.length || lastAutoClarify || lastAutoExecutionError || lastAutoResolutionError || bootstrapDiscoverySummary
           ? {
               ...(bootstrapDiscoverySummary ? { bootstrapDiscovery: bootstrapDiscoverySummary } : {}),
@@ -4108,6 +4207,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             const title = String(a.title || a.key).trim().slice(0, 160) || String(a.key);
             const argsRaw = a.args && typeof a.args === "object" && !Array.isArray(a.args) ? (a.args as Record<string, unknown>) : {};
 
+            localCtx = await persistLiveStatus(
+              { phase: "resolving", label: `Resolving ${title || key}`, actionKey: key, title },
+              localCtx,
+            );
             const resolved = await resolvePlanArgs({ ownerId, stepKey: key, args: argsRaw, userHint: effectiveText, url: contextUrl, threadContext: localCtx });
             if (!resolved.ok) {
               const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
@@ -4181,6 +4284,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 pendingActionClarify: { at: now.toISOString(), question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null },
                 pendingPlan: null,
                 pendingPlanClarify: null,
+                liveStatus: null,
               };
               await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: assistantMsg ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx } });
               if (clarifyText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: clarifyText });
@@ -4221,6 +4325,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             pendingActionClarify: null,
             pendingPlan: null,
             pendingPlanClarify: null,
+            liveStatus: null,
           };
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
@@ -4274,6 +4379,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         const title = String(a.title || a.key).trim().slice(0, 160) || String(a.key);
         const argsRaw = a.args && typeof a.args === "object" && !Array.isArray(a.args) ? (a.args as Record<string, unknown>) : {};
 
+        localCtx = await persistLiveStatus(
+          { phase: "resolving", label: `Resolving ${title || key}`, actionKey: key, title },
+          localCtx,
+        );
         const resolved = await resolvePlanArgs({ ownerId, stepKey: key, args: argsRaw, userHint: effectiveText, url: contextUrl, threadContext: localCtx });
         if (!resolved.ok) {
           const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
@@ -4345,6 +4454,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             pendingActionClarify: { at: now.toISOString(), question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null },
             pendingPlan: null,
             pendingPlanClarify: null,
+            liveStatus: null,
           };
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: assistantMsg ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx } });
           if (clarifyText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: clarifyText });
@@ -4369,6 +4479,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           localCtx = { ...localCtx, ...(resolved.contextPatch as any) };
         }
 
+        localCtx = await persistLiveStatus(
+          { phase: "executing", label: `Running ${title || key}`, actionKey: key, title },
+          localCtx,
+        );
         const exec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: key, args: resolvedArgsWithThread });
         const cua = (exec as any).clientUiAction ?? null;
         const execError = typeof (exec as any).error === "string" ? String((exec as any).error).trim().slice(0, 800) : "";
@@ -4420,6 +4534,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       let assistantTextFinal = "";
       try {
+        localCtx = await persistLiveStatus({ phase: "summarizing", label: "Summarizing what I just did" }, localCtx);
         const resultsForSummary = allResults.map((r: any) => {
           const cleaned = stripAssistantVisibleAccountingFields((r as any)?.result);
           const extractedError =
@@ -4530,6 +4645,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         pendingActionClarify: null,
         pendingPlan: null,
         pendingPlanClarify: null,
+        liveStatus: null,
         runs,
       };
 
@@ -4539,6 +4655,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const openScheduledTasks = allResolvedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
       return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: allClientUiActions, openScheduledTasks, runTrace });
     } catch {
+      try {
+        await persistLiveStatus(null);
+      } catch {
+        // ignore
+      }
       // If planning fails, fall through to existing behavior.
     }
 
@@ -4554,6 +4675,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       const replyText = typeof reply === "string" ? reply.trim() : "";
       if (replyText) {
+        await persistLiveStatus({ phase: "summarizing", label: "Writing the reply" });
         const assistantMsg = await (prisma as any).portalAiChatMessage.create({
           data: {
             ownerId,
@@ -4576,7 +4698,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           },
         });
 
-        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+        const prevCtx = persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext) ? (persistedThreadContext as any) : {};
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: { ...prevCtx, liveStatus: null } } });
         await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: replyText });
 
         return NextResponse.json({
@@ -4591,8 +4714,19 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         });
       }
     } catch {
+      try {
+        await persistLiveStatus(null);
+      } catch {
+        // ignore
+      }
       // ignore
     }
+  }
+
+  try {
+    await persistLiveStatus(null);
+  } catch {
+    // ignore
   }
 
   // AI-first: no deterministic routing/shortcuts, and no deterministic assistant bubble copy.

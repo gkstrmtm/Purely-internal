@@ -113,6 +113,14 @@ type RunTrace = {
   steps: RunTraceStep[];
 };
 
+type LiveStatus = {
+  phase: string | null;
+  label: string | null;
+  actionKey?: string | null;
+  title?: string | null;
+  updatedAt?: string | null;
+};
+
 type CanvasUiCandidate = { role: string; name: string; tag: string; nth: number };
 
 type Message = {
@@ -680,6 +688,23 @@ function applyRunTracesToMessages(messages: Message[], runsRaw: unknown): Messag
   });
 }
 
+function normalizeLiveStatus(raw: unknown): LiveStatus | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const phase = typeof (raw as any).phase === "string" ? String((raw as any).phase).trim().slice(0, 80) : "";
+  const label = typeof (raw as any).label === "string" ? String((raw as any).label).trim().slice(0, 200) : "";
+  const actionKey = typeof (raw as any).actionKey === "string" ? String((raw as any).actionKey).trim().slice(0, 120) : "";
+  const title = typeof (raw as any).title === "string" ? String((raw as any).title).trim().slice(0, 200) : "";
+  const updatedAt = typeof (raw as any).updatedAt === "string" ? String((raw as any).updatedAt).trim().slice(0, 80) : "";
+  if (!phase && !label && !actionKey && !title && !updatedAt) return null;
+  return {
+    phase: phase || null,
+    label: label || null,
+    actionKey: actionKey || null,
+    title: title || null,
+    updatedAt: updatedAt || null,
+  };
+}
+
 function describeLiveWorkLabel(opts: {
   text: string;
   canvasUrl?: string | null;
@@ -889,6 +914,7 @@ export function PortalAiChatClient({
   const [activeThreadId, setActiveThreadId] = useState<string | null>(initialRequestedThreadId);
 
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(() => ({ [DRAFT_THREAD_KEY]: [] }));
+  const [threadLiveStatusById, setThreadLiveStatusById] = useState<Record<string, LiveStatus | null>>(() => ({}));
   const [loadingThreadIds, setLoadingThreadIds] = useState<Set<string>>(() => {
     const next = new Set<string>();
     if (initialRequestedThreadId) next.add(initialRequestedThreadId);
@@ -1022,6 +1048,7 @@ export function PortalAiChatClient({
 
   const activeThreadKey = activeThreadId ?? DRAFT_THREAD_KEY;
   const messages = useMemo(() => messagesByThread[activeThreadKey] ?? [], [activeThreadKey, messagesByThread]);
+  const activeLiveStatus = activeThreadId ? threadLiveStatusById[activeThreadId] ?? null : null;
   const messagesLoading = activeThreadId ? loadingThreadIds.has(activeThreadId) : false;
   const sending = activeThreadId ? sendingThreadIds.has(activeThreadId) : draftSending;
   const regenerating = Boolean(activeThreadId && regeneratingTarget?.threadId === activeThreadId);
@@ -1061,12 +1088,16 @@ export function PortalAiChatClient({
       isRetry: regenerating,
     });
   }, [canvasUrl, effectiveChatMode, input, latestPendingUserText, regenerating, runningActionKey]);
+  const liveWorkStatusLabel = useMemo(() => {
+    return activeLiveStatus?.label?.trim() || null;
+  }, [activeLiveStatus]);
   const workStatusLabel = useMemo(() => {
+    if (liveWorkStatusLabel) return liveWorkStatusLabel;
     if (regenerating && regeneratingTarget?.messageId) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Reworking that response" : "Redoing that response");
     if (runningActionKey) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Working through the next step" : "Thinking through the next step");
     if (sending || hasThinkingMessage) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Working on it" : "Thinking it through");
     return null;
-  }, [effectiveChatMode, hasThinkingMessage, inferredWorkStatusLabel, regenerating, regeneratingTarget?.messageId, runningActionKey, sending]);
+  }, [effectiveChatMode, hasThinkingMessage, inferredWorkStatusLabel, liveWorkStatusLabel, regenerating, regeneratingTarget?.messageId, runningActionKey, sending]);
 
   useEffect(() => {
     activeThreadIdRef.current = activeThreadId;
@@ -1253,6 +1284,7 @@ export function PortalAiChatClient({
               )
             : [],
         }));
+        setThreadLiveStatusById((prev) => ({ ...prev, [threadId]: normalizeLiveStatus(json?.threadContext?.liveStatus) }));
         const nextLastCanvasUrl =
           typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
             ? String(json.threadContext.lastCanvasUrl).trim()
@@ -1272,6 +1304,42 @@ export function PortalAiChatClient({
       }
     },
     [scrollToBottom, setThreadLoading, toast],
+  );
+
+  const loadThreadStatus = useCallback(
+    async (threadId: string) => {
+      try {
+        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/messages?view=status`, {
+          cache: "no-store",
+        });
+        const json = await res.json().catch(() => null);
+        if (!json?.ok) return;
+        const nextStatus = normalizeLiveStatus(json?.threadContext?.liveStatus);
+        setThreadLiveStatusById((prev) => {
+          const current = prev[threadId] ?? null;
+          if (
+            current?.phase === nextStatus?.phase &&
+            current?.label === nextStatus?.label &&
+            current?.actionKey === nextStatus?.actionKey &&
+            current?.title === nextStatus?.title &&
+            current?.updatedAt === nextStatus?.updatedAt
+          ) {
+            return prev;
+          }
+          return { ...prev, [threadId]: nextStatus };
+        });
+        const nextLastCanvasUrl =
+          typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
+            ? String(json.threadContext.lastCanvasUrl).trim()
+            : null;
+        if (nextLastCanvasUrl && activeThreadIdRef.current === threadId) {
+          setCanvasUrl(nextLastCanvasUrl);
+        }
+      } catch {
+        // ignore lightweight polling failures
+      }
+    },
+    [],
   );
 
   const selectThread = useCallback(
@@ -1321,6 +1389,29 @@ export function PortalAiChatClient({
     if (sendInFlightRef.current.has(activeThreadId)) return;
     void loadMessages(activeThreadId);
   }, [activeThreadId, loadMessages]);
+
+  useEffect(() => {
+    if (!activeThreadId) return;
+    if (!(sending || hasThinkingMessage || regenerating || Boolean(runningActionKey))) return;
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      await loadThreadStatus(activeThreadId);
+      if (cancelled) return;
+      timeoutId = setTimeout(() => {
+        void tick();
+      }, 1200);
+    };
+
+    void tick();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [activeThreadId, hasThinkingMessage, loadThreadStatus, regenerating, runningActionKey, sending]);
 
   useEffect(() => {
     if (!requestedThreadId || threadsLoading) return;
