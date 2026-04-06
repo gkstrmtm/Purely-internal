@@ -1255,6 +1255,27 @@ export function PortalAiChatClient({
   const activeCanInterrupt = useMemo(() => {
     return Boolean(activeThreadId && activeLiveStatus?.canInterrupt && activeLiveStatus?.runId);
   }, [activeLiveStatus?.canInterrupt, activeLiveStatus?.runId, activeThreadId]);
+  const sortedRunLedgerRows = useMemo(() => {
+    const rows = [...runLedgerRows];
+    const activeRunId = typeof activeLiveStatus?.runId === "string" ? activeLiveStatus.runId.trim() : "";
+    rows.sort((a, b) => {
+      const aIsActive = Boolean(activeRunId && a.runId === activeRunId);
+      const bIsActive = Boolean(activeRunId && b.runId === activeRunId);
+      if (aIsActive !== bIsActive) return aIsActive ? -1 : 1;
+
+      const aIsRunning = a.status === "running";
+      const bIsRunning = b.status === "running";
+      if (aIsRunning !== bIsRunning) return aIsRunning ? -1 : 1;
+
+      return (Date.parse(b.createdAt || "") || 0) - (Date.parse(a.createdAt || "") || 0);
+    });
+    return rows;
+  }, [activeLiveStatus?.runId, runLedgerRows]);
+  const activeRunLedgerRow = useMemo(() => {
+    const activeRunId = typeof activeLiveStatus?.runId === "string" ? activeLiveStatus.runId.trim() : "";
+    if (!activeRunId) return null;
+    return sortedRunLedgerRows.find((row) => row.runId === activeRunId) || null;
+  }, [activeLiveStatus?.runId, sortedRunLedgerRows]);
   const showActiveLiveProgressCard = useMemo(() => {
     if (!activeThreadId || !activeLiveStatus) return false;
     return sending || hasThinkingMessage || regenerating || Boolean(runningActionKey) || Boolean(activeLiveStatus.label);
@@ -3183,12 +3204,12 @@ export function PortalAiChatClient({
     }
   }, [splitRepeatEveryMinutes, toLocalInputValue]);
 
-  const loadRuns = useCallback(async () => {
+  const loadRuns = useCallback(async (opts?: { silent?: boolean }) => {
     if (!activeThreadId) {
       setRunLedgerRows([]);
       return;
     }
-    setRunsLoading(true);
+    if (!opts?.silent) setRunsLoading(true);
     try {
       const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/runs`, { cache: "no-store" });
       const json = await res.json().catch(() => null);
@@ -3201,7 +3222,7 @@ export function PortalAiChatClient({
     } catch {
       setRunLedgerRows([]);
     } finally {
-      setRunsLoading(false);
+      if (!opts?.silent) setRunsLoading(false);
     }
   }, [activeThreadId]);
 
@@ -3214,6 +3235,14 @@ export function PortalAiChatClient({
     if (!runsOpen) return;
     void loadRuns();
   }, [runsOpen, loadRuns]);
+
+  useEffect(() => {
+    if (!runsOpen || !activeThreadId) return;
+    const intervalId = window.setInterval(() => {
+      void loadRuns({ silent: true });
+    }, 4000);
+    return () => window.clearInterval(intervalId);
+  }, [activeThreadId, loadRuns, runsOpen]);
 
   useEffect(() => {
     if (!attachMenu || !attachMenuAnchorRect) return;
@@ -4159,18 +4188,33 @@ export function PortalAiChatClient({
         closeVariant="x"
         hideHeaderDivider
       >
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-xs text-zinc-500">
+            {activeRunLedgerRow || activeLiveStatus?.runId ? "Auto-refreshing while this run is active." : "Auto-refreshing every few seconds while open."}
+          </div>
+          <button
+            type="button"
+            className="rounded-2xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+            onClick={() => void loadRuns()}
+          >
+            Refresh
+          </button>
+        </div>
         {runsLoading ? (
           <div className="text-sm text-zinc-600">Loading…</div>
-        ) : !runLedgerRows.length ? (
+        ) : !sortedRunLedgerRows.length ? (
           <div className="text-sm text-zinc-600">No runs yet for this chat.</div>
         ) : (
           <div className="space-y-3">
-            {runLedgerRows.map((run) => (
-              <div key={run.id} className="rounded-3xl border border-zinc-200 bg-white p-4">
+            {sortedRunLedgerRows.map((run) => {
+              const isActiveRun = Boolean(activeRunLedgerRow && activeRunLedgerRow.id === run.id);
+              return (
+              <div key={run.id} className={classNames("rounded-3xl border bg-white p-4", isActiveRun ? "border-brand-blue/30 shadow-[0_0_0_1px_rgba(37,99,235,0.08)]" : "border-zinc-200")}>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-zinc-900">{run.workTitle || "Pura run"}</div>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                      {isActiveRun ? <span className="rounded-full border border-brand-blue/20 bg-blue-50 px-2 py-0.5 font-semibold text-brand-blue">Active</span> : null}
                       <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(run.triggerKind)}</span>
                       <span className={classNames(
                         "rounded-full border px-2 py-0.5",
@@ -4243,7 +4287,7 @@ export function PortalAiChatClient({
                   </div>
                 ) : null}
               </div>
-            ))}
+            );})}
           </div>
         )}
       </AppModal>
