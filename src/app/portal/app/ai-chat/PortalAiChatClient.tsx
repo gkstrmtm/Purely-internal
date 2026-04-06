@@ -64,6 +64,7 @@ type Thread = {
   pinnedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  liveStatus?: LiveStatus | null;
 };
 
 type ShareMember = { userId: string; email: string; name: string };
@@ -1282,8 +1283,24 @@ export function PortalAiChatClient({
       const res = await fetch("/api/portal/ai-chat/threads", { cache: "no-store" });
       const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error || "Failed to load threads");
-      const next = Array.isArray(json.threads) ? (json.threads as Thread[]) : [];
+      const next = Array.isArray(json.threads)
+        ? (json.threads as Array<Thread & { liveStatus?: unknown }>).map((thread) => ({
+            ...thread,
+            liveStatus: normalizeLiveStatus(thread?.liveStatus),
+          }))
+        : [];
       setThreads(next);
+      setThreadLiveStatusById((prev) => {
+        const nextStatuses: Record<string, LiveStatus | null> = {};
+        for (const thread of next) {
+          nextStatuses[thread.id] = normalizeLiveStatus(thread.liveStatus);
+        }
+        const activeThreadStatus = activeThreadIdRef.current ? prev[activeThreadIdRef.current] : null;
+        if (activeThreadIdRef.current && activeThreadStatus && !nextStatuses[activeThreadIdRef.current]) {
+          nextStatuses[activeThreadIdRef.current] = activeThreadStatus;
+        }
+        return nextStatuses;
+      });
 
       // Default to a draft "new chat" when opening the page.
       // If an active thread was selected during this session but was deleted,

@@ -13,6 +13,21 @@ const CreateThreadSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
 });
 
+function normalizeThreadLiveStatus(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const phase = typeof (raw as any).phase === "string" ? String((raw as any).phase).trim().slice(0, 80) : null;
+  const label = typeof (raw as any).label === "string" ? String((raw as any).label).trim().slice(0, 200) : null;
+  const actionKey = typeof (raw as any).actionKey === "string" ? String((raw as any).actionKey).trim().slice(0, 120) : null;
+  const title = typeof (raw as any).title === "string" ? String((raw as any).title).trim().slice(0, 200) : null;
+  const updatedAt = typeof (raw as any).updatedAt === "string" ? String((raw as any).updatedAt).trim().slice(0, 80) : null;
+  const round = Number.isFinite(Number((raw as any).round)) ? Math.max(1, Math.min(99, Math.floor(Number((raw as any).round)))) : null;
+  const completedSteps = Number.isFinite(Number((raw as any).completedSteps)) ? Math.max(0, Math.min(99, Math.floor(Number((raw as any).completedSteps)))) : null;
+  const lastCompletedTitle =
+    typeof (raw as any).lastCompletedTitle === "string" ? String((raw as any).lastCompletedTitle).trim().slice(0, 200) : null;
+  if (!phase && !label && !actionKey && !title && !updatedAt && round == null && completedSteps == null && !lastCompletedTitle) return null;
+  return { phase, label, actionKey, title, updatedAt, round, completedSteps, lastCompletedTitle };
+}
+
 export async function GET(req: Request) {
   const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
   if (!auth.ok) {
@@ -74,15 +89,19 @@ export async function GET(req: Request) {
 
   const visible = (Array.isArray(threads) ? threads : [])
     .filter((t: any) => canAccessPortalAiChatThread({ thread: t, memberId }))
-    .map((t: any) => ({
-      id: t.id,
-      title: t.title,
-      lastMessageAt: t.lastMessageAt,
-      isPinned: t.isPinned,
-      pinnedAt: t.pinnedAt,
-      createdAt: t.createdAt,
-      updatedAt: t.updatedAt,
-    }));
+    .map((t: any) => {
+      const ctxJson = t.contextJson && typeof t.contextJson === "object" && !Array.isArray(t.contextJson) ? (t.contextJson as any) : {};
+      return {
+        id: t.id,
+        title: t.title,
+        lastMessageAt: t.lastMessageAt,
+        isPinned: t.isPinned,
+        pinnedAt: t.pinnedAt,
+        createdAt: t.createdAt,
+        updatedAt: t.updatedAt,
+        liveStatus: normalizeThreadLiveStatus(ctxJson.liveStatus),
+      };
+    });
 
   return NextResponse.json({ ok: true, threads: visible });
 }
