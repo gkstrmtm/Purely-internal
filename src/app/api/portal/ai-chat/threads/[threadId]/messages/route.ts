@@ -6,7 +6,7 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { generateText } from "@/lib/ai";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
-import { persistPortalAiChatRun } from "@/lib/portalAiChatRunLedger";
+import { persistPortalAiChatRun, type PortalAiChatRunStatus, type PortalAiChatRunTraceInput } from "@/lib/portalAiChatRunLedger";
 import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 import {
   PortalAgentActionKeySchema,
@@ -2718,21 +2718,63 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   };
 
   let activeRunId: string | null = null;
+  let activeRunStartedAt: string | null = null;
+
+  const persistActiveChatRun = async (opts: {
+    status: PortalAiChatRunStatus;
+    runId?: string | null;
+    startedAt?: string | null;
+    runTrace?: PortalAiChatRunTraceInput | null;
+    summaryText?: string | null;
+    followUpSuggestions?: unknown;
+    completedAt?: Date | null;
+    interruptedAt?: Date | null;
+  }) => {
+    const runId = typeof opts.runId === "string" && opts.runId.trim() ? String(opts.runId).trim().slice(0, 120) : activeRunId;
+    const startedAt = typeof opts.startedAt === "string" && opts.startedAt.trim() ? String(opts.startedAt).trim() : activeRunStartedAt;
+    if (!runId) return;
+    const runTrace = opts.runTrace && typeof opts.runTrace === "object" && !Array.isArray(opts.runTrace) ? opts.runTrace : {};
+    await persistPortalAiChatRun({
+      ownerId,
+      threadId,
+      runTrace: {
+        ...runTrace,
+        at: typeof runTrace.at === "string" && runTrace.at.trim() ? String(runTrace.at).trim() : startedAt,
+      },
+      triggerKind: "chat",
+      status: opts.status,
+      runId,
+      upsertByRunId: true,
+      summaryText: opts.summaryText ?? null,
+      followUpSuggestions: opts.followUpSuggestions,
+      completedAt: opts.completedAt ?? null,
+      interruptedAt: opts.interruptedAt ?? null,
+    });
+  };
 
   const beginInterruptibleRun = async (threadContextValue?: unknown) => {
     activeRunId = randomUUID();
+    activeRunStartedAt = new Date().toISOString();
     const prevCtx = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue) ? (threadContextValue as any) : {};
-    return await persistThreadContext({
+    const nextCtx = await persistThreadContext({
       ...prevCtx,
       currentRunId: activeRunId,
       interruptRequestedRunId: null,
       liveStatus: null,
     });
+    await persistActiveChatRun({
+      status: "running",
+      runId: activeRunId,
+      startedAt: activeRunStartedAt,
+      runTrace: { at: activeRunStartedAt },
+    });
+    return nextCtx;
   };
 
   const completeInterruptibleRun = (threadContextValue: unknown) => {
     const prevCtx = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue) ? (threadContextValue as any) : {};
     activeRunId = null;
+    activeRunStartedAt = null;
     return {
       ...prevCtx,
       currentRunId: null,
@@ -2756,6 +2798,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     const assistantText = "Stopped that run. I paused before taking the next step, so nothing else will be changed until you tell me what to do next.";
     const interruptedAt = new Date();
     const interruptedRunId = activeRunId;
+    const interruptedRunStartedAt = activeRunStartedAt;
     const prevCtx = persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext) ? (persistedThreadContext as any) : {};
     const liveStatus = prevCtx.liveStatus && typeof prevCtx.liveStatus === "object" && !Array.isArray(prevCtx.liveStatus) ? (prevCtx.liveStatus as any) : null;
     const assistantMsg = await (prisma as any).portalAiChatMessage.create({
@@ -2764,9 +2807,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     });
     const clearedCtx = completeInterruptibleRun(prevCtx);
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date(), contextJson: clearedCtx } });
-    await persistPortalAiChatRun({
-      ownerId,
-      threadId,
+    await persistActiveChatRun({
+      status: "interrupted",
+      runId: interruptedRunId,
+      startedAt: interruptedRunStartedAt,
       runTrace: {
         at: typeof liveStatus?.updatedAt === "string" && liveStatus.updatedAt.trim() ? String(liveStatus.updatedAt).trim() : interruptedAt.toISOString(),
         workTitle:
@@ -2778,9 +2822,6 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         assistantMessageId: assistantMsg?.id ?? null,
         canvasUrl: typeof prevCtx.lastCanvasUrl === "string" && prevCtx.lastCanvasUrl.trim() ? String(prevCtx.lastCanvasUrl).trim().slice(0, 1200) : null,
       },
-      triggerKind: "chat",
-      status: "interrupted",
-      runId: interruptedRunId,
       summaryText: assistantText,
       interruptedAt,
     });
@@ -3342,6 +3383,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       ? { ...(prevCtx as any), pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs }
       : { pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs };
     const completedRunId = activeRunId;
+    const completedRunStartedAt = activeRunStartedAt;
     const nextCtx = completeInterruptibleRun(nextCtxBase);
 
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
@@ -3358,13 +3400,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     });
     const persistedCtx = withPersistedFollowUpSuggestions(nextCtx, assistantMsg?.id, followUpSuggestions);
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedCtx } });
-    await persistPortalAiChatRun({
-      ownerId,
-      threadId,
-      runTrace,
-      triggerKind: "chat",
+    await persistActiveChatRun({
       status: failedCount > 0 ? (okCount > 0 ? "partial" : "failed") : "completed",
       runId: completedRunId,
+      startedAt: completedRunStartedAt,
+      runTrace,
       summaryText: assistantMsg?.text ?? null,
       followUpSuggestions,
       completedAt: now,
@@ -3759,6 +3799,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               : null;
 
             const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
+            const completedRunId = activeRunId;
+            const completedRunStartedAt = activeRunStartedAt;
             const nextCtx = completeInterruptibleRun({
               ...prevCtx,
               pendingAction: { key: keyParsed.data, title, args: argsRaw },
@@ -3769,6 +3811,17 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             await (prisma as any).portalAiChatThread.update({
               where: { id: threadId },
               data: assistantMsg ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx },
+            });
+            await persistActiveChatRun({
+              status: "needs_input",
+              runId: completedRunId,
+              startedAt: completedRunStartedAt,
+              runTrace: {
+                workTitle: title || keyParsed.data,
+                assistantMessageId: assistantMsg?.id ?? null,
+              },
+              summaryText: clarifyText || rawClarifyPrompt || null,
+              completedAt: now,
             });
             return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null, assistantChoices: clarifyChoices, clientUiActions: [] });
           }
@@ -3878,6 +3931,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           const runs = [...prevRuns.slice(-19), runTrace];
 
           const completedRunId = activeRunId;
+          const completedRunStartedAt = activeRunStartedAt;
           const nextCtx = completeInterruptibleRun({
             ...prevCtx,
             ...mergedPatch,
@@ -3903,13 +3957,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
           const persistedCtx = withPersistedFollowUpSuggestions(nextCtx, assistantMsg?.id, followUpSuggestions);
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedCtx } });
-          await persistPortalAiChatRun({
-            ownerId,
-            threadId,
-            runTrace,
-            triggerKind: "chat",
+          await persistActiveChatRun({
             status: Boolean((exec as any).ok) && Number((exec as any).status) >= 200 && Number((exec as any).status) < 300 ? "completed" : "failed",
             runId: completedRunId,
+            startedAt: completedRunStartedAt,
+            runTrace,
             summaryText: assistantMsg?.text ?? null,
             followUpSuggestions,
             completedAt: now,
@@ -4617,6 +4669,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
           const token = randomUUID();
           const prevCtx = localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) ? localCtx : {};
+          const completedRunId = activeRunId;
+          const completedRunStartedAt = activeRunStartedAt;
           const nextCtx = completeInterruptibleRun({
             ...prevCtx,
             pendingConfirm: { token, createdAt: now.toISOString(), workTitle: resolvedStepsForConfirm[0]?.title ?? null, steps: resolvedStepsForConfirm, confirm: confirmSpec },
@@ -4664,6 +4718,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 select: { id: true, role: true, text: true, attachmentsJson: true, createdAt: true, sendAt: true, sentAt: true },
               })
             : null;
+
+          await persistActiveChatRun({
+            status: "needs_input",
+            runId: completedRunId,
+            startedAt: completedRunStartedAt,
+            runTrace: {
+              workTitle: resolvedStepsForConfirm[0]?.title ?? null,
+              assistantMessageId: assistantMsg?.id ?? null,
+            },
+            summaryText: confirmText || (confirmSpec as any)?.message || null,
+            completedAt: now,
+          });
 
           if (confirmText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: confirmText });
           return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null, assistantChoices: null, clientUiActions: [], needsConfirm: { ...(confirmSpec as any), token } });
@@ -4760,6 +4826,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             : null;
 
           const prevCtx = localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) ? localCtx : {};
+          const completedRunId = activeRunId;
+          const completedRunStartedAt = activeRunStartedAt;
           const nextCtx = completeInterruptibleRun({
             ...prevCtx,
             pendingAction: { key, title, args: argsRaw },
@@ -4768,6 +4836,17 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             pendingPlanClarify: null,
           });
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: assistantMsg ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx } });
+          await persistActiveChatRun({
+            status: "needs_input",
+            runId: completedRunId,
+            startedAt: completedRunStartedAt,
+            runTrace: {
+              workTitle: title,
+              assistantMessageId: assistantMsg?.id ?? null,
+            },
+            summaryText: clarifyText || rawClarifyPrompt || null,
+            completedAt: now,
+          });
           if (clarifyText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: clarifyText });
 
           return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null, assistantChoices: clarifyChoices, clientUiActions: [] });
@@ -4971,6 +5050,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const runs = [...prevRuns.slice(-19), runTrace];
 
       const completedRunId = activeRunId;
+      const completedRunStartedAt = activeRunStartedAt;
       const nextCtx = completeInterruptibleRun({
         ...prevCtx,
         ...mergedPatch,
@@ -4997,11 +5077,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       });
       const persistedCtx = withPersistedFollowUpSuggestions(nextCtx, assistantMsg?.id, followUpSuggestions);
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedCtx } });
-      await persistPortalAiChatRun({
-        ownerId,
-        threadId,
-        runTrace,
-        triggerKind: "chat",
+      await persistActiveChatRun({
         status:
           allResults.filter((r: any) => Boolean(r.ok) && (r?.result?.question || (Array.isArray(r?.result?.actions) && r.result.actions.length))).length > 0
             ? "needs_input"
@@ -5011,6 +5087,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 : "failed"
               : "completed",
         runId: completedRunId,
+        startedAt: completedRunStartedAt,
+        runTrace,
         summaryText: assistantMsg?.text ?? null,
         followUpSuggestions,
         completedAt: now,
@@ -5061,8 +5139,20 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           },
         });
 
+        const completedRunId = activeRunId;
+        const completedRunStartedAt = activeRunStartedAt;
         const prevCtx = persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext) ? (persistedThreadContext as any) : {};
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: completeInterruptibleRun(prevCtx) } });
+        await persistActiveChatRun({
+          status: "completed",
+          runId: completedRunId,
+          startedAt: completedRunStartedAt,
+          runTrace: {
+            assistantMessageId: assistantMsg?.id ?? null,
+          },
+          summaryText: replyText,
+          completedAt: now,
+        });
         await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: replyText });
 
         return NextResponse.json({
@@ -5078,6 +5168,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       }
     } catch {
       try {
+        await persistActiveChatRun({
+          status: "failed",
+          summaryText: "Run ended before Pura could produce a reply.",
+          completedAt: now,
+        });
         await persistThreadContext(completeInterruptibleRun(persistedThreadContext));
       } catch {
         // ignore
@@ -5087,6 +5182,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   }
 
   try {
+    await persistActiveChatRun({
+      status: "failed",
+      summaryText: "Run ended without a reply.",
+      completedAt: now,
+    });
     await persistThreadContext(completeInterruptibleRun(persistedThreadContext));
   } catch {
     // ignore

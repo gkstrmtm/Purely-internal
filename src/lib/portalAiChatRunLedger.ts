@@ -7,7 +7,7 @@ export type PortalAiChatRunStep = {
   linkUrl?: string | null;
 };
 
-export type PortalAiChatRunStatus = "completed" | "partial" | "failed" | "needs_input" | "interrupted";
+export type PortalAiChatRunStatus = "running" | "completed" | "partial" | "failed" | "needs_input" | "interrupted";
 export type PortalAiChatRunTriggerKind = "chat" | "assistant_action" | "scheduled";
 
 export type PortalAiChatRunTraceInput = {
@@ -55,6 +55,7 @@ export async function persistPortalAiChatRun(opts: {
   status: PortalAiChatRunStatus;
   triggerKind: PortalAiChatRunTriggerKind;
   runId?: string | null;
+  upsertByRunId?: boolean;
   summaryText?: string | null;
   followUpSuggestions?: unknown;
   completedAt?: Date | null;
@@ -70,31 +71,49 @@ export async function persistPortalAiChatRun(opts: {
   const createdAt = Number.isFinite(createdAtMs) ? new Date(createdAtMs) : new Date();
   const steps = normalizePortalAiChatRunSteps(trace.steps);
   const followUpSuggestions = normalizePortalAiChatFollowUpSuggestions(opts.followUpSuggestions);
+  const runId = typeof opts.runId === "string" && opts.runId.trim() ? String(opts.runId).trim().slice(0, 120) : null;
+  const data = {
+    ownerId,
+    threadId,
+    assistantMessageId:
+      typeof trace.assistantMessageId === "string" && trace.assistantMessageId.trim()
+        ? String(trace.assistantMessageId).trim().slice(0, 200)
+        : null,
+    scheduledMessageId:
+      typeof trace.scheduledMessageId === "string" && trace.scheduledMessageId.trim()
+        ? String(trace.scheduledMessageId).trim().slice(0, 200)
+        : null,
+    runId,
+    triggerKind: String(opts.triggerKind).trim().slice(0, 40),
+    status: String(opts.status).trim().slice(0, 40),
+    workTitle: typeof trace.workTitle === "string" && trace.workTitle.trim() ? String(trace.workTitle).trim().slice(0, 200) : null,
+    canvasUrl: typeof trace.canvasUrl === "string" && trace.canvasUrl.trim() ? String(trace.canvasUrl).trim().slice(0, 1200) : null,
+    summaryText: typeof opts.summaryText === "string" && opts.summaryText.trim() ? String(opts.summaryText).trim().slice(0, 4000) : null,
+    stepsJson: steps.length ? steps : null,
+    followUpSuggestionsJson: followUpSuggestions.length ? followUpSuggestions : null,
+    createdAt,
+    completedAt: opts.completedAt ?? null,
+    interruptedAt: opts.interruptedAt ?? null,
+  };
+
+  if (opts.upsertByRunId && runId) {
+    const existing = await (prisma as any).portalAiChatRun.findFirst({
+      where: { ownerId, threadId, runId, triggerKind: data.triggerKind },
+      orderBy: [{ createdAt: "desc" }],
+      select: { id: true },
+    }).catch(() => null);
+
+    if (existing?.id) {
+      await (prisma as any).portalAiChatRun.update({
+        where: { id: existing.id },
+        data,
+      }).catch(() => null);
+      return;
+    }
+  }
 
   await (prisma as any).portalAiChatRun.create({
-    data: {
-      ownerId,
-      threadId,
-      assistantMessageId:
-        typeof trace.assistantMessageId === "string" && trace.assistantMessageId.trim()
-          ? String(trace.assistantMessageId).trim().slice(0, 200)
-          : null,
-      scheduledMessageId:
-        typeof trace.scheduledMessageId === "string" && trace.scheduledMessageId.trim()
-          ? String(trace.scheduledMessageId).trim().slice(0, 200)
-          : null,
-      runId: typeof opts.runId === "string" && opts.runId.trim() ? String(opts.runId).trim().slice(0, 120) : null,
-      triggerKind: String(opts.triggerKind).trim().slice(0, 40),
-      status: String(opts.status).trim().slice(0, 40),
-      workTitle: typeof trace.workTitle === "string" && trace.workTitle.trim() ? String(trace.workTitle).trim().slice(0, 200) : null,
-      canvasUrl: typeof trace.canvasUrl === "string" && trace.canvasUrl.trim() ? String(trace.canvasUrl).trim().slice(0, 1200) : null,
-      summaryText: typeof opts.summaryText === "string" && opts.summaryText.trim() ? String(opts.summaryText).trim().slice(0, 4000) : null,
-      stepsJson: steps.length ? steps : null,
-      followUpSuggestionsJson: followUpSuggestions.length ? followUpSuggestions : null,
-      createdAt,
-      completedAt: opts.completedAt ?? null,
-      interruptedAt: opts.interruptedAt ?? null,
-    },
+    data,
   }).catch(() => null);
 }
 

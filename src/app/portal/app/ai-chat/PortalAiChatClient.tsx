@@ -4174,7 +4174,9 @@ export function PortalAiChatClient({
                       <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(run.triggerKind)}</span>
                       <span className={classNames(
                         "rounded-full border px-2 py-0.5",
-                        run.status === "completed"
+                        run.status === "running"
+                          ? "border-brand-blue/20 bg-blue-50 text-brand-blue"
+                          : run.status === "completed"
                           ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                           : run.status === "interrupted"
                             ? "border-zinc-300 bg-zinc-100 text-zinc-700"
