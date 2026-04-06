@@ -136,6 +136,7 @@ Each chat should also have its own real URL so refresh keeps you in the same con
 - Active runs can now be interrupted with a stop button.
 - Successful runs can now suggest the next useful prompt to keep momentum going.
 - Active-thread progress now streams through a dedicated SSE status channel instead of foreground polling.
+- Sidebar thread status now streams through a shared threads SSE channel instead of periodic thread-list refreshes.
 - Follow-up suggestion chips now persist with assistant messages so they survive reloads.
 
 ### Future direction
@@ -148,9 +149,9 @@ Each chat should also have its own real URL so refresh keeps you in the same con
 
 ## What is still missing
 
-- Broader streamed run visibility.
-  - The active thread now gets true streamed status updates.
-  - Cross-thread visibility in the sidebar still relies on lightweight refreshes instead of a full shared stream.
+- Richer streamed run surfaces.
+  - The active thread and sidebar thread list now get true streamed status updates.
+  - There is still no dedicated runs view or broader stream of run history, ownership, and completion summaries across the product.
 - Richer long-running job infrastructure.
   - There is not yet a first-class run queue with resumable background jobs, ownership, retries, and a dedicated runs view.
 - Deeper self-healing.
@@ -164,8 +165,8 @@ Each chat should also have its own real URL so refresh keeps you in the same con
 
 ## Next slices
 
-1. Extend streamed status beyond the active thread into broader run visibility.
-2. Add a dedicated run ledger for long-lived and background jobs.
-3. Persist richer follow-up recommendations and next-best-action state.
-4. Improve self-healing with broader retry and repair strategies.
-5. Add stronger “I know what to do next” planning across multiple turns instead of only after a single completed run.
+1. Add a dedicated run ledger for long-lived and background jobs.
+2. Persist richer follow-up recommendations and next-best-action state.
+3. Improve self-healing with broader retry and repair strategies.
+4. Add stronger “I know what to do next” planning across multiple turns instead of only after a single completed run.
+5. Add richer run-history surfaces beyond the live chat sidebar.

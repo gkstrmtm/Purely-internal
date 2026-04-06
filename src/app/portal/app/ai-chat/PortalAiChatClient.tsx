@@ -67,6 +67,21 @@ type Thread = {
   liveStatus?: LiveStatus | null;
 };
 
+function threadTimestampValue(value: string | null | undefined): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function compareThreadsForSidebar(a: Thread, b: Thread): number {
+  if (Boolean(a.isPinned) !== Boolean(b.isPinned)) return a.isPinned ? -1 : 1;
+  const pinnedDelta = threadTimestampValue(b.pinnedAt) - threadTimestampValue(a.pinnedAt);
+  if (pinnedDelta !== 0) return pinnedDelta;
+  const lastMessageDelta = threadTimestampValue(b.lastMessageAt) - threadTimestampValue(a.lastMessageAt);
+  if (lastMessageDelta !== 0) return lastMessageDelta;
+  return threadTimestampValue(b.updatedAt) - threadTimestampValue(a.updatedAt);
+}
+
 type ShareMember = { userId: string; email: string; name: string };
 
 type Attachment = {
@@ -1188,9 +1203,6 @@ export function PortalAiChatClient({
     if (!activeThreadId || !activeLiveStatus) return false;
     return sending || hasThinkingMessage || regenerating || Boolean(runningActionKey) || Boolean(activeLiveStatus.label);
   }, [activeLiveStatus, activeThreadId, hasThinkingMessage, regenerating, runningActionKey, sending]);
-  const hasAnyLiveThreadStatus = useMemo(() => {
-    return Object.values(threadLiveStatusById).some((status) => Boolean(status?.label));
-  }, [threadLiveStatusById]);
   const workStatusLabel = useMemo(() => {
     if (liveWorkStatusLabel) return liveWorkStatusLabel;
     if (regenerating && regeneratingTarget?.messageId) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Reworking that response" : "Redoing that response");
@@ -1487,6 +1499,33 @@ export function PortalAiChatClient({
     [],
   );
 
+  const applyStreamedThreadsSnapshot = useCallback((threadsRaw: unknown) => {
+    const next = Array.isArray(threadsRaw)
+      ? (threadsRaw as Array<Thread & { liveStatus?: unknown }>).map((thread) => ({
+          ...thread,
+          liveStatus: normalizeLiveStatus(thread?.liveStatus),
+        }))
+      : [];
+
+    setThreads((prev) => {
+      const prevById = new Map(prev.map((thread) => [thread.id, thread]));
+      const merged = next.map((thread) => ({ ...prevById.get(thread.id), ...thread }));
+      return merged.sort(compareThreadsForSidebar);
+    });
+
+    setThreadLiveStatusById((prev) => {
+      const nextStatuses: Record<string, LiveStatus | null> = {};
+      for (const thread of next) {
+        nextStatuses[thread.id] = normalizeLiveStatus(thread.liveStatus);
+      }
+      const activeThreadStatus = activeThreadIdRef.current ? prev[activeThreadIdRef.current] : null;
+      if (activeThreadIdRef.current && activeThreadStatus && !nextStatuses[activeThreadIdRef.current]) {
+        nextStatuses[activeThreadIdRef.current] = activeThreadStatus;
+      }
+      return nextStatuses;
+    });
+  }, []);
+
   const selectThread = useCallback(
     (threadId: string) => {
       forceScrollToBottomRef.current = true;
@@ -1512,28 +1551,30 @@ export function PortalAiChatClient({
   }, [loadThreads]);
 
   useEffect(() => {
-    if (!(hasAnyLiveThreadStatus || sending || hasThinkingMessage || regenerating || Boolean(runningActionKey))) return;
+    const source = new EventSource("/api/portal/ai-chat/threads/status");
 
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-    const tick = async () => {
-      await loadThreads();
-      if (cancelled) return;
-      timeoutId = setTimeout(() => {
-        void tick();
-      }, 2500);
+    const onThreads = (event: Event) => {
+      const messageEvent = event as MessageEvent<string>;
+      if (!messageEvent.data) return;
+      try {
+        const json = JSON.parse(messageEvent.data);
+        if (!json?.ok) return;
+        applyStreamedThreadsSnapshot(json.threads);
+      } catch {
+        // ignore malformed event payloads
+      }
     };
 
-    timeoutId = setTimeout(() => {
-      void tick();
-    }, 2500);
+    source.addEventListener("threads", onThreads);
+    source.onerror = () => {
+      void loadThreads();
+    };
 
     return () => {
-      cancelled = true;
-      if (timeoutId) clearTimeout(timeoutId);
+      source.removeEventListener("threads", onThreads);
+      source.close();
     };
-  }, [hasAnyLiveThreadStatus, hasThinkingMessage, loadThreads, regenerating, runningActionKey, sending]);
+  }, [applyStreamedThreadsSnapshot, loadThreads]);
 
   useEffect(() => {
     if (messagesLoading || messages.length > 0) return;
