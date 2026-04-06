@@ -1134,6 +1134,9 @@ export function PortalAiChatClient({
     if (!activeThreadId || !activeLiveStatus) return false;
     return sending || hasThinkingMessage || regenerating || Boolean(runningActionKey) || Boolean(activeLiveStatus.label);
   }, [activeLiveStatus, activeThreadId, hasThinkingMessage, regenerating, runningActionKey, sending]);
+  const hasAnyLiveThreadStatus = useMemo(() => {
+    return Object.values(threadLiveStatusById).some((status) => Boolean(status?.label));
+  }, [threadLiveStatusById]);
   const workStatusLabel = useMemo(() => {
     if (liveWorkStatusLabel) return liveWorkStatusLabel;
     if (regenerating && regeneratingTarget?.messageId) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Reworking that response" : "Redoing that response");
@@ -1424,6 +1427,30 @@ export function PortalAiChatClient({
   useEffect(() => {
     void loadThreads();
   }, [loadThreads]);
+
+  useEffect(() => {
+    if (!(hasAnyLiveThreadStatus || sending || hasThinkingMessage || regenerating || Boolean(runningActionKey))) return;
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      await loadThreads();
+      if (cancelled) return;
+      timeoutId = setTimeout(() => {
+        void tick();
+      }, 2500);
+    };
+
+    timeoutId = setTimeout(() => {
+      void tick();
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [hasAnyLiveThreadStatus, hasThinkingMessage, loadThreads, regenerating, runningActionKey, sending]);
 
   useEffect(() => {
     if (messagesLoading || messages.length > 0) return;
