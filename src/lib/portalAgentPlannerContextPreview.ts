@@ -346,6 +346,27 @@ export function previewResultForPlanner(action: PortalAgentActionKey, result: an
       const preview = tryArrayKey(key);
       if (preview) return preview;
     }
+
+    // Nested fallback: one-level deep array-of-objects (common in `.get` results like report.items).
+    for (const [outerKey, outerVal] of Object.entries(result)) {
+      if (!isPlainObject(outerVal)) continue;
+      if (outerKey.toLowerCase().includes("error")) continue;
+      for (const [innerKey, innerVal] of Object.entries(outerVal)) {
+        if (innerKey.toLowerCase().includes("error")) continue;
+        if (!Array.isArray(innerVal) || !innerVal.length) continue;
+        if (!isPlainObject(innerVal[0])) continue;
+
+        const entries = previewList(innerVal, (x: any) => {
+          if (!isPlainObject(x)) return null;
+          const id = pickId(x);
+          const label = pickLabel(x);
+          if (!id && !label) return null;
+          return { id: id || undefined, label: label || undefined };
+        });
+
+        if (entries.length) return { [innerKey]: entries };
+      }
+    }
   } catch {
     // best-effort
   }
