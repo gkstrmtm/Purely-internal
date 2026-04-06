@@ -135,6 +135,8 @@ Each chat should also have its own real URL so refresh keeps you in the same con
   - and in the sidebar thread list.
 - Active runs can now be interrupted with a stop button.
 - Successful runs can now suggest the next useful prompt to keep momentum going.
+- Active-thread progress now streams through a dedicated SSE status channel instead of foreground polling.
+- Follow-up suggestion chips now persist with assistant messages so they survive reloads.
 
 ### Future direction
 - Once the UX is cleaner, Pura can move further toward a Copilot-style loop:
@@ -146,22 +148,23 @@ Each chat should also have its own real URL so refresh keeps you in the same con
 
 ## What is still missing
 
-- True push-based streaming for progress updates.
-  - Right now progress is persisted and polled.
-  - That is much better than static replies, but it is not yet SSE/WebSocket-grade live streaming.
+- Broader streamed run visibility.
+  - The active thread now gets true streamed status updates.
+  - Cross-thread visibility in the sidebar still relies on lightweight refreshes instead of a full shared stream.
 - Richer long-running job infrastructure.
   - There is not yet a first-class run queue with resumable background jobs, ownership, retries, and a dedicated runs view.
 - Deeper self-healing.
   - Recovery is better, but there is still room for broader retry strategies, smarter branch switching, and better automatic repair after failed writes.
-- Persistent proactive guidance.
-  - Follow-up suggestions currently improve the immediate workflow, but they are not yet a full long-lived “next best action” system with saved state and stronger memory.
+- Richer persistent proactive guidance.
+  - Follow-up suggestions now survive reloads for the assistant messages that generated them.
+  - There is still no fuller long-lived “next best action” memory that spans larger goals and changing priorities.
 - Stronger proactive autonomy.
   - Pura still mostly reacts to the user’s current request.
   - It does not yet proactively open a durable work plan, identify a sequence of likely next actions, and carry that plan across a longer horizon.
 
 ## Next slices
 
-1. Replace polling with true streamed run updates.
+1. Extend streamed status beyond the active thread into broader run visibility.
 2. Add a dedicated run ledger for long-lived and background jobs.
 3. Persist richer follow-up recommendations and next-best-action state.
 4. Improve self-healing with broader retry and repair strategies.

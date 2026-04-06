@@ -737,6 +737,23 @@ function normalizeLiveStatus(raw: unknown): LiveStatus | null {
   };
 }
 
+function sameLiveStatus(a: LiveStatus | null, b: LiveStatus | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  return (
+    a.phase === b.phase &&
+    a.label === b.label &&
+    a.actionKey === b.actionKey &&
+    a.title === b.title &&
+    a.updatedAt === b.updatedAt &&
+    a.runId === b.runId &&
+    Boolean(a.canInterrupt) === Boolean(b.canInterrupt) &&
+    a.round === b.round &&
+    a.completedSteps === b.completedSteps &&
+    a.lastCompletedTitle === b.lastCompletedTitle
+  );
+}
+
 function describeLiveStatusMeta(status: LiveStatus | null): string | null {
   if (!status) return null;
   const parts: string[] = [];
@@ -1406,6 +1423,35 @@ export function PortalAiChatClient({
   );
 
   const loadThreadStatus = useCallback(
+    async (threadId: string, payloadOverride?: any) => {
+      try {
+        const json =
+          payloadOverride ??
+          (await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/messages?view=status`, {
+            cache: "no-store",
+          }).then((res) => res.json().catch(() => null)));
+        if (!json?.ok) return;
+        const nextStatus = normalizeLiveStatus(json?.threadContext?.liveStatus);
+        setThreadLiveStatusById((prev) => {
+          const current = prev[threadId] ?? null;
+          if (sameLiveStatus(current, nextStatus)) return prev;
+          return { ...prev, [threadId]: nextStatus };
+        });
+        const nextLastCanvasUrl =
+          typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
+            ? String(json.threadContext.lastCanvasUrl).trim()
+            : null;
+        if (nextLastCanvasUrl && activeThreadIdRef.current === threadId) {
+          setCanvasUrl(nextLastCanvasUrl);
+        }
+      } catch {
+        // ignore lightweight status refresh failures
+      }
+    },
+    [],
+  );
+
+  const loadThreadStatusLegacy = useCallback(
     async (threadId: string) => {
       try {
         const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/messages?view=status`, {
@@ -1515,26 +1561,30 @@ export function PortalAiChatClient({
 
   useEffect(() => {
     if (!activeThreadId) return;
-    if (!(sending || hasThinkingMessage || regenerating || Boolean(runningActionKey))) return;
 
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const source = new EventSource(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/status`);
 
-    const tick = async () => {
-      await loadThreadStatus(activeThreadId);
-      if (cancelled) return;
-      timeoutId = setTimeout(() => {
-        void tick();
-      }, 1200);
+    const onStatus = (event: Event) => {
+      const messageEvent = event as MessageEvent<string>;
+      if (!messageEvent.data) return;
+      try {
+        const json = JSON.parse(messageEvent.data);
+        void loadThreadStatus(activeThreadId, json);
+      } catch {
+        // ignore malformed event payloads
+      }
     };
 
-    void tick();
+    source.addEventListener("status", onStatus);
+    source.onerror = () => {
+      void loadThreadStatusLegacy(activeThreadId);
+    };
 
     return () => {
-      cancelled = true;
-      if (timeoutId) clearTimeout(timeoutId);
+      source.removeEventListener("status", onStatus);
+      source.close();
     };
-  }, [activeThreadId, hasThinkingMessage, loadThreadStatus, regenerating, runningActionKey, sending]);
+  }, [activeThreadId, loadThreadStatus, loadThreadStatusLegacy]);
 
   useEffect(() => {
     if (!requestedThreadId || threadsLoading) return;

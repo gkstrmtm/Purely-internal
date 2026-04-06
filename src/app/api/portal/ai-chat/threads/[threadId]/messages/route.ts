@@ -2523,6 +2523,17 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
   const ctxJson = thread.contextJson && typeof thread.contextJson === "object" && !Array.isArray(thread.contextJson)
     ? (thread.contextJson as any)
     : {};
+  const followUpSuggestionsByAssistantId =
+    ctxJson.followUpSuggestionsByAssistantId && typeof ctxJson.followUpSuggestionsByAssistantId === "object" && !Array.isArray(ctxJson.followUpSuggestionsByAssistantId)
+      ? (ctxJson.followUpSuggestionsByAssistantId as Record<string, unknown>)
+      : {};
+  const normalizeFollowUpSuggestions = (raw: unknown) =>
+    Array.isArray(raw)
+      ? raw
+          .map((value) => (typeof value === "string" ? String(value).trim().slice(0, 180) : ""))
+          .filter(Boolean)
+          .slice(0, 3)
+      : [];
   const lastCanvasUrl = typeof ctxJson.lastCanvasUrl === "string" && ctxJson.lastCanvasUrl.trim() ? String(ctxJson.lastCanvasUrl).trim().slice(0, 1200) : null;
   const lastWorkTitle = typeof ctxJson.lastWorkTitle === "string" && ctxJson.lastWorkTitle.trim() ? String(ctxJson.lastWorkTitle).trim().slice(0, 200) : null;
   const liveStatus =
@@ -2566,7 +2577,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     return NextResponse.json({ ok: true, threadContext });
   }
 
-  return NextResponse.json({ ok: true, messages, threadContext });
+  return NextResponse.json({
+    ok: true,
+    messages: messages.map((message: any) => ({
+      ...message,
+      followUpSuggestions: normalizeFollowUpSuggestions(followUpSuggestionsByAssistantId[String(message?.id || "")]),
+    })),
+    threadContext,
+  });
 }
 
 async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
@@ -2794,6 +2812,28 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     push("Summarize what changed and tell me the next best step.");
     push("What should Pura do next here?");
     return suggestions.slice(0, 3);
+  };
+
+  const withPersistedFollowUpSuggestions = (threadContextValue: unknown, assistantMessageId: string | null | undefined, suggestionsRaw: unknown) => {
+    const suggestions = Array.isArray(suggestionsRaw)
+      ? suggestionsRaw
+          .map((value) => (typeof value === "string" ? String(value).trim().slice(0, 180) : ""))
+          .filter(Boolean)
+          .slice(0, 3)
+      : [];
+    if (!assistantMessageId || !suggestions.length) return threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue) ? (threadContextValue as any) : {};
+    const prevCtx = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue) ? (threadContextValue as any) : {};
+    const prevMap =
+      prevCtx.followUpSuggestionsByAssistantId && typeof prevCtx.followUpSuggestionsByAssistantId === "object" && !Array.isArray(prevCtx.followUpSuggestionsByAssistantId)
+        ? (prevCtx.followUpSuggestionsByAssistantId as Record<string, unknown>)
+        : {};
+    return {
+      ...prevCtx,
+      followUpSuggestionsByAssistantId: {
+        ...prevMap,
+        [String(assistantMessageId).trim().slice(0, 200)]: suggestions,
+      },
+    };
   };
 
   const withCurrentRunStatus = (status: LiveStatusShape): LiveStatusShape => ({
@@ -3290,6 +3330,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       failedCount,
       pendingCount: 0,
     });
+    const persistedCtx = withPersistedFollowUpSuggestions(nextCtx, assistantMsg?.id, followUpSuggestions);
+    await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedCtx } });
+    persistedThreadContext = persistedCtx;
     return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, clientUiActions, openScheduledTasks, runTrace, followUpSuggestions });
   }
 
@@ -3819,6 +3862,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             failedCount: Boolean((exec as any).ok) && Number((exec as any).status) >= 200 && Number((exec as any).status) < 300 ? 0 : 1,
             pendingCount: 0,
           });
+
+          const persistedCtx = withPersistedFollowUpSuggestions(nextCtx, assistantMsg?.id, followUpSuggestions);
+          await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedCtx } });
+          persistedThreadContext = persistedCtx;
 
           return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: cua ? [cua] : [], openScheduledTasks: String(keyParsed.data).startsWith("ai_chat.scheduled."), runTrace, followUpSuggestions });
         }
@@ -4898,6 +4945,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         failedCount: allResults.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length,
         pendingCount: allResults.filter((r: any) => Boolean(r.ok) && (r?.result?.question || (Array.isArray(r?.result?.actions) && r.result.actions.length))).length,
       });
+      const persistedCtx = withPersistedFollowUpSuggestions(nextCtx, assistantMsg?.id, followUpSuggestions);
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedCtx } });
+      persistedThreadContext = persistedCtx;
       return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: allClientUiActions, openScheduledTasks, runTrace, followUpSuggestions });
     } catch {
       try {
