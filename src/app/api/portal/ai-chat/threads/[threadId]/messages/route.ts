@@ -340,6 +340,64 @@ function cleanSuggestedTitle(raw: string): string {
   return s.replace(/^"|"$/g, "").replace(/^'|'$/g, "").slice(0, 60).trim();
 }
 
+type UnresolvedRunStatus = "needs_input" | "failed" | "interrupted" | "partial";
+
+type UnresolvedRunShape = {
+  status: UnresolvedRunStatus;
+  runId?: string | null;
+  updatedAt?: string | null;
+  workTitle?: string | null;
+  summaryText?: string | null;
+  userRequest?: string | null;
+  lastCompletedTitle?: string | null;
+  canvasUrl?: string | null;
+};
+
+function normalizeUnresolvedRun(raw: unknown): UnresolvedRunShape | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const statusRaw = typeof (raw as any).status === "string" ? String((raw as any).status).trim().toLowerCase() : "";
+  const status =
+    statusRaw === "needs_input" || statusRaw === "failed" || statusRaw === "interrupted" || statusRaw === "partial"
+      ? (statusRaw as UnresolvedRunStatus)
+      : null;
+  if (!status) return null;
+
+  return {
+    status,
+    runId: typeof (raw as any).runId === "string" && (raw as any).runId.trim() ? String((raw as any).runId).trim().slice(0, 120) : null,
+    updatedAt: typeof (raw as any).updatedAt === "string" && (raw as any).updatedAt.trim() ? String((raw as any).updatedAt).trim().slice(0, 80) : null,
+    workTitle: typeof (raw as any).workTitle === "string" && (raw as any).workTitle.trim() ? String((raw as any).workTitle).trim().slice(0, 200) : null,
+    summaryText: typeof (raw as any).summaryText === "string" && (raw as any).summaryText.trim() ? String((raw as any).summaryText).trim().slice(0, 1200) : null,
+    userRequest: typeof (raw as any).userRequest === "string" && (raw as any).userRequest.trim() ? String((raw as any).userRequest).trim().slice(0, 2000) : null,
+    lastCompletedTitle:
+      typeof (raw as any).lastCompletedTitle === "string" && (raw as any).lastCompletedTitle.trim()
+        ? String((raw as any).lastCompletedTitle).trim().slice(0, 200)
+        : null,
+    canvasUrl: typeof (raw as any).canvasUrl === "string" && (raw as any).canvasUrl.trim() ? String((raw as any).canvasUrl).trim().slice(0, 1200) : null,
+  };
+}
+
+function withUnresolvedRun(threadContextValue: unknown, unresolvedRun: UnresolvedRunShape | null) {
+  const prevCtx = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue) ? (threadContextValue as any) : {};
+  return {
+    ...prevCtx,
+    unresolvedRun: normalizeUnresolvedRun(unresolvedRun),
+  };
+}
+
+function clearUnresolvedRun(threadContextValue: unknown) {
+  return withUnresolvedRun(threadContextValue, null);
+}
+
+function looksLikeContinuationRequest(textRaw: string): boolean {
+  const text = String(textRaw || "").trim().toLowerCase();
+  if (!text) return false;
+  if (text.length <= 80 && /^(continue|keep going|go ahead|resume|retry|try again|finish it|finish that|do it|do that|keep working|pick up where you left off)[.!?\s]*$/.test(text)) {
+    return true;
+  }
+  return /\b(continue|keep going|resume|pick up where you left off|finish the remaining work|retry the last|try again and keep going|keep working on this)\b/.test(text);
+}
+
 function heuristicThreadTitleFromUserText(textRaw: string): string {
   const t = String(textRaw || "")
     .trim()
@@ -2572,7 +2630,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
         }))
     : [];
 
-  const threadContext = { lastCanvasUrl, lastWorkTitle, liveStatus, runs };
+  const unresolvedRun = normalizeUnresolvedRun(ctxJson.unresolvedRun);
+
+  const threadContext = { lastCanvasUrl, lastWorkTitle, liveStatus, runs, unresolvedRun };
 
   if (view === "status") {
     return NextResponse.json({ ok: true, threadContext });
@@ -2805,7 +2865,25 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       data: { ownerId, threadId, role: "assistant", text: assistantText, attachmentsJson: null, createdByUserId: null, sendAt: null, sentAt: new Date() },
       select: { id: true, role: true, text: true, attachmentsJson: true, createdAt: true, sendAt: true, sentAt: true },
     });
-    const clearedCtx = completeInterruptibleRun(prevCtx);
+    const clearedCtx = completeInterruptibleRun(
+      withUnresolvedRun(prevCtx, {
+        status: "interrupted",
+        runId: interruptedRunId,
+        updatedAt: interruptedAt.toISOString(),
+        workTitle:
+          typeof liveStatus?.title === "string" && liveStatus.title.trim()
+            ? String(liveStatus.title).trim().slice(0, 200)
+            : typeof liveStatus?.label === "string" && liveStatus.label.trim()
+              ? String(liveStatus.label).trim().slice(0, 200)
+              : null,
+        summaryText: assistantText,
+        lastCompletedTitle:
+          typeof liveStatus?.lastCompletedTitle === "string" && liveStatus.lastCompletedTitle.trim()
+            ? String(liveStatus.lastCompletedTitle).trim().slice(0, 200)
+            : null,
+        canvasUrl: typeof prevCtx.lastCanvasUrl === "string" && prevCtx.lastCanvasUrl.trim() ? String(prevCtx.lastCanvasUrl).trim().slice(0, 1200) : null,
+      }),
+    );
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date(), contextJson: clearedCtx } });
     await persistActiveChatRun({
       status: "interrupted",
@@ -3378,19 +3456,32 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       canvasUrl,
     };
     const runs = [...prevRuns.slice(-19), runTrace];
+    const okCount = results.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length;
+    const failedCount = results.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length;
+    const runStatus: PortalAiChatRunStatus = failedCount > 0 ? (okCount > 0 ? "partial" : "failed") : "completed";
 
     const nextCtxBase = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
       ? { ...(prevCtx as any), pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs }
       : { pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs };
     const completedRunId = activeRunId;
     const completedRunStartedAt = activeRunStartedAt;
-    const nextCtx = completeInterruptibleRun(nextCtxBase);
+    const nextCtx = completeInterruptibleRun(
+      runStatus === "completed"
+        ? clearUnresolvedRun(nextCtxBase)
+        : withUnresolvedRun(nextCtxBase, {
+            status: runStatus === "partial" ? "partial" : "failed",
+            runId: completedRunId,
+            updatedAt: now.toISOString(),
+            workTitle: pendingConfirm.workTitle ?? null,
+            summaryText: assistantMsg?.text ?? null,
+            userRequest: pendingConfirm.workTitle ?? null,
+            canvasUrl,
+          }),
+    );
 
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
     const openScheduledTasks = confirmedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
-    const okCount = results.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length;
-    const failedCount = results.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length;
     const followUpSuggestions = buildProactiveFollowUpSuggestions({
       actionKeys: confirmedSteps.map((s) => String(s.key || "")).filter(Boolean),
       canvasUrl,
@@ -3401,7 +3492,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     const persistedCtx = withPersistedFollowUpSuggestions(nextCtx, assistantMsg?.id, followUpSuggestions);
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedCtx } });
     await persistActiveChatRun({
-      status: failedCount > 0 ? (okCount > 0 ? "partial" : "failed") : "completed",
+      status: runStatus,
       runId: completedRunId,
       startedAt: completedRunStartedAt,
       runTrace,
@@ -3702,6 +3793,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const planningTextWithAttachments = attachmentTextContext
         ? [effectivePlanningText, attachmentTextContext].filter(Boolean).join("\n").slice(0, 12_000)
         : effectivePlanningText;
+      const unresolvedRunForPlanning = normalizeUnresolvedRun(
+        threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any).unresolvedRun : null,
+      );
+      const continuationIntent = Boolean(unresolvedRunForPlanning && hasNewUserText && looksLikeContinuationRequest(effectiveText));
 
       // --- ChatGPT wrapper loop ---
       // 1) If we previously asked a question to run a specific action, try to continue that now.
@@ -3932,17 +4027,43 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
           const completedRunId = activeRunId;
           const completedRunStartedAt = activeRunStartedAt;
-          const nextCtx = completeInterruptibleRun({
-            ...prevCtx,
-            ...mergedPatch,
-            lastWorkTitle: title || keyParsed.data,
-            lastCanvasUrl: canvasUrl,
-            pendingAction: null,
-            pendingActionClarify: null,
-            pendingPlan: null,
-            pendingPlanClarify: null,
-            runs,
-          });
+          const singleRunStatus: PortalAiChatRunStatus = Boolean((exec as any).ok) && Number((exec as any).status) >= 200 && Number((exec as any).status) < 300 ? "completed" : "failed";
+          const nextCtx = completeInterruptibleRun(
+            singleRunStatus === "completed"
+              ? clearUnresolvedRun({
+                  ...prevCtx,
+                  ...mergedPatch,
+                  lastWorkTitle: title || keyParsed.data,
+                  lastCanvasUrl: canvasUrl,
+                  pendingAction: null,
+                  pendingActionClarify: null,
+                  pendingPlan: null,
+                  pendingPlanClarify: null,
+                  runs,
+                })
+              : withUnresolvedRun(
+                  {
+                    ...prevCtx,
+                    ...mergedPatch,
+                    lastWorkTitle: title || keyParsed.data,
+                    lastCanvasUrl: canvasUrl,
+                    pendingAction: null,
+                    pendingActionClarify: null,
+                    pendingPlan: null,
+                    pendingPlanClarify: null,
+                    runs,
+                  },
+                  {
+                    status: "failed",
+                    runId: completedRunId,
+                    updatedAt: now.toISOString(),
+                    workTitle: title || keyParsed.data,
+                    summaryText: assistantMsg?.text ?? execError ?? null,
+                    userRequest: promptMessage,
+                    canvasUrl,
+                  },
+                ),
+          );
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
           if (assistantText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText });
 
@@ -3958,7 +4079,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           const persistedCtx = withPersistedFollowUpSuggestions(nextCtx, assistantMsg?.id, followUpSuggestions);
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedCtx } });
           await persistActiveChatRun({
-            status: Boolean((exec as any).ok) && Number((exec as any).status) >= 200 && Number((exec as any).status) < 300 ? "completed" : "failed",
+            status: singleRunStatus,
             runId: completedRunId,
             startedAt: completedRunStartedAt,
             runTrace,
@@ -4280,6 +4401,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           contextUrl,
           threadSummary: threadSummaryForPrompt || null,
           lastRunSummary: opts.lastRunSummary,
+          unresolvedRun: unresolvedRunForPlanning,
+          continuationIntent,
           recentMessages: modelMessages,
           userRequest: planningTextWithAttachments,
         });
@@ -4672,7 +4795,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           const completedRunId = activeRunId;
           const completedRunStartedAt = activeRunStartedAt;
           const nextCtx = completeInterruptibleRun({
-            ...prevCtx,
+            ...withUnresolvedRun(prevCtx, {
+              status: "needs_input",
+              runId: completedRunId,
+              updatedAt: now.toISOString(),
+              workTitle: resolvedStepsForConfirm[0]?.title ?? null,
+              summaryText: (confirmSpec as any)?.message || null,
+              userRequest: promptMessage,
+              canvasUrl: null,
+            }),
             pendingConfirm: { token, createdAt: now.toISOString(), workTitle: resolvedStepsForConfirm[0]?.title ?? null, steps: resolvedStepsForConfirm, confirm: confirmSpec },
             pendingAction: null,
             pendingActionClarify: null,
@@ -4829,7 +4960,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           const completedRunId = activeRunId;
           const completedRunStartedAt = activeRunStartedAt;
           const nextCtx = completeInterruptibleRun({
-            ...prevCtx,
+            ...withUnresolvedRun(prevCtx, {
+              status: "needs_input",
+              runId: completedRunId,
+              updatedAt: now.toISOString(),
+              workTitle: title,
+              summaryText: clarifyText || rawClarifyPrompt || null,
+              userRequest: promptMessage,
+              canvasUrl: null,
+            }),
             pendingAction: { key, title, args: argsRaw },
             pendingActionClarify: { at: now.toISOString(), question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null },
             pendingPlan: null,
@@ -5048,20 +5187,50 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         canvasUrl,
       };
       const runs = [...prevRuns.slice(-19), runTrace];
+      const finalPendingCount = allResults.filter((r: any) => Boolean(r.ok) && (r?.result?.question || (Array.isArray(r?.result?.actions) && r.result.actions.length))).length;
+      const finalFailedCount = allResults.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length;
+      const finalOkCount = allResults.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length;
 
       const completedRunId = activeRunId;
       const completedRunStartedAt = activeRunStartedAt;
-      const nextCtx = completeInterruptibleRun({
-        ...prevCtx,
-        ...mergedPatch,
-        lastWorkTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
-        lastCanvasUrl: canvasUrl,
-        pendingAction: null,
-        pendingActionClarify: null,
-        pendingPlan: null,
-        pendingPlanClarify: null,
-        runs,
-      });
+      const finalRunStatus: PortalAiChatRunStatus = finalPendingCount > 0 ? "needs_input" : finalFailedCount > 0 ? (finalOkCount > 0 ? "partial" : "failed") : "completed";
+      const nextCtx = completeInterruptibleRun(
+        finalRunStatus === "completed"
+          ? clearUnresolvedRun({
+              ...prevCtx,
+              ...mergedPatch,
+              lastWorkTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
+              lastCanvasUrl: canvasUrl,
+              pendingAction: null,
+              pendingActionClarify: null,
+              pendingPlan: null,
+              pendingPlanClarify: null,
+              runs,
+            })
+          : withUnresolvedRun(
+              {
+                ...prevCtx,
+                ...mergedPatch,
+                lastWorkTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
+                lastCanvasUrl: canvasUrl,
+                pendingAction: null,
+                pendingActionClarify: null,
+                pendingPlan: null,
+                pendingPlanClarify: null,
+                runs,
+              },
+              {
+                status: finalRunStatus as UnresolvedRunStatus,
+                runId: completedRunId,
+                updatedAt: now.toISOString(),
+                workTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
+                summaryText: assistantMsg?.text ?? null,
+                userRequest: promptMessage,
+                lastCompletedTitle: allResolvedSteps[allResolvedSteps.length - 1]?.title || null,
+                canvasUrl,
+              },
+            ),
+      );
 
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
       if (assistantTextFinal) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: assistantTextFinal });
@@ -5071,21 +5240,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         actionKeys: allResolvedSteps.map((s) => String(s.key || "")).filter(Boolean),
         canvasUrl,
         promptText: promptMessage,
-        completedCount: allResults.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length,
-        failedCount: allResults.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length,
-        pendingCount: allResults.filter((r: any) => Boolean(r.ok) && (r?.result?.question || (Array.isArray(r?.result?.actions) && r.result.actions.length))).length,
+        completedCount: finalOkCount,
+        failedCount: finalFailedCount,
+        pendingCount: finalPendingCount,
       });
       const persistedCtx = withPersistedFollowUpSuggestions(nextCtx, assistantMsg?.id, followUpSuggestions);
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedCtx } });
       await persistActiveChatRun({
-        status:
-          allResults.filter((r: any) => Boolean(r.ok) && (r?.result?.question || (Array.isArray(r?.result?.actions) && r.result.actions.length))).length > 0
-            ? "needs_input"
-            : allResults.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length > 0
-              ? allResults.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length > 0
-                ? "partial"
-                : "failed"
-              : "completed",
+        status: finalRunStatus,
         runId: completedRunId,
         startedAt: completedRunStartedAt,
         runTrace,
@@ -5142,7 +5304,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         const completedRunId = activeRunId;
         const completedRunStartedAt = activeRunStartedAt;
         const prevCtx = persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext) ? (persistedThreadContext as any) : {};
-        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: completeInterruptibleRun(prevCtx) } });
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: completeInterruptibleRun(clearUnresolvedRun(prevCtx)) } });
         await persistActiveChatRun({
           status: "completed",
           runId: completedRunId,
@@ -5173,7 +5335,19 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           summaryText: "Run ended before Pura could produce a reply.",
           completedAt: now,
         });
-        await persistThreadContext(completeInterruptibleRun(persistedThreadContext));
+        await persistThreadContext(
+          completeInterruptibleRun(
+            withUnresolvedRun(persistedThreadContext, {
+              status: "failed",
+              runId: activeRunId,
+              updatedAt: now.toISOString(),
+              workTitle: null,
+              summaryText: "Run ended before Pura could produce a reply.",
+              userRequest: promptMessage,
+              canvasUrl: null,
+            }),
+          ),
+        );
       } catch {
         // ignore
       }
@@ -5187,7 +5361,19 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       summaryText: "Run ended without a reply.",
       completedAt: now,
     });
-    await persistThreadContext(completeInterruptibleRun(persistedThreadContext));
+    await persistThreadContext(
+      completeInterruptibleRun(
+        withUnresolvedRun(persistedThreadContext, {
+          status: "failed",
+          runId: activeRunId,
+          updatedAt: now.toISOString(),
+          workTitle: null,
+          summaryText: "Run ended without a reply.",
+          userRequest: promptMessage,
+          canvasUrl: null,
+        }),
+      ),
+    );
   } catch {
     // ignore
   }

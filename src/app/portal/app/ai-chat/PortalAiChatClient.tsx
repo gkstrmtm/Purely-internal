@@ -74,6 +74,19 @@ type ThreadRunStatus = {
   updatedAt?: string | null;
 };
 
+type UnresolvedRunStatus = "needs_input" | "failed" | "interrupted" | "partial";
+
+type UnresolvedRun = {
+  status: UnresolvedRunStatus;
+  runId?: string | null;
+  updatedAt?: string | null;
+  workTitle?: string | null;
+  summaryText?: string | null;
+  userRequest?: string | null;
+  lastCompletedTitle?: string | null;
+  canvasUrl?: string | null;
+};
+
 function threadTimestampValue(value: string | null | undefined): number {
   if (!value) return 0;
   const parsed = Date.parse(value);
@@ -860,6 +873,34 @@ function normalizeLiveStatus(raw: unknown): LiveStatus | null {
   };
 }
 
+function normalizeUnresolvedRun(raw: unknown): UnresolvedRun | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const statusRaw = typeof (raw as any).status === "string" ? String((raw as any).status).trim().toLowerCase() : "";
+  const status =
+    statusRaw === "needs_input" || statusRaw === "failed" || statusRaw === "interrupted" || statusRaw === "partial"
+      ? (statusRaw as UnresolvedRunStatus)
+      : null;
+  if (!status) return null;
+  const updatedAt = typeof (raw as any).updatedAt === "string" ? String((raw as any).updatedAt).trim().slice(0, 80) : "";
+  const workTitle = typeof (raw as any).workTitle === "string" ? String((raw as any).workTitle).trim().slice(0, 200) : "";
+  const summaryText = typeof (raw as any).summaryText === "string" ? String((raw as any).summaryText).trim().slice(0, 1200) : "";
+  const userRequest = typeof (raw as any).userRequest === "string" ? String((raw as any).userRequest).trim().slice(0, 2000) : "";
+  const lastCompletedTitle = typeof (raw as any).lastCompletedTitle === "string" ? String((raw as any).lastCompletedTitle).trim().slice(0, 200) : "";
+  const runId = typeof (raw as any).runId === "string" ? String((raw as any).runId).trim().slice(0, 120) : "";
+  const canvasUrl = typeof (raw as any).canvasUrl === "string" ? String((raw as any).canvasUrl).trim().slice(0, 1200) : "";
+
+  return {
+    status,
+    updatedAt: updatedAt || null,
+    workTitle: workTitle || null,
+    summaryText: summaryText || null,
+    userRequest: userRequest || null,
+    lastCompletedTitle: lastCompletedTitle || null,
+    runId: runId || null,
+    canvasUrl: canvasUrl || null,
+  };
+}
+
 function sameLiveStatus(a: LiveStatus | null, b: LiveStatus | null): boolean {
   if (a === b) return true;
   if (!a || !b) return !a && !b;
@@ -913,6 +954,67 @@ function LiveProgressCard({ status, onInterrupt, interrupting }: { status: LiveS
       <div className="mt-2 text-sm font-semibold text-zinc-900">{status.label || status.title || "Working on it"}</div>
       {meta ? <div className="mt-1 text-xs font-medium text-zinc-600">{meta}</div> : null}
       {lastCompletedTitle ? <div className="mt-2 text-xs text-zinc-600">Last completed: {lastCompletedTitle}</div> : null}
+    </div>
+  );
+}
+
+function unresolvedRunCta(status: UnresolvedRunStatus): { label: string; prompt: string } {
+  if (status === "needs_input") {
+    return {
+      label: "Continue",
+      prompt: "Continue this chat and ask me only for the missing input you actually need.",
+    };
+  }
+  if (status === "interrupted") {
+    return {
+      label: "Resume",
+      prompt: "Continue this chat from where you left off and finish the remaining work.",
+    };
+  }
+  return {
+    label: "Retry",
+    prompt: "Retry the last unfinished work in this chat, fix the issue, and keep going until it is done.",
+  };
+}
+
+function UnresolvedRunCard({ unresolvedRun, onContinue, onOpenCanvas, sending }: { unresolvedRun: UnresolvedRun; onContinue: (prompt: string) => void; onOpenCanvas?: (() => void) | null; sending?: boolean }) {
+  const cta = unresolvedRunCta(unresolvedRun.status);
+  const title = unresolvedRun.workTitle?.trim() || formatRunStatusLabel(unresolvedRun.status);
+  const summary = unresolvedRun.summaryText?.trim() || unresolvedRun.userRequest?.trim() || null;
+
+  return (
+    <div className="rounded-3xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-zinc-800 shadow-[0_8px_30px_rgba(217,119,6,0.08)]">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">
+          <ThinkingDots />
+          <span>Unfinished work</span>
+        </div>
+        <div className="rounded-full border border-amber-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-800">
+          {formatRunStatusLabel(unresolvedRun.status)}
+        </div>
+      </div>
+      <div className="mt-2 text-sm font-semibold text-zinc-900">{title}</div>
+      {summary ? <div className="mt-1 text-sm leading-6 text-zinc-700">{summary}</div> : null}
+      {unresolvedRun.lastCompletedTitle ? <div className="mt-2 text-xs text-zinc-600">Last completed: {unresolvedRun.lastCompletedTitle}</div> : null}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+          disabled={Boolean(sending)}
+          onClick={() => onContinue(cta.prompt)}
+        >
+          {cta.label}
+        </button>
+        {onOpenCanvas ? (
+          <button
+            type="button"
+            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+            onClick={onOpenCanvas}
+          >
+            Open related page
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1127,6 +1229,7 @@ export function PortalAiChatClient({
 
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(() => ({ [DRAFT_THREAD_KEY]: [] }));
   const [threadLiveStatusById, setThreadLiveStatusById] = useState<Record<string, LiveStatus | null>>(() => ({}));
+  const [threadUnresolvedRunById, setThreadUnresolvedRunById] = useState<Record<string, UnresolvedRun | null>>(() => ({}));
   const [loadingThreadIds, setLoadingThreadIds] = useState<Set<string>>(() => {
     const next = new Set<string>();
     if (initialRequestedThreadId) next.add(initialRequestedThreadId);
@@ -1265,6 +1368,7 @@ export function PortalAiChatClient({
   const activeThreadKey = activeThreadId ?? DRAFT_THREAD_KEY;
   const messages = useMemo(() => messagesByThread[activeThreadKey] ?? [], [activeThreadKey, messagesByThread]);
   const activeLiveStatus = activeThreadId ? threadLiveStatusById[activeThreadId] ?? null : null;
+  const activeUnresolvedRun = activeThreadId ? threadUnresolvedRunById[activeThreadId] ?? null : null;
   const messagesLoading = activeThreadId ? loadingThreadIds.has(activeThreadId) : false;
   const sending = activeThreadId ? sendingThreadIds.has(activeThreadId) : draftSending;
   const regenerating = Boolean(activeThreadId && regeneratingTarget?.threadId === activeThreadId);
@@ -1527,6 +1631,16 @@ export function PortalAiChatClient({
     }
   }, [toast, activeThreadId, navigateToThread]);
 
+  const applyThreadContextSnapshot = useCallback((threadId: string, threadContext: any) => {
+    setThreadLiveStatusById((prev) => ({ ...prev, [threadId]: normalizeLiveStatus(threadContext?.liveStatus) }));
+    setThreadUnresolvedRunById((prev) => ({ ...prev, [threadId]: normalizeUnresolvedRun(threadContext?.unresolvedRun) }));
+    const nextLastCanvasUrl =
+      typeof threadContext?.lastCanvasUrl === "string" && threadContext.lastCanvasUrl.trim() ? String(threadContext.lastCanvasUrl).trim() : null;
+    if (nextLastCanvasUrl && activeThreadIdRef.current === threadId) {
+      setCanvasUrl(nextLastCanvasUrl);
+    }
+  }, []);
+
   const loadMessages = useCallback(
     async (threadId: string) => {
       setThreadLoading(threadId, true);
@@ -1545,14 +1659,7 @@ export function PortalAiChatClient({
               )
             : [],
         }));
-        setThreadLiveStatusById((prev) => ({ ...prev, [threadId]: normalizeLiveStatus(json?.threadContext?.liveStatus) }));
-        const nextLastCanvasUrl =
-          typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
-            ? String(json.threadContext.lastCanvasUrl).trim()
-            : null;
-        if (nextLastCanvasUrl && activeThreadIdRef.current === threadId) {
-          setCanvasUrl(nextLastCanvasUrl);
-        }
+        applyThreadContextSnapshot(threadId, json?.threadContext);
         // Ensure we scroll after the new messages have actually rendered.
         requestAnimationFrame(() => scrollToBottom(true));
         setTimeout(() => scrollToBottom(true), 0);
@@ -1564,7 +1671,7 @@ export function PortalAiChatClient({
         setThreadLoading(threadId, false);
       }
     },
-    [scrollToBottom, setThreadLoading, toast],
+    [applyThreadContextSnapshot, scrollToBottom, setThreadLoading, toast],
   );
 
   const loadThreadStatus = useCallback(
@@ -1582,6 +1689,7 @@ export function PortalAiChatClient({
           if (sameLiveStatus(current, nextStatus)) return prev;
           return { ...prev, [threadId]: nextStatus };
         });
+        setThreadUnresolvedRunById((prev) => ({ ...prev, [threadId]: normalizeUnresolvedRun(json?.threadContext?.unresolvedRun) }));
         const nextLastCanvasUrl =
           typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
             ? String(json.threadContext.lastCanvasUrl).trim()
@@ -1618,6 +1726,7 @@ export function PortalAiChatClient({
           }
           return { ...prev, [threadId]: nextStatus };
         });
+        setThreadUnresolvedRunById((prev) => ({ ...prev, [threadId]: normalizeUnresolvedRun(json?.threadContext?.unresolvedRun) }));
         const nextLastCanvasUrl =
           typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
             ? String(json.threadContext.lastCanvasUrl).trim()
@@ -2241,6 +2350,7 @@ export function PortalAiChatClient({
             const ok = await askConfirm({ title, message, confirmLabel: "Confirm", cancelLabel: "Cancel" });
             if (!ok) {
               void loadThreads();
+              void loadThreadStatus(threadIdForSend);
               return;
             }
 
@@ -2286,6 +2396,7 @@ export function PortalAiChatClient({
             });
 
             void loadThreads();
+            void loadThreadStatus(threadIdForSend);
             return;
           }
 
@@ -2332,6 +2443,7 @@ export function PortalAiChatClient({
           }
 
           void loadThreads();
+          void loadThreadStatus(threadIdForSend);
           return;
         } catch (e) {
           updateThreadMessages(threadIdForSend, () => prevMessagesSnapshot);
@@ -2424,6 +2536,7 @@ export function PortalAiChatClient({
 
           if (!ok) {
             void loadThreads();
+            void loadThreadStatus(threadIdForSend);
             return;
           }
 
@@ -2469,6 +2582,7 @@ export function PortalAiChatClient({
           });
 
           void loadThreads();
+          void loadThreadStatus(threadIdForSend);
           return;
         }
 
@@ -2508,6 +2622,7 @@ export function PortalAiChatClient({
         }
 
         void loadThreads();
+        void loadThreadStatus(threadIdForSend);
       } catch (e) {
         updateThreadMessages(threadIdForSend, (prev) => prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id));
         setThreadDraftState(draftRestoreKey, (prev) => ({
@@ -2545,7 +2660,7 @@ export function PortalAiChatClient({
         else setThreadSending(sendLockKey, false);
       }
     },
-    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, effectiveChatMode, executeClientUiActions, loadThreads, navigateToThread, rememberMessageDisplayMode, setThreadDraftState, setThreadEditingMessageId, setThreadSending, setThreadUiState, toast, updateThreadMessages],
+    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, effectiveChatMode, executeClientUiActions, loadThreadStatus, loadThreads, navigateToThread, rememberMessageDisplayMode, setThreadDraftState, setThreadEditingMessageId, setThreadSending, setThreadUiState, toast, updateThreadMessages],
   );
 
   // Handler for ambiguous contact selection (must be after send is defined)
@@ -2627,8 +2742,9 @@ export function PortalAiChatClient({
         return next;
       });
       void loadThreads();
+      void loadThreadStatus(activeThreadId);
     }
-  }, [activeCanInterrupt, activeThreadId, loadThreads, toast]);
+  }, [activeCanInterrupt, activeThreadId, loadThreadStatus, loadThreads, toast]);
 
   const runAssistantAction = useCallback(
     async (a: AssistantAction) => {
@@ -2690,13 +2806,14 @@ export function PortalAiChatClient({
         }
 
         void loadThreads();
+        if (threadIdForAction) void loadThreadStatus(threadIdForAction);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : String(e));
       } finally {
         setRunningActionKey(null);
       }
     },
-    [activeThreadId, askConfirm, effectiveChatMode, executeAgentAction, executeClientUiActions, loadThreads, rememberMessageDisplayMode, runningActionKey, setThreadUiState, toast, updateThreadMessages],
+    [activeThreadId, askConfirm, effectiveChatMode, executeAgentAction, executeClientUiActions, loadThreadStatus, loadThreads, rememberMessageDisplayMode, runningActionKey, setThreadUiState, toast, updateThreadMessages],
   );
 
   const openInCanvas = useCallback(
@@ -4077,6 +4194,16 @@ export function PortalAiChatClient({
                       status={activeLiveStatus}
                       onInterrupt={activeCanInterrupt ? () => void interruptActiveRun() : null}
                       interrupting={Boolean(activeThreadId && interruptingThreadIds.has(activeThreadId))}
+                    />
+                  </div>
+                ) : null}
+                {!showActiveLiveProgressCard && activeUnresolvedRun ? (
+                  <div className="mt-3">
+                    <UnresolvedRunCard
+                      unresolvedRun={activeUnresolvedRun}
+                      sending={sending}
+                      onContinue={(prompt) => void send(prompt)}
+                      onOpenCanvas={activeUnresolvedRun.canvasUrl ? () => openInCanvas(activeUnresolvedRun.canvasUrl || "") : null}
                     />
                   </div>
                 ) : null}
