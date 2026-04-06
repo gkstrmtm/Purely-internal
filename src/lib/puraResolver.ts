@@ -110,6 +110,12 @@ function extractFunnelIdFromUrl(raw: string | undefined | null): string | null {
 function extractFunnelIdFromThreadContext(threadContext: unknown): string | null {
   if (!threadContext || typeof threadContext !== "object" || Array.isArray(threadContext)) return null;
 
+  const activeFunnelId =
+    (threadContext as any)?.activeFunnel && typeof (threadContext as any).activeFunnel?.id === "string"
+      ? String((threadContext as any).activeFunnel.id).trim()
+      : "";
+  if (activeFunnelId) return activeFunnelId.slice(0, 120);
+
   const lastCanvasUrl = typeof (threadContext as any).lastCanvasUrl === "string" ? String((threadContext as any).lastCanvasUrl).trim() : "";
   const fromLastCanvas = extractFunnelIdFromUrl(lastCanvasUrl);
   if (fromLastCanvas) return fromLastCanvas;
@@ -324,6 +330,20 @@ function getThreadContextObj(threadContext: unknown): Record<string, unknown> | 
 function getLastEntityObj(threadContext: unknown, key: string): Record<string, unknown> | null {
   const obj = getThreadContextObj(threadContext);
   const v = obj ? (obj as any)[key] : null;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  return v as Record<string, unknown>;
+}
+
+function getActiveFunnelObj(threadContext: unknown): Record<string, unknown> | null {
+  const obj = getThreadContextObj(threadContext);
+  const v = obj ? (obj as any).activeFunnel : null;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  return v as Record<string, unknown>;
+}
+
+function getActiveFunnelPageObj(threadContext: unknown): Record<string, unknown> | null {
+  const obj = getThreadContextObj(threadContext);
+  const v = obj ? (obj as any).activeFunnelPage : null;
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
   return v as Record<string, unknown>;
 }
@@ -2615,6 +2635,22 @@ async function resolveFunnelPageId(opts: {
   const funnelIdFromUrl = extractFunnelIdFromUrl(opts.url);
   if (fromUrl && funnelIdFromUrl) return { kind: "ok", pageId: fromUrl, label: fromUrl, funnelId: funnelIdFromUrl };
 
+  const activeFunnel = getActiveFunnelObj(opts.threadContext);
+  const activeFunnelPage = getActiveFunnelPageObj(opts.threadContext);
+  const activePageId = activeFunnelPage ? String((activeFunnelPage as any).id || "").trim() : "";
+  const activePageLabel = activeFunnelPage ? String((activeFunnelPage as any).label || (activeFunnelPage as any).slug || "").trim() : "";
+  const activePageFunnelId = activeFunnelPage ? String((activeFunnelPage as any).funnelId || "").trim() : "";
+  const activePages = Array.isArray((activeFunnel as any)?.pages)
+    ? ((activeFunnel as any).pages as any[])
+        .map((page) => ({
+          id: String(page?.id || "").trim(),
+          slug: String(page?.slug || "").trim(),
+          title: String(page?.title || "").trim(),
+          funnelId: String(page?.funnelId || (activeFunnel as any)?.id || "").trim(),
+        }))
+        .filter((page) => Boolean(page.id))
+    : [];
+
   const lastObj = getLastEntityObj(opts.threadContext, "lastFunnelPage");
   const lastPageId = lastObj ? String((lastObj as any).id || "").trim() : "";
   const lastFunnelId = lastObj ? String((lastObj as any).funnelId || "").trim() : "";
@@ -2624,6 +2660,10 @@ async function resolveFunnelPageId(opts: {
     /\b(same\s+one|same\s+page|the\s+same\s+one|the\s+same\s+page|the\s+one\s+we\s+just\s+(made|created|built)|the\s+page\s+we\s+just\s+(made|created|built)|we\s+just\s+(made|created|built)|just\s+(made|created|built))\b/i.test(
       hint,
     );
+  if ((!hint || /\b(last|latest|recent|current|active)\b/i.test(hint)) && activePageId && (!funnelIdHint || funnelIdHint === activePageFunnelId)) {
+    return { kind: "ok", pageId: activePageId.slice(0, 120), label: activePageLabel || "Current page", funnelId: funnelIdHint || activePageFunnelId };
+  }
+
   if ((!hint || /\b(last|latest|recent)\b/i.test(hint)) && lastPageId && (!funnelIdHint || funnelIdHint === lastFunnelId)) {
     return { kind: "ok", pageId: lastPageId.slice(0, 120), label: "Last page", funnelId: funnelIdHint || lastFunnelId };
   }
@@ -2634,13 +2674,55 @@ async function resolveFunnelPageId(opts: {
     /\b(it|that|this|the\s+page|this\s+page|that\s+page|new\s+one|the\s+new\s+one|new\s+page|same\s+one|same\s+page)\b/i.test(
       hint,
     ) || refersToJustMadeOrSameOne;
+  if (refersToCurrentOrNew && activePageId && (!funnelIdHint || funnelIdHint === activePageFunnelId)) {
+    return { kind: "ok", pageId: activePageId.slice(0, 120), label: activePageLabel || "Current page", funnelId: funnelIdHint || activePageFunnelId };
+  }
+
   if (refersToCurrentOrNew && lastPageId && (!funnelIdHint || funnelIdHint === lastFunnelId)) {
     return { kind: "ok", pageId: lastPageId.slice(0, 120), label: "Current page", funnelId: funnelIdHint || lastFunnelId };
   }
 
-  const funnelId = funnelIdHint || lastFunnelId || getLastEntityId(opts.threadContext, "lastFunnel") || "";
+  const funnelId = funnelIdHint || activePageFunnelId || lastFunnelId || extractFunnelIdFromThreadContext(opts.threadContext) || getLastEntityId(opts.threadContext, "lastFunnel") || "";
   if (!funnelId) {
     return { kind: "clarify", question: "Which funnel should I pull the page from? Open the funnel first (or tell me the funnel name)." };
+  }
+
+  const activePagesForFunnel = activePages.filter((page) => !page.funnelId || page.funnelId === funnelId);
+  if (!hint && activePagesForFunnel.length === 1) {
+    const only = activePagesForFunnel[0];
+    return { kind: "ok", pageId: only.id.slice(0, 120), label: only.title || only.slug || "Page", funnelId };
+  }
+
+  const hkActive = normKey(hint);
+  if (activePagesForFunnel.length && hkActive) {
+    const matched = activePagesForFunnel.filter((page) => {
+      const slug = normKey(page.slug);
+      const title = normKey(page.title);
+      const slugMatch = (slug && slug.includes(hkActive)) || (hkActive && hkActive.includes(slug));
+      const titleMatch = (title && title.includes(hkActive)) || (hkActive && hkActive.includes(title));
+      return Boolean(slugMatch || titleMatch);
+    });
+    if (matched.length === 1) {
+      const page = matched[0];
+      return { kind: "ok", pageId: page.id.slice(0, 120), label: page.title || page.slug || "Page", funnelId };
+    }
+  }
+
+  if (activePagesForFunnel.length) {
+    const preferredSlug =
+      /\b(thank\s*you|thanks)\b/i.test(hint)
+        ? "thank-you"
+        : /\b(book|booking|appointment|schedule)\b/i.test(hint)
+          ? "book"
+          : /\b(home|landing|main)\b/i.test(hint)
+            ? "home"
+            : "";
+    if (preferredSlug) {
+      const matched = activePagesForFunnel.find((page) => normKey(page.slug) === normKey(preferredSlug));
+      if (matched) {
+        return { kind: "ok", pageId: matched.id.slice(0, 120), label: matched.title || matched.slug || "Page", funnelId };
+      }
+    }
   }
 
   // If we don't have a last page in context but the user refers to "the same one we just made",
@@ -2700,6 +2782,9 @@ async function resolveFunnelPageId(opts: {
   // If the user says "any" / "doesn't matter" / "both", prefer the current page in context when possible.
   // Note: single-page actions still need one pageId; "both" means "you choose which to start with".
   if (hintMeansAny(hint) || hintMeansBoth(hint)) {
+    if (activePageId && (!funnelIdHint || funnelIdHint === activePageFunnelId)) {
+      return { kind: "ok", pageId: activePageId.slice(0, 120), label: activePageLabel || "Current page", funnelId: funnelIdHint || activePageFunnelId || funnelId };
+    }
     if (lastPageId && (!funnelIdHint || funnelIdHint === lastFunnelId)) {
       return { kind: "ok", pageId: lastPageId.slice(0, 120), label: "Current page", funnelId: funnelIdHint || lastFunnelId || funnelId };
     }
@@ -3495,22 +3580,25 @@ export async function resolvePlanArgs(opts: {
   if (stepKeyLower === "funnel_builder.pages.generate_html") {
     let prompt = typeof (args as any).prompt === "string" ? String((args as any).prompt).trim() : "";
     if (!prompt) {
-      const pageLabel =
-        (resolvedFunnelPage && typeof resolvedFunnelPage.label === "string" ? String(resolvedFunnelPage.label).trim() : "") ||
-        (typeof (args as any).title === "string" ? String((args as any).title).trim() : "") ||
-        "page";
-      const requestText = String(opts.userHint || "").trim().slice(0, 3000);
-      prompt = [
-        `Create or update the ${pageLabel} with real custom HTML.`,
-        requestText ? `User request:\n${requestText}` : null,
-        "Requirements:",
-        "- Output full CUSTOM HTML for the page.",
-        "- Do not ask clarifying questions; choose sensible defaults.",
-        "- Keep the page responsive and production-ready.",
-      ]
-        .filter(Boolean)
-        .join("\n");
-      args = { ...args, prompt };
+      const funnelIdForRepair =
+        typeof (args as any).funnelId === "string"
+          ? String((args as any).funnelId).trim().slice(0, 120)
+          : resolvedFunnelPage?.funnelId || resolvedFunnel?.id || "";
+      const pageIdForRepair =
+        typeof (args as any).pageId === "string"
+          ? String((args as any).pageId).trim().slice(0, 120)
+          : resolvedFunnelPage?.id || "";
+      return {
+        ok: false,
+        clarifyQuestion: [
+          "Planner repair required: funnel_builder.pages.generate_html is missing its required prompt string.",
+          funnelIdForRepair ? `Reuse funnelId=${funnelIdForRepair}.` : null,
+          pageIdForRepair ? `Reuse pageId=${pageIdForRepair}.` : null,
+          "Reissue the same action with a concrete prompt that describes the actual page layout/content to generate.",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      };
     }
 
     if (looksLikeCalendarIntent(prompt)) {
@@ -4559,6 +4647,15 @@ export async function resolvePlanArgs(opts: {
           ...(resolvedFunnelForm ? { lastFunnelForm: resolvedFunnelForm } : {}),
           ...(resolvedFunnelPage
             ? { lastFunnelPage: { id: resolvedFunnelPage.id, label: resolvedFunnelPage.label, funnelId: resolvedFunnelPage.funnelId } }
+            : {}),
+          ...(resolvedFunnelPage
+            ? {
+                activeFunnelPage: {
+                  id: resolvedFunnelPage.id,
+                  label: resolvedFunnelPage.label,
+                  funnelId: resolvedFunnelPage.funnelId,
+                },
+              }
             : {}),
           ...(resolvedBookingCalendar ? { lastBookingCalendar: resolvedBookingCalendar } : {}),
           ...(resolvedCustomDomain ? { lastCustomDomain: resolvedCustomDomain } : {}),

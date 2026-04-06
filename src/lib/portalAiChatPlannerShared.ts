@@ -251,8 +251,10 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
     "- Never output a multi-action plan that depends on IDs created earlier in the SAME response. If an ID will be created/discovered by a tool, output ONLY that one tool action, then stop (you will get another turn with the returned ID).",
     "- Use short sensible defaults for missing names (calendar/funnel/page).",
     "- IMPORTANT: If prior tool results or context already contain real IDs, copy and reuse those exact IDs in later action args.",
+    "- IMPORTANT: Treat ACTIVE funnel/page state from context as the primary source of truth over older historical IDs.",
     "- IMPORTANT: If recent results already show the target resource exists, do not recreate it. Reuse its returned ID and continue.",
     "- IMPORTANT: When generating page HTML with funnel_builder.pages.generate_html, include the exact funnelId, exact pageId, and a concrete prompt string every time.",
+    "- IMPORTANT: If ACTIVE funnel/page state already gives you the needed funnelId/pageId, do not ask a follow-up question. Use those IDs and continue.",
     "- If you still need something from the user after making progress, ask ONE specific follow-up question.",
     "- In CHAT MODE, summarize what you did and what you need next.",
     "",
@@ -298,9 +300,61 @@ function collectKnownIds(value: unknown, path: string, out: string[], seen: Set<
   }
 }
 
+function buildActiveFunnelStateNote(threadContext: unknown): string | null {
+  if (!threadContext || typeof threadContext !== "object" || Array.isArray(threadContext)) return null;
+
+  const activeFunnel =
+    (threadContext as any).activeFunnel && typeof (threadContext as any).activeFunnel === "object" && !Array.isArray((threadContext as any).activeFunnel)
+      ? ((threadContext as any).activeFunnel as any)
+      : null;
+  const activeFunnelPage =
+    (threadContext as any).activeFunnelPage && typeof (threadContext as any).activeFunnelPage === "object" && !Array.isArray((threadContext as any).activeFunnelPage)
+      ? ((threadContext as any).activeFunnelPage as any)
+      : null;
+
+  if (!activeFunnel && !activeFunnelPage) return null;
+
+  const lines: string[] = [
+    "ACTIVE FUNNEL/PAGE STATE (authoritative):",
+    "- Prefer these IDs over older/historical IDs unless the user explicitly asks for a different funnel/page.",
+  ];
+
+  if (activeFunnel && typeof activeFunnel === "object") {
+    const funnelId = typeof activeFunnel.id === "string" ? String(activeFunnel.id).trim().slice(0, 120) : "";
+    const label = typeof activeFunnel.label === "string" ? String(activeFunnel.label).trim().slice(0, 120) : "";
+    const slug = typeof activeFunnel.slug === "string" ? String(activeFunnel.slug).trim().slice(0, 80) : "";
+    if (funnelId) {
+      lines.push(`- activeFunnel.id=${funnelId}${label ? ` label=${label}` : ""}${slug ? ` slug=${slug}` : ""}`);
+    }
+
+    const pages = Array.isArray(activeFunnel.pages) ? (activeFunnel.pages as any[]) : [];
+    for (const page of pages.slice(0, 8)) {
+      const pageId = typeof page?.id === "string" ? String(page.id).trim().slice(0, 120) : "";
+      if (!pageId) continue;
+      const role = typeof page?.role === "string" ? String(page.role).trim().slice(0, 40) : "";
+      const pageSlug = typeof page?.slug === "string" ? String(page.slug).trim().slice(0, 80) : "";
+      const title = typeof page?.title === "string" ? String(page.title).trim().slice(0, 120) : "";
+      lines.push(`- activeFunnel.page${role ? `.${role}` : ""}=pageId=${pageId}${pageSlug ? ` slug=${pageSlug}` : ""}${title ? ` title=${title}` : ""}`);
+    }
+  }
+
+  if (activeFunnelPage && typeof activeFunnelPage === "object") {
+    const pageId = typeof activeFunnelPage.id === "string" ? String(activeFunnelPage.id).trim().slice(0, 120) : "";
+    const funnelId = typeof activeFunnelPage.funnelId === "string" ? String(activeFunnelPage.funnelId).trim().slice(0, 120) : "";
+    const label = typeof activeFunnelPage.label === "string" ? String(activeFunnelPage.label).trim().slice(0, 120) : "";
+    const slug = typeof activeFunnelPage.slug === "string" ? String(activeFunnelPage.slug).trim().slice(0, 80) : "";
+    if (pageId) {
+      lines.push(`- activeFunnelPage.id=${pageId}${funnelId ? ` funnelId=${funnelId}` : ""}${slug ? ` slug=${slug}` : ""}${label ? ` label=${label}` : ""}`);
+    }
+  }
+
+  return lines.length > 2 ? lines.join("\n") : null;
+}
+
 export function buildKnownPortalIdsSystemNote(opts: { threadContext?: unknown; lastRunSummary?: unknown }): string | null {
   const found: string[] = [];
   const seen = new Set<string>();
+  const activeStateNote = buildActiveFunnelStateNote(opts.threadContext);
 
   if (opts.threadContext && typeof opts.threadContext === "object") {
     collectKnownIds(opts.threadContext, "threadContext", found, seen, 4);
@@ -315,14 +369,21 @@ export function buildKnownPortalIdsSystemNote(opts: { threadContext?: unknown; l
     .slice(0, 20);
   const fallback = found.slice(0, 20);
   const ids = important.length ? important : fallback;
-  if (!ids.length) return null;
+  if (!ids.length && !activeStateNote) return null;
 
   return [
-    "KNOWN IDS FROM CONTEXT / RECENT RESULTS:",
-    "- Reuse these exact IDs when they match the user's target. Copy them exactly into tool args.",
-    "- If one of these IDs already represents the target resource, do not create a duplicate.",
-    ...ids.map((item) => `- ${item}`),
-  ].join("\n");
+    activeStateNote,
+    ids.length
+      ? [
+          "KNOWN IDS FROM CONTEXT / RECENT RESULTS:",
+          "- Reuse these exact IDs when they match the user's target. Copy them exactly into tool args.",
+          "- If one of these IDs already represents the target resource, do not create a duplicate.",
+          ...ids.map((item) => `- ${item}`),
+        ].join("\n")
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export function buildPlannerUserPrompt(opts: {

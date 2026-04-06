@@ -3431,6 +3431,27 @@ async function runDirectAction(opts: {
         .slice(0, 64);
       if (!normalizedSlug) return { status: 400, json: { ok: false, error: "Slug is required" } };
 
+      const existingBySlug = await prisma.creditFunnelPage.findFirst({
+        where: { funnelId, slug: normalizedSlug },
+        select: {
+          id: true,
+          funnelId: true,
+          slug: true,
+          title: true,
+          sortOrder: true,
+          contentMarkdown: true,
+          editorMode: true,
+          blocksJson: true,
+          customHtml: true,
+          customChatJson: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      if (existingBySlug) {
+        return { status: 200, json: { ok: true, reusedExisting: true, page: existingBySlug } };
+      }
+
       const finalTitle = titleClean || "New Page";
 
       const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
@@ -26654,12 +26675,63 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       return s;
     };
 
+    const summarizeFunnelPagesForContext = (pagesRaw: unknown): Array<{ id: string; funnelId?: string; slug?: string; title?: string; role?: string }> => {
+      if (!Array.isArray(pagesRaw)) return [];
+      const out: Array<{ id: string; funnelId?: string; slug?: string; title?: string; role?: string }> = [];
+      for (const pageRaw of pagesRaw.slice(0, 12)) {
+        if (!pageRaw || typeof pageRaw !== "object") continue;
+        const pageId = cleanId((pageRaw as any).id);
+        if (!pageId) continue;
+        const funnelId = cleanId((pageRaw as any).funnelId);
+        const slug = typeof (pageRaw as any).slug === "string" ? String((pageRaw as any).slug).trim().slice(0, 80) : "";
+        const title = typeof (pageRaw as any).title === "string" ? String((pageRaw as any).title).trim().slice(0, 120) : "";
+        const slugLower = slug.toLowerCase();
+        const role = slugLower === "home" ? "home" : slugLower === "book" ? "book" : slugLower === "thank-you" ? "thank-you" : undefined;
+        out.push({
+          id: pageId,
+          ...(funnelId ? { funnelId } : {}),
+          ...(slug ? { slug } : {}),
+          ...(title ? { title } : {}),
+          ...(role ? { role } : {}),
+        });
+      }
+      return out;
+    };
+
+    const buildActiveFunnelContext = (opts: { funnelRaw?: any; funnelId?: string; pagesRaw?: unknown }) => {
+      const funnelId = cleanId(opts.funnelRaw?.id || opts.funnelId || "");
+      if (!funnelId) return null;
+      const pages = summarizeFunnelPagesForContext(opts.pagesRaw);
+      const label = String(opts.funnelRaw?.name || opts.funnelRaw?.slug || "Funnel").trim().slice(0, 120) || "Funnel";
+      const slug = typeof opts.funnelRaw?.slug === "string" ? String(opts.funnelRaw.slug).trim().slice(0, 80) : "";
+      const pageByRole = (role: string) => pages.find((page) => page.role === role)?.id || "";
+      return {
+        id: funnelId,
+        label,
+        ...(slug ? { slug } : {}),
+        ...(pages.length ? { pages } : {}),
+        ...(pageByRole("home") ? { homePageId: pageByRole("home") } : {}),
+        ...(pageByRole("book") ? { bookingPageId: pageByRole("book") } : {}),
+        ...(pageByRole("thank-you") ? { thankYouPageId: pageByRole("thank-you") } : {}),
+      };
+    };
+
+    const buildActiveFunnelPageContext = (pageRaw: any, funnelIdHint?: unknown) => {
+      const pageId = cleanId(pageRaw?.id || "");
+      const funnelId = cleanId(pageRaw?.funnelId || funnelIdHint || "");
+      if (!pageId || !funnelId) return null;
+      const label = String(pageRaw?.title || pageRaw?.slug || "Page").trim().slice(0, 120) || "Page";
+      const slug = typeof pageRaw?.slug === "string" ? String(pageRaw.slug).trim().slice(0, 80) : "";
+      return { id: pageId, label, funnelId, ...(slug ? { slug } : {}) };
+    };
+
     // Track funnels so follow-ups can infer “the one we just created/used”.
     if (action === "funnel.create" && typeof (json as any).funnel?.id === "string") {
       const id = cleanId((json as any).funnel.id);
       if (id) {
         const label = String((json as any).funnel?.name || (json as any).funnel?.slug || "Funnel").trim().slice(0, 120) || "Funnel";
-        return { lastFunnel: { id, label } };
+        const activeFunnel = buildActiveFunnelContext({ funnelRaw: (json as any).funnel, pagesRaw: (json as any).pages });
+        return { lastFunnel: { id, label }, ...(activeFunnel ? { activeFunnel } : {}) };
       }
     }
 
@@ -26671,9 +26743,11 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       const pageId = cleanId(page?.id || "");
       if (funnelId && pageId) {
         const label = String(page?.title || page?.slug || "Page").trim().slice(0, 120) || "Page";
+        const activeFunnelPage = buildActiveFunnelPageContext(page, funnelId);
         return {
           lastFunnel: { id: funnelId.slice(0, 120), label: "Funnel" },
           lastFunnelPage: { id: pageId, label, funnelId },
+          ...(activeFunnelPage ? { activeFunnelPage } : {}),
         };
       }
     }
@@ -26688,16 +26762,26 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       const pageId = cleanId((json as any).page?.id || (args as any)?.pageId || "");
       if (funnelId && pageId) {
         const label = String((json as any).page?.title || (json as any).page?.slug || "Page").trim().slice(0, 120) || "Page";
+        const activeFunnelPage = buildActiveFunnelPageContext((json as any).page || { id: pageId, slug: (args as any)?.slug, title: (args as any)?.title }, funnelId);
         return {
           lastFunnel: { id: funnelId.slice(0, 120), label: "Funnel" },
           lastFunnelPage: { id: pageId, label, funnelId },
+          ...(activeFunnelPage ? { activeFunnelPage } : {}),
         };
       }
     }
 
     // If the user listed/deleted pages on a funnel, keep that funnelId hot in thread context.
     // This avoids follow-up `pages.create` calls failing when the planner omits `funnelId`.
-    if ((action === "funnel_builder.pages.list" || action === "funnel_builder.pages.delete") && typeof (args as any)?.funnelId === "string") {
+    if (action === "funnel_builder.pages.list" && typeof (args as any)?.funnelId === "string") {
+      const id = cleanId((args as any).funnelId);
+      if (id) {
+        const activeFunnel = buildActiveFunnelContext({ funnelId: id, pagesRaw: (json as any).pages });
+        return { lastFunnel: { id, label: "Funnel" }, ...(activeFunnel ? { activeFunnel } : {}) };
+      }
+    }
+
+    if (action === "funnel_builder.pages.delete" && typeof (args as any)?.funnelId === "string") {
       const id = cleanId((args as any).funnelId);
       if (id) {
         return { lastFunnel: { id, label: "Funnel" } };
@@ -26709,7 +26793,8 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       const id = cleanId((json as any).funnel.id);
       if (id) {
         const label = String((json as any).funnel?.name || (json as any).funnel?.slug || "Funnel").trim().slice(0, 120) || "Funnel";
-        return { lastFunnel: { id, label } };
+        const activeFunnel = buildActiveFunnelContext({ funnelRaw: (json as any).funnel, funnelId: id, pagesRaw: (json as any).pages });
+        return { lastFunnel: { id, label }, ...(activeFunnel ? { activeFunnel } : {}) };
       }
     }
 
