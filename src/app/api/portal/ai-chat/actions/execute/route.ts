@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
+import { persistPortalAiChatRun } from "@/lib/portalAiChatRunLedger";
 import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 import {
   PortalAgentActionKeySchema,
@@ -115,6 +116,17 @@ export async function POST(req: Request) {
     action: String(action),
     linkUrl: runTrace.canvasUrl,
     ok: Boolean((exec as any)?.ok),
+  });
+
+  await persistPortalAiChatRun({
+    ownerId,
+    threadId,
+    runTrace,
+    triggerKind: "assistant_action",
+    status: Boolean((exec as any)?.ok) ? "completed" : "failed",
+    summaryText: typeof assistantMessage?.text === "string" ? assistantMessage.text : null,
+    followUpSuggestions,
+    completedAt: new Date(),
   });
 
   return NextResponse.json({

@@ -138,6 +138,8 @@ Each chat should also have its own real URL so refresh keeps you in the same con
 - Active-thread progress now streams through a dedicated SSE status channel instead of foreground polling.
 - Sidebar thread status now streams through a shared threads SSE channel instead of periodic thread-list refreshes.
 - Follow-up suggestion chips now persist with assistant messages so they survive reloads.
+- A basic run ledger now persists chat, scheduled, and assistant-action runs into a dedicated data model.
+- Each chat now has a lightweight Recent runs inspector for reviewing steps, outcomes, and next actions.
 
 ### Future direction
 - Once the UX is cleaner, Pura can move further toward a Copilot-style loop:
@@ -149,11 +151,14 @@ Each chat should also have its own real URL so refresh keeps you in the same con
 
 ## What is still missing
 
-- Richer streamed run surfaces.
+- Richer run-history surfaces.
   - The active thread and sidebar thread list now get true streamed status updates.
-  - There is still no dedicated runs view or broader stream of run history, ownership, and completion summaries across the product.
+  - Each thread now has a basic recent-runs inspector, but there is still no broader runs view spanning ownership, longer history, and cross-thread summaries.
 - Richer long-running job infrastructure.
-  - There is not yet a first-class run queue with resumable background jobs, ownership, retries, and a dedicated runs view.
+  - There is now a durable run ledger, but there is not yet a first-class run queue with resumable background jobs, ownership, retries, and richer lifecycle controls.
+- Guarded schema rollout.
+  - The new run-ledger table exists in schema and generated client code.
+  - In guarded remote DB environments, the schema still needs an explicit safe rollout because existing historical migration drift blocks a normal `prisma migrate dev` run.
 - Deeper self-healing.
   - Recovery is better, but there is still room for broader retry strategies, smarter branch switching, and better automatic repair after failed writes.
 - Richer persistent proactive guidance.
@@ -165,8 +170,8 @@ Each chat should also have its own real URL so refresh keeps you in the same con
 
 ## Next slices
 
-1. Add a dedicated run ledger for long-lived and background jobs.
+1. Expand the run ledger into richer queue, resume, and lifecycle controls.
 2. Persist richer follow-up recommendations and next-best-action state.
 3. Improve self-healing with broader retry and repair strategies.
 4. Add stronger “I know what to do next” planning across multiple turns instead of only after a single completed run.
-5. Add richer run-history surfaces beyond the live chat sidebar.
+5. Add broader run-history surfaces beyond the thread-level inspector.

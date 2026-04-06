@@ -6,6 +6,7 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { generateText } from "@/lib/ai";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
+import { persistPortalAiChatRun } from "@/lib/portalAiChatRunLedger";
 import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 import {
   PortalAgentActionKeySchema,
@@ -3332,6 +3333,17 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     });
     const persistedCtx = withPersistedFollowUpSuggestions(nextCtx, assistantMsg?.id, followUpSuggestions);
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedCtx } });
+    await persistPortalAiChatRun({
+      ownerId,
+      threadId,
+      runTrace,
+      triggerKind: "chat",
+      status: failedCount > 0 ? (okCount > 0 ? "partial" : "failed") : "completed",
+      runId: activeRunId,
+      summaryText: assistantMsg?.text ?? null,
+      followUpSuggestions,
+      completedAt: now,
+    });
     persistedThreadContext = persistedCtx;
     return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, clientUiActions, openScheduledTasks, runTrace, followUpSuggestions });
   }
@@ -3865,6 +3877,17 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
           const persistedCtx = withPersistedFollowUpSuggestions(nextCtx, assistantMsg?.id, followUpSuggestions);
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedCtx } });
+          await persistPortalAiChatRun({
+            ownerId,
+            threadId,
+            runTrace,
+            triggerKind: "chat",
+            status: Boolean((exec as any).ok) && Number((exec as any).status) >= 200 && Number((exec as any).status) < 300 ? "completed" : "failed",
+            runId: activeRunId,
+            summaryText: assistantMsg?.text ?? null,
+            followUpSuggestions,
+            completedAt: now,
+          });
           persistedThreadContext = persistedCtx;
 
           return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: cua ? [cua] : [], openScheduledTasks: String(keyParsed.data).startsWith("ai_chat.scheduled."), runTrace, followUpSuggestions });
@@ -4947,6 +4970,24 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       });
       const persistedCtx = withPersistedFollowUpSuggestions(nextCtx, assistantMsg?.id, followUpSuggestions);
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedCtx } });
+      await persistPortalAiChatRun({
+        ownerId,
+        threadId,
+        runTrace,
+        triggerKind: "chat",
+        status:
+          allResults.filter((r: any) => Boolean(r.ok) && (r?.result?.question || (Array.isArray(r?.result?.actions) && r.result.actions.length))).length > 0
+            ? "needs_input"
+            : allResults.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length > 0
+              ? allResults.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length > 0
+                ? "partial"
+                : "failed"
+              : "completed",
+        runId: activeRunId,
+        summaryText: assistantMsg?.text ?? null,
+        followUpSuggestions,
+        completedAt: now,
+      });
       persistedThreadContext = persistedCtx;
       return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: allClientUiActions, openScheduledTasks, runTrace, followUpSuggestions });
     } catch {

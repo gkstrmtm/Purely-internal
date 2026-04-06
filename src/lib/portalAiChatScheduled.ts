@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { persistPortalAiChatRun } from "@/lib/portalAiChatRunLedger";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction } from "@/lib/portalAgentActionMeta";
 import { deriveThreadContextPatchFromAction, executePortalAgentAction } from "@/lib/portalAgentActionExecutor";
@@ -484,6 +485,15 @@ export async function processDuePortalAiChatScheduledMessages(
         : { ...mergedPatch, lastWorkTitle: (plan as any)?.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, pendingPlanClarify: null, runs };
 
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date(), contextJson: nextCtx } });
+      await persistPortalAiChatRun({
+        ownerId,
+        threadId,
+        runTrace,
+        triggerKind: "scheduled",
+        status: results.some((result) => !Boolean(result?.ok)) ? (results.some((result) => Boolean(result?.ok)) ? "partial" : "failed") : "completed",
+        summaryText: assistantText || null,
+        completedAt: new Date(),
+      });
     }
 
       // If this was a repeating scheduled message, enqueue the next run.

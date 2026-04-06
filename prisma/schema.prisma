@@ -209,6 +209,7 @@ model User {
   portalAiChatThreadsCreated  PortalAiChatThread[]  @relation("PortalAiChatThreadCreatedBy")
   portalAiChatMessagesOwned   PortalAiChatMessage[] @relation("PortalAiChatMessageOwner")
   portalAiChatMessagesCreated PortalAiChatMessage[] @relation("PortalAiChatMessageCreatedBy")
+  portalAiChatRunsOwned       PortalAiChatRun[]     @relation("PortalAiChatRunOwner")
 
   employeeInvitesCreated EmployeeInvite[] @relation("EmployeeInviteCreatedBy")
   employeeInvitesUsed    EmployeeInvite[] @relation("EmployeeInviteUsedBy")
@@ -274,6 +275,7 @@ model PortalAiChatThread {
   owner         User               @relation("PortalAiChatThreadOwner", fields: [ownerId], references: [id])
   createdByUser User?              @relation("PortalAiChatThreadCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   messages      PortalAiChatMessage[]
+  runLedger     PortalAiChatRun[]
 
   @@index([ownerId, lastMessageAt])
   @@index([ownerId, isPinned, pinnedAt])
@@ -302,9 +304,44 @@ model PortalAiChatMessage {
   owner         User              @relation("PortalAiChatMessageOwner", fields: [ownerId], references: [id])
   thread        PortalAiChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
   createdByUser User?            @relation("PortalAiChatMessageCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  assistantRuns PortalAiChatRun[] @relation("PortalAiChatRunAssistantMessage")
 
   @@index([threadId, createdAt])
   @@index([ownerId, createdAt])
+}
+
+model PortalAiChatRun {
+  id String @id @default(cuid())
+
+  ownerId String
+  threadId String
+
+  assistantMessageId String?
+  scheduledMessageId String?
+  runId String?
+
+  triggerKind String
+  status      String
+
+  workTitle  String?
+  canvasUrl  String?
+  summaryText String?
+
+  stepsJson               Json?
+  followUpSuggestionsJson Json?
+
+  createdAt     DateTime @default(now())
+  completedAt   DateTime?
+  interruptedAt DateTime?
+  updatedAt     DateTime @updatedAt
+
+  owner            User               @relation("PortalAiChatRunOwner", fields: [ownerId], references: [id])
+  thread           PortalAiChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  assistantMessage PortalAiChatMessage? @relation("PortalAiChatRunAssistantMessage", fields: [assistantMessageId], references: [id], onDelete: SetNull)
+
+  @@index([threadId, createdAt])
+  @@index([ownerId, createdAt])
+  @@index([threadId, status, createdAt])
 }
 
 model PortalReferral {

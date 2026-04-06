@@ -129,6 +129,23 @@ type RunTrace = {
   steps: RunTraceStep[];
 };
 
+type RunLedgerEntry = {
+  id: string;
+  runId?: string | null;
+  triggerKind: string;
+  status: string;
+  workTitle?: string | null;
+  canvasUrl?: string | null;
+  summaryText?: string | null;
+  assistantMessageId?: string | null;
+  scheduledMessageId?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+  interruptedAt?: string | null;
+  steps: RunTraceStep[];
+  followUpSuggestions?: string[];
+};
+
 type LiveStatus = {
   phase: string | null;
   label: string | null;
@@ -702,6 +719,42 @@ function normalizeFollowUpSuggestions(raw: unknown): string[] {
     .slice(0, 3);
 }
 
+function normalizeRunLedgerEntry(raw: unknown): RunLedgerEntry | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const id = typeof (raw as any).id === "string" ? String((raw as any).id).trim().slice(0, 200) : "";
+  const createdAt = typeof (raw as any).createdAt === "string" ? String((raw as any).createdAt).trim().slice(0, 80) : "";
+  if (!id || !createdAt) return null;
+  return {
+    id,
+    runId: typeof (raw as any).runId === "string" ? String((raw as any).runId).trim().slice(0, 120) : null,
+    triggerKind: typeof (raw as any).triggerKind === "string" ? String((raw as any).triggerKind).trim().slice(0, 40) : "chat",
+    status: typeof (raw as any).status === "string" ? String((raw as any).status).trim().slice(0, 40) : "completed",
+    workTitle: typeof (raw as any).workTitle === "string" ? String((raw as any).workTitle).trim().slice(0, 200) : null,
+    canvasUrl: typeof (raw as any).canvasUrl === "string" ? String((raw as any).canvasUrl).trim().slice(0, 1200) : null,
+    summaryText: typeof (raw as any).summaryText === "string" ? String((raw as any).summaryText).trim().slice(0, 4000) : null,
+    assistantMessageId: typeof (raw as any).assistantMessageId === "string" ? String((raw as any).assistantMessageId).trim().slice(0, 200) : null,
+    scheduledMessageId: typeof (raw as any).scheduledMessageId === "string" ? String((raw as any).scheduledMessageId).trim().slice(0, 200) : null,
+    createdAt,
+    completedAt: typeof (raw as any).completedAt === "string" ? String((raw as any).completedAt).trim().slice(0, 80) : null,
+    interruptedAt: typeof (raw as any).interruptedAt === "string" ? String((raw as any).interruptedAt).trim().slice(0, 80) : null,
+    steps: normalizeRunTrace({ steps: (raw as any).steps, at: createdAt, workTitle: (raw as any).workTitle, assistantMessageId: (raw as any).assistantMessageId, canvasUrl: (raw as any).canvasUrl })?.steps || [],
+    followUpSuggestions: normalizeFollowUpSuggestions((raw as any).followUpSuggestions),
+  };
+}
+
+function formatRunStatusLabel(statusRaw: string | null | undefined): string {
+  const status = String(statusRaw || "completed").trim().toLowerCase();
+  if (status === "needs_input") return "Needs input";
+  return status ? `${status.slice(0, 1).toUpperCase()}${status.slice(1).replace(/_/g, " ")}` : "Completed";
+}
+
+function formatRunTriggerLabel(triggerRaw: string | null | undefined): string {
+  const trigger = String(triggerRaw || "chat").trim().toLowerCase();
+  if (trigger === "assistant_action") return "Assistant action";
+  if (trigger === "scheduled") return "Scheduled";
+  return "Chat";
+}
+
 function attachFollowUpSuggestionsToMessage(message: Message, rawSuggestions: unknown): Message {
   const suggestions = normalizeFollowUpSuggestions(rawSuggestions);
   if (!suggestions.length) return message;
@@ -1129,6 +1182,9 @@ export function PortalAiChatClient({
   type RepeatUnit = "minutes" | "hours" | "days" | "weeks";
   const [scheduledEditing, setScheduledEditing] = useState<Record<string, { sendAtLocal: string; repeatEvery: string; repeatUnit: RepeatUnit }>>({});
   const [scheduledSavingIds, setScheduledSavingIds] = useState<Set<string>>(() => new Set());
+  const [runsOpen, setRunsOpen] = useState(false);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runLedgerRows, setRunLedgerRows] = useState<RunLedgerEntry[]>([]);
 
   const [shareOpen, setShareOpen] = useState(false);
   const [shareThread, setShareThread] = useState<Thread | null>(null);
@@ -3127,10 +3183,37 @@ export function PortalAiChatClient({
     }
   }, [splitRepeatEveryMinutes, toLocalInputValue]);
 
+  const loadRuns = useCallback(async () => {
+    if (!activeThreadId) {
+      setRunLedgerRows([]);
+      return;
+    }
+    setRunsLoading(true);
+    try {
+      const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/runs`, { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok) {
+        setRunLedgerRows([]);
+        return;
+      }
+      const rows = Array.isArray(json.runs) ? (json.runs as unknown[]).map((row) => normalizeRunLedgerEntry(row)).filter(Boolean) as RunLedgerEntry[] : [];
+      setRunLedgerRows(rows.slice(0, 40));
+    } catch {
+      setRunLedgerRows([]);
+    } finally {
+      setRunsLoading(false);
+    }
+  }, [activeThreadId]);
+
   useEffect(() => {
     if (!scheduledOpen) return;
     void loadScheduled();
   }, [scheduledOpen, loadScheduled]);
+
+  useEffect(() => {
+    if (!runsOpen) return;
+    void loadRuns();
+  }, [runsOpen, loadRuns]);
 
   useEffect(() => {
     if (!attachMenu || !attachMenuAnchorRect) return;
@@ -3368,6 +3451,16 @@ export function PortalAiChatClient({
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {activeThreadId ? (
+            <button
+              type="button"
+              className="inline-flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+              onClick={() => setRunsOpen(true)}
+            >
+              Runs
+            </button>
+          ) : null}
+
           {workStatusLabel ? (
             <div className="inline-flex items-center gap-2 rounded-2xl border border-brand-blue/15 bg-blue-50/70 px-3 py-2 text-xs font-medium text-zinc-700">
               <ThinkingDots />
@@ -4056,6 +4149,100 @@ export function PortalAiChatClient({
         confirmLabel="Attach"
         accept="any"
       />
+
+      <AppModal
+        open={runsOpen}
+        title="Recent runs"
+        description="Inspect recent work Pura completed for this chat."
+        onClose={() => setRunsOpen(false)}
+        widthClassName="w-[min(900px,calc(100vw-32px))]"
+        closeVariant="x"
+        hideHeaderDivider
+      >
+        {runsLoading ? (
+          <div className="text-sm text-zinc-600">Loading…</div>
+        ) : !runLedgerRows.length ? (
+          <div className="text-sm text-zinc-600">No runs yet for this chat.</div>
+        ) : (
+          <div className="space-y-3">
+            {runLedgerRows.map((run) => (
+              <div key={run.id} className="rounded-3xl border border-zinc-200 bg-white p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-zinc-900">{run.workTitle || "Pura run"}</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                      <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(run.triggerKind)}</span>
+                      <span className={classNames(
+                        "rounded-full border px-2 py-0.5",
+                        run.status === "completed"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : run.status === "partial" || run.status === "needs_input"
+                            ? "border-amber-200 bg-amber-50 text-amber-900"
+                            : "border-red-200 bg-red-50 text-red-800",
+                      )}>
+                        {formatRunStatusLabel(run.status)}
+                      </span>
+                      <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Started: {formatLocalDateTime(new Date(run.createdAt))}</span>
+                      {run.completedAt ? (
+                        <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Completed: {formatLocalDateTime(new Date(run.completedAt))}</span>
+                      ) : null}
+                    </div>
+                    {run.summaryText ? <div className="mt-2 line-clamp-3 text-sm text-zinc-600">{run.summaryText}</div> : null}
+                  </div>
+                  {run.canvasUrl ? (
+                    <div className="shrink-0">
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
+                        onClick={() => openInCanvas(run.canvasUrl!)}
+                      >
+                        Open work
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                {run.steps.length ? (
+                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Steps</div>
+                    <div className="space-y-2">
+                      {run.steps.slice(0, 8).map((step, idx) => (
+                        <div key={`${run.id}:${step.key}:${idx}`} className="flex items-center justify-between gap-3 text-sm">
+                          <div className="min-w-0 truncate text-zinc-700">{step.title || step.key}</div>
+                          <div className="flex items-center gap-2">
+                            <span className={classNames("rounded-full px-2 py-0.5 text-[11px] font-semibold", step.ok ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-700")}>{step.ok ? "OK" : "Failed"}</span>
+                            {step.linkUrl ? (
+                              <button type="button" className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100" onClick={() => openInCanvas(step.linkUrl!)}>
+                                Open
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {run.followUpSuggestions?.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {run.followUpSuggestions.map((suggestion) => (
+                      <button
+                        key={`${run.id}:${suggestion}`}
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                        onClick={() => {
+                          setRunsOpen(false);
+                          void send(suggestion);
+                        }}
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </AppModal>
 
       <AppModal
         open={scheduledOpen}
