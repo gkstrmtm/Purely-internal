@@ -18,6 +18,7 @@ import {
 import { resolvePlanArgs } from "@/lib/puraResolver";
 
 import {
+  buildKnownPortalIdsSystemNote,
   buildPlannerSystemPrompt,
   buildPlannerUserPrompt,
   getInteractiveConfirmSpecForPortalAgentAction,
@@ -222,6 +223,50 @@ export async function POST(req: Request) {
       }
     };
 
+    const buildSuccessResponse = () =>
+      NextResponse.json(
+        {
+          ok: true,
+          request: {
+            text: userText,
+            url: contextUrl || null,
+            threadId: requestedThreadId || null,
+            execute,
+            autoContinuePastConfirm,
+            maxRounds,
+            maxMs,
+            maxTotalSteps,
+            threadContext,
+          },
+          autorunLimits: {
+            maxRoundsDefault,
+            maxRoundsMax: 40,
+            maxMsDefault,
+            maxMsMax: 60_000,
+          },
+          limits: {
+            returned: {
+              rounds: Math.max(1, Math.min(maxReturnedRounds, rounds.length || 1)),
+              steps: Math.max(1, Math.min(maxReturnedSteps, allSteps.length || 1)),
+              results: Math.max(1, Math.min(maxReturnedResults, allResults.length || 1)),
+            },
+            totals: {
+              rounds: rounds.length,
+              steps: allSteps.length,
+              results: allResults.length,
+            },
+          },
+          tools: {
+            availableActionKeys,
+          },
+          rounds: rounds.slice(-Math.max(1, Math.min(maxReturnedRounds, 200))),
+          allSteps: allSteps.slice(-Math.max(1, Math.min(maxReturnedSteps, 2000))),
+          allResults: allResults.slice(-Math.max(1, Math.min(maxReturnedResults, 2000))),
+          finalContext: threadContext,
+        },
+        { status: 200 },
+      );
+
     for (let round = 0; round < maxRounds; round += 1) {
     const elapsedMs = Date.now() - startedAtMs;
     if (elapsedMs >= maxMs) {
@@ -247,35 +292,6 @@ export async function POST(req: Request) {
     }
 
     const cheatSheet = toolCheatSheetForPrompt(userText, contextUrl);
-    const system = buildPlannerSystemPrompt({
-      cheatSheet,
-      extraSystem:
-        round > 0
-          ? [
-              "Continuation: keep going until the user request is DONE.",
-              "Output the next actions now; do not ask for permission.",
-              lastSimClarify
-                ? "The last attempt could not resolve IDs or required fields. Do NOT ask the user to pick. Use discovery tools (list/get) to find the right IDs, then continue. Never use placeholders like <...placeholder...>."
-                : null,
-              lastSimExecutionError
-                ? `The last attempt failed during execution (${lastSimExecutionError.action} status ${lastSimExecutionError.status}). Fix the args and retry using discovery steps if needed. Never guess IDs.`
-                : null,
-              lastSimResolutionError
-                ? `The last attempt failed during arg resolution: ${lastSimResolutionError}. Fix it by listing/looking up entities instead of asking the user.`
-                : null,
-            ]
-              .filter(Boolean)
-              .join("\n")
-          : undefined,
-    });
-
-    const threadSummaryForPrompt =
-      typeof (threadContext as any).threadSummary === "string"
-        ? String((threadContext as any).threadSummary || "")
-            .trim()
-            .slice(0, 1200)
-        : "";
-
     const lastRunSummary = allSteps.length || lastSimClarify || lastSimExecutionError || lastSimResolutionError
       ? {
           executedSteps: allSteps
@@ -304,6 +320,40 @@ export async function POST(req: Request) {
           ...(lastSimExecutionError ? { lastExecutionError: lastSimExecutionError } : {}),
         }
       : null;
+    const knownIdsNote = buildKnownPortalIdsSystemNote({ threadContext, lastRunSummary });
+    const system = buildPlannerSystemPrompt({
+      cheatSheet,
+      extraSystem:
+        [
+          knownIdsNote,
+          round > 0
+            ? [
+                "Continuation: keep going until the user request is DONE.",
+                "Output the next actions now; do not ask for permission.",
+                lastSimClarify
+                  ? "The last attempt could not resolve IDs or required fields. Do NOT ask the user to pick. Use discovery tools (list/get) to find the right IDs, then continue. Never use placeholders like <...placeholder...>."
+                  : null,
+                lastSimExecutionError
+                  ? `The last attempt failed during execution (${lastSimExecutionError.action} status ${lastSimExecutionError.status}). Fix the args and retry using discovery steps if needed. Never guess IDs.`
+                  : null,
+                lastSimResolutionError
+                  ? `The last attempt failed during arg resolution: ${lastSimResolutionError}. Fix it by listing/looking up entities instead of asking the user.`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join("\n")
+            : null,
+        ]
+          .filter(Boolean)
+          .join("\n\n") || undefined,
+    });
+
+    const threadSummaryForPrompt =
+      typeof (threadContext as any).threadSummary === "string"
+        ? String((threadContext as any).threadSummary || "")
+            .trim()
+            .slice(0, 1200)
+        : "";
 
     const user = buildPlannerUserPrompt({
       contextUrl,
@@ -373,6 +423,7 @@ export async function POST(req: Request) {
       const system2 = buildPlannerSystemPrompt({
         cheatSheet,
         extraSystem: [
+          knownIdsNote,
           "You used placeholder IDs/values in tool args (like <...placeholder...>). That is invalid.",
           "Hard rule: Do NOT output any placeholder strings (no <...>, no {{...}}, no *_placeholder, no new_*_id).",
           "Hard rule: Do NOT output a multi-action plan that depends on IDs created earlier in the SAME response.",
@@ -383,7 +434,9 @@ export async function POST(req: Request) {
           "Output a new action plan that uses discovery tools (list/get) to find real IDs, or relies on context IDs.",
           "Do not ask the user to pick. Do not guess IDs.",
           "Output JSON actions only.",
-        ].join("\n"),
+        ]
+          .filter(Boolean)
+          .join("\n"),
       });
 
       let modelText2 = "";
@@ -440,8 +493,12 @@ export async function POST(req: Request) {
       if (shouldRetry && looksLikeProceedLoopMessage(assistantText)) {
         const system2 = buildPlannerSystemPrompt({
           cheatSheet,
-          extraSystem:
+          extraSystem: [
+            knownIdsNote,
             "The user already said to do it. Do not ask 'Would you like to proceed?' Output actions only, immediately.",
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
         });
         const modelText2 = await safeGenerateText({ system: system2, user, temperature: 0.3 });
         const decision2 = parseChatWrapperDecision(modelText2);
@@ -471,8 +528,12 @@ export async function POST(req: Request) {
       if (shouldRetry && !actions.length && looksLikePortalHowToInstructions(assistantText)) {
         const system2 = buildPlannerSystemPrompt({
           cheatSheet,
-          extraSystem:
+          extraSystem: [
+            knownIdsNote,
             "The user wants you to do the work in the portal. Do NOT provide how-to steps or instructions. Output JSON actions only.",
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
         });
         const modelText2 = await safeGenerateText({ system: system2, user, temperature: 0.25 });
         const decision2 = parseChatWrapperDecision(modelText2);
@@ -502,8 +563,12 @@ export async function POST(req: Request) {
       if (shouldRetry && !actions.length && looksLikeNonActionDeflection(assistantText)) {
         const system2 = buildPlannerSystemPrompt({
           cheatSheet,
-          extraSystem:
+          extraSystem: [
+            knownIdsNote,
             "Stop deflecting. The user asked you to do it. Output JSON actions only. If unsure what to do next, start with a read-only discovery step (funnel_builder.pages.list or funnel_builder.funnels.list).",
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
         });
         const modelText2 = await safeGenerateText({ system: system2, user, temperature: 0.25 });
         const decision2 = parseChatWrapperDecision(modelText2);
@@ -677,49 +742,7 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json(
-    {
-      ok: true,
-      request: {
-        text: userText,
-        url: contextUrl || null,
-        threadId: requestedThreadId || null,
-        execute,
-        autoContinuePastConfirm,
-        maxRounds,
-        maxMs,
-        maxTotalSteps,
-        threadContext,
-      },
-      autorunLimits: {
-        maxRoundsDefault,
-        maxRoundsMax: 40,
-        maxMsDefault,
-        maxMsMax: 60_000,
-      },
-      limits: {
-        returned: {
-          rounds: Math.max(1, Math.min(maxReturnedRounds, rounds.length || 1)),
-          steps: Math.max(1, Math.min(maxReturnedSteps, allSteps.length || 1)),
-          results: Math.max(1, Math.min(maxReturnedResults, allResults.length || 1)),
-        },
-        totals: {
-          rounds: rounds.length,
-          steps: allSteps.length,
-          results: allResults.length,
-        },
-      },
-      tools: {
-        // Explicitly surfaced so it's obvious what "tools" means.
-        availableActionKeys,
-      },
-      rounds: rounds.slice(-Math.max(1, Math.min(maxReturnedRounds, 200))),
-      allSteps: allSteps.slice(-Math.max(1, Math.min(maxReturnedSteps, 2000))),
-      allResults: allResults.slice(-Math.max(1, Math.min(maxReturnedResults, 2000))),
-      finalContext: threadContext,
-    },
-    { status: 200 },
-  );
+  return buildSuccessResponse();
   } catch (e) {
     console.error("[ai-flow-sim] crashed", e);
     const msg = e instanceof Error ? e.message : String(e ?? "Internal error");

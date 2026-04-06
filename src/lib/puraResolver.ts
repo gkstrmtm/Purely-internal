@@ -3493,7 +3493,26 @@ export async function resolvePlanArgs(opts: {
 
   // Special-case: for funnel HTML generation, treat booking calendar selection as an explicit disambiguation step.
   if (stepKeyLower === "funnel_builder.pages.generate_html") {
-    const prompt = typeof (args as any).prompt === "string" ? String((args as any).prompt).trim() : "";
+    let prompt = typeof (args as any).prompt === "string" ? String((args as any).prompt).trim() : "";
+    if (!prompt) {
+      const pageLabel =
+        (resolvedFunnelPage && typeof resolvedFunnelPage.label === "string" ? String(resolvedFunnelPage.label).trim() : "") ||
+        (typeof (args as any).title === "string" ? String((args as any).title).trim() : "") ||
+        "page";
+      const requestText = String(opts.userHint || "").trim().slice(0, 3000);
+      prompt = [
+        `Create or update the ${pageLabel} with real custom HTML.`,
+        requestText ? `User request:\n${requestText}` : null,
+        "Requirements:",
+        "- Output full CUSTOM HTML for the page.",
+        "- Do not ask clarifying questions; choose sensible defaults.",
+        "- Keep the page responsive and production-ready.",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      args = { ...args, prompt };
+    }
+
     if (looksLikeCalendarIntent(prompt)) {
       const overrideCalendarId =
         threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).bookingCalendarId === "string"

@@ -18,3 +18,4 @@
 - Work through each checklist item systematically.
 - Keep communication concise and focused.
 - Follow development best practices.
+- Never add deterministic portal flows, hard-coded execution branches, or screen-reading style logic unless the user explicitly says the code word: screen read.

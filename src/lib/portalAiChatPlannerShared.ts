@@ -250,6 +250,9 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
     "- Never output placeholder IDs/values like <...>, {{...}}, *_placeholder, or new_*_id.",
     "- Never output a multi-action plan that depends on IDs created earlier in the SAME response. If an ID will be created/discovered by a tool, output ONLY that one tool action, then stop (you will get another turn with the returned ID).",
     "- Use short sensible defaults for missing names (calendar/funnel/page).",
+    "- IMPORTANT: If prior tool results or context already contain real IDs, copy and reuse those exact IDs in later action args.",
+    "- IMPORTANT: If recent results already show the target resource exists, do not recreate it. Reuse its returned ID and continue.",
+    "- IMPORTANT: When generating page HTML with funnel_builder.pages.generate_html, include the exact funnelId, exact pageId, and a concrete prompt string every time.",
     "- If you still need something from the user after making progress, ask ONE specific follow-up question.",
     "- In CHAT MODE, summarize what you did and what you need next.",
     "",
@@ -262,6 +265,65 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
 }
 
 export type PlannerRecentMessage = { role: "user" | "assistant"; text: string };
+
+function collectKnownIds(value: unknown, path: string, out: string[], seen: Set<string>, depth: number) {
+  if (depth <= 0 || !value) return;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    const key = `${path}=${trimmed}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(key);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < Math.min(value.length, 8); index += 1) {
+      collectKnownIds(value[index], `${path}[${index}]`, out, seen, depth - 1);
+    }
+    return;
+  }
+  if (typeof value !== "object") return;
+
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    const nextPath = path ? `${path}.${key}` : key;
+    if ((key === "id" || key.endsWith("Id")) && typeof child === "string" && child.trim()) {
+      const normalizedPath = key === "id" && path ? `${path}.id` : nextPath;
+      collectKnownIds(child, normalizedPath, out, seen, depth - 1);
+      continue;
+    }
+    if (typeof child === "object" && child) {
+      collectKnownIds(child, nextPath, out, seen, depth - 1);
+    }
+  }
+}
+
+export function buildKnownPortalIdsSystemNote(opts: { threadContext?: unknown; lastRunSummary?: unknown }): string | null {
+  const found: string[] = [];
+  const seen = new Set<string>();
+
+  if (opts.threadContext && typeof opts.threadContext === "object") {
+    collectKnownIds(opts.threadContext, "threadContext", found, seen, 4);
+  }
+
+  if (opts.lastRunSummary && typeof opts.lastRunSummary === "object") {
+    collectKnownIds(opts.lastRunSummary, "lastRunSummary", found, seen, 5);
+  }
+
+  const important = found
+    .filter((item) => /funnelId|pageId|threadContext\.lastFunnel\.id|threadContext\.lastFunnelPage\.id/i.test(item))
+    .slice(0, 20);
+  const fallback = found.slice(0, 20);
+  const ids = important.length ? important : fallback;
+  if (!ids.length) return null;
+
+  return [
+    "KNOWN IDS FROM CONTEXT / RECENT RESULTS:",
+    "- Reuse these exact IDs when they match the user's target. Copy them exactly into tool args.",
+    "- If one of these IDs already represents the target resource, do not create a duplicate.",
+    ...ids.map((item) => `- ${item}`),
+  ].join("\n");
+}
 
 export function buildPlannerUserPrompt(opts: {
   contextUrl?: string | undefined | null;

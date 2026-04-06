@@ -20,6 +20,7 @@ import { previewResultForPlanner, summarizeIdsFromArgs } from "@/lib/portalAgent
 import { resolvePlanArgs } from "@/lib/puraResolver";
 
 import {
+  buildKnownPortalIdsSystemNote,
   buildPlannerSystemPrompt,
   buildPlannerUserPrompt,
   getInteractiveConfirmSpecForPortalAgentAction,
@@ -3586,7 +3587,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       const runPlannerOnce = async (opts: { round: number; extraSystem?: string; temperature?: number; lastRunSummary?: any }) => {
         const cheat = toolCheatSheetForPrompt(planningTextWithAttachments, contextUrl);
-        const modelSystem = buildPlannerSystemPrompt({ cheatSheet: cheat, extraSystem: opts.extraSystem });
+        const knownIdsNote = buildKnownPortalIdsSystemNote({
+          threadContext: localCtx,
+          lastRunSummary: opts.lastRunSummary,
+        });
+        const modelSystem = buildPlannerSystemPrompt({
+          cheatSheet: cheat,
+          extraSystem: [knownIdsNote, opts.extraSystem].filter(Boolean).join("\n\n") || undefined,
+        });
 
         const threadSummaryForPrompt =
           localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) && typeof (localCtx as any).threadSummary === "string"
@@ -3609,19 +3617,6 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         const directMessage = typeof decision?.message === "string" ? decision!.message!.trim() : "";
         return { modelText, actions, directMessage };
       };
-
-      const wantsBookingFunnelAutopilot = (() => {
-        if (!isImperativeRequest(effectiveText)) return false;
-        const t = String(effectiveText || "").toLowerCase();
-        const mentionsFunnel = /\bfunnel\b/.test(t);
-        const mentionsBooking = /\b(booking|appointment|schedule|book a call|book a meeting)\b/.test(t);
-        const wantsWholeThing = /\b(whole|entire|actual|complete|finalize|finish|make the entire|make the whole|create the actual)\b/.test(t);
-        const mentionsPagesOrLayout = /\b(page|pages|layout|html|design)\b/.test(t);
-
-        const hasFunnelContextUrl = typeof contextUrl === "string" && /\/services\/funnel-builder\//.test(contextUrl);
-        const hasHotFunnelId = Boolean(localCtx?.lastFunnel && typeof localCtx.lastFunnel?.id === "string" && String(localCtx.lastFunnel.id).trim());
-        return Boolean((mentionsFunnel && mentionsBooking && (wantsWholeThing || mentionsPagesOrLayout)) && (hasHotFunnelId || hasFunnelContextUrl));
-      })();
 
       const runAndRecord = async (key: PortalAgentActionKey, title: string, args: Record<string, unknown>) => {
         allResolvedSteps.push({ key, title, args });
@@ -3650,125 +3645,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         return exec;
       };
 
-      if (wantsBookingFunnelAutopilot) {
-        const desiredFunnelSlug = (() => {
-          const m = String(effectiveText || "").toLowerCase().match(/\bslug\s*[:=]\s*([a-z0-9-]{3,80})\b/);
-          return m?.[1] ? String(m[1]).trim().slice(0, 80) : "";
-        })();
-
-        const desiredFunnelName = "Appointment Booking Funnel";
-
-        let funnelId = localCtx?.lastFunnel?.id ? String(localCtx.lastFunnel.id).trim().slice(0, 120) : "";
-        if (!funnelId) {
-          const listExec = await runAndRecord("funnel_builder.funnels.list" as PortalAgentActionKey, "Find funnels", {});
-          const json = (listExec as any)?.result;
-          const funnels = Array.isArray((json as any)?.funnels) ? ((json as any).funnels as any[]) : [];
-          const pick =
-            (desiredFunnelSlug ? funnels.find((f) => String(f?.slug || "").toLowerCase() === desiredFunnelSlug) : null) ||
-            funnels.find((f) => String(f?.name || "").toLowerCase().includes(desiredFunnelName.toLowerCase())) ||
-            funnels[0];
-          funnelId = pick?.id ? String(pick.id).trim().slice(0, 120) : "";
-          if (funnelId) {
-            localCtx = { ...localCtx, lastFunnel: { id: funnelId, label: String(pick?.name || pick?.slug || "Funnel").slice(0, 120) } };
-            allContextPatches.push({ lastFunnel: localCtx.lastFunnel } as any);
-          }
-        }
-
-        if (funnelId) {
-          const pagesListExec = await runAndRecord(
-            "funnel_builder.pages.list" as PortalAgentActionKey,
-            "Load funnel pages",
-            { funnelId },
-          );
-          const pagesListJson = (pagesListExec as any)?.result;
-          const pages = Array.isArray((pagesListJson as any)?.pages) ? ((pagesListJson as any).pages as any[]) : [];
-
-          const findPage = (needle: { slug: string; title: string }) => {
-            const slugLower = needle.slug.toLowerCase();
-            const titleLower = needle.title.toLowerCase();
-            return (
-              pages.find((p) => String(p?.slug || "").toLowerCase() === slugLower) ||
-              pages.find((p) => String(p?.title || "").toLowerCase() === titleLower) ||
-              pages.find((p) => String(p?.title || "").toLowerCase().includes(titleLower))
-            );
-          };
-
-          const core = [
-            { slug: "appointment-booking", title: "Appointment Booking Page", sortOrder: 10 },
-            { slug: "thank-you", title: "Thank You Page", sortOrder: 20 },
-          ];
-
-          const ensurePageIds: Record<string, string> = {};
-          for (const spec of core) {
-            const existing = findPage(spec);
-            if (existing?.id) {
-              ensurePageIds[spec.slug] = String(existing.id).trim().slice(0, 120);
-              continue;
-            }
-
-            const createExec = await runAndRecord(
-              "funnel_builder.pages.create" as PortalAgentActionKey,
-              `Create ${spec.title}`,
-              { funnelId, slug: spec.slug, title: spec.title, sortOrder: spec.sortOrder },
-            );
-            const createdPageId = (createExec as any)?.result?.page?.id ? String((createExec as any).result.page.id).trim().slice(0, 120) : "";
-            if (createdPageId) ensurePageIds[spec.slug] = createdPageId;
-          }
-
-          const bookingPrompt = [
-            "Create a modern, high-converting appointment booking page for a business portal.",
-            "Requirements:",
-            "- Output full CUSTOM HTML for the page (responsive, clean).",
-            "- Do not ask clarifying questions; choose sensible defaults.",
-            "- Include: hero headline, short value props, simple booking section, trust signals, FAQ.",
-            "- If an embedded booking widget isn't available, include a prominent 'Book Now' button that links to /book/.",
-            "- Keep it lightweight: no external JS/CSS frameworks.",
-          ].join("\n");
-
-          const thankYouPrompt = [
-            "Create a modern thank-you/confirmation page for an appointment booking.",
-            "Requirements:",
-            "- Output full CUSTOM HTML for the page (responsive, clean).",
-            "- Do not ask clarifying questions; choose sensible defaults.",
-            "- Include: confirmation message, what happens next, contact info section, and a button back to /.",
-            "- Keep it lightweight: no external JS/CSS frameworks.",
-          ].join("\n");
-
-          const genWithRetry = async (pageId: string, prompt: string, title: string) => {
-            const first = await runAndRecord(
-              "funnel_builder.pages.generate_html" as PortalAgentActionKey,
-              `Generate layout: ${title}`,
-              { funnelId, pageId, prompt },
-            );
-            const question = (first as any)?.result?.question ? String((first as any).result.question).trim() : "";
-            if (question) {
-              await runAndRecord(
-                "funnel_builder.pages.generate_html" as PortalAgentActionKey,
-                `Generate layout (no questions): ${title}`,
-                {
-                  funnelId,
-                  pageId,
-                  prompt: `${prompt}\n\nHard rule: Do NOT ask questions. If something is missing, pick a reasonable default and proceed.`,
-                },
-              );
-            }
-          };
-
-          if (ensurePageIds["appointment-booking"]) {
-            await genWithRetry(ensurePageIds["appointment-booking"], bookingPrompt, "Appointment Booking Page");
-          }
-          if (ensurePageIds["thank-you"]) {
-            await genWithRetry(ensurePageIds["thank-you"], thankYouPrompt, "Thank You Page");
-          }
-        }
-
-        // After autopilot, skip model planning and proceed to summary/response.
-        finalDirectMessage = null;
-      }
-
       for (let round = 0; round < MAX_AUTORUN_ROUNDS; round += 1) {
         if (Date.now() - autoStartMs > MAX_AUTORUN_MS) break;
-        if (wantsBookingFunnelAutopilot && allResolvedSteps.length) break;
         const lastRunSummary = allResolvedSteps.length || lastAutoClarify || lastAutoExecutionError || lastAutoResolutionError
           ? {
               executedSteps: allResolvedSteps.slice(-12).map((s) => ({ key: s.key, title: s.title })),
