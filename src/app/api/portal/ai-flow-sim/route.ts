@@ -42,12 +42,12 @@ const SimRequestSchema = z
     threadId: z.string().trim().min(1).max(200).optional().nullable(),
     execute: z.boolean().optional().default(false),
     autoContinuePastConfirm: z.boolean().optional().default(false),
-    // Intentionally higher than the live-chat loop; this is a simulator.
-    maxRounds: z.number().int().min(1).max(60).optional().default(12),
+    // Defaults are applied after parse so they're aligned with the live PRS chat env logic.
+    maxRounds: z.number().int().min(1).max(40).optional(),
     // Time budget for the whole simulation loop (ms). Helps avoid serverless timeouts.
-    maxMs: z.number().int().min(2000).max(120_000).optional().default(30_000),
+    maxMs: z.number().int().min(2000).max(60_000).optional(),
     // Safety cap to prevent runaway plans (max resolved steps across all rounds).
-    maxTotalSteps: z.number().int().min(1).max(1000).optional().default(180),
+    maxTotalSteps: z.number().int().min(1).max(400).optional(),
     // Prevent huge JSON responses when maxRounds is high.
     maxReturnedRounds: z.number().int().min(1).max(200).optional().default(40),
     maxReturnedSteps: z.number().int().min(1).max(2000).optional().default(400),
@@ -59,60 +59,73 @@ const SimRequestSchema = z
 type RecentMessage = { role: "user" | "assistant"; text: string };
 
 export async function POST(req: Request) {
-  const auth = await requireClientSession(req, {
-    apiKeyPermission: "pura.chat",
-  });
-  if (!auth.ok) {
-    return NextResponse.json(
-      { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
-      { status: auth.status },
-    );
-  }
+  try {
+    const auth = await requireClientSession(req, {
+      apiKeyPermission: "pura.chat",
+    });
+    if (!auth.ok) {
+      return NextResponse.json(
+        { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+        { status: auth.status },
+      );
+    }
 
-  await ensurePortalAiChatSchema();
+    await ensurePortalAiChatSchema();
 
-  const ownerId = auth.session.user.id;
-  const actorUserId = (auth.session.user as any).memberId || ownerId;
+    const ownerId = auth.session.user.id;
+    const actorUserId = (auth.session.user as any).memberId || ownerId;
 
-  const body = await req.json().catch(() => null);
-  const parsed = SimRequestSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { ok: false, error: "Invalid request", issues: parsed.error.issues },
-      { status: 400 },
-    );
-  }
+    const body = await req.json().catch(() => null);
+    const parsed = SimRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid request", issues: parsed.error.issues },
+        { status: 400 },
+      );
+    }
 
-  const userText = parsed.data.text;
-  const requestedUrl = parsed.data.url ? String(parsed.data.url) : "";
-  const requestedThreadId = parsed.data.threadId
-    ? String(parsed.data.threadId).trim()
-    : "";
-  const execute = Boolean(parsed.data.execute);
-  const autoContinuePastConfirm = Boolean(parsed.data.autoContinuePastConfirm);
-  const maxRounds = parsed.data.maxRounds;
-  const maxMs = parsed.data.maxMs;
-  const maxTotalSteps = parsed.data.maxTotalSteps;
-  const maxReturnedRounds = parsed.data.maxReturnedRounds;
-  const maxReturnedSteps = parsed.data.maxReturnedSteps;
-  const maxReturnedResults = parsed.data.maxReturnedResults;
+    const maxAutoRoundsEnv = Number(process.env.PORTAL_AI_AUTORUN_MAX_ROUNDS);
+    const maxRoundsDefault =
+      Number.isFinite(maxAutoRoundsEnv) && maxAutoRoundsEnv > 0
+        ? Math.min(40, Math.max(2, Math.floor(maxAutoRoundsEnv)))
+        : 12;
 
-  const startedAtMs = Date.now();
+    const maxAutoMsEnv = Number(process.env.PORTAL_AI_AUTORUN_MAX_MS);
+    const maxMsDefault =
+      Number.isFinite(maxAutoMsEnv) && maxAutoMsEnv > 0
+        ? Math.min(60_000, Math.max(2_000, Math.floor(maxAutoMsEnv)))
+        : 20_000;
 
-  const overrideCtx: Record<string, unknown> =
+    const userText = parsed.data.text;
+    const requestedUrl = parsed.data.url ? String(parsed.data.url) : "";
+    const requestedThreadId = parsed.data.threadId
+      ? String(parsed.data.threadId).trim()
+      : "";
+    const execute = Boolean(parsed.data.execute);
+    const autoContinuePastConfirm = Boolean(parsed.data.autoContinuePastConfirm);
+    const maxRounds = Math.min(40, Math.max(1, Math.floor(parsed.data.maxRounds ?? maxRoundsDefault)));
+    const maxMs = Math.min(60_000, Math.max(2_000, Math.floor(parsed.data.maxMs ?? maxMsDefault)));
+    const maxTotalSteps = Math.min(400, Math.max(1, Math.floor(parsed.data.maxTotalSteps ?? 18)));
+    const maxReturnedRounds = parsed.data.maxReturnedRounds;
+    const maxReturnedSteps = parsed.data.maxReturnedSteps;
+    const maxReturnedResults = parsed.data.maxReturnedResults;
+
+    const startedAtMs = Date.now();
+
+    const overrideCtx: Record<string, unknown> =
     parsed.data.threadContext &&
     typeof parsed.data.threadContext === "object" &&
     !Array.isArray(parsed.data.threadContext)
       ? { ...(parsed.data.threadContext as any) }
       : {};
 
-  const availableActionKeys = listAvailablePortalActionKeys();
+    const availableActionKeys = listAvailablePortalActionKeys();
 
-  let loadedThreadContext: Record<string, unknown> = {};
-  let recentMessages: RecentMessage[] = [];
-  let contextUrl = requestedUrl;
+    let loadedThreadContext: Record<string, unknown> = {};
+    let recentMessages: RecentMessage[] = [];
+    let contextUrl = requestedUrl;
 
-  if (requestedThreadId) {
+    if (requestedThreadId) {
     const thread = await (prisma as any).portalAiChatThread.findFirst({
       where: { id: requestedThreadId, ownerId },
       select: {
@@ -157,24 +170,33 @@ export async function POST(req: Request) {
     }
   }
 
-  let threadContext: Record<string, unknown> = {
+    let threadContext: Record<string, unknown> = {
     ...loadedThreadContext,
     ...overrideCtx,
   };
 
-  const rounds: any[] = [];
-  const allSteps: Array<{
+    const rounds: any[] = [];
+    const allSteps: Array<{
     key: PortalAgentActionKey;
     title: string;
     args: Record<string, unknown>;
   }> = [];
-  const allResults: any[] = [];
+    const allResults: any[] = [];
 
-  let lastSimClarify: { question: string | null; choices: any[] | null } | null = null;
-  let lastSimResolutionError: string | null = null;
-  let lastSimExecutionError: { action: string; status: number; error: string } | null = null;
+    let lastSimClarify: { question: string | null; choices: any[] | null } | null = null;
+    let lastSimResolutionError: string | null = null;
+    let lastSimExecutionError: { action: string; status: number; error: string } | null = null;
 
-  for (let round = 0; round < maxRounds; round += 1) {
+    const safeGenerateText = async (opts: { system: string; user: string; temperature?: number }) => {
+      try {
+        return String(await generateText({ system: opts.system, user: opts.user, temperature: opts.temperature ?? 0.6 })).trim();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e ?? "");
+        throw new Error(`AI model call failed: ${msg}`);
+      }
+    };
+
+    for (let round = 0; round < maxRounds; round += 1) {
     const elapsedMs = Date.now() - startedAtMs;
     if (elapsedMs >= maxMs) {
       rounds.push({
@@ -265,9 +287,19 @@ export async function POST(req: Request) {
       userRequest: userText,
     });
 
-    const modelText = String(
-      await generateText({ system, user, temperature: 0.6 }),
-    ).trim();
+    let modelText = "";
+    try {
+      modelText = await safeGenerateText({ system, user, temperature: 0.6 });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e ?? "Model failed");
+      rounds.push({
+        round,
+        at: new Date().toISOString(),
+        stopReason: "model-error",
+        error: msg.slice(0, 1200),
+      });
+      break;
+    }
 
     let decision: any = parseChatWrapperDecision(modelText);
     let actions: Array<{
@@ -322,9 +354,13 @@ export async function POST(req: Request) {
         ].join("\n"),
       });
 
-      const modelText2 = String(
-        await generateText({ system: system2, user, temperature: 0.3 }),
-      ).trim();
+      let modelText2 = "";
+      try {
+        modelText2 = await safeGenerateText({ system: system2, user, temperature: 0.3 });
+      } catch {
+        // Keep the original plan; we'll stop/record later if needed.
+        modelText2 = "";
+      }
       const decision2 = parseChatWrapperDecision(modelText2);
       const actions2 = Array.isArray((decision2 as any)?.actions)
         ? (decision2 as any).actions
@@ -363,9 +399,7 @@ export async function POST(req: Request) {
           extraSystem:
             "The user already said to do it. Do not ask 'Would you like to proceed?' Output actions only, immediately.",
         });
-        const modelText2 = String(
-          await generateText({ system: system2, user, temperature: 0.3 }),
-        ).trim();
+        const modelText2 = await safeGenerateText({ system: system2, user, temperature: 0.3 });
         const decision2 = parseChatWrapperDecision(modelText2);
         const actions2 = Array.isArray((decision2 as any)?.actions)
           ? (decision2 as any).actions
@@ -396,9 +430,7 @@ export async function POST(req: Request) {
           extraSystem:
             "The user wants you to do the work in the portal. Do NOT provide how-to steps or instructions. Output JSON actions only.",
         });
-        const modelText2 = String(
-          await generateText({ system: system2, user, temperature: 0.25 }),
-        ).trim();
+        const modelText2 = await safeGenerateText({ system: system2, user, temperature: 0.25 });
         const decision2 = parseChatWrapperDecision(modelText2);
         const actions2 = Array.isArray((decision2 as any)?.actions)
           ? (decision2 as any).actions
@@ -429,9 +461,7 @@ export async function POST(req: Request) {
           extraSystem:
             "Stop deflecting. The user asked you to do it. Output JSON actions only. If unsure what to do next, start with a read-only discovery step (funnel_builder.pages.list or funnel_builder.funnels.list).",
         });
-        const modelText2 = String(
-          await generateText({ system: system2, user, temperature: 0.25 }),
-        ).trim();
+        const modelText2 = await safeGenerateText({ system: system2, user, temperature: 0.25 });
         const decision2 = parseChatWrapperDecision(modelText2);
         const actions2 = Array.isArray((decision2 as any)?.actions)
           ? (decision2 as any).actions
@@ -565,18 +595,25 @@ export async function POST(req: Request) {
       }
 
       if (execute) {
-        const exec = await executePortalAgentAction({
-          ownerId,
-          actorUserId,
-          action: key,
-          args,
-        });
+        let exec: any;
+        try {
+          exec = await executePortalAgentAction({
+            ownerId,
+            actorUserId,
+            action: key,
+            args,
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e ?? "Execution failed");
+          exec = { ok: false, status: 500, error: msg.slice(0, 800), result: null };
+        }
 
-        const derivedPatch = deriveThreadContextPatchFromAction(
-          key,
-          args,
-          (exec as any).result,
-        );
+        let derivedPatch: any = null;
+        try {
+          derivedPatch = deriveThreadContextPatchFromAction(key, args, (exec as any).result);
+        } catch {
+          derivedPatch = null;
+        }
         if (
           derivedPatch &&
           typeof derivedPatch === "object" &&
@@ -634,6 +671,12 @@ export async function POST(req: Request) {
         maxTotalSteps,
         threadContext,
       },
+      autorunLimits: {
+        maxRoundsDefault,
+        maxRoundsMax: 40,
+        maxMsDefault,
+        maxMsMax: 60_000,
+      },
       limits: {
         returned: {
           rounds: Math.max(1, Math.min(maxReturnedRounds, rounds.length || 1)),
@@ -657,4 +700,12 @@ export async function POST(req: Request) {
     },
     { status: 200 },
   );
+  } catch (e) {
+    console.error("[ai-flow-sim] crashed", e);
+    const msg = e instanceof Error ? e.message : String(e ?? "Internal error");
+    return NextResponse.json(
+      { ok: false, error: "Internal error", detail: msg.slice(0, 1200) },
+      { status: 500 },
+    );
+  }
 }

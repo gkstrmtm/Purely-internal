@@ -76,7 +76,16 @@ function PreBlock(props: { text: string; minHeight?: number }) {
   );
 }
 
-export function AiFlowSimClient(props: { slug: string }) {
+export function AiFlowSimClient(props: {
+  slug: string;
+  autorunLimits?: {
+    maxRoundsDefault: number;
+    maxRoundsMax: number;
+    maxMsDefault: number;
+    maxMsMax: number;
+    maxTotalStepsDefault: number;
+  };
+}) {
   const [text, setText] = useState(
     "Go ahead and create the whole appointment booking funnel. Make the Booking page and Thank You page, and generate real HTML layout.",
   );
@@ -85,7 +94,24 @@ export function AiFlowSimClient(props: { slug: string }) {
   const [url, setUrl] = useState<string>("/");
   const [execute, setExecute] = useState<boolean>(false);
   const [autoContinuePastConfirm, setAutoContinuePastConfirm] = useState<boolean>(false);
-  const [maxRounds, setMaxRounds] = useState<number>(4);
+  const maxRoundsDefault =
+    props && (props as any).autorunLimits && typeof (props as any).autorunLimits.maxRoundsDefault === "number"
+      ? Math.floor((props as any).autorunLimits.maxRoundsDefault)
+      : 12;
+  const maxRoundsMax =
+    props && (props as any).autorunLimits && typeof (props as any).autorunLimits.maxRoundsMax === "number"
+      ? Math.floor((props as any).autorunLimits.maxRoundsMax)
+      : 40;
+  const maxMsDefault =
+    props && (props as any).autorunLimits && typeof (props as any).autorunLimits.maxMsDefault === "number"
+      ? Math.floor((props as any).autorunLimits.maxMsDefault)
+      : 20_000;
+  const maxTotalStepsDefault =
+    props && (props as any).autorunLimits && typeof (props as any).autorunLimits.maxTotalStepsDefault === "number"
+      ? Math.floor((props as any).autorunLimits.maxTotalStepsDefault)
+      : 18;
+
+  const [maxRounds, setMaxRounds] = useState<number>(() => Math.max(1, Math.min(maxRoundsMax, maxRoundsDefault)));
   const [threadContextText, setThreadContextText] = useState<string>("{}\n");
   const [loading, setLoading] = useState(false);
   const [resp, setResp] = useState<SimResponse | null>(null);
@@ -391,6 +417,9 @@ export function AiFlowSimClient(props: { slug: string }) {
           execute,
           autoContinuePastConfirm: autoContinue,
           maxRounds,
+          // Keep simulator behavior aligned with the real PRS chat loop.
+          maxMs: maxMsDefault,
+          maxTotalSteps: maxTotalStepsDefault,
           threadContext,
         }),
       });
@@ -591,9 +620,9 @@ export function AiFlowSimClient(props: { slug: string }) {
               <input
                 type="number"
                 min={1}
-                max={8}
+                max={maxRoundsMax}
                 value={maxRounds}
-                onChange={(e) => setMaxRounds(Math.max(1, Math.min(8, Number(e.target.value || 1))))}
+                onChange={(e) => setMaxRounds(Math.max(1, Math.min(maxRoundsMax, Number(e.target.value || 1))))}
                 style={{ width: 140, padding: 8, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
               />
             </label>
