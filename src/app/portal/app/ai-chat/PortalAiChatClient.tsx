@@ -376,7 +376,7 @@ function MessageBubble({
   footerRight,
 }: {
   msg: Message;
-  assistantVariant?: "light" | "dark";
+  assistantVariant?: "light" | "dark" | "work";
   onRunAction?: (action: AssistantAction) => void;
   runningActionKey?: string | null;
   onOpenLink?: (href: string) => void;
@@ -388,14 +388,18 @@ function MessageBubble({
   const actions = !isUser && !isThinking && Array.isArray(msg.assistantActions) ? msg.assistantActions : [];
   const scheduledEnv = tryParseScheduledEnvelopeForUi(msg.text);
 
-  const assistantBg =
-    assistantVariant === "dark" ? "bg-zinc-100" : assistantVariant === "light" ? "bg-zinc-50" : "bg-zinc-50";
+  const assistantSurface =
+    assistantVariant === "dark"
+      ? "border-zinc-200 bg-zinc-100"
+      : assistantVariant === "work"
+        ? "border-brand-blue/15 bg-[rgba(29,78,216,0.05)]"
+        : "border-zinc-200 bg-zinc-50";
 
   const bubble = (
     <div
       className={classNames(
         "rounded-3xl px-4 py-3 text-sm leading-relaxed",
-        isUser ? "bg-brand-blue text-white" : classNames(assistantBg, "text-zinc-900 border border-zinc-200"),
+        isUser ? "bg-brand-blue text-white" : classNames(assistantSurface, "text-zinc-900 border"),
       )}
     >
       {isUser ? (
@@ -872,7 +876,7 @@ export function PortalAiChatClient({
   const messagesByThreadRef = useRef<Record<string, Message[]>>({ [DRAFT_THREAD_KEY]: [] });
 
   const activeThreadKey = activeThreadId ?? DRAFT_THREAD_KEY;
-  const messages = messagesByThread[activeThreadKey] ?? [];
+  const messages = useMemo(() => messagesByThread[activeThreadKey] ?? [], [activeThreadKey, messagesByThread]);
   const messagesLoading = activeThreadId ? loadingThreadIds.has(activeThreadId) : false;
   const sending = activeThreadId ? sendingThreadIds.has(activeThreadId) : draftSending;
   const regenerating = Boolean(activeThreadId && regeneratingTarget?.threadId === activeThreadId);
@@ -895,19 +899,14 @@ export function PortalAiChatClient({
     const query = searchParams?.toString();
     return `${pathname || ""}${query ? `?${query}` : ""}`;
   }, [pathname, searchParams]);
-  const hasWorkCanvas = Boolean(canvasUrl);
-  const effectiveChatMode: ChatMode = hasWorkCanvas ? chatMode : "plan";
-  const inlineWorkMode = effectiveChatMode === "work" && Boolean(canvasUrl);
-  const hasThinkingMessage = useMemo(
-    () => messages.some((msg) => msg.role === "assistant" && String(msg.id || "").startsWith("optimistic-assistant-")),
-    [messages],
-  );
+  const effectiveChatMode: ChatMode = chatMode;
+  const hasThinkingMessage = messages.some((msg) => msg.role === "assistant" && String(msg.id || "").startsWith("optimistic-assistant-"));
   const workStatusLabel = useMemo(() => {
-    if (regenerating && regeneratingTarget?.messageId) return "Redoing that response";
-    if (runningActionKey) return "Working through the next step";
-    if (sending || hasThinkingMessage) return hasWorkCanvas ? "Thinking and updating the work" : "Thinking through the plan";
+    if (regenerating && regeneratingTarget?.messageId) return effectiveChatMode === "work" ? "Reworking that response" : "Redoing that response";
+    if (runningActionKey) return effectiveChatMode === "work" ? "Working through the next step" : "Thinking through the next step";
+    if (sending || hasThinkingMessage) return effectiveChatMode === "work" ? "Working on it" : "Thinking it through";
     return null;
-  }, [hasThinkingMessage, hasWorkCanvas, regenerating, regeneratingTarget?.messageId, runningActionKey, sending]);
+  }, [effectiveChatMode, hasThinkingMessage, regenerating, regeneratingTarget?.messageId, runningActionKey, sending]);
 
   useEffect(() => {
     activeThreadIdRef.current = activeThreadId;
@@ -928,14 +927,6 @@ export function PortalAiChatClient({
   useEffect(() => {
     editingMessageIdByThreadRef.current = editingMessageIdByThread;
   }, [editingMessageIdByThread]);
-
-  useEffect(() => {
-    if (canvasUrl) {
-      setChatMode("work");
-      return;
-    }
-    setChatMode((prev) => (prev === "work" ? "plan" : prev));
-  }, [canvasUrl]);
 
   const navigateToThread = useCallback(
     (thread: Pick<Thread, "id" | "title"> | null, mode: "push" | "replace" = "push") => {
@@ -2772,6 +2763,48 @@ export function PortalAiChatClient({
         </div>
       ) : null}
 
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="inline-flex rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
+          <button
+            type="button"
+            className={classNames(
+              "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
+              effectiveChatMode === "plan" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
+            )}
+            onClick={() => setChatMode("plan")}
+          >
+            Discuss
+          </button>
+          <button
+            type="button"
+            className={classNames(
+              "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
+              effectiveChatMode === "work" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
+            )}
+            onClick={() => setChatMode("work")}
+          >
+            Work
+          </button>
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          {workStatusLabel ? (
+            <div className="inline-flex items-center gap-2 rounded-2xl border border-brand-blue/15 bg-blue-50/70 px-3 py-2 text-xs font-medium text-zinc-700">
+              <ThinkingDots />
+              <span>{workStatusLabel}</span>
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            className="inline-flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 sm:hidden"
+            onClick={() => setMobileThreadsOpen(true)}
+          >
+            Chats
+          </button>
+        </div>
+      </div>
+
       <div className="flex items-end gap-2">
         <div className="relative">
           <button
@@ -3021,99 +3054,6 @@ export function PortalAiChatClient({
 
       <div ref={canvasContainerRef} className="flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)] relative">
         <div className="flex min-w-0 flex-1 flex-col">
-        <div className="shrink-0 border-b border-zinc-200 bg-white px-3 py-3 sm:px-4">
-          <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Pura</div>
-              <div className="text-xs text-zinc-500">Plan in chat, then move into work when Pura starts changing things.</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="inline-flex rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
-                <button
-                  type="button"
-                  className={classNames(
-                    "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
-                    effectiveChatMode === "plan" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
-                  )}
-                  onClick={() => setChatMode("plan")}
-                >
-                  Plan/chat
-                </button>
-                <button
-                  type="button"
-                  className={classNames(
-                    "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
-                    effectiveChatMode === "work" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
-                    !hasWorkCanvas && "opacity-50",
-                  )}
-                  onClick={() => {
-                    if (!hasWorkCanvas) return;
-                    setChatMode("work");
-                  }}
-                  disabled={!hasWorkCanvas}
-                >
-                  Work
-                </button>
-              </div>
-
-              <button
-                type="button"
-                className="inline-flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 sm:hidden"
-                onClick={() => setMobileThreadsOpen(true)}
-              >
-                Chats
-              </button>
-            </div>
-          </div>
-
-          {workStatusLabel ? (
-            <div className="mx-auto mt-3 flex w-full max-w-5xl items-center justify-between gap-3 rounded-2xl border border-brand-blue/15 bg-blue-50/70 px-3 py-2 text-sm text-zinc-800">
-              <div className="flex items-center gap-2">
-                <ThinkingDots />
-                <span>{workStatusLabel}</span>
-              </div>
-              {hasWorkCanvas && effectiveChatMode !== "work" ? (
-                <button
-                  type="button"
-                  className="rounded-xl border border-brand-blue/20 bg-brand-blue px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95"
-                  onClick={() => setChatMode("work")}
-                >
-                  Switch to work
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-
-        {inlineWorkMode && canvasUrl ? (
-          <div className="min-h-0 flex-1 bg-white px-3 py-4 sm:px-4 sm:py-6">
-            <div className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-[0_18px_40px_rgba(0,0,0,0.08)]">
-              <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-zinc-900">Work mode</div>
-                  <div className="truncate text-xs text-zinc-500">Pura is working here: {canvasUrl}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                    onClick={() => setChatMode("plan")}
-                  >
-                    Back to plan/chat
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
-                    onClick={() => openCanvasInNewTab(canvasUrl)}
-                  >
-                    Open in tab
-                  </button>
-                </div>
-              </div>
-              <iframe ref={canvasIframeRef} title="Work canvas" src={canvasUrl} className="min-h-0 flex-1 bg-white" />
-            </div>
-          </div>
-        ) : (
         <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-white">
           <div className="mx-auto w-full max-w-5xl space-y-3 px-3 py-4 sm:px-4 sm:py-6">
             {messagesLoading ? (
@@ -3153,7 +3093,13 @@ export function PortalAiChatClient({
                     return -1;
                   })();
                   return messages.map((m, i) => {
-                    const variant = m.role === "assistant" ? (assistantIdx++ % 2 === 0 ? "dark" : "light") : undefined;
+                    const variant = m.role === "assistant"
+                      ? effectiveChatMode === "work"
+                        ? "work"
+                        : assistantIdx++ % 2 === 0
+                          ? "dark"
+                          : "light"
+                      : undefined;
                     const isThinking = m.id.startsWith("optimistic-assistant-") && m.role === "assistant";
                     const isLastAssistant = m.role === "assistant" && i === lastAssistantIndexForFooter;
                     const isLastUser = m.role === "user" && i === lastUserIndex;
@@ -3166,6 +3112,9 @@ export function PortalAiChatClient({
                     const canCopy = m.role === "assistant" && Boolean(String(m.text || "").trim());
                     const canDictate = m.role === "assistant" && !isThinking && Boolean(String(m.text || "").trim());
                     const canRedo = m.role === "assistant" && !isThinking && !String(m.id || "").startsWith("optimistic-assistant-");
+                    const assistantActionVisibilityClass = isLastAssistant
+                      ? ""
+                      : "opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100 focus-visible:opacity-100";
                     return (
                       <div key={m.id} className="group/message">
                         <MessageBubble
@@ -3181,6 +3130,7 @@ export function PortalAiChatClient({
                                   type="button"
                                   className={classNames(
                                     "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                    assistantActionVisibilityClass,
                                     (!canDictate || dictating || regenerating || sending) && "opacity-60",
                                   )}
                                   onClick={() => void dictateAssistantMessage(m.id)}
@@ -3209,6 +3159,7 @@ export function PortalAiChatClient({
                                   type="button"
                                   className={classNames(
                                     "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                    assistantActionVisibilityClass,
                                     (!canRedo || dictating || regenerating || sending) && "opacity-60",
                                   )}
                                   onClick={() => void redoAssistantMessage(m.id)}
@@ -3243,6 +3194,7 @@ export function PortalAiChatClient({
                                   type="button"
                                   className={classNames(
                                     "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                    assistantActionVisibilityClass,
                                     !canCopy && "opacity-40",
                                   )}
                                   onClick={() => void copyMessageText(m.text)}
@@ -3354,9 +3306,8 @@ export function PortalAiChatClient({
             )}
           </div>
         </div>
-        )}
 
-        {!showWelcomeComposer && !inlineWorkMode ? (
+        {!showWelcomeComposer ? (
           <div className="shrink-0 border-t border-zinc-200 bg-white px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
             {canvasOpen && canvasUrl ? (
               <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 lg:hidden relative">
@@ -3402,7 +3353,7 @@ export function PortalAiChatClient({
           </div>
         ) : null}
 
-        {!canvasOpen && Boolean(canvasUrl) && !inlineWorkMode ? (
+        {!canvasOpen && Boolean(canvasUrl) ? (
           <button
             className="hidden lg:absolute lg:right-0 lg:top-32 lg:inline-flex lg:h-10 lg:items-center lg:gap-1 lg:rounded-l-2xl lg:rounded-r-none lg:border lg:border-brand-blue/20 lg:bg-brand-blue lg:px-3 lg:py-2 lg:text-xs lg:font-bold lg:text-white lg:shadow-none hover:opacity-95"
             title="Open canvas"
@@ -3414,7 +3365,7 @@ export function PortalAiChatClient({
         ) : null}
         </div>
 
-        {canvasOpen && canvasUrl && !inlineWorkMode ? (
+        {canvasOpen && canvasUrl ? (
           <>
             <div
               className="hidden w-2 shrink-0 cursor-col-resize bg-transparent hover:bg-zinc-100 lg:block"
