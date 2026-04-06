@@ -3806,6 +3806,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
               const rawClarifyPrompt = String(resolved.clarifyQuestion || "").trim();
 
+              if (/^Planner repair required:/i.test(rawClarifyPrompt)) {
+                lastAutoResolutionError = rawClarifyPrompt || "Planner repair required";
+                blockedForReplan = true;
+                break;
+              }
+
               // Auto-replan: if we have real, clickable entity choices, feed them back to the model
               // and let it pick + retry without involving the user.
               if (clarifyChoices && clarifyChoices.length) {
@@ -3958,6 +3964,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         if (!resolved.ok) {
           const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
           const rawClarifyPrompt = String(resolved.clarifyQuestion || "").trim();
+
+          if (/^Planner repair required:/i.test(rawClarifyPrompt)) {
+            lastAutoResolutionError = rawClarifyPrompt || "Planner repair required";
+            blockedForReplan = true;
+            break;
+          }
 
           if (clarifyChoices && clarifyChoices.length) {
             lastAutoClarify = { question: rawClarifyPrompt || null, choices: clarifyChoices.slice(0, 8), stepKey: String(key), title };

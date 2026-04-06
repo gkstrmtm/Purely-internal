@@ -3040,6 +3040,20 @@ function looksLikeCalendarIntent(raw: string): boolean {
   return /\b(calendar|schedule|booking|book a call|book a meeting|appointment)\b/.test(s);
 }
 
+function looksLikeFunnelEditIntent(raw: string, threadContext?: unknown): boolean {
+  const s = String(raw || "").trim().toLowerCase();
+  const ctx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : null;
+  const hasFunnelContext = Boolean(
+    ctx &&
+      ((ctx.activeFunnel && typeof ctx.activeFunnel?.id === "string") ||
+        (ctx.activeFunnelPage && typeof ctx.activeFunnelPage?.id === "string") ||
+        (ctx.lastFunnel && typeof ctx.lastFunnel?.id === "string") ||
+        (ctx.lastFunnelPage && typeof ctx.lastFunnelPage?.id === "string")),
+  );
+  if (hasFunnelContext) return true;
+  return /\b(funnel|page|pages|landing page|thank you page|builder|edit)\b/.test(s);
+}
+
 async function resolveBookingCalendarId(opts: {
   ownerId: string;
   hint: string;
@@ -3457,6 +3471,21 @@ export async function resolvePlanArgs(opts: {
 
       args = { calendars: nextCalendars.slice(0, 25) };
     } else {
+      if (looksLikeFunnelEditIntent(String(opts.userHint || ""), opts.threadContext)) {
+        const repairCalendarId = targetIdRaw || (currentCalendars[0] ? String(currentCalendars[0].id || "").trim() : "");
+        return {
+          ok: false,
+          clarifyQuestion: [
+            "Planner repair required: do not use booking.calendars.update for this request.",
+            "The user asked to edit a funnel/page, not to change booking calendar configuration.",
+            repairCalendarId ? `Reuse existing calendarId=${repairCalendarId}.` : "Reuse an existing enabled booking calendar ID if one exists.",
+            "Reissue the funnel/page edit with funnel_builder.pages.generate_html and include the calendarId there instead of asking the user for calendar configuration changes.",
+          ]
+            .filter(Boolean)
+            .join(" "),
+        };
+      }
+
       // If we got here with no usable updates, avoid a 400 from the executor by making the clarifier targeted.
       return {
         ok: false,

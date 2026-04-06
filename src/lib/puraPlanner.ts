@@ -250,6 +250,7 @@ export async function planPuraActions(opts: {
     "  If a step needs calendarId but it isn't known, still output mode=execute and omit calendarId;",
     "  the system will auto-pick on 'any/doesn't matter/don't care/either' or show clickable calendar choices.",
     "- IMPORTANT: If the user says any calendar is fine, reuse an existing enabled booking calendar. Do NOT create a new calendar unless the user explicitly asks for one or none exist.",
+    "- IMPORTANT: If the user is editing a funnel/page and only wants a calendar used on that page, do NOT use booking.calendars.update unless they explicitly ask to change booking calendar settings.",
     "- IMPORTANT: Booking availability (business hours) is NOT calendar config. If the user asks to set availability like '9am-5pm every day this month', use booking.availability.set_daily (not booking.calendars.update).",
     "- IMPORTANT: Never invent placeholder values.",
     "  - Do NOT write things like 'Please provide details about the meeting' as meetingDetails.",
