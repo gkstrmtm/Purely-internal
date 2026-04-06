@@ -395,6 +395,7 @@ export function buildPlannerUserPrompt(opts: {
   threadSummary?: string | undefined | null;
   lastRunSummary?: any;
   unresolvedRun?: any;
+  nextStepContext?: any;
   continuationIntent?: boolean;
   recentMessages: PlannerRecentMessage[];
   userRequest: string;
@@ -409,8 +410,13 @@ export function buildPlannerUserPrompt(opts: {
     opts.unresolvedRun
       ? `Latest unresolved work (only continue it when relevant to the current request) (JSON):\n${JSON.stringify(opts.unresolvedRun, null, 2).slice(0, 2500)}`
       : null,
+    opts.nextStepContext
+      ? `Latest ready next step after successful work (use this when the user wants to keep going) (JSON):\n${JSON.stringify(opts.nextStepContext, null, 2).slice(0, 2500)}`
+      : null,
     opts.continuationIntent && opts.unresolvedRun
       ? "Continuation note: the latest user request looks like a continue/resume instruction. Unless the new request clearly changes direction, continue the unresolved work above instead of starting from scratch."
+      : opts.continuationIntent && opts.nextStepContext
+        ? "Continuation note: the latest user request looks like a continue/resume instruction. Unless the new request clearly changes direction, keep advancing the successful thread objective and suggested next step above instead of restarting from scratch."
       : null,
     "Recent messages:",
     JSON.stringify((opts.recentMessages || []).slice(-28), null, 2).slice(0, 4000),

@@ -87,6 +87,16 @@ type UnresolvedRun = {
   canvasUrl?: string | null;
 };
 
+type NextStepContext = {
+  updatedAt?: string | null;
+  objective?: string | null;
+  workTitle?: string | null;
+  summaryText?: string | null;
+  suggestedPrompt?: string | null;
+  suggestions: string[];
+  canvasUrl?: string | null;
+};
+
 function threadTimestampValue(value: string | null | undefined): number {
   if (!value) return 0;
   const parsed = Date.parse(value);
@@ -901,6 +911,30 @@ function normalizeUnresolvedRun(raw: unknown): UnresolvedRun | null {
   };
 }
 
+function normalizeNextStepContext(raw: unknown): NextStepContext | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const suggestions = normalizeFollowUpSuggestions((raw as any).suggestions);
+  const suggestedPrompt =
+    typeof (raw as any).suggestedPrompt === "string" && (raw as any).suggestedPrompt.trim()
+      ? String((raw as any).suggestedPrompt).trim().slice(0, 180)
+      : suggestions[0] || null;
+  const updatedAt = typeof (raw as any).updatedAt === "string" ? String((raw as any).updatedAt).trim().slice(0, 80) : "";
+  const objective = typeof (raw as any).objective === "string" ? String((raw as any).objective).trim().slice(0, 2000) : "";
+  const workTitle = typeof (raw as any).workTitle === "string" ? String((raw as any).workTitle).trim().slice(0, 200) : "";
+  const summaryText = typeof (raw as any).summaryText === "string" ? String((raw as any).summaryText).trim().slice(0, 1200) : "";
+  const canvasUrl = typeof (raw as any).canvasUrl === "string" ? String((raw as any).canvasUrl).trim().slice(0, 1200) : "";
+  if (!suggestedPrompt && !objective && !workTitle && !summaryText && !suggestions.length) return null;
+  return {
+    updatedAt: updatedAt || null,
+    objective: objective || null,
+    workTitle: workTitle || null,
+    summaryText: summaryText || null,
+    suggestedPrompt: suggestedPrompt || null,
+    suggestions,
+    canvasUrl: canvasUrl || null,
+  };
+}
+
 function sameLiveStatus(a: LiveStatus | null, b: LiveStatus | null): boolean {
   if (a === b) return true;
   if (!a || !b) return !a && !b;
@@ -1014,6 +1048,61 @@ function UnresolvedRunCard({ unresolvedRun, onContinue, onOpenCanvas, sending }:
             Open related page
           </button>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+function NextStepCard({ nextStepContext, onContinue, onOpenCanvas, sending }: { nextStepContext: NextStepContext; onContinue: (prompt: string) => void; onOpenCanvas?: (() => void) | null; sending?: boolean }) {
+  const primaryPrompt = nextStepContext.suggestedPrompt?.trim() || nextStepContext.suggestions[0] || "Keep going with the next best step in this chat.";
+  const title = nextStepContext.workTitle?.trim() || nextStepContext.objective?.trim() || "Ready next step";
+  const summary = nextStepContext.summaryText?.trim() || nextStepContext.objective?.trim() || null;
+  const extraSuggestions = nextStepContext.suggestions.filter((suggestion) => suggestion !== primaryPrompt).slice(0, 2);
+
+  return (
+    <div className="rounded-3xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-zinc-800 shadow-[0_8px_30px_rgba(5,150,105,0.08)]">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+          <ThinkingDots />
+          <span>Ready next step</span>
+        </div>
+        <div className="rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
+          Continue
+        </div>
+      </div>
+      <div className="mt-2 text-sm font-semibold text-zinc-900">{title}</div>
+      {summary ? <div className="mt-1 text-sm leading-6 text-zinc-700">{summary}</div> : null}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+          disabled={Boolean(sending)}
+          onClick={() => onContinue(primaryPrompt)}
+          title={primaryPrompt}
+        >
+          Keep going
+        </button>
+        {onOpenCanvas ? (
+          <button
+            type="button"
+            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+            onClick={onOpenCanvas}
+          >
+            Open related page
+          </button>
+        ) : null}
+        {extraSuggestions.map((suggestion) => (
+          <button
+            key={suggestion}
+            type="button"
+            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+            disabled={Boolean(sending)}
+            onClick={() => onContinue(suggestion)}
+            title={suggestion}
+          >
+            {suggestion}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -1230,6 +1319,7 @@ export function PortalAiChatClient({
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(() => ({ [DRAFT_THREAD_KEY]: [] }));
   const [threadLiveStatusById, setThreadLiveStatusById] = useState<Record<string, LiveStatus | null>>(() => ({}));
   const [threadUnresolvedRunById, setThreadUnresolvedRunById] = useState<Record<string, UnresolvedRun | null>>(() => ({}));
+  const [threadNextStepContextById, setThreadNextStepContextById] = useState<Record<string, NextStepContext | null>>(() => ({}));
   const [loadingThreadIds, setLoadingThreadIds] = useState<Set<string>>(() => {
     const next = new Set<string>();
     if (initialRequestedThreadId) next.add(initialRequestedThreadId);
@@ -1369,6 +1459,7 @@ export function PortalAiChatClient({
   const messages = useMemo(() => messagesByThread[activeThreadKey] ?? [], [activeThreadKey, messagesByThread]);
   const activeLiveStatus = activeThreadId ? threadLiveStatusById[activeThreadId] ?? null : null;
   const activeUnresolvedRun = activeThreadId ? threadUnresolvedRunById[activeThreadId] ?? null : null;
+  const activeNextStepContext = activeThreadId ? threadNextStepContextById[activeThreadId] ?? null : null;
   const messagesLoading = activeThreadId ? loadingThreadIds.has(activeThreadId) : false;
   const sending = activeThreadId ? sendingThreadIds.has(activeThreadId) : draftSending;
   const regenerating = Boolean(activeThreadId && regeneratingTarget?.threadId === activeThreadId);
@@ -1634,6 +1725,7 @@ export function PortalAiChatClient({
   const applyThreadContextSnapshot = useCallback((threadId: string, threadContext: any) => {
     setThreadLiveStatusById((prev) => ({ ...prev, [threadId]: normalizeLiveStatus(threadContext?.liveStatus) }));
     setThreadUnresolvedRunById((prev) => ({ ...prev, [threadId]: normalizeUnresolvedRun(threadContext?.unresolvedRun) }));
+    setThreadNextStepContextById((prev) => ({ ...prev, [threadId]: normalizeNextStepContext(threadContext?.nextStepContext) }));
     const nextLastCanvasUrl =
       typeof threadContext?.lastCanvasUrl === "string" && threadContext.lastCanvasUrl.trim() ? String(threadContext.lastCanvasUrl).trim() : null;
     if (nextLastCanvasUrl && activeThreadIdRef.current === threadId) {
@@ -1690,6 +1782,7 @@ export function PortalAiChatClient({
           return { ...prev, [threadId]: nextStatus };
         });
         setThreadUnresolvedRunById((prev) => ({ ...prev, [threadId]: normalizeUnresolvedRun(json?.threadContext?.unresolvedRun) }));
+        setThreadNextStepContextById((prev) => ({ ...prev, [threadId]: normalizeNextStepContext(json?.threadContext?.nextStepContext) }));
         const nextLastCanvasUrl =
           typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
             ? String(json.threadContext.lastCanvasUrl).trim()
@@ -1727,6 +1820,7 @@ export function PortalAiChatClient({
           return { ...prev, [threadId]: nextStatus };
         });
         setThreadUnresolvedRunById((prev) => ({ ...prev, [threadId]: normalizeUnresolvedRun(json?.threadContext?.unresolvedRun) }));
+        setThreadNextStepContextById((prev) => ({ ...prev, [threadId]: normalizeNextStepContext(json?.threadContext?.nextStepContext) }));
         const nextLastCanvasUrl =
           typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
             ? String(json.threadContext.lastCanvasUrl).trim()
@@ -4204,6 +4298,16 @@ export function PortalAiChatClient({
                       sending={sending}
                       onContinue={(prompt) => void send(prompt)}
                       onOpenCanvas={activeUnresolvedRun.canvasUrl ? () => openInCanvas(activeUnresolvedRun.canvasUrl || "") : null}
+                    />
+                  </div>
+                ) : null}
+                {!showActiveLiveProgressCard && !activeUnresolvedRun && activeNextStepContext ? (
+                  <div className="mt-3">
+                    <NextStepCard
+                      nextStepContext={activeNextStepContext}
+                      sending={sending}
+                      onContinue={(prompt) => void send(prompt)}
+                      onOpenCanvas={activeNextStepContext.canvasUrl ? () => openInCanvas(activeNextStepContext.canvasUrl || "") : null}
                     />
                   </div>
                 ) : null}
