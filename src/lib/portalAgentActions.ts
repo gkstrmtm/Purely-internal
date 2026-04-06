@@ -2543,17 +2543,55 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
-  "booking.calendar.create": z
-    .object({
-      title: z.string().trim().min(1).max(80),
-      id: z.string().trim().min(2).max(60).optional(),
-      description: z.string().trim().max(400).optional(),
-      durationMinutes: z.number().int().min(10).max(180).optional(),
-      meetingLocation: z.string().trim().max(120).optional(),
-      meetingDetails: z.string().trim().max(600).optional(),
-      notificationEmails: z.array(z.string().trim().min(3).max(200)).max(20).optional(),
-    })
-    .strict(),
+  "booking.calendar.create": z.preprocess(
+    (raw) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+      const rec = raw as Record<string, unknown>;
+      const pickText = (...keys: string[]): string | undefined => {
+        for (const key of keys) {
+          const value = rec[key];
+          if (typeof value !== "string") continue;
+          const trimmed = value.trim();
+          if (trimmed) return trimmed;
+        }
+        return undefined;
+      };
+
+      const title = pickText("title", "name", "calendarName", "label") || "Appointment Booking Calendar";
+      return {
+        title,
+        ...(typeof rec.id === "string" ? { id: rec.id } : {}),
+        ...(typeof rec.description === "string" ? { description: rec.description } : {}),
+        ...(typeof rec.durationMinutes === "number" ? { durationMinutes: rec.durationMinutes } : {}),
+        ...(typeof rec.meetingLocation === "string"
+          ? { meetingLocation: rec.meetingLocation }
+          : typeof rec.location === "string"
+            ? { meetingLocation: rec.location }
+            : {}),
+        ...(typeof rec.meetingDetails === "string"
+          ? { meetingDetails: rec.meetingDetails }
+          : typeof rec.instructions === "string"
+            ? { meetingDetails: rec.instructions }
+            : {}),
+        ...(Array.isArray(rec.notificationEmails)
+          ? { notificationEmails: rec.notificationEmails }
+          : Array.isArray(rec.emails)
+            ? { notificationEmails: rec.emails }
+            : {}),
+      };
+    },
+    z
+      .object({
+        title: z.string().trim().min(1).max(80),
+        id: z.string().trim().min(2).max(60).optional(),
+        description: z.string().trim().max(400).optional(),
+        durationMinutes: z.number().int().min(10).max(180).optional(),
+        meetingLocation: z.string().trim().max(120).optional(),
+        meetingDetails: z.string().trim().max(600).optional(),
+        notificationEmails: z.array(z.string().trim().min(3).max(200)).max(20).optional(),
+      })
+      .strict(),
+  ),
 
   "booking.calendars.get": z
     .object({})

@@ -3283,6 +3283,54 @@ export async function resolvePlanArgs(opts: {
     args = { name, slug };
   }
 
+  if (stepKeyLower === "booking.calendar.create") {
+    const text = (value: unknown, max: number): string => {
+      if (typeof value !== "string") return "";
+      return value.trim().slice(0, max);
+    };
+
+    const title =
+      text((args as any).title, 80) ||
+      text((args as any).name, 80) ||
+      text((args as any).calendarName, 80) ||
+      text((args as any).label, 80) ||
+      "Appointment Booking Calendar";
+
+    const nextArgs: Record<string, unknown> = {
+      title,
+      ...(text((args as any).id, 60) ? { id: text((args as any).id, 60) } : {}),
+      ...(text((args as any).description, 400) ? { description: text((args as any).description, 400) } : {}),
+      ...(typeof (args as any).durationMinutes === "number" && Number.isFinite((args as any).durationMinutes)
+        ? { durationMinutes: Math.min(180, Math.max(10, Math.floor((args as any).durationMinutes))) }
+        : {}),
+      ...(text((args as any).meetingLocation, 120)
+        ? { meetingLocation: text((args as any).meetingLocation, 120) }
+        : text((args as any).location, 120)
+          ? { meetingLocation: text((args as any).location, 120) }
+          : {}),
+      ...(text((args as any).meetingDetails, 600)
+        ? { meetingDetails: text((args as any).meetingDetails, 600) }
+        : text((args as any).instructions, 600)
+          ? { meetingDetails: text((args as any).instructions, 600) }
+          : {}),
+    };
+
+    const notificationEmails = Array.isArray((args as any).notificationEmails)
+      ? ((args as any).notificationEmails as unknown[])
+      : Array.isArray((args as any).emails)
+        ? ((args as any).emails as unknown[])
+        : [];
+    if (notificationEmails.length) {
+      nextArgs.notificationEmails = notificationEmails
+        .filter((item) => typeof item === "string")
+        .map((item) => String(item).trim())
+        .filter(Boolean)
+        .slice(0, 20);
+    }
+
+    args = nextArgs;
+  }
+
   if (stepKeyLower === "ai_chat.scheduled.update" || stepKeyLower === "ai_chat.scheduled.delete") {
     const existing = typeof (args as any).messageId === "string" ? String((args as any).messageId).trim().slice(0, 120) : "";
     if (!existing) {
@@ -3578,7 +3626,7 @@ export async function resolvePlanArgs(opts: {
 
   // Special-case: for funnel HTML generation, treat booking calendar selection as an explicit disambiguation step.
   if (stepKeyLower === "funnel_builder.pages.generate_html") {
-    let prompt = typeof (args as any).prompt === "string" ? String((args as any).prompt).trim() : "";
+    const prompt = typeof (args as any).prompt === "string" ? String((args as any).prompt).trim() : "";
     if (!prompt) {
       const funnelIdForRepair =
         typeof (args as any).funnelId === "string"
