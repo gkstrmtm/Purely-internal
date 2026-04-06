@@ -24,6 +24,8 @@ Each chat should also have its own real URL so refresh keeps you in the same con
 - Make redo and edit controls feel intentional instead of noisy.
 - Show when Pura is thinking, planning, or actively working.
 - Create a cleaner transition from discussion into execution.
+- Let the user stop an in-flight run without losing the thread.
+- Make Pura better at suggesting the next useful move after it finishes work.
 
 ## UX changes in this phase
 
@@ -42,11 +44,22 @@ Each chat should also have its own real URL so refresh keeps you in the same con
 - Show a persistent working banner while Pura is thinking, redoing, or executing steps.
 - Make it obvious when work is happening even before the canvas loads.
 - Use concise status copy instead of fake completion language.
+- Show live progress in the thread list and inline in the chat body, not only in one top-level banner.
+- Keep enough metadata to explain where Pura is in the loop: round, completed steps, and the latest finished step.
 
-### 4. Message actions cleanup
+### 4. Interrupt / stop current run
+- Let the active thread request a stop while Pura is mid-run.
+- Stop cleanly at the next safe checkpoint instead of hard-killing the request.
+- Clear the live run state and leave a normal assistant message explaining that the run was paused.
+
+### 5. Message actions cleanup
 - Limit redo's active state to the message actually being regenerated.
 - Keep user edit affordances quieter by showing them on hover/focus with a larger hit area.
 - Avoid making the whole thread look busy when only one action is running.
+
+### 6. Proactive follow-up suggestions
+- After successful work, give the user 1-3 sensible next-step prompts.
+- Make those suggestions one-click so the user can keep momentum instead of rephrasing the next request manually.
 
 ## Implementation notes
 
@@ -65,10 +78,63 @@ Each chat should also have its own real URL so refresh keeps you in the same con
   - deleting the active thread,
   - returning to a blank new chat.
 
+### Live run state
+- Persist a lightweight `liveStatus` object in thread context while Pura is working.
+- Include:
+  - the current phase,
+  - a user-facing label,
+  - the active run id,
+  - whether the run can still be interrupted,
+  - the planner round,
+  - completed step count,
+  - and the last completed step title.
+- Read that state from:
+  - the thread messages endpoint,
+  - a lightweight status-only view,
+  - and the thread list endpoint for sidebar visibility.
+
+### Interrupt behavior
+- Start a new run id whenever a real execution loop begins.
+- Write the run id into live status so the UI can stop the correct run.
+- Interrupt requests should mark the thread context, not try to kill execution from the client.
+- The backend should check for interrupt requests at safe checkpoints:
+  - before planning,
+  - before resolution,
+  - before execution,
+  - and before summary generation.
+- When interrupted, Pura should:
+  - stop before the next step,
+  - clear current run control state,
+  - and write a normal assistant message that the run was stopped.
+
 ### Work mode
 - Drive work mode from existing canvas state first.
 - Avoid inventing deterministic execution branches.
 - Use the existing work canvas and execution signals, but present them more clearly.
+
+### Proactive next-step behavior
+- After successful work, return a short list of suggested next prompts.
+- Suggestions should be:
+  - domain-aware,
+  - short enough to render as chips,
+  - and only shown when the last run actually completed cleanly.
+
+## Current shipped state
+
+- Stable thread routes are live.
+- Refresh keeps the active chat.
+- Discuss and Work modes live inside chat.
+- Work-mode assistant messages are visually distinct.
+- Edit and redo controls are quieter and scoped correctly.
+- Thread switches no longer flash the welcome shell.
+- Pura now does domain-aware recovery instead of falling back to funnel-biased guesses.
+- Run traces are persisted and rendered after work completes.
+- Live status is now shown:
+  - near the composer,
+  - inline in the chat stream,
+  - and in the sidebar thread list.
+- Active runs can now be interrupted with a stop button.
+- Successful runs can now suggest the next useful prompt to keep momentum going.
 
 ### Future direction
 - Once the UX is cleaner, Pura can move further toward a Copilot-style loop:
@@ -77,3 +143,26 @@ Each chat should also have its own real URL so refresh keeps you in the same con
   - continue multi-step execution until done,
   - surface progress instead of generic filler replies,
   - ask the user only when the system cannot safely infer or fetch the missing detail.
+
+## What is still missing
+
+- True push-based streaming for progress updates.
+  - Right now progress is persisted and polled.
+  - That is much better than static replies, but it is not yet SSE/WebSocket-grade live streaming.
+- Richer long-running job infrastructure.
+  - There is not yet a first-class run queue with resumable background jobs, ownership, retries, and a dedicated runs view.
+- Deeper self-healing.
+  - Recovery is better, but there is still room for broader retry strategies, smarter branch switching, and better automatic repair after failed writes.
+- Persistent proactive guidance.
+  - Follow-up suggestions currently improve the immediate workflow, but they are not yet a full long-lived “next best action” system with saved state and stronger memory.
+- Stronger proactive autonomy.
+  - Pura still mostly reacts to the user’s current request.
+  - It does not yet proactively open a durable work plan, identify a sequence of likely next actions, and carry that plan across a longer horizon.
+
+## Next slices
+
+1. Replace polling with true streamed run updates.
+2. Add a dedicated run ledger for long-lived and background jobs.
+3. Persist richer follow-up recommendations and next-best-action state.
+4. Improve self-healing with broader retry and repair strategies.
+5. Add stronger “I know what to do next” planning across multiple turns instead of only after a single completed run.

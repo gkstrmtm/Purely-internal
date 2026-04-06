@@ -23,6 +23,24 @@ const postSchema = z
   })
   .strict();
 
+function buildFollowUpSuggestions(opts: { action: string; linkUrl?: string | null; ok: boolean }) {
+  if (!opts.ok) return [] as string[];
+  const haystack = [String(opts.action || ""), String(opts.linkUrl || "")].join("\n").toLowerCase();
+  const suggestions: string[] = [];
+  const push = (value: string) => {
+    const trimmed = String(value || "").trim().slice(0, 180);
+    if (!trimmed || suggestions.includes(trimmed)) return;
+    suggestions.push(trimmed);
+  };
+  if (/booking|calendar|appointment/.test(haystack)) push("Audit the booking flow for the next bottleneck.");
+  if (/funnel|landing|checkout|page/.test(haystack)) push("Review this funnel for the next highest-impact improvement.");
+  if (/contact|lead|client|customer/.test(haystack)) push("Suggest the next best follow-up for this contact.");
+  if (/inbox|email|sms|thread/.test(haystack)) push("Draft the next follow-up message you would send here.");
+  push("Summarize what changed and tell me the next best step.");
+  push("What should Pura do next here?");
+  return suggestions.slice(0, 3);
+}
+
 export async function POST(req: Request) {
   const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
   if (!auth.ok) {
@@ -93,9 +111,16 @@ export async function POST(req: Request) {
   };
   await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx, lastMessageAt: new Date() } }).catch(() => null);
 
+  const followUpSuggestions = buildFollowUpSuggestions({
+    action: String(action),
+    linkUrl: runTrace.canvasUrl,
+    ok: Boolean((exec as any)?.ok),
+  });
+
   return NextResponse.json({
     ...(exec as any),
     runTrace,
+    followUpSuggestions,
     clientUiActions: Array.isArray((exec as any)?.clientUiActions)
       ? (exec as any).clientUiActions
       : cua

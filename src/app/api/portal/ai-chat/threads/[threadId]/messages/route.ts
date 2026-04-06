@@ -2533,6 +2533,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
           actionKey: typeof ctxJson.liveStatus.actionKey === "string" ? String(ctxJson.liveStatus.actionKey).trim().slice(0, 120) : null,
           title: typeof ctxJson.liveStatus.title === "string" ? String(ctxJson.liveStatus.title).trim().slice(0, 200) : null,
           updatedAt: typeof ctxJson.liveStatus.updatedAt === "string" ? String(ctxJson.liveStatus.updatedAt).trim().slice(0, 80) : null,
+          runId: typeof ctxJson.liveStatus.runId === "string" ? String(ctxJson.liveStatus.runId).trim().slice(0, 120) : null,
+          canInterrupt: Boolean(ctxJson.liveStatus.canInterrupt),
           round: Number.isFinite(Number(ctxJson.liveStatus.round)) ? Math.max(1, Math.min(99, Math.floor(Number(ctxJson.liveStatus.round)))) : null,
           completedSteps: Number.isFinite(Number(ctxJson.liveStatus.completedSteps)) ? Math.max(0, Math.min(99, Math.floor(Number(ctxJson.liveStatus.completedSteps)))) : null,
           lastCompletedTitle:
@@ -2637,6 +2639,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     actionKey?: string | null;
     title?: string | null;
     updatedAt?: string | null;
+    runId?: string | null;
+    canInterrupt?: boolean | null;
     round?: number | null;
     completedSteps?: number | null;
     lastCompletedTitle?: string | null;
@@ -2655,6 +2659,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         typeof status.updatedAt === "string" && status.updatedAt.trim()
           ? String(status.updatedAt).trim().slice(0, 80)
           : now.toISOString(),
+      runId: typeof status.runId === "string" && status.runId.trim() ? String(status.runId).trim().slice(0, 120) : null,
+      canInterrupt: Boolean(status.canInterrupt),
       round: Number.isFinite(Number(status.round)) ? Math.max(1, Math.min(99, Math.floor(Number(status.round)))) : null,
       completedSteps: Number.isFinite(Number(status.completedSteps)) ? Math.max(0, Math.min(99, Math.floor(Number(status.completedSteps)))) : null,
       lastCompletedTitle:
@@ -2689,8 +2695,112 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     status: LiveStatusShape | null,
     threadContextValue?: unknown,
   ) => {
-    return await persistThreadContext(withLiveStatus(threadContextValue ?? persistedThreadContext, status));
+    return await persistThreadContext(withLiveStatus(threadContextValue ?? persistedThreadContext, status ? withCurrentRunStatus(status) : null));
   };
+
+  let activeRunId: string | null = null;
+
+  const beginInterruptibleRun = async (threadContextValue?: unknown) => {
+    activeRunId = randomUUID();
+    const prevCtx = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue) ? (threadContextValue as any) : {};
+    return await persistThreadContext({
+      ...prevCtx,
+      currentRunId: activeRunId,
+      interruptRequestedRunId: null,
+      liveStatus: null,
+    });
+  };
+
+  const completeInterruptibleRun = (threadContextValue: unknown) => {
+    const prevCtx = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue) ? (threadContextValue as any) : {};
+    activeRunId = null;
+    return {
+      ...prevCtx,
+      currentRunId: null,
+      interruptRequestedRunId: null,
+      liveStatus: null,
+    };
+  };
+
+  const checkInterruptRequested = async (): Promise<boolean> => {
+    if (!activeRunId) return false;
+    const fresh = await (prisma as any).portalAiChatThread.findFirst({
+      where: { id: threadId, ownerId },
+      select: { contextJson: true },
+    }).catch(() => null);
+    const freshCtx = fresh?.contextJson && typeof fresh.contextJson === "object" && !Array.isArray(fresh.contextJson) ? (fresh.contextJson as any) : {};
+    const interruptRunId = typeof freshCtx.interruptRequestedRunId === "string" ? String(freshCtx.interruptRequestedRunId).trim() : "";
+    return Boolean(interruptRunId && interruptRunId === activeRunId);
+  };
+
+  const buildStoppedAssistantMessage = async (userMessage: any | null) => {
+    const assistantText = "Stopped that run. I paused before taking the next step, so nothing else will be changed until you tell me what to do next.";
+    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+      data: { ownerId, threadId, role: "assistant", text: assistantText, attachmentsJson: null, createdByUserId: null, sendAt: null, sentAt: new Date() },
+      select: { id: true, role: true, text: true, attachmentsJson: true, createdAt: true, sendAt: true, sentAt: true },
+    });
+    const clearedCtx = completeInterruptibleRun(persistedThreadContext);
+    await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date(), contextJson: clearedCtx } });
+    persistedThreadContext = clearedCtx;
+    return NextResponse.json({ ok: true, userMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null, assistantChoices: null, clientUiActions: [], interrupted: true });
+  };
+
+  const buildProactiveFollowUpSuggestions = (opts: { actionKeys?: string[]; canvasUrl?: string | null; promptText?: string | null; completedCount?: number; failedCount?: number; pendingCount?: number }) => {
+    const completedCount = Number(opts.completedCount || 0);
+    const failedCount = Number(opts.failedCount || 0);
+    const pendingCount = Number(opts.pendingCount || 0);
+    if (completedCount <= 0 || failedCount > 0 || pendingCount > 0) return [] as string[];
+
+    const haystack = [
+      ...(Array.isArray(opts.actionKeys) ? opts.actionKeys : []),
+      String(opts.canvasUrl || ""),
+      String(opts.promptText || ""),
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .toLowerCase();
+
+    const suggestions: string[] = [];
+    const push = (value: string) => {
+      const trimmed = String(value || "").trim().slice(0, 180);
+      if (!trimmed) return;
+      if (suggestions.includes(trimmed)) return;
+      suggestions.push(trimmed);
+    };
+
+    if (/booking|calendar|appointment|availability|meeting/.test(haystack)) {
+      push("Audit the booking flow for the next bottleneck.");
+      push("Summarize what changed in booking and what still needs attention.");
+    } else if (/funnel|landing|checkout|upsell|downsell|page builder|website/.test(haystack)) {
+      push("Review this funnel for the next highest-impact improvement.");
+      push("Summarize what changed on the page and what you would optimize next.");
+    } else if (/contact|lead|client|customer|prospect/.test(haystack)) {
+      push("Find the next best contact follow-up after this change.");
+      push("Summarize what changed for this contact and suggest the next move.");
+    } else if (/inbox|email|sms|conversation|thread/.test(haystack)) {
+      push("Draft the next follow-up message you would send here.");
+      push("Show me the next inbox action worth taking after this.");
+    } else if (/task|todo|checklist|follow-up/.test(haystack)) {
+      push("Turn the remaining open work into the next 3 priorities.");
+      push("Find the next task that blocks progress after this.");
+    } else if (/reporting|sales|revenue|stripe|dashboard|analytics/.test(haystack)) {
+      push("Explain the next highest-impact fix suggested by the reporting data.");
+      push("Turn this result into a concrete action plan for this week.");
+    } else if (/media|asset|image|video|folder|library/.test(haystack)) {
+      push("Find the next best way to reuse or organize this media.");
+      push("Suggest the next cleanup or publishing step for this media work.");
+    }
+
+    push("Summarize what changed and tell me the next best step.");
+    push("What should Pura do next here?");
+    return suggestions.slice(0, 3);
+  };
+
+  const withCurrentRunStatus = (status: LiveStatusShape): LiveStatusShape => ({
+    ...status,
+    runId: activeRunId,
+    canInterrupt: Boolean(activeRunId),
+  });
 
   const patchArgsForScheduledCreate = (args: Record<string, unknown>, threadContext?: any): Record<string, unknown> => {
     const tzHint = getTimeZoneHint(threadContext);
@@ -2985,6 +3095,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       return NextResponse.json({ ok: false, error: "Nothing to confirm" }, { status: 400 });
     }
 
+    threadContext = await beginInterruptibleRun(threadContext);
+
     const results: Array<{
       ok: boolean;
       status: number;
@@ -2997,6 +3109,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     }> = [];
     const clientUiActions: any[] = [];
     for (const step of confirmedSteps) {
+      if (await checkInterruptRequested()) {
+        return await buildStoppedAssistantMessage(null);
+      }
       threadContext = await persistLiveStatus(
         {
           phase: "executing",
@@ -3043,6 +3158,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
     let assistantText = "";
     try {
+      if (await checkInterruptRequested()) {
+        return await buildStoppedAssistantMessage(null);
+      }
       threadContext = await persistLiveStatus(
         {
           phase: "summarizing",
@@ -3155,14 +3273,24 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     };
     const runs = [...prevRuns.slice(-19), runTrace];
 
-    const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-      ? { ...(prevCtx as any), pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, liveStatus: null, runs }
-      : { pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, liveStatus: null, runs };
+    const nextCtxBase = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+      ? { ...(prevCtx as any), pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs }
+      : { pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs };
+    const nextCtx = completeInterruptibleRun(nextCtxBase);
 
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
     const openScheduledTasks = confirmedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
-    return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, clientUiActions, openScheduledTasks, runTrace });
+    const okCount = results.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length;
+    const failedCount = results.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length;
+    const followUpSuggestions = buildProactiveFollowUpSuggestions({
+      actionKeys: confirmedSteps.map((s) => String(s.key || "")).filter(Boolean),
+      canvasUrl,
+      completedCount: okCount,
+      failedCount,
+      pendingCount: 0,
+    });
+    return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, clientUiActions, openScheduledTasks, runTrace, followUpSuggestions });
   }
 
   const attachmentLines = attachments
@@ -3315,7 +3443,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   // 0.5) Agentic planning + deterministic resolution (multi-step, no IDs required).
   // This runs before the legacy action-proposal flow, and it executes immediately for imperative requests.
-  let fallbackThreadContext = persistedThreadContext;
+  let fallbackThreadContext = isConfirmOnly ? persistedThreadContext : await beginInterruptibleRun(persistedThreadContext);
   if (isPortalSupportChatConfigured()) {
     try {
       let threadContext = fallbackThreadContext;
@@ -3401,8 +3529,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       if (pendingConfirm && !isConfirmOnly) {
         const prevCtx = threadContext;
         const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-          ? { ...(prevCtx as any), pendingConfirm: null, liveStatus: null }
-          : { pendingConfirm: null, liveStatus: null };
+          ? completeInterruptibleRun({ ...(prevCtx as any), pendingConfirm: null })
+          : completeInterruptibleRun({ pendingConfirm: null });
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
         threadContext = nextCtx;
       }
@@ -3458,6 +3586,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       // --- ChatGPT wrapper loop ---
       // 1) If we previously asked a question to run a specific action, try to continue that now.
       if (pendingAction && !isConfirmOnly && (hasNewUserText || didClickChoice)) {
+        if (await checkInterruptRequested()) {
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
         const actionKey = String((pendingAction as any)?.key || "").trim();
         const title = String((pendingAction as any)?.title || actionKey).trim().slice(0, 160) || actionKey;
         const argsRaw = (pendingAction as any)?.args && typeof (pendingAction as any).args === "object" && !Array.isArray((pendingAction as any).args)
@@ -3470,6 +3601,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             { phase: "resolving", label: `Resolving ${title || keyParsed.data}`, actionKey: keyParsed.data, title, completedSteps: 0 },
             threadContext,
           );
+          if (await checkInterruptRequested()) {
+            return await buildStoppedAssistantMessage(responseUserMessage);
+          }
           const resolved = await resolvePlanArgs({
             ownerId,
             stepKey: keyParsed.data,
@@ -3545,14 +3679,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               : null;
 
             const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
-            const nextCtx = {
+            const nextCtx = completeInterruptibleRun({
               ...prevCtx,
               pendingAction: { key: keyParsed.data, title, args: argsRaw },
               pendingActionClarify: { at: now.toISOString(), question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null },
               pendingPlan: null,
               pendingPlanClarify: null,
-              liveStatus: null,
-            };
+            });
             await (prisma as any).portalAiChatThread.update({
               where: { id: threadId },
               data: assistantMsg ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx },
@@ -3579,6 +3712,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             { phase: "executing", label: `Running ${title || keyParsed.data}`, actionKey: keyParsed.data, title, completedSteps: 0 },
             threadContext,
           );
+          if (await checkInterruptRequested()) {
+            return await buildStoppedAssistantMessage(responseUserMessage);
+          }
           const exec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: keyParsed.data, args: resolvedArgsWithThread });
           const cua = (exec as any).clientUiAction ?? null;
           const execError = typeof (exec as any).error === "string" ? String((exec as any).error).trim().slice(0, 800) : "";
@@ -3661,7 +3797,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           };
           const runs = [...prevRuns.slice(-19), runTrace];
 
-          const nextCtx = {
+          const nextCtx = completeInterruptibleRun({
             ...prevCtx,
             ...mergedPatch,
             lastWorkTitle: title || keyParsed.data,
@@ -3670,13 +3806,21 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             pendingActionClarify: null,
             pendingPlan: null,
             pendingPlanClarify: null,
-            liveStatus: null,
             runs,
-          };
+          });
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
           if (assistantText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText });
 
-          return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: cua ? [cua] : [], openScheduledTasks: String(keyParsed.data).startsWith("ai_chat.scheduled."), runTrace });
+          const followUpSuggestions = buildProactiveFollowUpSuggestions({
+            actionKeys: [String(keyParsed.data)],
+            canvasUrl,
+            promptText: promptMessage,
+            completedCount: Boolean((exec as any).ok) && Number((exec as any).status) >= 200 && Number((exec as any).status) < 300 ? 1 : 0,
+            failedCount: Boolean((exec as any).ok) && Number((exec as any).status) >= 200 && Number((exec as any).status) < 300 ? 0 : 1,
+            pendingCount: 0,
+          });
+
+          return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: cua ? [cua] : [], openScheduledTasks: String(keyParsed.data).startsWith("ai_chat.scheduled."), runTrace, followUpSuggestions });
         }
       }
 
@@ -4080,6 +4224,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           },
           localCtx,
         );
+        if (await checkInterruptRequested()) {
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
         const lastRunSummary = allResolvedSteps.length || lastAutoClarify || lastAutoExecutionError || lastAutoResolutionError || bootstrapDiscoverySummary
           ? {
               ...(bootstrapDiscoverySummary ? { bootstrapDiscovery: bootstrapDiscoverySummary } : {}),
@@ -4245,6 +4392,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           let blockedForReplan = false;
 
           for (const a of actions.slice(0, 6)) {
+            if (await checkInterruptRequested()) {
+              return await buildStoppedAssistantMessage(responseUserMessage);
+            }
             const key = a.key;
             const title = String(a.title || a.key).trim().slice(0, 160) || String(a.key);
             const argsRaw = a.args && typeof a.args === "object" && !Array.isArray(a.args) ? (a.args as Record<string, unknown>) : {};
@@ -4261,6 +4411,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               },
               localCtx,
             );
+            if (await checkInterruptRequested()) {
+              return await buildStoppedAssistantMessage(responseUserMessage);
+            }
             const resolved = await resolvePlanArgs({ ownerId, stepKey: key, args: argsRaw, userHint: effectiveText, url: contextUrl, threadContext: localCtx });
             if (!resolved.ok) {
               const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
@@ -4368,15 +4521,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
           const token = randomUUID();
           const prevCtx = localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) ? localCtx : {};
-          const nextCtx = {
+          const nextCtx = completeInterruptibleRun({
             ...prevCtx,
             pendingConfirm: { token, createdAt: now.toISOString(), workTitle: resolvedStepsForConfirm[0]?.title ?? null, steps: resolvedStepsForConfirm, confirm: confirmSpec },
             pendingAction: null,
             pendingActionClarify: null,
             pendingPlan: null,
             pendingPlanClarify: null,
-            liveStatus: null,
-          };
+          });
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
           let confirmText = "";
@@ -4425,6 +4577,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         let blockedForReplan = false;
         for (const a of actions.slice(0, 6)) {
           if (allResolvedSteps.length >= MAX_TOTAL_ACTIONS) break;
+        if (await checkInterruptRequested()) {
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
         const key = a.key;
         const title = String(a.title || a.key).trim().slice(0, 160) || String(a.key);
         const argsRaw = a.args && typeof a.args === "object" && !Array.isArray(a.args) ? (a.args as Record<string, unknown>) : {};
@@ -4441,6 +4596,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           },
           localCtx,
         );
+        if (await checkInterruptRequested()) {
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
         const resolved = await resolvePlanArgs({ ownerId, stepKey: key, args: argsRaw, userHint: effectiveText, url: contextUrl, threadContext: localCtx });
         if (!resolved.ok) {
           const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
@@ -4506,14 +4664,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             : null;
 
           const prevCtx = localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) ? localCtx : {};
-          const nextCtx = {
+          const nextCtx = completeInterruptibleRun({
             ...prevCtx,
             pendingAction: { key, title, args: argsRaw },
             pendingActionClarify: { at: now.toISOString(), question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null },
             pendingPlan: null,
             pendingPlanClarify: null,
-            liveStatus: null,
-          };
+          });
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: assistantMsg ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx } });
           if (clarifyText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: clarifyText });
 
@@ -4549,6 +4706,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           },
           localCtx,
         );
+        if (await checkInterruptRequested()) {
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
         const exec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: key, args: resolvedArgsWithThread });
         const cua = (exec as any).clientUiAction ?? null;
         const execError = typeof (exec as any).error === "string" ? String((exec as any).error).trim().slice(0, 800) : "";
@@ -4600,6 +4760,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       let assistantTextFinal = "";
       try {
+        if (await checkInterruptRequested()) {
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
         localCtx = await persistLiveStatus(
           {
             phase: "summarizing",
@@ -4711,7 +4874,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       };
       const runs = [...prevRuns.slice(-19), runTrace];
 
-      const nextCtx = {
+      const nextCtx = completeInterruptibleRun({
         ...prevCtx,
         ...mergedPatch,
         lastWorkTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
@@ -4720,15 +4883,22 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         pendingActionClarify: null,
         pendingPlan: null,
         pendingPlanClarify: null,
-        liveStatus: null,
         runs,
-      };
+      });
 
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
       if (assistantTextFinal) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: assistantTextFinal });
 
       const openScheduledTasks = allResolvedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
-      return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: allClientUiActions, openScheduledTasks, runTrace });
+      const followUpSuggestions = buildProactiveFollowUpSuggestions({
+        actionKeys: allResolvedSteps.map((s) => String(s.key || "")).filter(Boolean),
+        canvasUrl,
+        promptText: promptMessage,
+        completedCount: allResults.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length,
+        failedCount: allResults.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length,
+        pendingCount: allResults.filter((r: any) => Boolean(r.ok) && (r?.result?.question || (Array.isArray(r?.result?.actions) && r.result.actions.length))).length,
+      });
+      return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: allClientUiActions, openScheduledTasks, runTrace, followUpSuggestions });
     } catch {
       try {
         await persistLiveStatus(null);
@@ -4774,7 +4944,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         });
 
         const prevCtx = persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext) ? (persistedThreadContext as any) : {};
-        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: { ...prevCtx, liveStatus: null } } });
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: completeInterruptibleRun(prevCtx) } });
         await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: replyText });
 
         return NextResponse.json({
@@ -4790,7 +4960,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       }
     } catch {
       try {
-        await persistLiveStatus(null);
+        await persistThreadContext(completeInterruptibleRun(persistedThreadContext));
       } catch {
         // ignore
       }
@@ -4799,7 +4969,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   }
 
   try {
-    await persistLiveStatus(null);
+    await persistThreadContext(completeInterruptibleRun(persistedThreadContext));
   } catch {
     // ignore
   }

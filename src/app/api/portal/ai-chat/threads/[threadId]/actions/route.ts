@@ -10,8 +10,23 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const ActionSchema = z.object({
-  action: z.enum(["pin", "unpin", "delete", "duplicate"]),
+  action: z.enum(["pin", "unpin", "delete", "duplicate", "interrupt"]),
 });
+
+function normalizeThreadLiveStatus(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const phase = typeof (raw as any).phase === "string" ? String((raw as any).phase).trim().slice(0, 80) : null;
+  const label = typeof (raw as any).label === "string" ? String((raw as any).label).trim().slice(0, 200) : null;
+  const actionKey = typeof (raw as any).actionKey === "string" ? String((raw as any).actionKey).trim().slice(0, 120) : null;
+  const title = typeof (raw as any).title === "string" ? String((raw as any).title).trim().slice(0, 200) : null;
+  const updatedAt = typeof (raw as any).updatedAt === "string" ? String((raw as any).updatedAt).trim().slice(0, 80) : null;
+  const runId = typeof (raw as any).runId === "string" ? String((raw as any).runId).trim().slice(0, 120) : null;
+  const round = Number.isFinite(Number((raw as any).round)) ? Math.max(1, Math.min(99, Math.floor(Number((raw as any).round)))) : null;
+  const completedSteps = Number.isFinite(Number((raw as any).completedSteps)) ? Math.max(0, Math.min(99, Math.floor(Number((raw as any).completedSteps)))) : null;
+  const lastCompletedTitle = typeof (raw as any).lastCompletedTitle === "string" ? String((raw as any).lastCompletedTitle).trim().slice(0, 200) : null;
+  if (!phase && !label && !actionKey && !title && !updatedAt && !runId && round == null && completedSteps == null && !lastCompletedTitle) return null;
+  return { phase, label, actionKey, title, updatedAt, runId, canInterrupt: Boolean(runId), round, completedSteps, lastCompletedTitle };
+}
 
 export async function POST(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
   const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
@@ -94,6 +109,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       where: { id: threadId },
     });
     return NextResponse.json({ ok: true });
+  }
+
+  if (action === "interrupt") {
+    const ctxJson = thread.contextJson && typeof thread.contextJson === "object" && !Array.isArray(thread.contextJson) ? (thread.contextJson as any) : {};
+    const liveStatus = ctxJson.liveStatus && typeof ctxJson.liveStatus === "object" && !Array.isArray(ctxJson.liveStatus) ? (ctxJson.liveStatus as any) : null;
+    const runId = typeof liveStatus?.runId === "string" ? String(liveStatus.runId).trim() : typeof ctxJson.currentRunId === "string" ? String(ctxJson.currentRunId).trim() : "";
+
+    if (!runId) {
+      return NextResponse.json({ ok: true, interrupted: false, liveStatus: null });
+    }
+
+    const nextCtx = {
+      ...ctxJson,
+      interruptRequestedRunId: runId,
+      liveStatus: {
+        ...(liveStatus || {}),
+        runId,
+        canInterrupt: false,
+        label: "Stopping after the current step",
+        updatedAt: new Date().toISOString(),
+      },
+    };
+
+    await (prisma as any).portalAiChatThread.update({
+      where: { id: threadId },
+      data: { contextJson: nextCtx },
+    });
+
+    return NextResponse.json({ ok: true, interrupted: true, liveStatus: normalizeThreadLiveStatus(nextCtx.liveStatus) });
   }
 
   if (action === "duplicate") {

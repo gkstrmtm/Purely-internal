@@ -120,6 +120,8 @@ type LiveStatus = {
   actionKey?: string | null;
   title?: string | null;
   updatedAt?: string | null;
+  runId?: string | null;
+  canInterrupt?: boolean | null;
   round?: number | null;
   completedSteps?: number | null;
   lastCompletedTitle?: string | null;
@@ -134,6 +136,7 @@ type Message = {
   attachmentsJson: any;
   assistantActions?: AssistantAction[];
   runTrace?: RunTrace | null;
+  followUpSuggestions?: string[];
   displayMode?: ChatMode;
   createdAt: string;
   sendAt: string | null;
@@ -676,6 +679,20 @@ function attachRunTraceToMessage(message: Message, rawTrace: unknown): Message {
   return { ...message, runTrace: { ...trace, assistantMessageId: message.id } };
 }
 
+function normalizeFollowUpSuggestions(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((value) => (typeof value === "string" ? String(value).trim().slice(0, 180) : ""))
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function attachFollowUpSuggestionsToMessage(message: Message, rawSuggestions: unknown): Message {
+  const suggestions = normalizeFollowUpSuggestions(rawSuggestions);
+  if (!suggestions.length) return message;
+  return { ...message, followUpSuggestions: suggestions };
+}
+
 function applyRunTracesToMessages(messages: Message[], runsRaw: unknown): Message[] {
   const runs = Array.isArray(runsRaw) ? runsRaw : [];
   const traceByMessageId = new Map<string, RunTrace>();
@@ -699,17 +716,21 @@ function normalizeLiveStatus(raw: unknown): LiveStatus | null {
   const actionKey = typeof (raw as any).actionKey === "string" ? String((raw as any).actionKey).trim().slice(0, 120) : "";
   const title = typeof (raw as any).title === "string" ? String((raw as any).title).trim().slice(0, 200) : "";
   const updatedAt = typeof (raw as any).updatedAt === "string" ? String((raw as any).updatedAt).trim().slice(0, 80) : "";
+  const runId = typeof (raw as any).runId === "string" ? String((raw as any).runId).trim().slice(0, 120) : "";
+  const canInterrupt = Boolean((raw as any).canInterrupt);
   const round = Number.isFinite(Number((raw as any).round)) ? Math.max(1, Math.min(99, Math.floor(Number((raw as any).round)))) : null;
   const completedSteps = Number.isFinite(Number((raw as any).completedSteps)) ? Math.max(0, Math.min(99, Math.floor(Number((raw as any).completedSteps)))) : null;
   const lastCompletedTitle =
     typeof (raw as any).lastCompletedTitle === "string" ? String((raw as any).lastCompletedTitle).trim().slice(0, 200) : "";
-  if (!phase && !label && !actionKey && !title && !updatedAt && round == null && completedSteps == null && !lastCompletedTitle) return null;
+  if (!phase && !label && !actionKey && !title && !updatedAt && !runId && !canInterrupt && round == null && completedSteps == null && !lastCompletedTitle) return null;
   return {
     phase: phase || null,
     label: label || null,
     actionKey: actionKey || null,
     title: title || null,
     updatedAt: updatedAt || null,
+    runId: runId || null,
+    canInterrupt,
     round,
     completedSteps,
     lastCompletedTitle: lastCompletedTitle || null,
@@ -728,14 +749,26 @@ function describeLiveStatusMeta(status: LiveStatus | null): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
-function LiveProgressCard({ status }: { status: LiveStatus }) {
+function LiveProgressCard({ status, onInterrupt, interrupting }: { status: LiveStatus; onInterrupt?: (() => void) | null; interrupting?: boolean }) {
   const meta = describeLiveStatusMeta(status);
   const lastCompletedTitle = status.lastCompletedTitle?.trim() || null;
   return (
     <div className="rounded-3xl border border-brand-blue/15 bg-blue-50/70 px-4 py-3 text-zinc-800 shadow-[0_8px_30px_rgba(29,78,216,0.08)]">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-brand-blue">
-        <ThinkingDots />
-        <span>Pura working</span>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-brand-blue">
+          <ThinkingDots />
+          <span>Pura working</span>
+        </div>
+        {onInterrupt ? (
+          <button
+            type="button"
+            className="rounded-2xl border border-zinc-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+            onClick={onInterrupt}
+            disabled={Boolean(interrupting)}
+          >
+            {interrupting ? "Stopping…" : "Stop"}
+          </button>
+        ) : null}
       </div>
       <div className="mt-2 text-sm font-semibold text-zinc-900">{status.label || status.title || "Working on it"}</div>
       {meta ? <div className="mt-1 text-xs font-medium text-zinc-600">{meta}</div> : null}
@@ -998,6 +1031,7 @@ export function PortalAiChatClient({
 
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [runningActionKey, setRunningActionKey] = useState<string | null>(null);
+  const [interruptingThreadIds, setInterruptingThreadIds] = useState<Set<string>>(() => new Set());
 
   const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
   const [confirmModal, setConfirmModal] = useState<
@@ -1130,6 +1164,9 @@ export function PortalAiChatClient({
   const liveWorkStatusLabel = useMemo(() => {
     return activeLiveStatus?.label?.trim() || null;
   }, [activeLiveStatus]);
+  const activeCanInterrupt = useMemo(() => {
+    return Boolean(activeThreadId && activeLiveStatus?.canInterrupt && activeLiveStatus?.runId);
+  }, [activeLiveStatus?.canInterrupt, activeLiveStatus?.runId, activeThreadId]);
   const showActiveLiveProgressCard = useMemo(() => {
     if (!activeThreadId || !activeLiveStatus) return false;
     return sending || hasThinkingMessage || regenerating || Boolean(runningActionKey) || Boolean(activeLiveStatus.label);
@@ -1966,7 +2003,10 @@ export function PortalAiChatClient({
                 }
               }
               if (json.assistantMessage) {
-                const assistantMessage = attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace);
+                const assistantMessage = attachFollowUpSuggestionsToMessage(
+                  attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace),
+                  (json as any).followUpSuggestions,
+                );
                 rememberMessageDisplayMode(assistantMessage.id, assistantMessage.displayMode);
                 next.push(assistantMessage);
               }
@@ -2010,7 +2050,10 @@ export function PortalAiChatClient({
             updateThreadMessages(threadIdForSend, (prev) => {
               const next = [...prev];
               if (json2.assistantMessage) {
-                const am = attachRunTraceToMessage(applyAssistantDisplayMode(json2.assistantMessage as Message, modeAtSend), (json2 as any).runTrace);
+                const am = attachFollowUpSuggestionsToMessage(
+                  attachRunTraceToMessage(applyAssistantDisplayMode(json2.assistantMessage as Message, modeAtSend), (json2 as any).runTrace),
+                  (json2 as any).followUpSuggestions,
+                );
                 rememberMessageDisplayMode(am.id, am.displayMode);
                 next.push({ ...am, assistantActions: assistantActions2.length ? assistantActions2 : undefined });
               }
@@ -2049,7 +2092,10 @@ export function PortalAiChatClient({
               }
             }
             if (json.assistantMessage) {
-              const am = attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace);
+              const am = attachFollowUpSuggestionsToMessage(
+                attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace),
+                (json as any).followUpSuggestions,
+              );
               rememberMessageDisplayMode(am.id, am.displayMode);
               next.push({ ...am, assistantActions: assistantActions.length ? assistantActions : undefined });
             }
@@ -2134,7 +2180,10 @@ export function PortalAiChatClient({
             const next: Message[] = [...cleaned];
             if (json.userMessage) next.push(json.userMessage);
             if (json.assistantMessage) {
-              const assistantMessage = attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace);
+              const assistantMessage = attachFollowUpSuggestionsToMessage(
+                attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace),
+                (json as any).followUpSuggestions,
+              );
               rememberMessageDisplayMode(assistantMessage.id, assistantMessage.displayMode);
               next.push(assistantMessage);
             }
@@ -2184,7 +2233,10 @@ export function PortalAiChatClient({
           updateThreadMessages(threadIdForSend, (prev) => {
             const next = [...prev];
             if (json2.assistantMessage) {
-              const am = attachRunTraceToMessage(applyAssistantDisplayMode(json2.assistantMessage as Message, modeAtSend), (json2 as any).runTrace);
+              const am = attachFollowUpSuggestionsToMessage(
+                attachRunTraceToMessage(applyAssistantDisplayMode(json2.assistantMessage as Message, modeAtSend), (json2 as any).runTrace),
+                (json2 as any).followUpSuggestions,
+              );
               rememberMessageDisplayMode(am.id, am.displayMode);
               next.push({ ...am, assistantActions: assistantActions2.length ? assistantActions2 : undefined });
             }
@@ -2216,7 +2268,10 @@ export function PortalAiChatClient({
           const next: Message[] = [...cleaned];
           if (json.userMessage) next.push(json.userMessage);
           if (json.assistantMessage) {
-            const am = attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace);
+            const am = attachFollowUpSuggestionsToMessage(
+              attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace),
+              (json as any).followUpSuggestions,
+            );
             rememberMessageDisplayMode(am.id, am.displayMode);
             next.push({ ...am, assistantActions: assistantActions.length ? assistantActions : undefined });
           }
@@ -2307,12 +2362,48 @@ export function PortalAiChatClient({
         ambiguousContacts?: AmbiguousContact[];
         linkUrl?: string | null;
         runTrace?: RunTrace | null;
+        followUpSuggestions?: string[];
         clientUiActions?: unknown[];
         openScheduledTasks?: boolean;
       };
     },
     [activeThreadId, clientTimeZoneHeaders],
   );
+
+  const interruptActiveRun = useCallback(async () => {
+    if (!activeThreadId) return;
+    if (!activeCanInterrupt) return;
+
+    setInterruptingThreadIds((prev) => {
+      const next = new Set(prev);
+      next.add(activeThreadId);
+      return next;
+    });
+
+    try {
+      const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/actions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "interrupt" }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok) throw new Error(json?.error || "Unable to stop run");
+      setThreadLiveStatusById((prev) => ({
+        ...prev,
+        [activeThreadId]: normalizeLiveStatus(json?.liveStatus) || prev[activeThreadId] || null,
+      }));
+      toast.success(json?.interrupted ? "Stopping run" : "No active run to stop");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInterruptingThreadIds((prev) => {
+        const next = new Set(prev);
+        next.delete(activeThreadId);
+        return next;
+      });
+      void loadThreads();
+    }
+  }, [activeCanInterrupt, activeThreadId, loadThreads, toast]);
 
   const runAssistantAction = useCallback(
     async (a: AssistantAction) => {
@@ -2352,7 +2443,10 @@ export function PortalAiChatClient({
         }
 
         if (json.assistantMessage && threadIdForAction) {
-          const assistantMessage = attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtAction), (json as any).runTrace);
+          const assistantMessage = attachFollowUpSuggestionsToMessage(
+            attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtAction), (json as any).runTrace),
+            (json as any).followUpSuggestions,
+          );
           rememberMessageDisplayMode(assistantMessage.id, assistantMessage.displayMode);
           updateThreadMessages(threadIdForAction, (prev) => [...prev, assistantMessage]);
         }
@@ -3190,6 +3284,17 @@ export function PortalAiChatClient({
             </div>
           ) : null}
 
+          {activeCanInterrupt && activeThreadId ? (
+            <button
+              type="button"
+              className="inline-flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+              onClick={() => void interruptActiveRun()}
+              disabled={interruptingThreadIds.has(activeThreadId)}
+            >
+              {interruptingThreadIds.has(activeThreadId) ? "Stopping…" : "Stop"}
+            </button>
+          ) : null}
+
           <button
             type="button"
             className="inline-flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 sm:hidden"
@@ -3663,13 +3768,32 @@ export function PortalAiChatClient({
                             </div>
                           </div>
                         )}
+                        {m.role === "assistant" && Array.isArray(m.followUpSuggestions) && m.followUpSuggestions.length ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {m.followUpSuggestions.map((suggestion) => (
+                              <button
+                                key={`${m.id}:${suggestion}`}
+                                type="button"
+                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                                onClick={() => void send(suggestion)}
+                                title={suggestion}
+                              >
+                                {suggestion}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     );
                   });
                 })()}
                 {showActiveLiveProgressCard && activeLiveStatus ? (
                   <div className="mt-3">
-                    <LiveProgressCard status={activeLiveStatus} />
+                    <LiveProgressCard
+                      status={activeLiveStatus}
+                      onInterrupt={activeCanInterrupt ? () => void interruptActiveRun() : null}
+                      interrupting={Boolean(activeThreadId && interruptingThreadIds.has(activeThreadId))}
+                    />
                   </div>
                 ) : null}
                 <div ref={endRef} />
