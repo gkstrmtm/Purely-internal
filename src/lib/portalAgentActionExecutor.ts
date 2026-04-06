@@ -32,6 +32,7 @@ import {
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
 import { resolvePlanArgs } from "@/lib/puraResolver";
+import { findPlaceholderIdPaths, looksLikePlaceholderId, sanitizeIdLikeObjectDeep } from "@/lib/agentIdSanitizer";
 import { addCredits, addCreditsTx, consumeCredits, consumeCreditsOnce, getCreditsLifecycleForOwner, getCreditsState, setAutoTopUp } from "@/lib/credits";
 import { recordThresholdMeterUsage } from "@/lib/creditsMetering";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
@@ -239,6 +240,36 @@ function stripAssistantVisibleAccountingFields(value: unknown): unknown {
   };
 
   return walk(value, 6);
+}
+
+function sanitizeThreadContextPatch(patch: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return null;
+  const sanitized = sanitizeIdLikeObjectDeep(patch);
+  if (!sanitized || typeof sanitized !== "object" || Array.isArray(sanitized)) return null;
+
+  const out: Record<string, unknown> = { ...(sanitized as any) };
+  for (const [k, v] of Object.entries(out)) {
+    if (!k.startsWith("last")) continue;
+    if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+    const id = typeof (v as any).id === "string" ? String((v as any).id).trim() : "";
+    if (!id || looksLikePlaceholderId(id)) delete out[k];
+  }
+
+  return Object.keys(out).length ? out : null;
+}
+
+function rejectIfPlaceholderIdsPresent(action: PortalAgentActionKey, args: Record<string, unknown>): { ok: true } | { ok: false; error: string } {
+  const findings = findPlaceholderIdPaths(args, { maxDepth: 7, maxFindings: 6 });
+  if (!findings.length) return { ok: true };
+
+  const preview = findings
+    .slice(0, 4)
+    .map((f) => `${f.path}=${JSON.stringify(f.valuePreview)}`)
+    .join(", ");
+  return {
+    ok: false,
+    error: `Refusing to execute ${action}: placeholder ID(s) detected (${preview || "(unknown)"}).`,
+  };
 }
 
 function deriveLinkUrlForAction(action: PortalAgentActionKey, json: any): string | undefined {
@@ -26524,6 +26555,11 @@ export async function executePortalAgentActionForThread(opts: {
     (argsForExec as any).threadId = opts.threadId;
   }
 
+  const placeholderGuard = rejectIfPlaceholderIdsPresent(opts.action, argsForExec);
+  if (!placeholderGuard.ok) {
+    return { ok: false as const, status: 400, error: placeholderGuard.error };
+  }
+
   const { json, status } = await runDirectAction({ action: opts.action, ownerId: opts.ownerId, actorUserId, args: argsForExec as any });
   const clientUiAction = json && typeof json === "object" ? ((json as any).clientUiAction ?? null) : null;
   const ok =
@@ -26568,8 +26604,12 @@ export async function executePortalAgentActionForThread(opts: {
     : null;
 
   const prevCtx = thread?.contextJson;
-  const mergedPatch = resolved.contextPatch && typeof resolved.contextPatch === "object" ? resolved.contextPatch : null;
-  const derivedPatch = deriveThreadContextPatchFromAction(opts.action, resolvedArgs, json);
+  const mergedPatch = sanitizeThreadContextPatch(
+    resolved.contextPatch && typeof resolved.contextPatch === "object" && !Array.isArray(resolved.contextPatch)
+      ? (resolved.contextPatch as any)
+      : null,
+  );
+  const derivedPatch = sanitizeThreadContextPatch(deriveThreadContextPatchFromAction(opts.action, resolvedArgs, json));
   const nextCtx = mergedPatch
     ? (prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
         ? { ...(prevCtx as any), ...mergedPatch, ...(derivedPatch ? derivedPatch : {}), pendingPlan: null, pendingPlanClarify: null }
@@ -26607,9 +26647,16 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     if (!json || typeof json !== "object") return null;
     if ((json as any).ok !== true) return null;
 
+    const cleanId = (raw: unknown): string => {
+      const s = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
+      if (!s) return "";
+      if (looksLikePlaceholderId(s)) return "";
+      return s;
+    };
+
     // Track funnels so follow-ups can infer “the one we just created/used”.
     if (action === "funnel.create" && typeof (json as any).funnel?.id === "string") {
-      const id = String((json as any).funnel.id).trim().slice(0, 120);
+      const id = cleanId((json as any).funnel.id);
       if (id) {
         const label = String((json as any).funnel?.name || (json as any).funnel?.slug || "Funnel").trim().slice(0, 120) || "Funnel";
         return { lastFunnel: { id, label } };
@@ -26620,8 +26667,8 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     // “add my calendar to the same one we just made” don’t require another page selection.
     if (action === "funnel_builder.pages.create" && (json as any).page?.id) {
       const page = (json as any).page;
-      const funnelId = String(page?.funnelId || (args as any)?.funnelId || "").trim();
-      const pageId = String(page?.id || "").trim();
+      const funnelId = cleanId(page?.funnelId || (args as any)?.funnelId || "");
+      const pageId = cleanId(page?.id || "");
       if (funnelId && pageId) {
         const label = String(page?.title || page?.slug || "Page").trim().slice(0, 120) || "Page";
         return {
@@ -26637,8 +26684,8 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
         action === "funnel_builder.pages.export_custom_html") &&
       ((json as any).page?.id || (args as any)?.pageId)
     ) {
-      const funnelId = String((args as any)?.funnelId || "").trim();
-      const pageId = String((json as any).page?.id || (args as any)?.pageId || "").trim();
+      const funnelId = cleanId((args as any)?.funnelId || "");
+      const pageId = cleanId((json as any).page?.id || (args as any)?.pageId || "");
       if (funnelId && pageId) {
         const label = String((json as any).page?.title || (json as any).page?.slug || "Page").trim().slice(0, 120) || "Page";
         return {
@@ -26651,7 +26698,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     // If the user listed/deleted pages on a funnel, keep that funnelId hot in thread context.
     // This avoids follow-up `pages.create` calls failing when the planner omits `funnelId`.
     if ((action === "funnel_builder.pages.list" || action === "funnel_builder.pages.delete") && typeof (args as any)?.funnelId === "string") {
-      const id = String((args as any).funnelId).trim().slice(0, 120);
+      const id = cleanId((args as any).funnelId);
       if (id) {
         return { lastFunnel: { id, label: "Funnel" } };
       }
@@ -26659,7 +26706,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
 
     // Track funnels/forms so follow-ups can infer “the one we just used”.
     if (action === "funnel_builder.funnels.get" && typeof (json as any).funnel?.id === "string") {
-      const id = String((json as any).funnel.id).trim().slice(0, 120);
+      const id = cleanId((json as any).funnel.id);
       if (id) {
         const label = String((json as any).funnel?.name || (json as any).funnel?.slug || "Funnel").trim().slice(0, 120) || "Funnel";
         return { lastFunnel: { id, label } };
@@ -26667,7 +26714,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if ((action === "funnel_builder.funnels.update" || action === "funnel_builder.funnels.delete") && typeof (args as any)?.funnelId === "string") {
-      const id = String((args as any).funnelId).trim().slice(0, 120);
+      const id = cleanId((args as any).funnelId);
       if (id) {
         const nameHint = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "";
         return { lastFunnel: { id, label: nameHint || "Funnel" } };
@@ -26675,7 +26722,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if ((action === "funnel_builder.forms.create" || action === "funnel_builder.forms.get") && typeof (json as any).form?.id === "string") {
-      const id = String((json as any).form.id).trim().slice(0, 120);
+      const id = cleanId((json as any).form.id);
       if (id) {
         const label = String((json as any).form?.name || (json as any).form?.slug || "Form").trim().slice(0, 120) || "Form";
         return { lastFunnelForm: { id, label } };
@@ -26683,7 +26730,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if ((action === "funnel_builder.forms.update" || action === "funnel_builder.forms.delete") && typeof (args as any)?.formId === "string") {
-      const id = String((args as any).formId).trim().slice(0, 120);
+      const id = cleanId((args as any).formId);
       if (id) {
         const nameHint = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "";
         return { lastFunnelForm: { id, label: nameHint || "Form" } };
@@ -26691,7 +26738,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if (action === "tasks.create" && typeof (json as any).taskId === "string") {
-      const id = String((json as any).taskId).trim().slice(0, 120);
+      const id = cleanId((json as any).taskId);
       if (id) {
         const titleHint = typeof (args as any).title === "string" ? String((args as any).title).trim().slice(0, 120) : "";
         return { lastTask: { id, label: titleHint || "Task" } };
@@ -26699,7 +26746,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if (action === "tasks.update" && typeof (args as any).taskId === "string") {
-      const id = String((args as any).taskId).trim().slice(0, 120);
+      const id = cleanId((args as any).taskId);
       if (id) {
         const titleHint = typeof (args as any).title === "string" ? String((args as any).title).trim().slice(0, 120) : "";
         return { lastTask: { id, label: titleHint || "Task" } };
@@ -26716,7 +26763,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
             ? String((json as any).id).trim()
             : "";
       const fromArgs = typeof (args as any).campaignId === "string" ? String((args as any).campaignId).trim() : "";
-      const id = (fromJson || fromArgs).slice(0, 120);
+      const id = cleanId(fromJson || fromArgs);
       if (id) {
         const nameHint = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "";
         const label = nameHint || "AI outbound campaign";
@@ -26727,7 +26774,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     // Track nurture campaigns/steps so follow-ups like “add a step to that campaign”
     // and “edit the last step” can resolve without re-asking.
     if (action === "nurture.campaigns.create" && typeof (json as any).id === "string") {
-      const id = String((json as any).id).trim().slice(0, 120);
+      const id = cleanId((json as any).id);
       if (id) {
         const nameHint = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "";
         const label = nameHint || "Nurture campaign";
@@ -26736,7 +26783,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if (action === "nurture.campaigns.get" && typeof (json as any).campaign?.id === "string") {
-      const id = String((json as any).campaign.id).trim().slice(0, 120);
+      const id = cleanId((json as any).campaign.id);
       if (id) {
         const label = String((json as any).campaign?.name || "Nurture campaign").trim().slice(0, 120) || "Nurture campaign";
         return { lastNurtureCampaign: { id, label } };
@@ -26747,15 +26794,15 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       (action === "nurture.campaigns.update" || action === "nurture.campaigns.delete" || action === "nurture.campaigns.enroll") &&
       typeof (args as any).campaignId === "string"
     ) {
-      const id = String((args as any).campaignId).trim().slice(0, 120);
+      const id = cleanId((args as any).campaignId);
       if (id) {
         return { lastNurtureCampaign: { id, label: "Nurture campaign" } };
       }
     }
 
     if (action === "nurture.campaigns.steps.add" && typeof (json as any).id === "string") {
-      const stepId = String((json as any).id).trim().slice(0, 120);
-      const campaignId = typeof (args as any).campaignId === "string" ? String((args as any).campaignId).trim().slice(0, 120) : "";
+      const stepId = cleanId((json as any).id);
+      const campaignId = cleanId(typeof (args as any).campaignId === "string" ? (args as any).campaignId : "");
       const kind = typeof (args as any).kind === "string" ? String((args as any).kind).trim().slice(0, 40) : "";
       const stepLabel = kind ? `Nurture step (${kind})`.slice(0, 120) : "Nurture step";
       return {
@@ -26765,7 +26812,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if ((action === "nurture.steps.update" || action === "nurture.steps.delete") && typeof (args as any).stepId === "string") {
-      const id = String((args as any).stepId).trim().slice(0, 120);
+      const id = cleanId((args as any).stepId);
       if (id) {
         return { lastNurtureStep: { id, label: "Nurture step" } };
       }
@@ -26824,7 +26871,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if (action === "media.folder.ensure" && typeof (json as any).folderId === "string") {
-      const id = String((json as any).folderId).trim().slice(0, 120);
+      const id = cleanId((json as any).folderId);
       if (id) {
         const label = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "Media folder";
         return { lastMediaFolder: { id, label: label || "Media folder" } };
@@ -26832,7 +26879,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if (action === "media.folders.update" && typeof (args as any).id === "string") {
-      const id = String((args as any).id).trim().slice(0, 120);
+      const id = cleanId((args as any).id);
       if (id) {
         const label = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "Media folder";
         return { lastMediaFolder: { id, label: label || "Media folder" } };
@@ -26840,9 +26887,9 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if (action === "media.items.move") {
-      const folderId = typeof (json as any).folderId === "string" ? String((json as any).folderId).trim().slice(0, 120) : "";
+      const folderId = cleanId(typeof (json as any).folderId === "string" ? (json as any).folderId : "");
       const itemIds = Array.isArray((args as any).itemIds) ? ((args as any).itemIds as unknown[]) : [];
-      const firstItemId = typeof itemIds[0] === "string" ? String(itemIds[0]).trim().slice(0, 120) : "";
+      const firstItemId = cleanId(typeof itemIds[0] === "string" ? itemIds[0] : "");
       return {
         ...(folderId ? { lastMediaFolder: { id: folderId, label: "Media folder" } } : {}),
         ...(firstItemId ? { lastMediaItem: { id: firstItemId, label: "Media item" } } : {}),
@@ -26850,9 +26897,9 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if ((action === "media.items.update" || action === "media.items.delete") && typeof (args as any).id === "string") {
-      const id = String((args as any).id).trim().slice(0, 120);
+      const id = cleanId((args as any).id);
       if (!id) return null;
-      const folderId = typeof (args as any).folderId === "string" ? String((args as any).folderId).trim().slice(0, 120) : "";
+      const folderId = cleanId(typeof (args as any).folderId === "string" ? (args as any).folderId : "");
       return {
         lastMediaItem: { id, label: "Media item" },
         ...(folderId ? { lastMediaFolder: { id: folderId, label: "Media folder" } } : {}),
@@ -26860,9 +26907,9 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if ((action === "media.items.create_from_blob" || action === "media.import_remote_image") && typeof (json as any).item?.id === "string") {
-      const id = String((json as any).item.id).trim().slice(0, 120);
+      const id = cleanId((json as any).item.id);
       const fileName = typeof (json as any).item?.fileName === "string" ? String((json as any).item.fileName).trim().slice(0, 120) : "";
-      const folderId = typeof (json as any).item?.folderId === "string" ? String((json as any).item.folderId).trim().slice(0, 120) : "";
+      const folderId = cleanId(typeof (json as any).item?.folderId === "string" ? (json as any).item.folderId : "");
       return {
         ...(folderId ? { lastMediaFolder: { id: folderId, label: "Media folder" } } : {}),
         lastMediaItem: { id, label: fileName || "Media item" },
@@ -26870,17 +26917,17 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if (action === "reviews.reply" && typeof (args as any).reviewId === "string") {
-      const id = String((args as any).reviewId).trim().slice(0, 120);
+      const id = cleanId((args as any).reviewId);
       if (id) return { lastReview: { id, label: "Review" } };
     }
 
     if (action === "reviews.questions.answer" && typeof (args as any).id === "string") {
-      const id = String((args as any).id).trim().slice(0, 120);
+      const id = cleanId((args as any).id);
       if (id) return { lastReviewQuestion: { id, label: "Review question" } };
     }
 
     if (action === "inbox.send" && (json as any).scheduled === true && typeof (json as any).scheduledId === "string") {
-      const scheduledId = String((json as any).scheduledId || "").trim().slice(0, 120);
+      const scheduledId = cleanId((json as any).scheduledId || "");
       if (!scheduledId) return null;
       const channel = String((json as any).channel || (args as any).channel || "").trim().toLowerCase();
       const to = String((args as any).to || "").trim().slice(0, 120);
@@ -26897,19 +26944,19 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if (action === "inbox.scheduled.update" && typeof (args as any).scheduledId === "string") {
-      const scheduledId = String((args as any).scheduledId || "").trim().slice(0, 120);
+      const scheduledId = cleanId((args as any).scheduledId || "");
       if (!scheduledId) return null;
       return { lastInboxScheduledMessage: { id: scheduledId, label: "Scheduled message" } };
     }
 
     if (action === "ai_chat.scheduled.create" && typeof (json as any)?.scheduled?.id === "string") {
-      const id = String((json as any).scheduled.id || "").trim().slice(0, 120);
+      const id = cleanId((json as any).scheduled.id || "");
       if (!id) return null;
       return { lastAiChatScheduledMessage: { id, label: "Scheduled task" } };
     }
 
     if ((action === "ai_chat.scheduled.update" || action === "ai_chat.scheduled.delete") && typeof (args as any)?.messageId === "string") {
-      const id = String((args as any).messageId || "").trim().slice(0, 120);
+      const id = cleanId((args as any).messageId || "");
       if (!id) return null;
       return { lastAiChatScheduledMessage: { id, label: "Scheduled task" } };
     }
@@ -26953,6 +27000,22 @@ export async function executePortalAgentAction(opts: {
   }
 
   const actorUserId = opts.actorUserId || opts.ownerId;
+
+  const placeholderGuard = rejectIfPlaceholderIdsPresent(opts.action, argsParsed.data as any);
+  if (!placeholderGuard.ok) {
+    const error = placeholderGuard.error;
+    return {
+      ok: false as const,
+      status: 400,
+      action: opts.action,
+      error,
+      result: { ok: false, error },
+      assistantText: "",
+      linkUrl: null,
+      clientUiAction: null,
+    };
+  }
+
   const { json, status } = await runDirectAction({
     action: opts.action,
     ownerId: opts.ownerId,
@@ -26997,6 +27060,11 @@ export async function executePortalAgentActionRaw(opts: {
   const argsParsed = argsSchema.safeParse(opts.args);
   if (!argsParsed.success) {
     return { ok: false as const, status: 400, error: "Invalid action args" };
+  }
+
+  const placeholderGuard = rejectIfPlaceholderIdsPresent(opts.action, argsParsed.data as any);
+  if (!placeholderGuard.ok) {
+    return { ok: false as const, status: 400, error: placeholderGuard.error };
   }
 
   const actorUserId = opts.actorUserId || opts.ownerId;

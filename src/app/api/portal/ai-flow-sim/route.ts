@@ -30,6 +30,7 @@ import {
   stripEmptyAssistantBullets,
   toolCheatSheetForPrompt,
 } from "@/lib/portalAiChatPlannerShared";
+import { previewResultForPlanner, summarizeIdsFromArgs } from "@/lib/portalAgentPlannerContextPreview";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -201,6 +202,8 @@ export async function POST(req: Request) {
               ok: r.ok,
               status: r.status,
               error: r.error || null,
+              idHints: summarizeIdsFromArgs((r as any).args || {}),
+              resultPreview: previewResultForPlanner((r as any).action, (r as any).result),
             }))
             .slice(0, 12),
           ...(lastSimClarify

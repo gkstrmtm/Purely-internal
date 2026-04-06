@@ -16,6 +16,7 @@ import { deriveThreadContextPatchFromAction, executePortalAgentAction, executePo
 import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction, portalContactUiUrl } from "@/lib/portalAgentActionMeta";
 import { encodeScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
+import { previewResultForPlanner, summarizeIdsFromArgs } from "@/lib/portalAgentPlannerContextPreview";
 import { resolvePlanArgs } from "@/lib/puraResolver";
 
 import {
@@ -3538,8 +3539,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         }
       }
 
-      const MAX_AUTORUN_ROUNDS = 4;
       const MAX_TOTAL_ACTIONS = 18;
+
+      const maxAutoRoundsEnv = Number(process.env.PORTAL_AI_AUTORUN_MAX_ROUNDS);
+      const MAX_AUTORUN_ROUNDS = Number.isFinite(maxAutoRoundsEnv) && maxAutoRoundsEnv > 0 ? Math.min(40, Math.max(2, Math.floor(maxAutoRoundsEnv))) : 12;
+
+      const maxAutoMsEnv = Number(process.env.PORTAL_AI_AUTORUN_MAX_MS);
+      const MAX_AUTORUN_MS = Number.isFinite(maxAutoMsEnv) && maxAutoMsEnv > 0 ? Math.min(60_000, Math.max(2_000, Math.floor(maxAutoMsEnv))) : 20_000;
+      const autoStartMs = Date.now();
+
+      let lastAutoClarify: { question: string | null; choices: any[] | null; stepKey?: string; title?: string } | null = null;
+      let lastAutoResolutionError: string | null = null;
+      let lastAutoExecutionError: { action: string; status: number; error: string } | null = null;
 
       const allResolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
       const allContextPatches: Array<Record<string, unknown> | undefined> = [];
@@ -3549,6 +3560,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       let localCtx: any = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? { ...(threadContext as any) } : {};
       const seenPlanKeys = new Set<string>();
       let finalDirectMessage: string | null = null;
+
 
       const runPlannerOnce = async (opts: { round: number; extraSystem?: string; temperature?: number; lastRunSummary?: any }) => {
         const cheat = toolCheatSheetForPrompt(planningTextWithAttachments, contextUrl);
@@ -3733,14 +3745,34 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       }
 
       for (let round = 0; round < MAX_AUTORUN_ROUNDS; round += 1) {
+        if (Date.now() - autoStartMs > MAX_AUTORUN_MS) break;
         if (wantsBookingFunnelAutopilot && allResolvedSteps.length) break;
-        const lastRunSummary = allResolvedSteps.length
+        const lastRunSummary = allResolvedSteps.length || lastAutoClarify || lastAutoExecutionError || lastAutoResolutionError
           ? {
               executedSteps: allResolvedSteps.slice(-12).map((s) => ({ key: s.key, title: s.title })),
               lastResults: allResults
-                .slice(-12)
-                .map((r) => ({ action: r.action, ok: r.ok, status: r.status, error: r.error || null }))
-                .slice(0, 12),
+                .slice(-10)
+                .map((r) => ({
+                  action: r.action,
+                  ok: r.ok,
+                  status: r.status,
+                  error: r.error || null,
+                  idHints: summarizeIdsFromArgs((r as any).args || {}),
+                  resultPreview: previewResultForPlanner((r as any).action, (r as any).result),
+                }))
+                .slice(0, 10),
+              ...(lastAutoClarify
+                ? {
+                    lastClarify: {
+                      question: lastAutoClarify.question,
+                      stepKey: lastAutoClarify.stepKey || null,
+                      title: lastAutoClarify.title || null,
+                      choices: lastAutoClarify.choices,
+                    },
+                  }
+                : {}),
+              ...(lastAutoResolutionError ? { lastResolutionError: lastAutoResolutionError } : {}),
+              ...(lastAutoExecutionError ? { lastExecutionError: lastAutoExecutionError } : {}),
             }
           : null;
 
@@ -3749,7 +3781,20 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           lastRunSummary,
           extraSystem:
             round > 0
-              ? "Continuation: keep going until the user request is DONE. Output the next actions now; do not ask for permission."
+              ? [
+                  "Continuation: keep going until the user request is DONE. Output the next actions now; do not ask for permission.",
+                  lastAutoClarify
+                    ? "The last attempt could not resolve IDs or required fields. Do NOT ask the user to pick. Use discovery tools (list/get/search) or the provided choices to select REAL IDs, then continue. Never use placeholders like <...> or new_*_id."
+                    : null,
+                  lastAutoExecutionError
+                    ? `The last attempt failed during execution (${lastAutoExecutionError.action} status ${lastAutoExecutionError.status}). Fix args and retry. Never guess IDs; use list/get first if needed.`
+                    : null,
+                  lastAutoResolutionError
+                    ? `The last attempt failed during arg resolution: ${lastAutoResolutionError}. Fix it by listing/looking up entities instead of asking the user.`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join("\n")
               : undefined,
         });
 
@@ -3834,6 +3879,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         if (confirmSpec) {
           const resolvedStepsForConfirm: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
+          let blockedForReplan = false;
 
           for (const a of actions.slice(0, 6)) {
             const key = a.key;
@@ -3844,6 +3890,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             if (!resolved.ok) {
               const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
               const rawClarifyPrompt = String(resolved.clarifyQuestion || "").trim();
+
+              // Auto-replan: if we have real, clickable entity choices, feed them back to the model
+              // and let it pick + retry without involving the user.
+              if (clarifyChoices && clarifyChoices.length) {
+                lastAutoClarify = { question: rawClarifyPrompt || null, choices: clarifyChoices.slice(0, 8), stepKey: String(key), title };
+                lastAutoResolutionError = rawClarifyPrompt || "Missing/ambiguous required fields";
+                blockedForReplan = true;
+                break;
+              }
 
               let clarifyText = "";
               try {
@@ -3917,6 +3972,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             }
           }
 
+          if (blockedForReplan) {
+            if (round + 1 < MAX_AUTORUN_ROUNDS) continue;
+            break;
+          }
+
           const token = randomUUID();
           const prevCtx = localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) ? localCtx : {};
           const nextCtx = {
@@ -3972,6 +4032,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         }
 
         // Execute requested actions immediately.
+        let blockedForReplan = false;
         for (const a of actions.slice(0, 6)) {
           if (allResolvedSteps.length >= MAX_TOTAL_ACTIONS) break;
         const key = a.key;
@@ -3982,6 +4043,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         if (!resolved.ok) {
           const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
           const rawClarifyPrompt = String(resolved.clarifyQuestion || "").trim();
+
+          if (clarifyChoices && clarifyChoices.length) {
+            lastAutoClarify = { question: rawClarifyPrompt || null, choices: clarifyChoices.slice(0, 8), stepKey: String(key), title };
+            lastAutoResolutionError = rawClarifyPrompt || "Missing/ambiguous required fields";
+            blockedForReplan = true;
+            break;
+          }
 
           let clarifyText = "";
           try {
@@ -4069,12 +4137,27 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         } as any);
         if (cua) allClientUiActions.push(cua);
 
+        if (!Boolean((exec as any).ok) || Number((exec as any).status) < 200 || Number((exec as any).status) >= 300) {
+          lastAutoExecutionError = {
+            action: String(key),
+            status: Number((exec as any).status) || 0,
+            error: String(execError || "Execution failed").slice(0, 800),
+          };
+          blockedForReplan = true;
+          break;
+        }
+
         const derivedPatch = deriveThreadContextPatchFromAction(key, resolvedArgsWithThread, (exec as any).result);
         if (derivedPatch && typeof derivedPatch === "object" && !Array.isArray(derivedPatch)) {
           allContextPatches.push(derivedPatch);
           localCtx = { ...localCtx, ...(derivedPatch as any) };
         }
       }
+
+        if (blockedForReplan) {
+          if (round + 1 < MAX_AUTORUN_ROUNDS) continue;
+          break;
+        }
 
         if (allResolvedSteps.length >= MAX_TOTAL_ACTIONS) {
           finalDirectMessage = null;

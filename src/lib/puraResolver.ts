@@ -9,6 +9,7 @@ import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { listPortalAccountMembers } from "@/lib/portalAccounts";
 import { isPuraRef, type PuraRef } from "@/lib/puraPlanner";
 import { encodeScheduledActionEnvelope, tryParseScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
+import { looksLikePlaceholderId, sanitizeIdLikeObjectDeep } from "@/lib/agentIdSanitizer";
 
 async function pickFunnelPageIdWithAi(opts: {
   hint: string;
@@ -360,7 +361,9 @@ function getLastEntityId(
   const v = obj ? (obj as any)[key] : null;
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
   const id = String((v as any).id || "").trim();
-  return id ? id.slice(0, 120) : null;
+  if (!id) return null;
+  if (looksLikePlaceholderId(id)) return null;
+  return id.slice(0, 120);
 }
 
 async function resolveAiChatScheduledMessageId(opts: {
@@ -483,6 +486,7 @@ async function resolveAiChatScheduledMessageId(opts: {
 function looksLikeId(raw: string): boolean {
   const s = String(raw || "").trim();
   if (!s) return false;
+  if (looksLikePlaceholderId(s)) return false;
   if (s.length < 10 || s.length > 120) return false;
   return /^[a-z0-9_-]+$/i.test(s);
 }
@@ -986,12 +990,14 @@ async function resolveFunnelId(opts: {
       .map((r) => {
         const name = String((r as any).name || "").trim();
         const slug = String((r as any).slug || "").trim();
+        const updatedAt = (r as any).updatedAt instanceof Date ? ((r as any).updatedAt as Date).toLocaleString() : "";
+        const descBits = [slug ? `slug: ${slug}` : null, updatedAt ? `updated: ${updatedAt}` : null].filter(Boolean).join(" · ");
         return {
           type: "entity" as const,
           kind: "funnel",
           value: String((r as any).id || "").trim(),
           label: name || slug || "Funnel",
-          description: slug && name && slug !== name ? `slug: ${slug}` : slug ? `slug: ${slug}` : undefined,
+          description: descBits || undefined,
         };
       })
       .filter((c) => Boolean(c.value));
@@ -3053,15 +3059,6 @@ export async function resolvePlanArgs(opts: {
   const stepKeyLower = String(opts.stepKey || "").toLowerCase();
   let args: Record<string, unknown> = opts.args && typeof opts.args === "object" && !Array.isArray(opts.args) ? opts.args : {};
 
-  const looksLikePlaceholderValue = (v: unknown): boolean => {
-    const s = typeof v === "string" ? v.trim() : "";
-    if (!s) return false;
-    if (/placeholder/i.test(s)) return true;
-    if ((s.startsWith("<") && s.endsWith(">")) || s.includes("<") || s.includes(">")) return true;
-    if (s.includes("{{") || s.includes("}}")) return true;
-    return false;
-  };
-
   const normalizeCommonIdArgs = (obj: Record<string, unknown>): Record<string, unknown> => {
     // Some models emit snake_case ids; action schemas expect camelCase.
     // Also, placeholders should be treated as missing so inference can kick in.
@@ -3089,16 +3086,7 @@ export async function resolvePlanArgs(opts: {
       out = cloned;
     }
 
-    for (const k of Object.keys(out)) {
-      if (!/Id$/.test(k)) continue;
-      if (looksLikePlaceholderValue((out as any)[k])) {
-        const cloned = { ...out } as any;
-        delete cloned[k];
-        out = cloned;
-      }
-    }
-
-    return out;
+    return sanitizeIdLikeObjectDeep(out);
   };
 
   const slugifyLike = (raw: string): string => {
@@ -3363,7 +3351,7 @@ export async function resolvePlanArgs(opts: {
 
   if (needsFunnelIdOnly.has(stepKeyLower)) {
     const existingFunnelIdRaw = typeof (args as any).funnelId === "string" ? String((args as any).funnelId).trim().slice(0, 120) : "";
-    const existingFunnelId = looksLikePlaceholderValue(existingFunnelIdRaw) ? "" : existingFunnelIdRaw;
+    const existingFunnelId = looksLikePlaceholderId(existingFunnelIdRaw) ? "" : existingFunnelIdRaw;
     let funnelId =
       existingFunnelId ||
       extractFunnelIdFromUrl(opts.url) ||
@@ -3442,7 +3430,7 @@ export async function resolvePlanArgs(opts: {
 
   if (needsFunnelPageIds.has(stepKeyLower)) {
     const existingFunnelIdRaw = typeof (args as any).funnelId === "string" ? String((args as any).funnelId).trim().slice(0, 120) : "";
-    const existingFunnelId = looksLikePlaceholderValue(existingFunnelIdRaw) ? "" : existingFunnelIdRaw;
+    const existingFunnelId = looksLikePlaceholderId(existingFunnelIdRaw) ? "" : existingFunnelIdRaw;
     let funnelId =
       existingFunnelId ||
       extractFunnelIdFromUrl(opts.url) ||
@@ -3464,7 +3452,7 @@ export async function resolvePlanArgs(opts: {
     }
 
     const existingPageIdRaw = typeof (args as any).pageId === "string" ? String((args as any).pageId).trim().slice(0, 200) : "";
-    const existingPageId = looksLikePlaceholderValue(existingPageIdRaw) ? "" : existingPageIdRaw;
+    const existingPageId = looksLikePlaceholderId(existingPageIdRaw) ? "" : existingPageIdRaw;
 
     // If the model provided a page identifier but it doesn't look like an ID,
     // treat it as a title/slug hint and resolve it deterministically.
@@ -4425,7 +4413,10 @@ export async function resolvePlanArgs(opts: {
         for (const item of v) {
           if (maybeIds && typeof item === "string") {
             const raw = item.trim();
-            if (!raw || looksLikeId(raw)) {
+            if (!raw || looksLikePlaceholderId(raw)) {
+              continue;
+            }
+            if (looksLikeId(raw)) {
               arr.push(raw);
             } else {
               const r = await resolveIdArgByKey(singularKey, raw);
@@ -4455,7 +4446,9 @@ export async function resolvePlanArgs(opts: {
         for (const [k, val] of Object.entries(o)) {
           if (typeof val === "string" && /id$/i.test(k)) {
             const raw = val.trim();
-            if (!raw || looksLikeId(raw)) {
+            if (!raw || looksLikePlaceholderId(raw)) {
+              out[k] = "";
+            } else if (looksLikeId(raw)) {
               out[k] = raw;
             } else {
               const r = await resolveIdArgByKey(k, raw);
@@ -4563,6 +4556,19 @@ export async function resolvePlanArgs(opts: {
   return {
     ok: true,
     args: withAutoResolvedIdFields,
-    contextPatch: mergedContextPatch,
+    contextPatch: (() => {
+      if (!mergedContextPatch) return undefined;
+      const sanitized = sanitizeIdLikeObjectDeep(mergedContextPatch);
+      if (!sanitized || typeof sanitized !== "object" || Array.isArray(sanitized)) return undefined;
+
+      const out: Record<string, unknown> = { ...(sanitized as any) };
+      for (const [k, v] of Object.entries(out)) {
+        if (!k.startsWith("last")) continue;
+        if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+        const id = typeof (v as any).id === "string" ? String((v as any).id).trim() : "";
+        if (!id || looksLikePlaceholderId(id)) delete out[k];
+      }
+      return Object.keys(out).length ? out : undefined;
+    })(),
   };
 }
