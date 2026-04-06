@@ -19944,10 +19944,18 @@ async function runDirectAction(opts: {
     case "booking.calendar.create": {
       const title = String(args.title || "").trim().slice(0, 80);
       if (!title) return { status: 400, json: { ok: false, error: "Invalid title" } };
-      const id = normalizeSlug(args.id) || normalizeSlug(title) || `cal-${Date.now()}`;
-
       const prev = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1 as const, calendars: [] as any[] }));
       const prevCalendars = Array.isArray((prev as any)?.calendars) ? ((prev as any).calendars as any[]) : [];
+      const enabledExisting = prevCalendars.find((c) => c && typeof c === "object" && (c as any).enabled !== false && String((c as any).id || "").trim());
+
+      if ((args as any).reuseExistingIfAny === true && enabledExisting) {
+        const existingId = String((enabledExisting as any).id || "").trim().slice(0, 80);
+        if (existingId) {
+          return { status: 200, json: { ok: true, config: prev, calendarId: existingId, reusedExisting: true } };
+        }
+      }
+
+      const id = normalizeSlug(args.id) || normalizeSlug(title) || `cal-${Date.now()}`;
       const exists = prevCalendars.some((c) => String(c?.id || "") === id);
       if (exists) return { status: 409, json: { ok: false, error: "Calendar id already exists" } };
 

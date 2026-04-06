@@ -2561,6 +2561,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       return {
         title,
         ...(typeof rec.id === "string" ? { id: rec.id } : {}),
+        ...(typeof rec.reuseExistingIfAny === "boolean" ? { reuseExistingIfAny: rec.reuseExistingIfAny } : {}),
         ...(typeof rec.description === "string" ? { description: rec.description } : {}),
         ...(typeof rec.durationMinutes === "number" ? { durationMinutes: rec.durationMinutes } : {}),
         ...(typeof rec.meetingLocation === "string"
@@ -2584,6 +2585,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       .object({
         title: z.string().trim().min(1).max(80),
         id: z.string().trim().min(2).max(60).optional(),
+        reuseExistingIfAny: z.boolean().optional(),
         description: z.string().trim().max(400).optional(),
         durationMinutes: z.number().int().min(10).max(180).optional(),
         meetingLocation: z.string().trim().max(120).optional(),

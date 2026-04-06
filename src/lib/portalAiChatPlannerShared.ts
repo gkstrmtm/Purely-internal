@@ -253,6 +253,7 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
     "- IMPORTANT: If prior tool results or context already contain real IDs, copy and reuse those exact IDs in later action args.",
     "- IMPORTANT: Treat ACTIVE funnel/page state from context as the primary source of truth over older historical IDs.",
     "- IMPORTANT: If recent results already show the target resource exists, do not recreate it. Reuse its returned ID and continue.",
+    "- IMPORTANT: For booking calendars, if the user says any calendar is fine / doesn't matter / either / whichever, reuse an existing enabled calendar ID. Do NOT create a new calendar unless the user explicitly asks for a new one or no enabled calendar exists.",
     "- IMPORTANT: For editing an existing funnel page's design, colors, layout, copy, images, or embeds, prefer funnel_builder.pages.generate_html.",
     "- IMPORTANT: Only use funnel_builder.custom_code_block.generate when the user explicitly wants to edit or create a custom code block itself.",
     "- IMPORTANT: When generating page HTML with funnel_builder.pages.generate_html, include the exact funnelId, exact pageId, and a concrete prompt string every time.",

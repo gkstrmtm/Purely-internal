@@ -3289,6 +3289,8 @@ export async function resolvePlanArgs(opts: {
       return value.trim().slice(0, max);
     };
 
+    const noPreferenceHint = hintMeansAny(String(opts.userHint || ""));
+
     const title =
       text((args as any).title, 80) ||
       text((args as any).name, 80) ||
@@ -3299,6 +3301,7 @@ export async function resolvePlanArgs(opts: {
     const nextArgs: Record<string, unknown> = {
       title,
       ...(text((args as any).id, 60) ? { id: text((args as any).id, 60) } : {}),
+      ...(noPreferenceHint ? { reuseExistingIfAny: true } : {}),
       ...(text((args as any).description, 400) ? { description: text((args as any).description, 400) } : {}),
       ...(typeof (args as any).durationMinutes === "number" && Number.isFinite((args as any).durationMinutes)
         ? { durationMinutes: Math.min(180, Math.max(10, Math.floor((args as any).durationMinutes))) }

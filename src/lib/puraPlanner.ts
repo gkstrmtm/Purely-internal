@@ -249,6 +249,7 @@ export async function planPuraActions(opts: {
     "- IMPORTANT: For booking calendar selection, NEVER ask the user for a calendar ID.",
     "  If a step needs calendarId but it isn't known, still output mode=execute and omit calendarId;",
     "  the system will auto-pick on 'any/doesn't matter/don't care/either' or show clickable calendar choices.",
+    "- IMPORTANT: If the user says any calendar is fine, reuse an existing enabled booking calendar. Do NOT create a new calendar unless the user explicitly asks for one or none exist.",
     "- IMPORTANT: Booking availability (business hours) is NOT calendar config. If the user asks to set availability like '9am-5pm every day this month', use booking.availability.set_daily (not booking.calendars.update).",
     "- IMPORTANT: Never invent placeholder values.",
     "  - Do NOT write things like 'Please provide details about the meeting' as meetingDetails.",
