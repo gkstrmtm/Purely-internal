@@ -454,6 +454,74 @@ function looksLikeContinuationRequest(textRaw: string): boolean {
   return /\b(continue|keep going|resume|pick up where you left off|finish the remaining work|retry the last|try again and keep going|keep working on this|what should pura do next|what next|next step)\b/.test(text);
 }
 
+function isSummaryLikeSuggestion(textRaw: string): boolean {
+  const text = String(textRaw || "").trim().toLowerCase();
+  if (!text) return false;
+  return /^(summarize|summary|recap|explain|show me|tell me)/.test(text) || /\b(what changed|what still needs attention|action plan|summary)\b/.test(text);
+}
+
+function continuationRequestFlavor(textRaw: string): "summary" | "action" | "neutral" {
+  const text = String(textRaw || "").trim().toLowerCase();
+  if (!text) return "neutral";
+  if (/\b(summarize|summary|recap|explain|what changed|review what changed|tell me what changed)\b/.test(text)) return "summary";
+  if (looksLikeContinuationRequest(text) || /\b(what next|next step|do next|keep going|continue|resume|finish)\b/.test(text)) return "action";
+  return "neutral";
+}
+
+function selectContinuationSuggestion(textRaw: string, nextStepContext: NextStepContextShape | null | undefined): string | null {
+  const normalized = normalizeNextStepContext(nextStepContext);
+  if (!normalized) return null;
+
+  const candidates = [normalized.suggestedPrompt || null, ...normalizeNextStepSuggestions(normalized.suggestions)]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  if (!candidates.length) return null;
+
+  const flavor = continuationRequestFlavor(textRaw);
+  const userWords = new Set(
+    String(textRaw || "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .map((part) => part.trim())
+      .filter((part) => part.length >= 4 && !["keep", "going", "continue", "resume", "next", "step", "pura", "chat", "this", "that"].includes(part)),
+  );
+
+  let best: { value: string; score: number; index: number } | null = null;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const value = candidates[index]!;
+    const lower = value.toLowerCase();
+    let score = 0;
+
+    if (index === 0) score += 3;
+    if (flavor === "summary") score += isSummaryLikeSuggestion(value) ? 8 : 0;
+    if (flavor === "action") score += isSummaryLikeSuggestion(value) ? 0 : 8;
+
+    for (const word of userWords) {
+      if (lower.includes(word)) score += 4;
+    }
+
+    if (!best || score > best.score || (score === best.score && index < best.index)) {
+      best = { value, score, index };
+    }
+  }
+
+  return best?.value || null;
+}
+
+function nextStepContextForContinuationPrompt(textRaw: string, nextStepContext: NextStepContextShape | null | undefined): NextStepContextShape | null {
+  const normalized = normalizeNextStepContext(nextStepContext);
+  if (!normalized) return null;
+  const selected = selectContinuationSuggestion(textRaw, normalized);
+  if (!selected) return normalized;
+  const suggestions = [selected, ...normalizeNextStepSuggestions(normalized.suggestions).filter((value) => value !== selected)].slice(0, 3);
+  return {
+    ...normalized,
+    suggestedPrompt: selected,
+    suggestions,
+  };
+}
+
 function heuristicThreadTitleFromUserText(textRaw: string): string {
   const t = String(textRaw || "")
     .trim()
@@ -3865,10 +3933,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const unresolvedRunForPlanning = normalizeUnresolvedRun(
         threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any).unresolvedRun : null,
       );
-      const nextStepContextForPlanning = normalizeNextStepContext(
+      const nextStepContextForPlanningBase = normalizeNextStepContext(
         threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any).nextStepContext : null,
       );
-      const continuationIntent = Boolean((unresolvedRunForPlanning || nextStepContextForPlanning) && hasNewUserText && looksLikeContinuationRequest(effectiveText));
+      const continuationIntent = Boolean((unresolvedRunForPlanning || nextStepContextForPlanningBase) && hasNewUserText && looksLikeContinuationRequest(effectiveText));
+      const nextStepContextForPlanning = continuationIntent
+        ? nextStepContextForContinuationPrompt(effectiveText, nextStepContextForPlanningBase)
+        : nextStepContextForPlanningBase;
 
       // --- ChatGPT wrapper loop ---
       // 1) If we previously asked a question to run a specific action, try to continue that now.
