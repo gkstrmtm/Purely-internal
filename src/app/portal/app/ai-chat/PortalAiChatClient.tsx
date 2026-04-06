@@ -106,6 +106,7 @@ type Message = {
   text: string;
   attachmentsJson: any;
   assistantActions?: AssistantAction[];
+  displayMode?: ChatMode;
   createdAt: string;
   sendAt: string | null;
   sentAt: string | null;
@@ -385,6 +386,7 @@ function MessageBubble({
 }) {
   const isUser = msg.role === "user";
   const isThinking = msg.id.startsWith("optimistic-assistant-") && msg.role === "assistant";
+  const isWorkAssistant = !isUser && assistantVariant === "work";
   const actions = !isUser && !isThinking && Array.isArray(msg.assistantActions) ? msg.assistantActions : [];
   const scheduledEnv = tryParseScheduledEnvelopeForUi(msg.text);
 
@@ -392,14 +394,14 @@ function MessageBubble({
     assistantVariant === "dark"
       ? "border-zinc-200 bg-zinc-100"
       : assistantVariant === "work"
-        ? "border-brand-blue/15 bg-[rgba(29,78,216,0.05)]"
+        ? "border-zinc-800 bg-[#262626]"
         : "border-zinc-200 bg-zinc-50";
 
   const bubble = (
     <div
       className={classNames(
         "rounded-3xl px-4 py-3 text-sm leading-relaxed",
-        isUser ? "bg-brand-blue text-white" : classNames(assistantSurface, "text-zinc-900 border"),
+        isUser ? "bg-brand-blue text-white" : classNames(assistantSurface, isWorkAssistant ? "border text-white" : "border text-zinc-900"),
       )}
     >
       {isUser ? (
@@ -417,7 +419,7 @@ function MessageBubble({
       ) : isThinking ? (
         <ThinkingDots />
       ) : (
-        <div className="prose prose-sm max-w-none prose-zinc">
+        <div className={classNames("prose prose-sm max-w-none", isWorkAssistant ? "prose-invert" : "prose-zinc")}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -430,7 +432,10 @@ function MessageBubble({
                     href={safe}
                     target={external ? "_blank" : undefined}
                     rel={external ? "noreferrer noopener" : undefined}
-                    className="font-semibold underline underline-offset-2 text-brand-blue"
+                    className={classNames(
+                      "font-semibold underline underline-offset-2",
+                      isWorkAssistant ? "text-blue-200" : "text-brand-blue",
+                    )}
                     onClick={(e) => {
                       if (external) return;
                       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -466,10 +471,10 @@ function MessageBubble({
                 return <h3 className="my-2 text-sm font-semibold">{children}</h3>;
               },
               code({ children }: { children?: ReactNode }) {
-                return <code className="rounded bg-zinc-100 px-1 py-0.5 text-[12px]">{children}</code>;
+                return <code className={classNames("rounded px-1 py-0.5 text-[12px]", isWorkAssistant ? "bg-white/10 text-white" : "bg-zinc-100")}>{children}</code>;
               },
               pre({ children }: { children?: ReactNode }) {
-                return <pre className="my-2 overflow-x-auto rounded-2xl bg-zinc-100 p-3 text-[12px]">{children}</pre>;
+                return <pre className={classNames("my-2 overflow-x-auto rounded-2xl p-3 text-[12px]", isWorkAssistant ? "bg-white/10 text-white" : "bg-zinc-100")}>{children}</pre>;
               },
             }}
           >
@@ -574,6 +579,11 @@ function MessageBubble({
       </div>
     </div>
   );
+}
+
+function applyAssistantDisplayMode(message: Message, mode: ChatMode | null | undefined): Message {
+  if (!message || message.role !== "assistant") return message;
+  return { ...message, displayMode: mode || message.displayMode };
 }
 
 export function PortalAiChatClient({
@@ -767,6 +777,7 @@ export function PortalAiChatClient({
   const dictationRef = useRef<{ audio: HTMLAudioElement; objectUrl: string; messageId: string } | null>(null);
   const [regeneratingTarget, setRegeneratingTarget] = useState<null | { threadId: string; messageId: string }>(null);
   const [chatMode, setChatMode] = useState<ChatMode>("plan");
+  const [messageDisplayModesById, setMessageDisplayModesById] = useState<Record<string, ChatMode>>(() => ({}));
 
   const [scheduleTaskOpen, setScheduleTaskOpen] = useState(false);
   const [scheduleTaskText, setScheduleTaskText] = useState("");
@@ -874,6 +885,7 @@ export function PortalAiChatClient({
   const editingMessageIdByThreadRef = useRef<Record<string, string | null>>({});
   const threadsRef = useRef<Thread[]>([]);
   const messagesByThreadRef = useRef<Record<string, Message[]>>({ [DRAFT_THREAD_KEY]: [] });
+  const messageDisplayModesByIdRef = useRef<Record<string, ChatMode>>({});
 
   const activeThreadKey = activeThreadId ?? DRAFT_THREAD_KEY;
   const messages = useMemo(() => messagesByThread[activeThreadKey] ?? [], [activeThreadKey, messagesByThread]);
@@ -921,6 +933,10 @@ export function PortalAiChatClient({
   }, [messagesByThread]);
 
   useEffect(() => {
+    messageDisplayModesByIdRef.current = messageDisplayModesById;
+  }, [messageDisplayModesById]);
+
+  useEffect(() => {
     threadDraftsRef.current = threadDraftsById;
   }, [threadDraftsById]);
 
@@ -940,6 +956,14 @@ export function PortalAiChatClient({
     },
     [basePath, currentHref, router],
   );
+
+  const rememberMessageDisplayMode = useCallback((messageId: string | null | undefined, mode: ChatMode | null | undefined) => {
+    if (!messageId || !mode) return;
+    setMessageDisplayModesById((prev) => {
+      if (prev[messageId] === mode) return prev;
+      return { ...prev, [messageId]: mode };
+    });
+  }, []);
 
   const setThreadEditingMessageId = useCallback((threadKey: string, messageId: string | null) => {
     setEditingMessageIdByThread((prev) => ({ ...prev, [threadKey]: messageId }));
@@ -1074,7 +1098,9 @@ export function PortalAiChatClient({
         if (!json?.ok) throw new Error(json?.error || "Failed to load messages");
         setMessagesByThread((prev) => ({
           ...prev,
-          [threadId]: Array.isArray(json.messages) ? (json.messages as Message[]) : [],
+          [threadId]: Array.isArray(json.messages)
+            ? (json.messages as Message[]).map((message) => applyAssistantDisplayMode(message, messageDisplayModesByIdRef.current[message.id]))
+            : [],
         }));
         const nextLastCanvasUrl =
           typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
@@ -1100,13 +1126,14 @@ export function PortalAiChatClient({
   const selectThread = useCallback(
     (threadId: string) => {
       forceScrollToBottomRef.current = true;
+      setThreadLoading(threadId, true);
       setActiveThreadId(threadId);
       setCanvasUrl(null);
       setCanvasModalOpen(false);
       setCanvasOpen(false);
       setMobileThreadsOpen(false);
     },
-    [setActiveThreadId],
+    [setActiveThreadId, setThreadLoading],
   );
 
   useEffect(() => {
@@ -1462,6 +1489,7 @@ export function PortalAiChatClient({
         | { type: "booking_calendar"; calendarId: string; label?: string }
         | { type: "entity"; kind: string; value: string; label?: string },
     ) => {
+      const modeAtSend = effectiveChatMode;
       const initialThreadId = activeThreadIdRef.current;
       const initialThreadKey = initialThreadId ?? DRAFT_THREAD_KEY;
       if (sendInFlightRef.current.has(initialThreadKey)) return;
@@ -1544,6 +1572,7 @@ export function PortalAiChatClient({
         role: "assistant",
         text: "",
         attachmentsJson: [],
+        displayMode: modeAtSend,
         createdAt: nowIso,
         sendAt: null,
         sentAt: nowIso,
@@ -1608,7 +1637,11 @@ export function PortalAiChatClient({
                   }
                 }
               }
-              if (json.assistantMessage) next.push(json.assistantMessage);
+              if (json.assistantMessage) {
+                const assistantMessage = applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend);
+                rememberMessageDisplayMode(assistantMessage.id, assistantMessage.displayMode);
+                next.push(assistantMessage);
+              }
               return next;
             });
 
@@ -1649,7 +1682,8 @@ export function PortalAiChatClient({
             updateThreadMessages(threadIdForSend, (prev) => {
               const next = [...prev];
               if (json2.assistantMessage) {
-                const am: Message = json2.assistantMessage as Message;
+                const am = applyAssistantDisplayMode(json2.assistantMessage as Message, modeAtSend);
+                rememberMessageDisplayMode(am.id, am.displayMode);
                 next.push({ ...am, assistantActions: assistantActions2.length ? assistantActions2 : undefined });
               }
               return next;
@@ -1687,7 +1721,8 @@ export function PortalAiChatClient({
               }
             }
             if (json.assistantMessage) {
-              const am: Message = json.assistantMessage as Message;
+              const am = applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend);
+              rememberMessageDisplayMode(am.id, am.displayMode);
               next.push({ ...am, assistantActions: assistantActions.length ? assistantActions : undefined });
             }
             return next;
@@ -1770,7 +1805,11 @@ export function PortalAiChatClient({
             const cleaned = prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id);
             const next: Message[] = [...cleaned];
             if (json.userMessage) next.push(json.userMessage);
-            if (json.assistantMessage) next.push(json.assistantMessage);
+            if (json.assistantMessage) {
+              const assistantMessage = applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend);
+              rememberMessageDisplayMode(assistantMessage.id, assistantMessage.displayMode);
+              next.push(assistantMessage);
+            }
             return next;
           });
 
@@ -1817,7 +1856,8 @@ export function PortalAiChatClient({
           updateThreadMessages(threadIdForSend, (prev) => {
             const next = [...prev];
             if (json2.assistantMessage) {
-              const am: Message = json2.assistantMessage as Message;
+              const am = applyAssistantDisplayMode(json2.assistantMessage as Message, modeAtSend);
+              rememberMessageDisplayMode(am.id, am.displayMode);
               next.push({ ...am, assistantActions: assistantActions2.length ? assistantActions2 : undefined });
             }
             return next;
@@ -1848,7 +1888,8 @@ export function PortalAiChatClient({
           const next: Message[] = [...cleaned];
           if (json.userMessage) next.push(json.userMessage);
           if (json.assistantMessage) {
-            const am: Message = json.assistantMessage as Message;
+            const am = applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend);
+            rememberMessageDisplayMode(am.id, am.displayMode);
             next.push({ ...am, assistantActions: assistantActions.length ? assistantActions : undefined });
           }
           return next;
@@ -1896,7 +1937,7 @@ export function PortalAiChatClient({
         else setThreadSending(sendLockKey, false);
       }
     },
-    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, executeClientUiActions, loadThreads, navigateToThread, setThreadDraftState, setThreadEditingMessageId, setThreadSending, setThreadUiState, toast, updateThreadMessages],
+    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, effectiveChatMode, executeClientUiActions, loadThreads, navigateToThread, rememberMessageDisplayMode, setThreadDraftState, setThreadEditingMessageId, setThreadSending, setThreadUiState, toast, updateThreadMessages],
   );
 
   // Handler for ambiguous contact selection (must be after send is defined)
@@ -1948,6 +1989,7 @@ export function PortalAiChatClient({
     async (a: AssistantAction) => {
       if (!a?.key) return;
       if (runningActionKey) return;
+      const modeAtAction = effectiveChatMode;
 
       if (a.confirmLabel) {
         const ok = await askConfirm({
@@ -1981,7 +2023,9 @@ export function PortalAiChatClient({
         }
 
         if (json.assistantMessage && threadIdForAction) {
-          updateThreadMessages(threadIdForAction, (prev) => [...prev, json.assistantMessage as Message]);
+          const assistantMessage = applyAssistantDisplayMode(json.assistantMessage as Message, modeAtAction);
+          rememberMessageDisplayMode(assistantMessage.id, assistantMessage.displayMode);
+          updateThreadMessages(threadIdForAction, (prev) => [...prev, assistantMessage]);
         }
         if ((json as any)?.openScheduledTasks) {
           setScheduledOpen(true);
@@ -2004,7 +2048,7 @@ export function PortalAiChatClient({
         setRunningActionKey(null);
       }
     },
-    [activeThreadId, askConfirm, executeAgentAction, executeClientUiActions, loadThreads, runningActionKey, setThreadUiState, toast, updateThreadMessages],
+    [activeThreadId, askConfirm, effectiveChatMode, executeAgentAction, executeClientUiActions, loadThreads, rememberMessageDisplayMode, runningActionKey, setThreadUiState, toast, updateThreadMessages],
   );
 
   const openInCanvas = useCallback(
@@ -2138,6 +2182,7 @@ export function PortalAiChatClient({
       if (!activeThreadId) return;
       if (!assistantMessageId) return;
       if (regeneratingTarget?.threadId === activeThreadId) return;
+      const modeAtRedo = effectiveChatMode;
       const threadIdAtStart = activeThreadId;
 
       const prevMessagesSnapshot = messagesByThreadRef.current[threadIdAtStart] ?? [];
@@ -2148,6 +2193,7 @@ export function PortalAiChatClient({
         role: "assistant",
         text: "",
         attachmentsJson: [],
+        displayMode: modeAtRedo,
         createdAt: nowIso,
         sendAt: null,
         sentAt: nowIso,
@@ -2186,7 +2232,7 @@ export function PortalAiChatClient({
         setRegeneratingTarget((prev) => (prev?.threadId === threadIdAtStart ? null : prev));
       }
     },
-    [activeThreadId, canvasUrl, clientTimeZone, clientTimeZoneHeaders, loadMessages, loadThreads, regeneratingTarget?.threadId, toast, updateThreadMessages],
+    [activeThreadId, canvasUrl, clientTimeZone, clientTimeZoneHeaders, effectiveChatMode, loadMessages, loadThreads, regeneratingTarget?.threadId, toast, updateThreadMessages],
   );
 
   const copyMessageText = useCallback(
@@ -3056,8 +3102,12 @@ export function PortalAiChatClient({
         <div className="flex min-w-0 flex-1 flex-col">
         <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-white">
           <div className="mx-auto w-full max-w-5xl space-y-3 px-3 py-4 sm:px-4 sm:py-6">
-            {messagesLoading ? (
-              <div className="text-sm text-zinc-500">Loading messages…</div>
+            {messagesLoading && !messages.length ? (
+              <div className="space-y-3 pt-1">
+                <div className="h-24 rounded-3xl border border-zinc-200 bg-zinc-50 animate-pulse" />
+                <div className="ml-auto h-16 w-[72%] rounded-3xl bg-zinc-100 animate-pulse" />
+                <div className="h-28 rounded-3xl border border-zinc-200 bg-zinc-50 animate-pulse" />
+              </div>
             ) : messages.length ? (
               <>
                 {(() => {
@@ -3094,7 +3144,7 @@ export function PortalAiChatClient({
                   })();
                   return messages.map((m, i) => {
                     const variant = m.role === "assistant"
-                      ? effectiveChatMode === "work"
+                      ? m.displayMode === "work"
                         ? "work"
                         : assistantIdx++ % 2 === 0
                           ? "dark"
