@@ -3611,6 +3611,220 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         return mentionsResolvableEntity && looksLikeDiscoveryProblem;
       };
 
+      const inferPreferredDiscoveryAction = (actionKeyRaw: string | null | undefined): PortalAgentActionKey | null => {
+        const actionKey = String(actionKeyRaw || "").trim();
+        if (!actionKey) return null;
+        if (actionKey === "booking.calendars.get" || actionKey.startsWith("booking.calendar.") || actionKey.startsWith("booking.reminders.")) return "booking.calendars.get";
+        if (actionKey.startsWith("booking.")) return "booking.bookings.list";
+        if (actionKey.startsWith("tasks.")) return "tasks.list";
+        if (actionKey.startsWith("contacts.")) return "contacts.list";
+        if (actionKey.startsWith("people.")) return "people.users.list";
+        if (actionKey.startsWith("inbox.")) return "inbox.threads.list";
+        if (actionKey === "media.folders.update" || actionKey === "media.folder.ensure") return "media.folders.list";
+        if (actionKey.startsWith("media.")) return "media.items.list";
+        if (actionKey.startsWith("reporting.stripe.")) return "reporting.stripe.get";
+        if (actionKey.startsWith("reporting.sales.")) return "reporting.sales.get";
+        if (actionKey.startsWith("reporting.")) return "reporting.summary.get";
+        if (actionKey.startsWith("ai_chat.")) return "ai_chat.threads.list";
+        if (actionKey.startsWith("funnel_builder.pages.")) return "funnel_builder.pages.list";
+        if (actionKey.startsWith("funnel_builder.") || actionKey.startsWith("funnel.")) return "funnel_builder.funnels.list";
+        return null;
+      };
+
+      const buildDomainContinuationHint = (actionKeyRaw: string | null | undefined): string | null => {
+        const preferred = inferPreferredDiscoveryAction(actionKeyRaw);
+        if (!preferred) return null;
+        switch (preferred) {
+          case "booking.calendars.get":
+            return "Stay in the booking domain. If you need more context, inspect the booking calendars first before trying unrelated tools.";
+          case "booking.bookings.list":
+            return "Stay in the booking domain. If you need more context, inspect the existing bookings first before trying unrelated tools.";
+          case "tasks.list":
+            return "Stay in the tasks domain. If you need more context, list the open tasks before trying unrelated tools.";
+          case "contacts.list":
+            return "Stay in the contacts domain. If you need more context, list or inspect contacts before trying unrelated tools.";
+          case "people.users.list":
+            return "Stay in the team/users domain. If you need more context, inspect the portal users before trying unrelated tools.";
+          case "inbox.threads.list":
+            return "Stay in the inbox domain. If you need more context, inspect inbox threads before trying unrelated tools.";
+          case "media.folders.list":
+            return "Stay in the media domain. If you need more context, inspect media folders before trying unrelated tools.";
+          case "media.items.list":
+            return "Stay in the media domain. If you need more context, inspect media items before trying unrelated tools.";
+          case "reporting.stripe.get":
+            return "Stay in the Stripe reporting domain. If you need more context, load the Stripe summary before trying unrelated tools.";
+          case "reporting.sales.get":
+            return "Stay in the sales reporting domain. If you need more context, load the sales summary before trying unrelated tools.";
+          case "reporting.summary.get":
+            return "Stay in the reporting domain. If you need more context, load the reporting summary before trying unrelated tools.";
+          case "ai_chat.threads.list":
+            return "Stay in the AI chat domain. If you need more context, inspect chat threads before trying unrelated tools.";
+          case "funnel_builder.pages.list":
+            return "Stay in the funnel domain. If you need more context, inspect the funnel pages before trying unrelated tools.";
+          case "funnel_builder.funnels.list":
+            return "Stay in the funnel domain. If you need more context, inspect the funnels before trying unrelated tools.";
+          default:
+            return null;
+        }
+      };
+
+      const buildSafeDiscoveryFallbackStep = (preferredActionKey?: PortalAgentActionKey | null): { key: PortalAgentActionKey; title: string; args: Record<string, unknown> } => {
+        const requestText = String(planningTextWithAttachments || effectiveText || "").trim().toLowerCase();
+        const currentUrl = String(contextUrl || "").trim().toLowerCase();
+        const threadSummary =
+          localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) && typeof (localCtx as any).threadSummary === "string"
+            ? String((localCtx as any).threadSummary || "").trim().toLowerCase()
+            : "";
+        const combined = [requestText, currentUrl, threadSummary].filter(Boolean).join("\n");
+        const hasLastFunnelId = Boolean(localCtx?.lastFunnel && typeof localCtx.lastFunnel?.id === "string" && String(localCtx.lastFunnel.id).trim());
+
+        const buildAction = (key: PortalAgentActionKey, title: string, args: Record<string, unknown>) => ({ key, title, args });
+
+        const preferred = preferredActionKey || null;
+
+        if (preferred === "booking.bookings.list") {
+          return buildAction("booking.bookings.list", "Find the bookings", { take: 25 });
+        }
+        if (preferred === "booking.calendars.get") {
+          return buildAction("booking.calendars.get", "Find the booking calendars", {});
+        }
+        if (preferred === "tasks.list") {
+          return buildAction("tasks.list", "Find the tasks", { status: "OPEN", limit: 25 });
+        }
+        if (preferred === "inbox.threads.list") {
+          return buildAction("inbox.threads.list", "Find the inbox threads", { take: 25 });
+        }
+        if (preferred === "contacts.list") {
+          return buildAction("contacts.list", "Find the contacts", { limit: 25 });
+        }
+        if (preferred === "people.users.list") {
+          return buildAction("people.users.list", "Find the portal users", {});
+        }
+        if (preferred === "media.folders.list") {
+          return buildAction("media.folders.list", "Find the media folders", {});
+        }
+        if (preferred === "media.items.list") {
+          return buildAction("media.items.list", "Find the media items", { limit: 25 });
+        }
+        if (preferred === "reporting.stripe.get") {
+          return buildAction("reporting.stripe.get", "Load the Stripe summary", { range: "30d" });
+        }
+        if (preferred === "reporting.sales.get") {
+          return buildAction("reporting.sales.get", "Load the sales summary", { range: "30d" });
+        }
+        if (preferred === "reporting.summary.get") {
+          return buildAction("reporting.summary.get", "Load the reporting summary", { range: "30d" });
+        }
+        if (preferred === "ai_chat.threads.list") {
+          return buildAction("ai_chat.threads.list", "Find the chat threads", {});
+        }
+        if (preferred === "funnel_builder.pages.list") {
+          return hasLastFunnelId
+            ? buildAction("funnel_builder.pages.list", "Find the funnel pages", { funnelId: String(localCtx.lastFunnel.id).trim().slice(0, 120) })
+            : buildAction("funnel_builder.funnels.list", "Find the funnels", {});
+        }
+        if (preferred === "funnel_builder.funnels.list") {
+          return buildAction("funnel_builder.funnels.list", "Find the funnels", {});
+        }
+
+        if (/\b(calendar|booking|bookings|appointment|appointments|availability|meeting|scheduler|schedule link)\b/.test(combined)) {
+          if (/\b(booking|bookings|appointment|appointments)\b/.test(combined)) {
+            return buildAction("booking.bookings.list", "Find the bookings", { take: 25 });
+          }
+          return buildAction("booking.calendars.get", "Find the booking calendars", {});
+        }
+
+        if (/\b(task|tasks|todo|to-do|follow[-\s]?up|followup|checklist)\b/.test(combined)) {
+          return buildAction("tasks.list", "Find the tasks", { status: "OPEN", limit: 25 });
+        }
+
+        if (/\b(inbox|email|emails|sms|text message|text messages|texts|conversation|conversations|message thread|message threads)\b/.test(combined)) {
+          const channel = /\b(email|emails)\b/.test(combined) ? "EMAIL" : /\b(sms|text message|text messages|texts)\b/.test(combined) ? "SMS" : null;
+          return buildAction("inbox.threads.list", "Find the inbox threads", channel ? { channel, take: 25 } : { take: 25 });
+        }
+
+        if (/\b(contact|contacts|lead|leads|customer|customers|client|clients|prospect|prospects)\b/.test(combined)) {
+          return buildAction("contacts.list", "Find the contacts", { limit: 25 });
+        }
+
+        if (/\b(user|users|team|staff|employee|employees|member|members|owner|owners)\b/.test(combined)) {
+          return buildAction("people.users.list", "Find the portal users", {});
+        }
+
+        if (/\b(media|asset|assets|file|files|image|images|photo|photos|video|videos|upload|uploads|folder|folders|library)\b/.test(combined)) {
+          if (/\b(folder|folders)\b/.test(combined)) {
+            return buildAction("media.folders.list", "Find the media folders", {});
+          }
+          return buildAction("media.items.list", "Find the media items", { limit: 25 });
+        }
+
+        if (/\b(report|reports|reporting|dashboard|analytics|metrics|revenue|sales|stripe|payment|payments)\b/.test(combined)) {
+          if (/\b(stripe|payment|payments)\b/.test(combined)) {
+            return buildAction("reporting.stripe.get", "Load the Stripe summary", { range: "30d" });
+          }
+          if (/\b(sales|revenue)\b/.test(combined)) {
+            return buildAction("reporting.sales.get", "Load the sales summary", { range: "30d" });
+          }
+          return buildAction("reporting.summary.get", "Load the reporting summary", { range: "30d" });
+        }
+
+        if (/\b(ai chat|chat thread|chat threads|thread|threads|conversation history|assistant thread)\b/.test(combined)) {
+          return buildAction("ai_chat.threads.list", "Find the chat threads", {});
+        }
+
+        if (/\b(funnel|funnels|landing page|landing pages|landing|website|site|page builder|checkout|upsell|downsell|thank you|thank-you|opt[-\s]?in)\b/.test(combined) || currentUrl.includes("/funnel") || currentUrl.includes("/funnels")) {
+          return hasLastFunnelId
+            ? buildAction("funnel_builder.pages.list", "Find the funnel pages", { funnelId: String(localCtx.lastFunnel.id).trim().slice(0, 120) })
+            : buildAction("funnel_builder.funnels.list", "Find the funnels", {});
+        }
+
+        return hasLastFunnelId
+          ? buildAction("funnel_builder.pages.list", "Find the funnel pages", { funnelId: String(localCtx.lastFunnel.id).trim().slice(0, 120) })
+          : buildAction("contacts.list", "Find the contacts", { limit: 25 });
+      };
+
+      const buildSafeDiscoveryFallback = (preferredActionKey?: PortalAgentActionKey | null) => [buildSafeDiscoveryFallbackStep(preferredActionKey)] as any;
+
+      const hasHotContextForDiscoveryAction = (key: PortalAgentActionKey): boolean => {
+        switch (key) {
+          case "contacts.list":
+            return Boolean(localCtx?.lastContact?.id);
+          case "tasks.list":
+            return Boolean(localCtx?.lastTask?.id);
+          case "booking.calendars.get":
+            return Boolean(localCtx?.lastBookingCalendar?.id);
+          case "booking.bookings.list":
+            return Boolean(localCtx?.lastBooking?.id || localCtx?.lastBookingCalendar?.id);
+          case "media.folders.list":
+            return Boolean(localCtx?.lastMediaFolder?.id);
+          case "media.items.list":
+            return Boolean(localCtx?.lastMediaItem?.id || localCtx?.lastMediaFolder?.id);
+          case "funnel_builder.pages.list":
+            return Boolean(localCtx?.lastFunnelPage?.id || localCtx?.lastFunnel?.id || localCtx?.activeFunnel?.id);
+          case "funnel_builder.funnels.list":
+            return Boolean(localCtx?.lastFunnel?.id || localCtx?.activeFunnel?.id);
+          default:
+            return false;
+        }
+      };
+
+      const shouldPrimePlannerWithDiscovery = (key: PortalAgentActionKey): boolean => {
+        if (!hasNewUserText) return false;
+        if (didClickChoice || isConfirmOnly) return false;
+        if (!isImperativeRequest(effectiveText)) return false;
+        return !hasHotContextForDiscoveryAction(key);
+      };
+
+
+      const currentStickyRecoveryAction = (): PortalAgentActionKey | null => {
+        const fromExecution = inferPreferredDiscoveryAction(lastAutoExecutionError?.action);
+        if (fromExecution) return fromExecution;
+        const fromClarify = inferPreferredDiscoveryAction(lastAutoClarify?.stepKey);
+        if (fromClarify) return fromClarify;
+        const fromRecentStep = inferPreferredDiscoveryAction(allResolvedSteps[allResolvedSteps.length - 1]?.key || null);
+        if (fromRecentStep) return fromRecentStep;
+        return inferPreferredDiscoveryAction(bootstrapDiscoverySummary?.action || null);
+      };
 
       const runPlannerOnce = async (opts: { round: number; extraSystem?: string; temperature?: number; lastRunSummary?: any }) => {
         const cheat = toolCheatSheetForPrompt(planningTextWithAttachments, contextUrl);
@@ -3645,10 +3859,69 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         return { modelText, actions, directMessage };
       };
 
+      let bootstrapDiscoverySummary:
+        | {
+            action: PortalAgentActionKey;
+            title: string;
+            ok: boolean;
+            status: number;
+            idHints: ReturnType<typeof summarizeIdsFromArgs>;
+            resultPreview: ReturnType<typeof previewResultForPlanner>;
+          }
+        | null = null;
+
+      {
+        const bootstrapStep = buildSafeDiscoveryFallbackStep();
+        if (shouldPrimePlannerWithDiscovery(bootstrapStep.key)) {
+          const resolved = await resolvePlanArgs({
+            ownerId,
+            stepKey: bootstrapStep.key,
+            args: bootstrapStep.args,
+            userHint: effectiveText,
+            url: contextUrl,
+            threadContext: localCtx,
+          });
+
+          if (resolved.ok) {
+            const resolvedArgs =
+              resolved.args && typeof resolved.args === "object" && !Array.isArray(resolved.args)
+                ? (resolved.args as Record<string, unknown>)
+                : {};
+
+            if (resolved.contextPatch && typeof resolved.contextPatch === "object" && !Array.isArray(resolved.contextPatch)) {
+              localCtx = { ...localCtx, ...(resolved.contextPatch as any) };
+            }
+
+            const exec = await executePortalAgentAction({
+              ownerId,
+              actorUserId: createdByUserId,
+              action: bootstrapStep.key,
+              args: resolvedArgs,
+            }).catch(() => null);
+
+            if (exec && Boolean((exec as any).ok) && Number((exec as any).status) >= 200 && Number((exec as any).status) < 300) {
+              const derivedPatch = deriveThreadContextPatchFromAction(bootstrapStep.key, resolvedArgs, (exec as any).result);
+              if (derivedPatch && typeof derivedPatch === "object" && !Array.isArray(derivedPatch)) {
+                localCtx = { ...localCtx, ...(derivedPatch as any) };
+              }
+              bootstrapDiscoverySummary = {
+                action: bootstrapStep.key,
+                title: bootstrapStep.title,
+                ok: true,
+                status: Number((exec as any).status) || 0,
+                idHints: summarizeIdsFromArgs(resolvedArgs),
+                resultPreview: previewResultForPlanner(bootstrapStep.key, (exec as any).result),
+              };
+            }
+          }
+        }
+      }
+
       for (let round = 0; round < MAX_AUTORUN_ROUNDS; round += 1) {
         if (Date.now() - autoStartMs > MAX_AUTORUN_MS) break;
-        const lastRunSummary = allResolvedSteps.length || lastAutoClarify || lastAutoExecutionError || lastAutoResolutionError
+        const lastRunSummary = allResolvedSteps.length || lastAutoClarify || lastAutoExecutionError || lastAutoResolutionError || bootstrapDiscoverySummary
           ? {
+              ...(bootstrapDiscoverySummary ? { bootstrapDiscovery: bootstrapDiscoverySummary } : {}),
               executedSteps: allResolvedSteps.slice(-12).map((s) => ({ key: s.key, title: s.title })),
               lastResults: allResults
                 .slice(-10)
@@ -3682,6 +3955,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           extraSystem:
             round > 0
               ? [
+                  buildDomainContinuationHint(currentStickyRecoveryAction()),
                   "Continuation: keep going until the user request is DONE. Output the next actions now; do not ask for permission.",
                   lastAutoClarify
                     ? `The last attempt stalled during resolution: ${String(lastAutoClarify.question || "Missing or ambiguous required fields.").slice(0, 600)} Do NOT ask the user yet if you can discover this yourself. Use discovery tools (list/get/search/get-by-context) or the provided choices to select REAL IDs, then continue. Never use placeholders like <...> or new_*_id.`
@@ -3716,24 +3990,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             if (firstSafe) {
               planned = { ...planned, actions: [firstSafe] as any };
             } else {
-              const hasLastFunnelId = Boolean(localCtx?.lastFunnel && typeof localCtx.lastFunnel?.id === "string" && String(localCtx.lastFunnel.id).trim());
               planned = {
                 ...planned,
-                actions: hasLastFunnelId
-                  ? ([
-                      {
-                        key: "funnel_builder.pages.list",
-                        title: "Find the funnel pages",
-                        args: { funnelId: String(localCtx.lastFunnel.id).trim().slice(0, 120) },
-                      },
-                    ] as any)
-                  : ([
-                      {
-                        key: "funnel_builder.funnels.list",
-                        title: "Find the funnel",
-                        args: {},
-                      },
-                    ] as any),
+                actions: buildSafeDiscoveryFallback(currentStickyRecoveryAction()),
                 directMessage: "",
               } as any;
             }
@@ -3768,31 +4027,21 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               lastRunSummary,
               temperature: 0.25,
               extraSystem:
-                "Stop deflecting. The user asked you to do it. Output JSON actions only. If unsure what to do next, start with a read-only discovery step (funnel_builder.pages.list or funnel_builder.funnels.list).",
+                [
+                  buildDomainContinuationHint(currentStickyRecoveryAction()),
+                  "Stop deflecting. The user asked you to do it. Output JSON actions only. If unsure what to do next, start with the most relevant read-only discovery step for the current domain (for example contacts.list, tasks.list, booking.calendars.get, inbox.threads.list, media.folders.list, reporting.summary.get, ai_chat.threads.list, people.users.list, or funnel_builder.pages.list / funnel_builder.funnels.list).",
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
             });
           }
 
           // Last-resort: if the user clearly told us to do it, but the model still won't emit actions,
           // run a safe discovery action so we can continue without asking permission.
           if (!planned.actions.length && isImperativeRequest(effectiveText)) {
-            const hasLastFunnelId = Boolean(localCtx?.lastFunnel && typeof localCtx.lastFunnel?.id === "string" && String(localCtx.lastFunnel.id).trim());
             planned = {
               ...planned,
-              actions: hasLastFunnelId
-                ? ([
-                    {
-                      key: "funnel_builder.pages.list",
-                      title: "Find the funnel pages",
-                      args: { funnelId: String(localCtx.lastFunnel.id).trim().slice(0, 120) },
-                    },
-                  ] as any)
-                : ([
-                    {
-                      key: "funnel_builder.funnels.list",
-                      title: "Find the funnel",
-                      args: {},
-                    },
-                  ] as any),
+              actions: buildSafeDiscoveryFallback(currentStickyRecoveryAction()),
               directMessage: "",
             } as any;
           }
@@ -3803,11 +4052,22 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           }
         }
 
-        const planKey = JSON.stringify(planned.actions.map((a) => ({ key: a.key, args: a.args || null })).slice(0, 6));
+        let planKey = JSON.stringify(planned.actions.map((a) => ({ key: a.key, args: a.args || null })).slice(0, 6));
         if (seenPlanKeys.has(planKey)) {
-          finalDirectMessage =
-            "I’m not making progress with the current plan. I’m going to stop here to avoid looping. Tell me the exact funnel/page you want me to target (or click the option if prompted), and I’ll continue.";
-          break;
+          const recoveryActions = buildSafeDiscoveryFallback(currentStickyRecoveryAction()) as Array<{ key: PortalAgentActionKey; args?: Record<string, unknown> }>;
+          const recoveryPlanKey = JSON.stringify(recoveryActions.map((a) => ({ key: a.key, args: a.args || null })).slice(0, 6));
+          if (isImperativeRequest(effectiveText) && recoveryActions.length && recoveryPlanKey !== planKey && round + 1 < MAX_AUTORUN_ROUNDS) {
+            planned = {
+              ...planned,
+              actions: recoveryActions as any,
+              directMessage: "",
+            } as any;
+            planKey = recoveryPlanKey;
+          } else {
+            finalDirectMessage =
+              "I’m not making progress with the current plan. I’m going to stop here to avoid looping. Tell me the exact record or page you want me to target (or click the option if prompted), and I’ll continue.";
+            break;
+          }
         }
         seenPlanKeys.add(planKey);
 
