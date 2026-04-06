@@ -65,6 +65,13 @@ type Thread = {
   createdAt: string;
   updatedAt: string;
   liveStatus?: LiveStatus | null;
+  latestRunStatus?: ThreadRunStatus | null;
+};
+
+type ThreadRunStatus = {
+  status: string;
+  runId?: string | null;
+  updatedAt?: string | null;
 };
 
 function threadTimestampValue(value: string | null | undefined): number {
@@ -740,6 +747,54 @@ function normalizeRunLedgerEntry(raw: unknown): RunLedgerEntry | null {
     steps: normalizeRunTrace({ steps: (raw as any).steps, at: createdAt, workTitle: (raw as any).workTitle, assistantMessageId: (raw as any).assistantMessageId, canvasUrl: (raw as any).canvasUrl })?.steps || [],
     followUpSuggestions: normalizeFollowUpSuggestions((raw as any).followUpSuggestions),
   };
+}
+
+function normalizeThreadRunStatus(raw: unknown): ThreadRunStatus | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const status = typeof (raw as any).status === "string" ? String((raw as any).status).trim().slice(0, 40) : "";
+  if (!status) return null;
+  return {
+    status,
+    runId: typeof (raw as any).runId === "string" ? String((raw as any).runId).trim().slice(0, 120) : null,
+    updatedAt: typeof (raw as any).updatedAt === "string" ? String((raw as any).updatedAt).trim().slice(0, 80) : null,
+  };
+}
+
+function threadRunBadgeMeta(thread: Thread, liveStatus: LiveStatus | null) {
+  if (liveStatus?.label) {
+    return {
+      label: "Running",
+      title: liveStatus.label || "Pura is working",
+      dotClassName: "bg-brand-blue animate-pulse",
+      badgeClassName: "border-brand-blue/15 bg-blue-50 text-brand-blue",
+    };
+  }
+  const status = String(thread.latestRunStatus?.status || "").trim().toLowerCase();
+  if (status === "needs_input") {
+    return {
+      label: "Needs input",
+      title: "This chat needs your input",
+      dotClassName: "bg-amber-500",
+      badgeClassName: "border-amber-200 bg-amber-50 text-amber-900",
+    };
+  }
+  if (status === "failed") {
+    return {
+      label: "Failed",
+      title: "The last run failed",
+      dotClassName: "bg-red-500",
+      badgeClassName: "border-red-200 bg-red-50 text-red-800",
+    };
+  }
+  if (status === "interrupted") {
+    return {
+      label: "Stopped",
+      title: "The last run was stopped",
+      dotClassName: "bg-zinc-400",
+      badgeClassName: "border-zinc-200 bg-zinc-100 text-zinc-700",
+    };
+  }
+  return null;
 }
 
 function formatRunStatusLabel(statusRaw: string | null | undefined): string {
@@ -1430,9 +1485,10 @@ export function PortalAiChatClient({
       const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error || "Failed to load threads");
       const next = Array.isArray(json.threads)
-        ? (json.threads as Array<Thread & { liveStatus?: unknown }>).map((thread) => ({
+        ? (json.threads as Array<Thread & { liveStatus?: unknown; latestRunStatus?: unknown }>).map((thread) => ({
             ...thread,
             liveStatus: normalizeLiveStatus(thread?.liveStatus),
+            latestRunStatus: normalizeThreadRunStatus(thread?.latestRunStatus),
           }))
         : [];
       setThreads(next);
@@ -1578,9 +1634,10 @@ export function PortalAiChatClient({
 
   const applyStreamedThreadsSnapshot = useCallback((threadsRaw: unknown) => {
     const next = Array.isArray(threadsRaw)
-      ? (threadsRaw as Array<Thread & { liveStatus?: unknown }>).map((thread) => ({
+      ? (threadsRaw as Array<Thread & { liveStatus?: unknown; latestRunStatus?: unknown }>).map((thread) => ({
           ...thread,
           liveStatus: normalizeLiveStatus(thread?.liveStatus),
+          latestRunStatus: normalizeThreadRunStatus(thread?.latestRunStatus),
         }))
       : [];
 
@@ -2901,6 +2958,7 @@ export function PortalAiChatClient({
               const threadLiveStatus = threadLiveStatusById[t.id] ?? null;
               const threadLiveMeta = describeLiveStatusMeta(threadLiveStatus);
               const isWorking = Boolean(threadLiveStatus?.label);
+              const threadBadge = threadRunBadgeMeta(t, threadLiveStatus);
               return (
                 <div
                   key={t.id}
@@ -2923,6 +2981,12 @@ export function PortalAiChatClient({
                           {t.title || "New chat"}
                           {t.isPinned ? <span className="ml-2 text-[11px] font-bold text-zinc-500">PINNED</span> : null}
                         </span>
+                        {!isWorking && threadBadge ? (
+                          <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
+                            <span className={classNames("inline-flex h-2 w-2 rounded-full", threadBadge.dotClassName)} />
+                            <span className={classNames("rounded-full border px-2 py-0.5", threadBadge.badgeClassName)} title={threadBadge.title}>{threadBadge.label}</span>
+                          </div>
+                        ) : null}
                         {isWorking ? (
                           <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
                             <span className="inline-flex h-2 w-2 rounded-full bg-brand-blue animate-pulse" />
@@ -2987,6 +3051,7 @@ export function PortalAiChatClient({
                 const threadLiveStatus = threadLiveStatusById[t.id] ?? null;
                 const threadLiveMeta = describeLiveStatusMeta(threadLiveStatus);
                 const isWorking = Boolean(threadLiveStatus?.label);
+                const threadBadge = threadRunBadgeMeta(t, threadLiveStatus);
                 return (
                   <div
                     key={t.id}
@@ -3012,6 +3077,12 @@ export function PortalAiChatClient({
                             {t.title || "New chat"}
                             {t.isPinned ? <span className="ml-2 text-[11px] font-bold text-zinc-500">PINNED</span> : null}
                           </span>
+                          {!isWorking && threadBadge ? (
+                            <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
+                              <span className={classNames("inline-flex h-2 w-2 rounded-full", threadBadge.dotClassName)} />
+                              <span className={classNames("rounded-full border px-2 py-0.5", threadBadge.badgeClassName)} title={threadBadge.title}>{threadBadge.label}</span>
+                            </div>
+                          ) : null}
                           {isWorking ? (
                             <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
                               <span className="inline-flex h-2 w-2 rounded-full bg-brand-blue animate-pulse" />
@@ -4284,6 +4355,34 @@ export function PortalAiChatClient({
                         {suggestion}
                       </button>
                     ))}
+                  </div>
+                ) : null}
+                {run.status === "needs_input" || run.status === "interrupted" || run.status === "failed" ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(run.status === "needs_input" || run.status === "interrupted") ? (
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-brand-blue/20 bg-blue-50 px-3 py-2 text-xs font-semibold text-brand-blue hover:bg-blue-100"
+                        onClick={() => {
+                          setRunsOpen(false);
+                          void send(run.status === "needs_input" ? "Continue this chat and ask me only for the missing input you actually need." : "Continue this chat from where you left off and finish the remaining work.");
+                        }}
+                      >
+                        {run.status === "needs_input" ? "Continue" : "Resume"}
+                      </button>
+                    ) : null}
+                    {run.status === "failed" ? (
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                        onClick={() => {
+                          setRunsOpen(false);
+                          void send("Retry the last failed work in this chat, fix the issue, and keep going until it is done.");
+                        }}
+                      >
+                        Retry
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

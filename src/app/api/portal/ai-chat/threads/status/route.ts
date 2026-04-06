@@ -23,6 +23,46 @@ function normalizeThreadLiveStatus(raw: unknown) {
   return { phase, label, actionKey, title, updatedAt, runId, canInterrupt, round, completedSteps, lastCompletedTitle };
 }
 
+function normalizeLatestRunStatus(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const status = typeof (raw as any).status === "string" ? String((raw as any).status).trim().slice(0, 40) : "";
+  const runId = typeof (raw as any).runId === "string" ? String((raw as any).runId).trim().slice(0, 120) : null;
+  const updatedAtValue = (raw as any).interruptedAt || (raw as any).completedAt || (raw as any).updatedAt || (raw as any).createdAt || null;
+  const updatedAt = updatedAtValue ? new Date(updatedAtValue).toISOString() : null;
+  if (!status) return null;
+  return { status, runId, updatedAt };
+}
+
+async function loadLatestRunStatusByThread(ownerId: string, threadIds: string[]) {
+  const ids = Array.from(new Set((threadIds || []).map((id) => String(id || "").trim()).filter(Boolean))).slice(0, 200);
+  if (!ids.length) return new Map<string, { status: string; runId: string | null; updatedAt: string | null }>();
+
+  const rows = await (prisma as any).portalAiChatRun.findMany({
+    where: { ownerId, threadId: { in: ids } },
+    orderBy: [{ threadId: "asc" }, { createdAt: "desc" }],
+    distinct: ["threadId"],
+    select: {
+      threadId: true,
+      runId: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      completedAt: true,
+      interruptedAt: true,
+    },
+  }).catch(() => []);
+
+  const next = new Map<string, { status: string; runId: string | null; updatedAt: string | null }>();
+  for (const row of rows || []) {
+    const threadId = typeof (row as any)?.threadId === "string" ? String((row as any).threadId).trim() : "";
+    if (!threadId || next.has(threadId)) continue;
+    const normalized = normalizeLatestRunStatus(row);
+    if (!normalized) continue;
+    next.set(threadId, normalized);
+  }
+  return next;
+}
+
 async function loadVisibleThreads(ownerId: string, memberId: string) {
   const threads = await (prisma as any).portalAiChatThread.findMany({
     where: { ownerId, messages: { some: {} } },
@@ -47,7 +87,7 @@ async function loadVisibleThreads(ownerId: string, memberId: string) {
     },
   });
 
-  return (Array.isArray(threads) ? threads : [])
+  const visible = (Array.isArray(threads) ? threads : [])
     .filter((thread: any) => canAccessPortalAiChatThread({ thread, memberId }))
     .map((thread: any) => {
       const ctxJson = thread.contextJson && typeof thread.contextJson === "object" && !Array.isArray(thread.contextJson) ? (thread.contextJson as any) : {};
@@ -62,6 +102,12 @@ async function loadVisibleThreads(ownerId: string, memberId: string) {
         liveStatus: normalizeThreadLiveStatus(ctxJson.liveStatus),
       };
     });
+
+  const latestRunStatusByThread = await loadLatestRunStatusByThread(ownerId, visible.map((thread) => thread.id));
+  return visible.map((thread) => ({
+    ...thread,
+    latestRunStatus: latestRunStatusByThread.get(thread.id) ?? null,
+  }));
 }
 
 export async function GET(req: Request) {
