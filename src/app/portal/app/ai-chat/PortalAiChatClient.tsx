@@ -820,6 +820,28 @@ function threadRunBadgeMeta(thread: Thread, liveStatus: LiveStatus | null) {
   return null;
 }
 
+function nextStepBadgeMeta(nextStepContext: NextStepContext | null) {
+  if (!nextStepContext) return null;
+  return {
+    label: "Ready next",
+    title: nextStepContext.workTitle || nextStepContext.objective || "This chat has a ready next step",
+    dotClassName: "bg-emerald-500",
+    badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-800",
+  };
+}
+
+function nextStepPreviewText(nextStepContext: NextStepContext | null): string | null {
+  if (!nextStepContext) return null;
+  const raw =
+    nextStepContext.suggestedPrompt?.trim() ||
+    nextStepContext.summaryText?.trim() ||
+    nextStepContext.objective?.trim() ||
+    nextStepContext.workTitle?.trim() ||
+    "";
+  if (!raw) return null;
+  return raw.slice(0, 120);
+}
+
 function formatRunStatusLabel(statusRaw: string | null | undefined): string {
   const status = String(statusRaw || "completed").trim().toLowerCase();
   if (status === "needs_input") return "Needs input";
@@ -3167,9 +3189,12 @@ export function PortalAiChatClient({
             {threads.map((t) => {
               const active = t.id === activeThreadId;
               const threadLiveStatus = threadLiveStatusById[t.id] ?? null;
+              const threadNextStep = threadNextStepContextById[t.id] ?? null;
               const threadLiveMeta = describeLiveStatusMeta(threadLiveStatus);
               const isWorking = Boolean(threadLiveStatus?.label);
               const threadBadge = threadRunBadgeMeta(t, threadLiveStatus);
+              const continuityBadge = !isWorking && !threadBadge ? nextStepBadgeMeta(threadNextStep) : null;
+              const continuityPreview = !isWorking && !threadBadge ? nextStepPreviewText(threadNextStep) : null;
               return (
                 <div
                   key={t.id}
@@ -3198,6 +3223,12 @@ export function PortalAiChatClient({
                             <span className={classNames("rounded-full border px-2 py-0.5", threadBadge.badgeClassName)} title={threadBadge.title}>{threadBadge.label}</span>
                           </div>
                         ) : null}
+                        {!isWorking && !threadBadge && continuityBadge ? (
+                          <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
+                            <span className={classNames("inline-flex h-2 w-2 rounded-full", continuityBadge.dotClassName)} />
+                            <span className={classNames("rounded-full border px-2 py-0.5", continuityBadge.badgeClassName)} title={continuityBadge.title}>{continuityBadge.label}</span>
+                          </div>
+                        ) : null}
                         {isWorking ? (
                           <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
                             <span className="inline-flex h-2 w-2 rounded-full bg-brand-blue animate-pulse" />
@@ -3205,6 +3236,7 @@ export function PortalAiChatClient({
                             {threadLiveMeta ? <span className="hidden truncate text-zinc-500 md:inline">· {threadLiveMeta}</span> : null}
                           </div>
                         ) : null}
+                        {!isWorking && continuityPreview ? <div className="mt-1 truncate text-[11px] text-zinc-500">{continuityPreview}</div> : null}
                       </div>
                       <div className="shrink-0 text-xs font-semibold text-zinc-500">{fmtShortTime(t.lastMessageAt || t.updatedAt)}</div>
                     </div>
@@ -3244,7 +3276,7 @@ export function PortalAiChatClient({
       </div>
     </div>
     ),
-    [activeThreadId, closeThreadMenu, createThread, navigateToThread, selectThread, setScheduledOpen, threadLiveStatusById, threadMenu, threadMenuThreadId, threads, threadsLoading],
+    [activeThreadId, closeThreadMenu, createThread, navigateToThread, selectThread, setScheduledOpen, threadLiveStatusById, threadMenu, threadMenuThreadId, threadNextStepContextById, threads, threadsLoading],
   );
 
   const mobileSidebar = useMemo(
@@ -3260,9 +3292,12 @@ export function PortalAiChatClient({
               {threads.map((t) => {
                 const active = t.id === activeThreadId;
                 const threadLiveStatus = threadLiveStatusById[t.id] ?? null;
+                const threadNextStep = threadNextStepContextById[t.id] ?? null;
                 const threadLiveMeta = describeLiveStatusMeta(threadLiveStatus);
                 const isWorking = Boolean(threadLiveStatus?.label);
                 const threadBadge = threadRunBadgeMeta(t, threadLiveStatus);
+                const continuityBadge = !isWorking && !threadBadge ? nextStepBadgeMeta(threadNextStep) : null;
+                const continuityPreview = !isWorking && !threadBadge ? nextStepPreviewText(threadNextStep) : null;
                 return (
                   <div
                     key={t.id}
@@ -3294,6 +3329,12 @@ export function PortalAiChatClient({
                               <span className={classNames("rounded-full border px-2 py-0.5", threadBadge.badgeClassName)} title={threadBadge.title}>{threadBadge.label}</span>
                             </div>
                           ) : null}
+                          {!isWorking && !threadBadge && continuityBadge ? (
+                            <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
+                              <span className={classNames("inline-flex h-2 w-2 rounded-full", continuityBadge.dotClassName)} />
+                              <span className={classNames("rounded-full border px-2 py-0.5", continuityBadge.badgeClassName)} title={continuityBadge.title}>{continuityBadge.label}</span>
+                            </div>
+                          ) : null}
                           {isWorking ? (
                             <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
                               <span className="inline-flex h-2 w-2 rounded-full bg-brand-blue animate-pulse" />
@@ -3301,6 +3342,7 @@ export function PortalAiChatClient({
                               {threadLiveMeta ? <span className="truncate text-zinc-500">· {threadLiveMeta}</span> : null}
                             </div>
                           ) : null}
+                          {!isWorking && continuityPreview ? <div className="mt-1 truncate text-[11px] text-zinc-500">{continuityPreview}</div> : null}
                         </div>
                         <div className="shrink-0 text-xs font-semibold text-zinc-500">{fmtShortTime(t.lastMessageAt || t.updatedAt)}</div>
                       </div>
@@ -3339,7 +3381,7 @@ export function PortalAiChatClient({
         </div>
       </div>
     ),
-    [activeThreadId, closeThreadMenu, navigateToThread, selectThread, threadLiveStatusById, threadMenu, threadMenuThreadId, threads, threadsLoading],
+    [activeThreadId, closeThreadMenu, navigateToThread, selectThread, threadLiveStatusById, threadMenu, threadMenuThreadId, threadNextStepContextById, threads, threadsLoading],
   );
 
   const mobileHeaderActions = useMemo(
