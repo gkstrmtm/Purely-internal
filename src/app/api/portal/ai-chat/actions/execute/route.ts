@@ -82,6 +82,17 @@ export async function POST(req: Request) {
     ],
     canvasUrl: typeof (exec as any)?.linkUrl === "string" ? String((exec as any).linkUrl).trim().slice(0, 1200) : null,
   };
+
+  const prevCtx = thread.contextJson && typeof thread.contextJson === "object" && !Array.isArray(thread.contextJson) ? (thread.contextJson as any) : {};
+  const prevRuns = Array.isArray(prevCtx.runs) ? (prevCtx.runs as unknown[]) : [];
+  const nextCtx = {
+    ...prevCtx,
+    lastWorkTitle: runTrace.workTitle,
+    lastCanvasUrl: runTrace.canvasUrl,
+    runs: [...prevRuns.slice(-19), runTrace],
+  };
+  await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx, lastMessageAt: new Date() } }).catch(() => null);
+
   return NextResponse.json({
     ...(exec as any),
     runTrace,
