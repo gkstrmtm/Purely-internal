@@ -394,6 +394,7 @@ export function buildPlannerUserPrompt(opts: {
   contextUrl?: string | undefined | null;
   threadSummary?: string | undefined | null;
   lastRunSummary?: any;
+  recentRunContinuity?: any;
   unresolvedRun?: any;
   nextStepContext?: any;
   continuationIntent?: boolean;
@@ -407,6 +408,7 @@ export function buildPlannerUserPrompt(opts: {
     contextUrl ? `Context URL: ${contextUrl.slice(0, 1200)}` : null,
     summary ? `Thread summary: ${summary.slice(0, 1200)}` : null,
     opts.lastRunSummary ? `Last run summary (JSON):\n${JSON.stringify(opts.lastRunSummary, null, 2).slice(0, 3500)}` : null,
+    opts.recentRunContinuity ? `Recent run continuity (most recent finished arcs across this chat) (JSON):\n${JSON.stringify(opts.recentRunContinuity, null, 2).slice(0, 2800)}` : null,
     opts.unresolvedRun
       ? `Latest unresolved work (only continue it when relevant to the current request) (JSON):\n${JSON.stringify(opts.unresolvedRun, null, 2).slice(0, 2500)}`
       : null,

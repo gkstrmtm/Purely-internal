@@ -2937,6 +2937,67 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     });
   };
 
+  const loadRecentRunContinuity = async () => {
+    const rows = await (prisma as any).portalAiChatRun.findMany({
+      where: { ownerId, threadId },
+      orderBy: [{ createdAt: "desc" }],
+      take: 6,
+      select: {
+        runId: true,
+        status: true,
+        workTitle: true,
+        summaryText: true,
+        stepsJson: true,
+        followUpSuggestionsJson: true,
+        createdAt: true,
+        completedAt: true,
+        interruptedAt: true,
+      },
+    }).catch(() => []);
+
+    const items = Array.isArray(rows)
+      ? rows
+          .map((row) => {
+            const status = typeof (row as any)?.status === "string" ? String((row as any).status).trim().slice(0, 40) : "";
+            if (!status || status === "running") return null;
+            const workTitle = typeof (row as any)?.workTitle === "string" ? String((row as any).workTitle).trim().slice(0, 200) : null;
+            const summaryText = typeof (row as any)?.summaryText === "string" ? String((row as any).summaryText).trim().slice(0, 280) : null;
+            const steps = Array.isArray((row as any)?.stepsJson)
+              ? ((row as any).stepsJson as unknown[])
+                  .map((step) => {
+                    if (!step || typeof step !== "object" || Array.isArray(step)) return null;
+                    const key = typeof (step as any).key === "string" ? String((step as any).key).trim().slice(0, 120) : "";
+                    const title = typeof (step as any).title === "string" ? String((step as any).title).trim().slice(0, 160) : "";
+                    if (!key && !title) return null;
+                    return { key: key || title, title: title || key, ok: Boolean((step as any).ok) };
+                  })
+                  .filter(Boolean)
+                  .slice(0, 4)
+              : [];
+            const followUpSuggestions = Array.isArray((row as any)?.followUpSuggestionsJson)
+              ? ((row as any).followUpSuggestionsJson as unknown[])
+                  .map((value) => (typeof value === "string" ? String(value).trim().slice(0, 180) : ""))
+                  .filter(Boolean)
+                  .slice(0, 3)
+              : [];
+            const happenedAt = (row as any)?.interruptedAt || (row as any)?.completedAt || (row as any)?.createdAt || null;
+            return {
+              runId: typeof (row as any)?.runId === "string" ? String((row as any).runId).trim().slice(0, 120) : null,
+              status,
+              workTitle,
+              summaryText,
+              steps,
+              followUpSuggestions,
+              happenedAt: happenedAt ? new Date(happenedAt).toISOString() : null,
+            };
+          })
+          .filter(Boolean)
+          .slice(0, 4)
+      : [];
+
+    return items.length ? items : null;
+  };
+
   const beginInterruptibleRun = async (threadContextValue?: unknown) => {
     activeRunId = randomUUID();
     activeRunStartedAt = new Date().toISOString();
@@ -3940,6 +4001,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const nextStepContextForPlanning = continuationIntent
         ? nextStepContextForContinuationPrompt(effectiveText, nextStepContextForPlanningBase)
         : nextStepContextForPlanningBase;
+      const recentRunContinuityForPlanning = continuationIntent ? await loadRecentRunContinuity() : null;
 
       // --- ChatGPT wrapper loop ---
       // 1) If we previously asked a question to run a specific action, try to continue that now.
@@ -4557,6 +4619,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           contextUrl,
           threadSummary: threadSummaryForPrompt || null,
           lastRunSummary: opts.lastRunSummary,
+          recentRunContinuity: recentRunContinuityForPlanning,
           unresolvedRun: unresolvedRunForPlanning,
           nextStepContext: nextStepContextForPlanning,
           continuationIntent,
