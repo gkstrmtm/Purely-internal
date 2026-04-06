@@ -596,6 +596,11 @@ export function PortalAiChatClient({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const initialRequestedThreadId = useMemo(() => {
+    const fromRoute = parsePortalAiChatThreadRef(initialThreadRef);
+    if (fromRoute) return fromRoute;
+    return (searchParams?.get("thread") || "").trim() || null;
+  }, [initialThreadRef, searchParams]);
   // Threads sidebar is resize-only (no close control).
   const [canvasOpen, setCanvasOpen] = useState(() => {
     if (typeof window !== "undefined") {
@@ -757,10 +762,14 @@ export function PortalAiChatClient({
 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(initialRequestedThreadId);
 
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(() => ({ [DRAFT_THREAD_KEY]: [] }));
-  const [loadingThreadIds, setLoadingThreadIds] = useState<Set<string>>(() => new Set());
+  const [loadingThreadIds, setLoadingThreadIds] = useState<Set<string>>(() => {
+    const next = new Set<string>();
+    if (initialRequestedThreadId) next.add(initialRequestedThreadId);
+    return next;
+  });
   const [serviceUsageCounts, setServiceUsageCounts] = useState<Record<string, number>>({});
   // Must be stable for SSR + hydration. We randomize it after mount.
   const [welcomePromptSeed, setWelcomePromptSeed] = useState(() => "0");
@@ -902,11 +911,7 @@ export function PortalAiChatClient({
   const pendingAttachments = activeThreadDraft.pendingAttachments;
   const editingMessageId = editingMessageIdByThread[activeThreadKey] ?? null;
   const isEditing = Boolean(editingMessageId);
-  const requestedThreadId = useMemo(() => {
-    const fromRoute = parsePortalAiChatThreadRef(initialThreadRef);
-    if (fromRoute) return fromRoute;
-    return (searchParams?.get("thread") || "").trim() || null;
-  }, [initialThreadRef, searchParams]);
+  const requestedThreadId = initialRequestedThreadId;
   const currentHref = useMemo(() => {
     const query = searchParams?.toString();
     return `${pathname || ""}${query ? `?${query}` : ""}`;
@@ -2704,7 +2709,7 @@ export function PortalAiChatClient({
     [askConfirm, loadScheduled, toast],
   );
 
-  const showWelcomeComposer = !messagesLoading && messages.length === 0;
+  const showWelcomeComposer = !requestedThreadId && !activeThreadId && !messagesLoading && messages.length === 0;
 
   useEffect(() => {
     if (!showWelcomeComposer) return;
