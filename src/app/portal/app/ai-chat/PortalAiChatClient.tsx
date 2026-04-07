@@ -1632,11 +1632,11 @@ export function PortalAiChatClient({
     return Boolean(activeThreadId && activeLiveStatus?.canInterrupt && activeLiveStatus?.runId);
   }, [activeLiveStatus?.canInterrupt, activeLiveStatus?.runId, activeThreadId]);
   const chatSurfaceClassName = classNames(
-    "relative flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)] dark:bg-zinc-950",
+    "relative flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)]",
   );
   const chatScrollerClassName = classNames(
     "relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain",
-    isDiscussMode ? "bg-[#fcfdff] dark:bg-zinc-950" : "bg-white dark:bg-zinc-950",
+    isDiscussMode ? "bg-[#fcfdff]" : "bg-white",
   );
   const sortedRunLedgerRows = useMemo(() => {
     const rows = [...runLedgerRows];
@@ -3962,8 +3962,8 @@ export function PortalAiChatClient({
           </button>
 
           {modeControlsOpen ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-3xl border border-zinc-200 bg-white/95 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.06)] backdrop-blur">
-              <div className="inline-flex rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-[0_10px_24px_rgba(0,0,0,0.08)]">
                 <button
                   type="button"
                   className={classNames(
@@ -3986,7 +3986,7 @@ export function PortalAiChatClient({
                 </button>
               </div>
 
-              <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
+              <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1 shadow-[0_10px_24px_rgba(0,0,0,0.08)]">
                 {PURA_AI_PROFILE_OPTIONS.map((option) => (
                   <button
                     key={option.value}
@@ -4318,10 +4318,10 @@ export function PortalAiChatClient({
         <div ref={scrollerRef} className={chatScrollerClassName}>
           {isDiscussMode ? (
             <div className="pointer-events-none absolute inset-0 overflow-hidden">
-              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(248,250,252,0.82),rgba(255,255,255,0.98))] dark:bg-[linear-gradient(180deg,rgba(9,9,11,0.88),rgba(9,9,11,0.96))]" />
-              <div className="absolute -left-20 -top-20 h-88 w-88 rounded-full bg-[radial-gradient(circle_at_center,rgba(96,165,250,0.12),rgba(96,165,250,0)_72%)] blur-3xl dark:bg-[radial-gradient(circle_at_center,rgba(56,189,248,0.14),rgba(56,189,248,0)_72%)]" />
-              <div className="absolute -right-20 top-[16%] h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,rgba(192,132,252,0.10),rgba(192,132,252,0)_74%)] blur-3xl dark:bg-[radial-gradient(circle_at_center,rgba(168,85,247,0.12),rgba(168,85,247,0)_74%)]" />
-              <div className="absolute -bottom-24 left-[24%] h-64 w-64 rounded-full bg-[radial-gradient(circle_at_center,rgba(244,114,182,0.08),rgba(244,114,182,0)_76%)] blur-3xl dark:bg-[radial-gradient(circle_at_center,rgba(244,114,182,0.10),rgba(244,114,182,0)_76%)]" />
+              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(248,250,252,0.72),rgba(255,255,255,0.98))]" />
+              <div className="absolute -left-20 -top-20 h-88 w-88 rounded-full bg-[radial-gradient(circle_at_center,rgba(96,165,250,0.10),rgba(96,165,250,0)_72%)] blur-3xl" />
+              <div className="absolute -right-20 top-[16%] h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,rgba(192,132,252,0.08),rgba(192,132,252,0)_74%)] blur-3xl" />
+              <div className="absolute -bottom-24 left-[24%] h-64 w-64 rounded-full bg-[radial-gradient(circle_at_center,rgba(244,114,182,0.06),rgba(244,114,182,0)_76%)] blur-3xl" />
             </div>
           ) : null}
           <div className="relative z-10 mx-auto w-full max-w-5xl space-y-3 px-3 py-4 sm:px-4 sm:py-6">
