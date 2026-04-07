@@ -23,6 +23,20 @@ type SeedResult = {
   aiReceptionistSeed?:
     | { ok: true; forced: boolean; inserted: number; skipped: boolean }
     | { ok: false; forced: boolean; error: string };
+  puraDemoSeed?:
+    | {
+        ok: true;
+        forced: boolean;
+        contactsCreated: number;
+        contactsUpdated: number;
+        tasksCreated: number;
+        tasksUpdated: number;
+        reviewsCreated: number;
+        reviewsUpdated: number;
+        linkedInboxThreads: number;
+        serviceSetupsUpdated: number;
+      }
+    | { ok: false; forced: boolean; error: string };
 };
 
 type SeedAiReceptionistResult =
@@ -41,6 +55,11 @@ export default function PortalDemoSeeder() {
   const [aiResult, setAiResult] = useState<SeedAiReceptionistResult | null>(null);
   const [forceAiSeed, setForceAiSeed] = useState(false);
 
+  const [puraLoading, setPuraLoading] = useState(false);
+  const [puraError, setPuraError] = useState<string | null>(null);
+  const [puraResult, setPuraResult] = useState<SeedResult | null>(null);
+  const [forcePuraSeed, setForcePuraSeed] = useState(false);
+
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
@@ -48,6 +67,10 @@ export default function PortalDemoSeeder() {
   useEffect(() => {
     if (aiError) toast.error(aiError);
   }, [aiError, toast]);
+
+  useEffect(() => {
+    if (puraError) toast.error(puraError);
+  }, [puraError, toast]);
 
   useEffect(() => {
     if (result?.inboxSeed && !result.inboxSeed.ok) {
@@ -60,6 +83,12 @@ export default function PortalDemoSeeder() {
       toast.error(`AI receptionist seed failed: ${result.aiReceptionistSeed.error}`);
     }
   }, [result?.aiReceptionistSeed, toast]);
+
+  useEffect(() => {
+    if (puraResult?.puraDemoSeed && !puraResult.puraDemoSeed.ok) {
+      toast.error(`Pura demo seed failed: ${puraResult.puraDemoSeed.error}`);
+    }
+  }, [puraResult?.puraDemoSeed, toast]);
 
   async function readErrorMessage(res: Response) {
     const text = await res.text().catch(() => "");
@@ -143,6 +172,40 @@ export default function PortalDemoSeeder() {
     const json = (await res.json().catch(() => ({}))) as SeedAiReceptionistResult;
     setAiResult(json);
     setAiLoading(false);
+  }
+
+  async function seedPuraDemo() {
+    setPuraLoading(true);
+    setPuraError(null);
+    setPuraResult(null);
+
+    let res: Response;
+    try {
+      res = await fetch("/api/manager/portal/seed-demo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          skipPasswordReset: true,
+          forcePuraSeed,
+          forceInboxSeed: forcePuraSeed,
+          forceAiReceptionistSeed: forcePuraSeed,
+        }),
+      });
+    } catch (e) {
+      setPuraLoading(false);
+      setPuraError(e instanceof Error ? e.message : "Network error while seeding Pura demo data");
+      return;
+    }
+
+    if (!res.ok) {
+      setPuraLoading(false);
+      setPuraError(await readErrorMessage(res));
+      return;
+    }
+
+    const json = (await res.json()) as SeedResult;
+    setPuraResult(json);
+    setPuraLoading(false);
   }
 
   return (
@@ -246,6 +309,45 @@ export default function PortalDemoSeeder() {
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             Seeded AI Receptionist calls for <span className="font-semibold">{(aiResult as any).fullEmail}</span>.{" "}
             {(aiResult as any).skipped ? "Skipped (already present)." : `Inserted ${(aiResult as any).inserted}.`}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-5">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+          <div>
+            <div className="text-sm font-semibold text-brand-ink">Pura demo data</div>
+            <div className="mt-1 text-sm text-zinc-600">
+              Seeds contacts, tasks, reviews, inbox links, and core service setup data for `demo-full@purelyautomation.dev` without changing the current password.
+            </div>
+          </div>
+          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+            <div className="inline-flex items-center gap-3 text-sm text-zinc-700">
+              <ToggleSwitch
+                checked={forcePuraSeed}
+                onChange={setForcePuraSeed}
+                disabled={puraLoading}
+                ariaLabel="Force reseed Pura demo data"
+              />
+              <span>Force reseed all</span>
+            </div>
+            <button
+              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              onClick={seedPuraDemo}
+              disabled={puraLoading}
+            >
+              {puraLoading ? "Seeding…" : "Seed Pura demo data"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 text-xs text-zinc-500">
+          Prompt checklist lives in the repo at <span className="font-semibold text-brand-ink">docs/pura-demo-prompt-checklist.md</span>.
+        </div>
+
+        {puraResult?.puraDemoSeed && puraResult.puraDemoSeed.ok ? (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            Seeded Pura demo data for <span className="font-semibold">{puraResult.full.email}</span>. Contacts {puraResult.puraDemoSeed.contactsCreated + puraResult.puraDemoSeed.contactsUpdated}, tasks {puraResult.puraDemoSeed.tasksCreated + puraResult.puraDemoSeed.tasksUpdated}, reviews {puraResult.puraDemoSeed.reviewsCreated + puraResult.puraDemoSeed.reviewsUpdated}, linked inbox threads {puraResult.puraDemoSeed.linkedInboxThreads}.
           </div>
         ) : null}
       </div>
