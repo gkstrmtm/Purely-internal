@@ -9,7 +9,7 @@ import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { useToast } from "@/components/ToastProvider";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
-import { IconCopy, IconEdit, IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { IconChevron, IconCopy, IconEdit, IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { PURA_AI_PROFILE_OPTIONS, normalizePuraAiProfile, type PuraAiProfile } from "@/lib/puraAiProfile";
@@ -1462,6 +1462,7 @@ export function PortalAiChatClient({
   const [regeneratingTarget, setRegeneratingTarget] = useState<null | { threadId: string; messageId: string }>(null);
   const [chatMode, setChatMode] = useState<ChatMode>("plan");
   const [responseProfile, setResponseProfile] = useState<PuraAiProfile>("balanced");
+  const [modeControlsOpen, setModeControlsOpen] = useState(false);
   const [messageDisplayModesById, setMessageDisplayModesById] = useState<Record<string, ChatMode>>(() => ({}));
 
   const [scheduleTaskOpen, setScheduleTaskOpen] = useState(false);
@@ -1631,12 +1632,11 @@ export function PortalAiChatClient({
     return Boolean(activeThreadId && activeLiveStatus?.canInterrupt && activeLiveStatus?.runId);
   }, [activeLiveStatus?.canInterrupt, activeLiveStatus?.runId, activeThreadId]);
   const chatSurfaceClassName = classNames(
-    "relative flex min-w-0 flex-1 shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)]",
-    isDiscussMode ? "bg-white dark:bg-zinc-950" : "bg-white dark:bg-zinc-950",
+    "relative flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)] dark:bg-zinc-950",
   );
   const chatScrollerClassName = classNames(
-    "min-h-0 flex-1 overflow-y-auto overscroll-y-contain",
-    isDiscussMode ? "bg-transparent" : "bg-white dark:bg-zinc-950",
+    "relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain",
+    isDiscussMode ? "bg-[#fcfdff] dark:bg-zinc-950" : "bg-white dark:bg-zinc-950",
   );
   const sortedRunLedgerRows = useMemo(() => {
     const rows = [...runLedgerRows];
@@ -2015,7 +2015,7 @@ export function PortalAiChatClient({
         // ignore lightweight status refresh failures
       }
     },
-    [],
+    [applyThreadResponseProfile],
   );
 
   const loadThreadStatusLegacy = useCallback(
@@ -2055,7 +2055,7 @@ export function PortalAiChatClient({
         // ignore lightweight polling failures
       }
     },
-    [],
+    [applyThreadResponseProfile],
   );
 
   const applyStreamedThreadsSnapshot = useCallback((threadsRaw: unknown) => {
@@ -2993,7 +2993,7 @@ export function PortalAiChatClient({
         else setThreadSending(sendLockKey, false);
       }
     },
-    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, effectiveChatMode, executeClientUiActions, loadThreadStatus, loadThreads, navigateToThread, rememberMessageDisplayMode, setThreadDraftState, setThreadEditingMessageId, setThreadSending, setThreadUiState, toast, updateThreadMessages],
+    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, effectiveChatMode, effectiveResponseProfile, executeClientUiActions, loadThreadStatus, loadThreads, navigateToThread, rememberMessageDisplayMode, setThreadDraftState, setThreadEditingMessageId, setThreadSending, setThreadUiState, toast, updateThreadMessages],
   );
 
   // Handler for ambiguous contact selection (must be after send is defined)
@@ -3942,47 +3942,68 @@ export function PortalAiChatClient({
         </div>
       ) : null}
 
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
-            <button
-              type="button"
+      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-col items-start gap-2">
+          <button
+            type="button"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 shadow-sm transition-all duration-150 hover:bg-zinc-50"
+            onClick={() => setModeControlsOpen((prev) => !prev)}
+            aria-label={modeControlsOpen ? "Collapse chat modes" : "Expand chat modes"}
+            title={modeControlsOpen ? "Collapse chat modes" : "Expand chat modes"}
+          >
+            <span
               className={classNames(
-                "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
-                effectiveChatMode === "plan" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
+                "inline-flex transition-transform duration-200",
+                modeControlsOpen ? "rotate-90" : "-rotate-90",
               )}
-              onClick={() => void setChatModeForCurrentThread("plan")}
             >
-              Discuss
-            </button>
-            <button
-              type="button"
-              className={classNames(
-                "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
-                effectiveChatMode === "work" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
-              )}
-              onClick={() => void setChatModeForCurrentThread("work")}
-            >
-              Work
-            </button>
-          </div>
+              <IconChevron />
+            </span>
+          </button>
 
-          <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
-            {PURA_AI_PROFILE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={classNames(
-                  "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
-                  effectiveResponseProfile === option.value ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
-                )}
-                onClick={() => void setResponseProfileForCurrentThread(option.value)}
-                title={option.description}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          {modeControlsOpen ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-3xl border border-zinc-200 bg-white/95 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.06)] backdrop-blur">
+              <div className="inline-flex rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
+                <button
+                  type="button"
+                  className={classNames(
+                    "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
+                    effectiveChatMode === "plan" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
+                  )}
+                  onClick={() => void setChatModeForCurrentThread("plan")}
+                >
+                  Discuss
+                </button>
+                <button
+                  type="button"
+                  className={classNames(
+                    "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
+                    effectiveChatMode === "work" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
+                  )}
+                  onClick={() => void setChatModeForCurrentThread("work")}
+                >
+                  Work
+                </button>
+              </div>
+
+              <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
+                {PURA_AI_PROFILE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={classNames(
+                      "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
+                      effectiveResponseProfile === option.value ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
+                    )}
+                    onClick={() => void setResponseProfileForCurrentThread(option.value)}
+                    title={option.description}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="ml-auto flex items-center gap-2">
@@ -4293,16 +4314,16 @@ export function PortalAiChatClient({
       {null}
 
       <div ref={canvasContainerRef} className={chatSurfaceClassName}>
-        {isDiscussMode ? (
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.90),rgba(255,255,255,0.98))] dark:bg-[linear-gradient(180deg,rgba(9,9,11,0.90),rgba(9,9,11,0.98))]" />
-            <div className="absolute -left-28 -top-24 h-[30rem] w-[30rem] rounded-full bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.20),rgba(59,130,246,0)_72%)] blur-3xl dark:bg-[radial-gradient(circle_at_center,rgba(56,189,248,0.16),rgba(56,189,248,0)_72%)]" />
-            <div className="absolute -right-20 top-[18%] h-[28rem] w-[28rem] rounded-full bg-[radial-gradient(circle_at_center,rgba(168,85,247,0.16),rgba(168,85,247,0)_72%)] blur-3xl dark:bg-[radial-gradient(circle_at_center,rgba(168,85,247,0.14),rgba(168,85,247,0)_74%)]" />
-            <div className="absolute bottom-[-8rem] left-[22%] h-[22rem] w-[22rem] rounded-full bg-[radial-gradient(circle_at_center,rgba(244,114,182,0.12),rgba(244,114,182,0)_74%)] blur-3xl dark:bg-[radial-gradient(circle_at_center,rgba(244,114,182,0.10),rgba(244,114,182,0)_76%)]" />
-          </div>
-        ) : null}
         <div className="flex min-w-0 flex-1 flex-col">
         <div ref={scrollerRef} className={chatScrollerClassName}>
+          {isDiscussMode ? (
+            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(248,250,252,0.82),rgba(255,255,255,0.98))] dark:bg-[linear-gradient(180deg,rgba(9,9,11,0.88),rgba(9,9,11,0.96))]" />
+              <div className="absolute -left-20 -top-20 h-88 w-88 rounded-full bg-[radial-gradient(circle_at_center,rgba(96,165,250,0.12),rgba(96,165,250,0)_72%)] blur-3xl dark:bg-[radial-gradient(circle_at_center,rgba(56,189,248,0.14),rgba(56,189,248,0)_72%)]" />
+              <div className="absolute -right-20 top-[16%] h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,rgba(192,132,252,0.10),rgba(192,132,252,0)_74%)] blur-3xl dark:bg-[radial-gradient(circle_at_center,rgba(168,85,247,0.12),rgba(168,85,247,0)_74%)]" />
+              <div className="absolute -bottom-24 left-[24%] h-64 w-64 rounded-full bg-[radial-gradient(circle_at_center,rgba(244,114,182,0.08),rgba(244,114,182,0)_76%)] blur-3xl dark:bg-[radial-gradient(circle_at_center,rgba(244,114,182,0.10),rgba(244,114,182,0)_76%)]" />
+            </div>
+          ) : null}
           <div className="relative z-10 mx-auto w-full max-w-5xl space-y-3 px-3 py-4 sm:px-4 sm:py-6">
             {messagesLoading && !messages.length ? (
               <div className="space-y-3 pt-1">
