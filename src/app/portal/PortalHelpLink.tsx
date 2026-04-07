@@ -56,7 +56,7 @@ function computeHelpHref(pathname: string | null): string {
   return `${base}/tutorials`;
 }
 
-export function PortalHelpLink() {
+export function PortalHelpLink({ glass = false }: { glass?: boolean }) {
   const pathname = usePathname();
   const href = computeHelpHref(pathname);
 
@@ -67,7 +67,9 @@ export function PortalHelpLink() {
       rel="noreferrer"
       aria-label="Help"
       title="Help"
-      className="group relative inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-110 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"
+      className={glass
+        ? "group relative inline-flex h-9 w-9 items-center justify-center text-zinc-700 transition-colors duration-150 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"
+        : "group relative inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-110 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"}
     >
       <IconHelpCircle size={18} />
 

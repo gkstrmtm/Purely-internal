@@ -7,6 +7,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import GlassSurface from "@/components/GlassSurface";
 import { SignOutButton } from "@/components/SignOutButton";
 import { useToast } from "@/components/ToastProvider";
 import {
@@ -116,6 +117,28 @@ const portalSecondaryActionClass =
 
 const portalIconActionClass =
   "transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900";
+
+const portalGlassIconSurfaceProps = {
+  width: 40,
+  height: 40,
+  borderRadius: 16,
+  borderWidth: 0.04,
+  blur: 7,
+  displace: 0.22,
+  distortionScale: -72,
+  redOffset: 0,
+  greenOffset: 2,
+  blueOffset: 6,
+  backgroundOpacity: 0.16,
+  saturation: 1.05,
+  brightness: 46,
+  opacity: 0.985,
+  mixBlendMode: "soft-light" as const,
+  style: { background: "rgba(255,255,255,0.46)", boxShadow: "none" },
+};
+
+const DESKTOP_SIDEBAR_EXPANDED_WIDTH = "17.5rem";
+const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = "4.75rem";
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
   usePortalActiveTimeTracker();
@@ -256,6 +279,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     pathname.includes("/app/services/funnel-builder/funnels/") &&
     (pathname.endsWith("/edit") || pathname.includes("/edit?"));
   const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    root.style.setProperty("--pa-portal-sidebar-width", collapsed ? DESKTOP_SIDEBAR_COLLAPSED_WIDTH : DESKTOP_SIDEBAR_EXPANDED_WIDTH);
+    return () => {
+      root.style.setProperty("--pa-portal-sidebar-width", "0px");
+    };
+  }, [collapsed]);
   const collapsedBeforeCanvasOpenRef = useRef<boolean | null>(null);
   const collapsedBeforeOverrideRef = useRef<boolean | null>(null);
   const prevPuraCanvasOpenRef = useRef(false);
@@ -1441,7 +1473,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           {/* Embedded drawer (secondary navigation only) */}
           <div
             className={classNames(
-              "fixed inset-0 z-[130040]",
+              "fixed inset-0 z-130040",
               mobileOpen ? "" : "pointer-events-none",
             )}
             aria-hidden={!mobileOpen}
@@ -1458,7 +1490,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
             <aside
               className={classNames(
-                "absolute left-0 top-0 z-[130041] flex h-full w-72 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
+                "absolute left-0 top-0 z-130041 flex h-full w-72 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
                 mobileOpen ? "translate-x-0" : "-translate-x-full",
               )}
             >
@@ -1524,24 +1556,28 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
                 <div className="mt-6 border-t border-zinc-200 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
                   <div className="flex items-center justify-end gap-2">
-                    <Link
-                      href={toPurelyHostedUrl("/book-a-call")}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
-                      aria-label="Book a call"
-                      title="Book a call"
-                    >
-                      <IconCalendar size={18} />
-                    </Link>
-                    <Link
-                      href={`${basePath}/tutorials/getting-started?embed=1`}
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
-                      aria-label="Help"
-                      title="Help"
-                    >
-                      <IconHelpCircle size={18} />
-                    </Link>
+                    <GlassSurface {...portalGlassIconSurfaceProps} className="rounded-2xl">
+                      <Link
+                        href={toPurelyHostedUrl("/book-a-call")}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform duration-150 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                        aria-label="Book a call"
+                        title="Book a call"
+                      >
+                        <IconCalendar size={18} />
+                      </Link>
+                    </GlassSurface>
+                    <GlassSurface {...portalGlassIconSurfaceProps} className="rounded-2xl">
+                      <Link
+                        href={`${basePath}/tutorials/getting-started?embed=1`}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform duration-150 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                        aria-label="Help"
+                        title="Help"
+                      >
+                        <IconHelpCircle size={18} />
+                      </Link>
+                    </GlassSurface>
                     <SignOutButton variant="sidebar" collapsed />
                   </div>
                 </div>
@@ -1634,31 +1670,35 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)]"
+      className="h-dvh overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)]"
       style={{
         ["--pa-modal-safe-bottom" as any]: `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`,
       }}
     >
       {isAiChat && !puraCanvasOpen ? (
         <div className="pointer-events-none fixed right-4 top-4 z-30 hidden lg:flex flex-col gap-2">
-          <Link
-            href={toPurelyHostedUrl("/book-a-call")}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white/90 text-zinc-700 shadow-sm backdrop-blur transition-transform hover:scale-110 hover:text-zinc-900 focus-visible:outline-none"
-            aria-label="Book a call"
-            title="Book a call"
-          >
-            <IconCalendar size={22} />
-          </Link>
-          <Link
-            href={`${basePath}/tutorials/getting-started`}
-            className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white/90 text-zinc-700 shadow-sm backdrop-blur transition-transform hover:scale-110 hover:text-zinc-900 focus-visible:outline-none"
-            aria-label="Help"
-            title="Help"
-          >
-            <IconHelpCircle size={22} />
-          </Link>
+          <GlassSurface {...portalGlassIconSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl">
+            <Link
+              href={toPurelyHostedUrl("/book-a-call")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform hover:scale-110 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none"
+              aria-label="Book a call"
+              title="Book a call"
+            >
+              <IconCalendar size={22} />
+            </Link>
+          </GlassSurface>
+          <GlassSurface {...portalGlassIconSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl">
+            <Link
+              href={`${basePath}/tutorials/getting-started`}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform hover:scale-110 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none"
+              aria-label="Help"
+              title="Help"
+            >
+              <IconHelpCircle size={22} />
+            </Link>
+          </GlassSurface>
         </div>
       ) : null}
 
@@ -1712,7 +1752,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         {/* Mobile drawer */}
         <div
           className={classNames(
-            "fixed inset-0 z-[130040] sm:hidden",
+            "fixed inset-0 z-130040 sm:hidden",
             mobileOpen ? "" : "pointer-events-none",
           )}
           aria-hidden={!mobileOpen}
@@ -1729,7 +1769,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           <aside
             className={classNames(
-              "absolute left-0 top-0 z-[130041] flex h-full w-72.5 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
+              "absolute left-0 top-0 z-130041 flex h-full w-72.5 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
             )}
             role="dialog"
@@ -2147,24 +2187,28 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
             <div className="shrink-0 border-t border-zinc-200 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
               <div className="flex items-center justify-end gap-2">
-                <Link
-                  href={toPurelyHostedUrl("/book-a-call")}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
-                  aria-label="Book a call"
-                  title="Book a call"
-                >
-                  <IconCalendar size={18} />
-                </Link>
-                <Link
-                  href={`${basePath}/tutorials/getting-started`}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
-                  aria-label="Help"
-                  title="Help"
-                >
-                  <IconHelpCircle size={18} />
-                </Link>
+                <GlassSurface {...portalGlassIconSurfaceProps} className="rounded-2xl">
+                  <Link
+                    href={toPurelyHostedUrl("/book-a-call")}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform duration-150 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                    aria-label="Book a call"
+                    title="Book a call"
+                  >
+                    <IconCalendar size={18} />
+                  </Link>
+                </GlassSurface>
+                <GlassSurface {...portalGlassIconSurfaceProps} className="rounded-2xl">
+                  <Link
+                    href={`${basePath}/tutorials/getting-started`}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform duration-150 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                    aria-label="Help"
+                    title="Help"
+                  >
+                    <IconHelpCircle size={18} />
+                  </Link>
+                </GlassSurface>
                 <SignOutButton variant="sidebar" collapsed />
               </div>
             </div>
@@ -2172,14 +2216,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <aside
-          style={{ top: "var(--pa-portal-topbar-height,0px)" }}
           className={classNames(
-            "hidden shrink-0 overflow-hidden bg-white transition-[width,height,top] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)] sm:flex sm:h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] sm:flex-col sm:sticky",
+            "hidden shrink-0 overflow-hidden border-r border-zinc-200 bg-white transition-[width] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)] sm:sticky sm:top-0 sm:flex sm:h-dvh sm:flex-col",
             collapsed ? "w-19" : "w-70",
-            activeTopKey === "pura" ? "border-r border-zinc-200 shadow-[2px_0_12px_rgba(0,0,0,0.06)]" : "border-r border-zinc-200",
+            activeTopKey === "pura" && "shadow-[2px_0_12px_rgba(0,0,0,0.06)]",
           )}
         >
-          <div className="shrink-0 p-3">
+          <div className="shrink-0 px-3 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
             <div className="relative">
               <div className="flex items-center gap-2">
                 {!collapsed ? (
@@ -2880,7 +2923,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           <main
             className={classNames(
               "min-h-0 min-w-0 flex-1 sm:transition-[padding] sm:duration-350 sm:ease-[cubic-bezier(0.22,1,0.36,1)]",
-              isAiChat ? "pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:p-0" : "p-4 pb-4 pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:p-8 sm:pb-6 sm:pt-8",
+              isAiChat
+                ? "pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:p-0"
+                : "p-4 pb-4 pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:p-8 sm:pb-6 sm:pt-[calc(var(--pa-portal-topbar-height,0px)+2rem)]",
             )}
           >
             {topBannerCampaign ? (

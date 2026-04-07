@@ -4,6 +4,11 @@
   --background: #f1f5f9;
   --foreground: #171717;
   color-scheme: light;
+  --pa-portal-header-surface: rgba(255, 255, 255, 0.72);
+  --pa-portal-header-border: rgba(255, 255, 255, 0.64);
+  --pa-portal-header-button-bg: rgba(255, 255, 255, 0.62);
+  --pa-portal-header-button-bg-hover: rgba(255, 255, 255, 0.76);
+  --pa-portal-header-shadow: 0 18px 46px rgba(15, 23, 42, 0.1), 0 2px 8px rgba(15, 23, 42, 0.05);
 
   /*
     Modal safe-area vars:
@@ -131,6 +136,11 @@ pre {
   --pa-portal-text-muted: #9aa5b4;
   --pa-portal-text-faint: #7d8896;
   --pa-portal-overlay: rgba(6, 8, 12, 0.76);
+  --pa-portal-header-surface: color-mix(in srgb, var(--pa-portal-bg) 82%, transparent);
+  --pa-portal-header-border: color-mix(in srgb, var(--pa-portal-border-strong) 72%, transparent);
+  --pa-portal-header-button-bg: color-mix(in srgb, var(--pa-portal-surface-2) 88%, transparent);
+  --pa-portal-header-button-bg-hover: color-mix(in srgb, var(--pa-portal-surface-3) 92%, transparent);
+  --pa-portal-header-shadow: 0 22px 52px rgba(0, 0, 0, 0.36), 0 2px 10px rgba(0, 0, 0, 0.22);
   --color-brand-ink: #e6ebf2;
   --color-brand-mist: #090b0f;
   background: var(--pa-portal-bg);

@@ -115,6 +115,12 @@ function refererIsCredit(req: NextRequest) {
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
+  if (path === "/portal/app/pura-preview" || path.startsWith("/portal/app/pura-preview/")) {
+    const url = req.nextUrl.clone();
+    url.pathname = path.replace("/portal/app/pura-preview", "/pura-preview") || "/pura-preview";
+    return NextResponse.redirect(url);
+  }
+
   // Public API routes must never be gated by employee auth.
   // Twilio (and other webhook senders) will fail delivery if we redirect.
   if (path.startsWith("/api/public/")) {
@@ -285,6 +291,12 @@ export async function proxy(req: NextRequest) {
     // Public portal auth pages
     if (isPortalPublicAuth) return respondNextOrRewrite();
 
+    if (rewrittenPath === "/portal/app/pura-preview" || rewrittenPath.startsWith("/portal/app/pura-preview/")) {
+      const url = req.nextUrl.clone();
+      url.pathname = rewrittenPath.replace("/portal/app/pura-preview", "/pura-preview") || "/pura-preview";
+      return NextResponse.redirect(url);
+    }
+
     // Public portal invite acceptance page must be reachable without an employee session.
     if (isPortalPublicInvite) return respondNextOrRewrite();
 
@@ -391,6 +403,12 @@ export async function proxy(req: NextRequest) {
   // Public portal auth pages
   if (isPortalPublicAuth) {
     return NextResponse.next();
+  }
+
+  if (path === "/portal/app/pura-preview" || path.startsWith("/portal/app/pura-preview/")) {
+    const url = req.nextUrl.clone();
+    url.pathname = path.replace("/portal/app/pura-preview", "/pura-preview") || "/pura-preview";
+    return NextResponse.redirect(url);
   }
 
   // Public portal invite acceptance page must be reachable without an employee session.

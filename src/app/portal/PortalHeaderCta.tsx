@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { IconCalendar } from "@/app/portal/PortalIcons";
 
-export function PortalHeaderCta({ canOpenPortalApp }: { canOpenPortalApp: boolean }) {
+export function PortalHeaderCta({ canOpenPortalApp, glass = false }: { canOpenPortalApp: boolean; glass?: boolean }) {
   const pathname = usePathname();
 
   if (!canOpenPortalApp) return null;
@@ -19,7 +19,9 @@ export function PortalHeaderCta({ canOpenPortalApp }: { canOpenPortalApp: boolea
         href="https://purelyautomation.com/#book-a-call"
         target="_blank"
         rel="noreferrer"
-        className="group inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-zinc-700 transition-transform duration-150 hover:scale-110 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"
+        className={glass
+          ? "group inline-flex items-center gap-2 px-0.5 py-1 text-sm font-medium text-zinc-700 transition-colors duration-150 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"
+          : "group inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-zinc-700 transition-transform duration-150 hover:scale-110 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"}
       >
         <span className="text-zinc-600 transition-colors group-hover:text-zinc-900" aria-hidden="true">
           <IconCalendar size={18} />

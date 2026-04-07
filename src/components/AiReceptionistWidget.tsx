@@ -290,6 +290,8 @@ function renderMarkdownish(text: string): React.ReactNode {
 export function AiReceptionistWidget() {
   const pathname = usePathname() || "";
 
+  if (pathname === "/pura-preview") return null;
+
   const [hostname, setHostname] = useState<string>("");
   useEffect(() => {
     try {

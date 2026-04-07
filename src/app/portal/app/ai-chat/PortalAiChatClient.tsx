@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
+import GlassSurface from "@/components/GlassSurface";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { useToast } from "@/components/ToastProvider";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
@@ -1605,6 +1606,12 @@ export function PortalAiChatClient({
   const effectiveChatMode: ChatMode = activeThread?.chatMode ? normalizeThreadChatMode(activeThread.chatMode) : chatMode;
   const isDiscussMode = effectiveChatMode === "plan";
   const effectiveResponseProfile: PuraAiProfile = activeThread?.responseProfile ? normalizeThreadResponseProfile(activeThread.responseProfile) : responseProfile;
+  const effectiveChatModeLabel = effectiveChatMode === "plan" ? "Discuss" : "Work";
+  const effectiveResponseProfileLabel = useMemo(
+    () => PURA_AI_PROFILE_OPTIONS.find((option) => option.value === effectiveResponseProfile)?.label || "Balanced",
+    [effectiveResponseProfile],
+  );
+  const modeSummaryLabel = `${effectiveChatModeLabel} ${effectiveResponseProfileLabel}`;
   const hasThinkingMessage = messages.some((msg) => msg.role === "assistant" && String(msg.id || "").startsWith("optimistic-assistant-"));
   const latestPendingUserText = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -1635,8 +1642,7 @@ export function PortalAiChatClient({
     "relative flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)]",
   );
   const chatScrollerClassName = classNames(
-    "relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain",
-    isDiscussMode ? "bg-[#fcfdff]" : "bg-white",
+    "relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-white",
   );
   const sortedRunLedgerRows = useMemo(() => {
     const rows = [...runLedgerRows];
@@ -3942,109 +3948,6 @@ export function PortalAiChatClient({
         </div>
       ) : null}
 
-      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-        <div className="flex min-w-0 flex-col items-start gap-2">
-          <button
-            type="button"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 shadow-sm transition-all duration-150 hover:bg-zinc-50"
-            onClick={() => setModeControlsOpen((prev) => !prev)}
-            aria-label={modeControlsOpen ? "Collapse chat modes" : "Expand chat modes"}
-            title={modeControlsOpen ? "Collapse chat modes" : "Expand chat modes"}
-          >
-            <span
-              className={classNames(
-                "inline-flex transition-transform duration-200",
-                modeControlsOpen ? "rotate-90" : "-rotate-90",
-              )}
-            >
-              <IconChevron />
-            </span>
-          </button>
-
-          {modeControlsOpen ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex rounded-2xl border border-zinc-200 bg-white p-1 shadow-[0_10px_24px_rgba(0,0,0,0.08)]">
-                <button
-                  type="button"
-                  className={classNames(
-                    "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
-                    effectiveChatMode === "plan" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
-                  )}
-                  onClick={() => void setChatModeForCurrentThread("plan")}
-                >
-                  Discuss
-                </button>
-                <button
-                  type="button"
-                  className={classNames(
-                    "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
-                    effectiveChatMode === "work" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
-                  )}
-                  onClick={() => void setChatModeForCurrentThread("work")}
-                >
-                  Work
-                </button>
-              </div>
-
-              <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1 shadow-[0_10px_24px_rgba(0,0,0,0.08)]">
-                {PURA_AI_PROFILE_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={classNames(
-                      "rounded-xl px-3 py-2 text-xs font-semibold transition-all",
-                      effectiveResponseProfile === option.value ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:text-zinc-900",
-                    )}
-                    onClick={() => void setResponseProfileForCurrentThread(option.value)}
-                    title={option.description}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          {activeThreadId ? (
-            <button
-              type="button"
-              className="inline-flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-              onClick={() => setRunsOpen(true)}
-            >
-              Runs
-            </button>
-          ) : null}
-
-          {workStatusLabel ? (
-            <div className="inline-flex items-center gap-2 rounded-2xl border border-brand-blue/15 bg-blue-50/70 px-3 py-2 text-xs font-medium text-zinc-700">
-              <ThinkingDots />
-              <span>{workStatusLabel}</span>
-            </div>
-          ) : null}
-
-          {activeCanInterrupt && activeThreadId ? (
-            <button
-              type="button"
-              className="inline-flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-              onClick={() => void interruptActiveRun()}
-              disabled={interruptingThreadIds.has(activeThreadId)}
-            >
-              {interruptingThreadIds.has(activeThreadId) ? "Stopping…" : "Stop"}
-            </button>
-          ) : null}
-
-          <button
-            type="button"
-            className="inline-flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 sm:hidden"
-            onClick={() => setMobileThreadsOpen(true)}
-          >
-            Chats
-          </button>
-        </div>
-      </div>
-
       <div className="flex items-end gap-2">
         <div className="relative">
           <button
@@ -4314,17 +4217,135 @@ export function PortalAiChatClient({
       {null}
 
       <div ref={canvasContainerRef} className={chatSurfaceClassName}>
-        <div className="flex min-w-0 flex-1 flex-col">
-        <div ref={scrollerRef} className={chatScrollerClassName}>
-          {isDiscussMode ? (
-            <div className="pointer-events-none absolute inset-0 overflow-hidden">
-              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(248,250,252,0.72),rgba(255,255,255,0.98))]" />
-              <div className="absolute -left-20 -top-20 h-88 w-88 rounded-full bg-[radial-gradient(circle_at_center,rgba(96,165,250,0.10),rgba(96,165,250,0)_72%)] blur-3xl" />
-              <div className="absolute -right-20 top-[16%] h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,rgba(192,132,252,0.08),rgba(192,132,252,0)_74%)] blur-3xl" />
-              <div className="absolute -bottom-24 left-[24%] h-64 w-64 rounded-full bg-[radial-gradient(circle_at_center,rgba(244,114,182,0.06),rgba(244,114,182,0)_76%)] blur-3xl" />
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-30 px-3 pt-3 sm:px-4 sm:pt-4">
+            <div className="mx-auto flex w-full max-w-5xl items-start justify-between gap-3">
+              <GlassSurface
+                width="fit-content"
+                height="auto"
+                borderRadius={24}
+                borderWidth={0.04}
+                blur={7}
+                displace={0.22}
+                distortionScale={-72}
+                redOffset={0}
+                greenOffset={2}
+                blueOffset={6}
+                backgroundOpacity={0.16}
+                saturation={1.05}
+                brightness={46}
+                opacity={0.985}
+                mixBlendMode="soft-light"
+                className="pointer-events-auto max-w-[calc(100%-5rem)] rounded-3xl"
+                style={{
+                  background: "rgba(255,255,255,0.46)",
+                  boxShadow: "none",
+                }}
+              >
+                <div className="flex min-w-0 flex-col items-start gap-1.5 rounded-[22px] bg-[rgba(255,255,255,0.62)] px-1.5 py-1 backdrop-blur-[2px]">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-2xl bg-transparent px-1 py-0.5 text-[13px] font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
+                    onClick={() => setModeControlsOpen((prev) => !prev)}
+                    aria-label={modeControlsOpen ? "Collapse chat modes" : "Expand chat modes"}
+                    title={modeControlsOpen ? "Collapse chat modes" : "Expand chat modes"}
+                  >
+                    <span>{modeSummaryLabel}</span>
+                    <span
+                      className={classNames(
+                        "inline-flex text-zinc-500 transition-transform duration-200",
+                        modeControlsOpen ? "-rotate-90" : "rotate-90",
+                      )}
+                    >
+                      <IconChevron />
+                    </span>
+                  </button>
+
+                  {modeControlsOpen ? (
+                    <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap">
+                      <div className="inline-flex shrink-0 rounded-2xl bg-transparent p-0.5">
+                        <button
+                          type="button"
+                          className={classNames(
+                            "rounded-xl px-2.5 py-1.5 text-xs font-semibold transition-all",
+                            effectiveChatMode === "plan"
+                              ? "bg-[rgba(37,99,235,0.14)] text-brand-blue backdrop-blur-sm"
+                              : "text-zinc-700 hover:text-zinc-900",
+                          )}
+                          onClick={() => void setChatModeForCurrentThread("plan")}
+                        >
+                          Discuss
+                        </button>
+                        <button
+                          type="button"
+                          className={classNames(
+                            "rounded-xl px-2.5 py-1.5 text-xs font-semibold transition-all",
+                            effectiveChatMode === "work"
+                              ? "bg-[rgba(37,99,235,0.14)] text-brand-blue backdrop-blur-sm"
+                              : "text-zinc-700 hover:text-zinc-900",
+                          )}
+                          onClick={() => void setChatModeForCurrentThread("work")}
+                        >
+                          Work
+                        </button>
+                      </div>
+
+                      <div className="inline-flex shrink-0 items-center gap-1 rounded-2xl bg-transparent p-0.5">
+                        {PURA_AI_PROFILE_OPTIONS.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className={classNames(
+                              "rounded-xl px-2.5 py-1.5 text-xs font-semibold transition-all",
+                              effectiveResponseProfile === option.value
+                                ? "bg-[rgba(251,113,133,0.16)] text-(--color-brand-pink) backdrop-blur-sm"
+                                : "text-zinc-700 hover:text-zinc-900",
+                            )}
+                            onClick={() => void setResponseProfileForCurrentThread(option.value)}
+                            title={option.description}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </GlassSurface>
+
+              <div className="pointer-events-auto ml-auto flex items-center gap-2">
+                {workStatusLabel ? (
+                  <div className="hidden items-center gap-2 rounded-2xl border border-brand-blue/15 bg-white/95 px-3 py-2 text-xs font-medium text-zinc-700 shadow-[0_10px_24px_rgba(0,0,0,0.06)] sm:inline-flex">
+                    <ThinkingDots />
+                    <span>{workStatusLabel}</span>
+                  </div>
+                ) : null}
+
+                {activeCanInterrupt && activeThreadId ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 shadow-[0_10px_24px_rgba(0,0,0,0.06)] hover:bg-zinc-50 disabled:opacity-60"
+                    onClick={() => void interruptActiveRun()}
+                    disabled={interruptingThreadIds.has(activeThreadId)}
+                  >
+                    {interruptingThreadIds.has(activeThreadId) ? "Stopping…" : "Stop"}
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  className="inline-flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 shadow-[0_10px_24px_rgba(0,0,0,0.06)] hover:bg-zinc-50 sm:hidden"
+                  onClick={() => setMobileThreadsOpen(true)}
+                >
+                  Chats
+                </button>
+              </div>
             </div>
-          ) : null}
-          <div className="relative z-10 mx-auto w-full max-w-5xl space-y-3 px-3 py-4 sm:px-4 sm:py-6">
+          </div>
+
+          <div ref={scrollerRef} className={chatScrollerClassName}>
+
+          <div className="relative z-10 mx-auto w-full max-w-5xl space-y-3 px-3 pb-16 pt-24 sm:px-4 sm:pb-18 sm:pt-24">
             {messagesLoading && !messages.length ? (
               <div className="space-y-3 pt-1">
                 <div className="h-24 rounded-3xl border border-zinc-200 bg-zinc-50 animate-pulse" />
@@ -4618,10 +4639,10 @@ export function PortalAiChatClient({
               <div className="text-sm text-zinc-400">&nbsp;</div>
             )}
           </div>
-        </div>
+          </div>
 
         {!showWelcomeComposer ? (
-          <div className="shrink-0 border-t border-zinc-200 bg-white px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
+          <div className="relative z-20 shrink-0 border-t border-zinc-200 bg-white px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
             {canvasOpen && canvasUrl ? (
               <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 lg:hidden relative">
                 <div className="min-w-0 truncate">
@@ -4649,26 +4670,62 @@ export function PortalAiChatClient({
               </div>
             ) : null}
 
-            {!canvasOpen && Boolean(canvasUrl) ? (
-              <div className="mb-2 flex justify-end lg:hidden">
-                <button
-                  className="inline-flex h-10 items-center gap-1 rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white shadow-sm hover:opacity-95"
-                  title="Open canvas"
-                  onClick={() => openLatestCanvas({ modal: false })}
-                >
-                  <span className="leading-none">Open work</span>
-                  <span className="text-base leading-none">↗</span>
-                </button>
-              </div>
-            ) : null}
-
             {composerInner}
+          </div>
+        ) : null}
+
+        {!showWelcomeComposer ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4.65rem)] z-30 px-3 sm:px-4">
+            <div className="mx-auto flex w-full max-w-5xl justify-end">
+              <div className="pointer-events-auto flex flex-col items-end gap-2">
+                {!canvasOpen && Boolean(canvasUrl) ? (
+                  <button
+                    className="inline-flex h-10 items-center gap-1 rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white shadow-[0_10px_24px_rgba(0,0,0,0.12)] hover:opacity-95 lg:hidden"
+                    title="Open canvas"
+                    onClick={() => openLatestCanvas({ modal: false })}
+                  >
+                    <span className="leading-none">Open work</span>
+                    <span className="text-base leading-none">↗</span>
+                  </button>
+                ) : null}
+
+                {activeThreadId ? (
+                  <GlassSurface
+                    width="fit-content"
+                    height="auto"
+                    borderRadius={20}
+                    borderWidth={0.04}
+                    blur={7}
+                    displace={0.22}
+                    distortionScale={-72}
+                    redOffset={0}
+                    greenOffset={2}
+                    blueOffset={6}
+                    backgroundOpacity={0.16}
+                    saturation={1.05}
+                    brightness={46}
+                    opacity={0.985}
+                    mixBlendMode="soft-light"
+                    className="rounded-2xl"
+                    style={{ background: "rgba(255,255,255,0.46)", boxShadow: "none" }}
+                  >
+                    <button
+                      type="button"
+                      className="inline-flex h-10 items-center rounded-2xl bg-[rgba(255,255,255,0.62)] px-3 text-xs font-semibold text-zinc-700 backdrop-blur-[2px] hover:bg-[rgba(255,255,255,0.72)]"
+                      onClick={() => setRunsOpen(true)}
+                    >
+                      Activity
+                    </button>
+                  </GlassSurface>
+                ) : null}
+              </div>
+            </div>
           </div>
         ) : null}
 
         {!canvasOpen && Boolean(canvasUrl) ? (
           <button
-            className="hidden lg:absolute lg:right-0 lg:top-32 lg:inline-flex lg:h-10 lg:items-center lg:gap-1 lg:rounded-l-2xl lg:rounded-r-none lg:border lg:border-brand-blue/20 lg:bg-brand-blue lg:px-3 lg:py-2 lg:text-xs lg:font-bold lg:text-white lg:shadow-none hover:opacity-95"
+            className="hidden lg:absolute lg:right-0 lg:top-32 lg:z-30 lg:inline-flex lg:h-10 lg:items-center lg:gap-1 lg:rounded-l-2xl lg:rounded-r-none lg:border lg:border-brand-blue/20 lg:bg-brand-blue lg:px-3 lg:py-2 lg:text-xs lg:font-bold lg:text-white lg:shadow-[0_10px_24px_rgba(0,0,0,0.12)] hover:opacity-95"
             title="Open canvas"
             onClick={() => openLatestCanvas({ modal: false })}
           >
