@@ -6,10 +6,209 @@ import { deriveThreadContextPatchFromAction, executePortalAgentAction } from "@/
 import type { PortalAgentActionKey } from "@/lib/portalAgentActions";
 import { tryParseScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
 import { getScheduledRecurrenceTimeZone, withScheduledRecurrenceMetadata } from "@/lib/portalAiChatScheduledRecurrence";
+import { getOwnerProfilePhoneE164 } from "@/lib/missedCallTextBack";
+import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { planPuraActions } from "@/lib/puraPlanner";
 import { resolvePlanArgs } from "@/lib/puraResolver";
 import { isPortalSupportChatConfigured } from "@/lib/portalSupportChat";
-import { generateText } from "@/lib/ai";
+import { generatePuraText as generateText, runWithPuraAiProfile } from "@/lib/puraAi";
+import { normalizePuraAiProfile } from "@/lib/puraAiProfile";
+
+type PendingScheduleResumeState = {
+  source: "scheduled";
+  channel: "sms";
+  awaitingReply: boolean;
+  ownerPhoneE164: string;
+  actorUserId: string | null;
+  scheduledMessageId: string | null;
+  repeatEveryMinutes: number;
+  recurrenceTimeZone: string | null;
+  workTitle: string | null;
+  question: string | null;
+  createdAt: string;
+  notifiedAt: string | null;
+  repliedAt: string | null;
+};
+
+function normalizePendingScheduleResumeState(raw: unknown): PendingScheduleResumeState | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  if (String(rec.source || "") !== "scheduled" || String(rec.channel || "") !== "sms") return null;
+
+  const ownerPhoneE164 = typeof rec.ownerPhoneE164 === "string" ? rec.ownerPhoneE164.trim().slice(0, 60) : "";
+  if (!ownerPhoneE164) return null;
+
+  const repeatEveryMinutes =
+    typeof rec.repeatEveryMinutes === "number" && Number.isFinite(rec.repeatEveryMinutes)
+      ? Math.max(0, Math.floor(rec.repeatEveryMinutes))
+      : 0;
+
+  return {
+    source: "scheduled",
+    channel: "sms",
+    awaitingReply: rec.awaitingReply !== false,
+    ownerPhoneE164,
+    actorUserId: typeof rec.actorUserId === "string" && rec.actorUserId.trim() ? rec.actorUserId.trim().slice(0, 120) : null,
+    scheduledMessageId: typeof rec.scheduledMessageId === "string" && rec.scheduledMessageId.trim() ? rec.scheduledMessageId.trim().slice(0, 120) : null,
+    repeatEveryMinutes,
+    recurrenceTimeZone: typeof rec.recurrenceTimeZone === "string" && rec.recurrenceTimeZone.trim() ? rec.recurrenceTimeZone.trim().slice(0, 80) : null,
+    workTitle: typeof rec.workTitle === "string" && rec.workTitle.trim() ? rec.workTitle.trim().slice(0, 240) : null,
+    question: typeof rec.question === "string" && rec.question.trim() ? rec.question.trim().slice(0, 800) : null,
+    createdAt: typeof rec.createdAt === "string" && rec.createdAt.trim() ? rec.createdAt : new Date().toISOString(),
+    notifiedAt: typeof rec.notifiedAt === "string" && rec.notifiedAt.trim() ? rec.notifiedAt : null,
+    repliedAt: typeof rec.repliedAt === "string" && rec.repliedAt.trim() ? rec.repliedAt : null,
+  };
+}
+
+async function enqueueNextRecurringScheduledMessage(opts: {
+  ownerId: string;
+  threadId: string;
+  text: string;
+  attachmentsJson: unknown;
+  createdByUserId: string | null;
+  scheduledAt: Date | null;
+  repeatEveryMinutes: number;
+  recurrenceTimeZone?: string | null;
+}) {
+  if (!(opts.repeatEveryMinutes > 0)) return;
+  const nextAt = await computeNextRecurringRunAt({
+    scheduledAt: opts.scheduledAt,
+    repeatEveryMinutes: opts.repeatEveryMinutes,
+    recurrenceTimeZone: opts.recurrenceTimeZone,
+  });
+  if (!nextAt) throw new Error("Unable to compute next recurring run time");
+  await (prisma as any).portalAiChatMessage.create({
+    data: {
+      ownerId: opts.ownerId,
+      threadId: opts.threadId,
+      role: "user",
+      text: String(opts.text || "").slice(0, 4000),
+      attachmentsJson: opts.attachmentsJson ?? null,
+      createdByUserId: opts.createdByUserId ?? null,
+      sendAt: nextAt,
+      sentAt: null,
+      repeatEveryMinutes: opts.repeatEveryMinutes,
+    },
+    select: { id: true },
+  });
+}
+
+async function maybeNotifyScheduledTaskNeedsInputBySms(opts: {
+  ownerId: string;
+  actorUserId: string | null;
+  threadContext: unknown;
+  scheduledMessageId: string;
+  repeatEveryMinutes: number;
+  recurrenceTimeZone?: string | null;
+  workTitle?: string | null;
+  question?: string | null;
+}) {
+  const existing =
+    opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext)
+      ? normalizePendingScheduleResumeState((opts.threadContext as any).pendingScheduleResume)
+      : null;
+
+  if (existing?.awaitingReply) {
+    return existing;
+  }
+
+  const ownerPhoneE164 = await getOwnerProfilePhoneE164(opts.ownerId).catch(() => null);
+  if (!ownerPhoneE164) return null;
+
+  const question = typeof opts.question === "string" && opts.question.trim() ? opts.question.trim().slice(0, 500) : "Reply with the missing detail so I can continue.";
+  const workTitle = typeof opts.workTitle === "string" && opts.workTitle.trim() ? opts.workTitle.trim().slice(0, 160) : "your scheduled task";
+  const smsBody = [
+    `Pura needs your reply to continue ${workTitle}.`,
+    question,
+    "Reply here and I’ll continue it in the portal.",
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .slice(0, 900);
+
+  const sent = await sendOwnerTwilioSms({ ownerId: opts.ownerId, to: ownerPhoneE164, body: smsBody, logToInbox: false }).catch(() => null);
+  if (!sent || !(sent as any).ok) return null;
+
+  return {
+    source: "scheduled",
+    channel: "sms",
+    awaitingReply: true,
+    ownerPhoneE164,
+    actorUserId: opts.actorUserId ?? null,
+    scheduledMessageId: opts.scheduledMessageId,
+    repeatEveryMinutes: Math.max(0, Math.floor(opts.repeatEveryMinutes || 0)),
+    recurrenceTimeZone: opts.recurrenceTimeZone ? String(opts.recurrenceTimeZone).slice(0, 80) : null,
+    workTitle: workTitle || null,
+    question: question || null,
+    createdAt: new Date().toISOString(),
+    notifiedAt: new Date().toISOString(),
+    repliedAt: null,
+  } satisfies PendingScheduleResumeState;
+}
+
+export async function resumeScheduledPortalAiChatFromSms(opts: {
+  ownerId: string;
+  fromPhone: string;
+  body: string;
+}): Promise<{ matched: boolean; threadId?: string; replyText?: string }> {
+  const fromPhone = String(opts.fromPhone || "").trim();
+  const body = String(opts.body || "").trim().slice(0, 4000);
+  if (!fromPhone || !body) return { matched: false };
+
+  const threads = await (prisma as any).portalAiChatThread.findMany({
+    where: { ownerId: opts.ownerId },
+    orderBy: { lastMessageAt: "desc" },
+    take: 100,
+    select: { id: true, contextJson: true },
+  });
+
+  const match = (threads || []).find((thread: any) => {
+    const ctx = thread?.contextJson && typeof thread.contextJson === "object" && !Array.isArray(thread.contextJson) ? thread.contextJson : null;
+    const pending = normalizePendingScheduleResumeState(ctx ? (ctx as any).pendingScheduleResume : null);
+    return Boolean(pending?.awaitingReply && pending.ownerPhoneE164 === fromPhone);
+  });
+
+  if (!match) return { matched: false };
+
+  const ctx = match.contextJson && typeof match.contextJson === "object" && !Array.isArray(match.contextJson) ? (match.contextJson as any) : {};
+  const pending = normalizePendingScheduleResumeState(ctx.pendingScheduleResume);
+  if (!pending) return { matched: false };
+
+  await (prisma as any).portalAiChatMessage.create({
+    data: {
+      ownerId: opts.ownerId,
+      threadId: String(match.id),
+      role: "user",
+      text: body,
+      attachmentsJson: { source: "scheduled_sms_reply" },
+      createdByUserId: pending.actorUserId ?? null,
+      sendAt: new Date(),
+      sentAt: null,
+    },
+    select: { id: true },
+  });
+
+  await (prisma as any).portalAiChatThread.update({
+    where: { id: String(match.id) },
+    data: {
+      lastMessageAt: new Date(),
+      contextJson: {
+        ...ctx,
+        pendingScheduleResume: null,
+      },
+    },
+  });
+
+  await processDuePortalAiChatScheduledMessages({ ownerId: opts.ownerId, limit: 25 }).catch(() => null);
+
+  return {
+    matched: true,
+    threadId: String(match.id),
+    replyText: pending.workTitle
+      ? `Got it — I’ll continue ${pending.workTitle} and follow up in the portal.`
+      : "Got it — I’ll continue that scheduled task and follow up in the portal.",
+  };
+}
 
 async function computeNextRecurringRunAt(opts: {
   scheduledAt: Date | null;
@@ -42,12 +241,13 @@ async function computeNextRecurringRunAt(opts: {
   return next.isValid ? next.toJSDate() : fallback;
 }
 
-async function tryGenerateScheduledAssistantText(opts: { system: string; payload: unknown; maxLen?: number }): Promise<string> {
+async function tryGenerateScheduledAssistantText(opts: { system: string; payload: unknown; maxLen?: number; profile?: unknown }): Promise<string> {
   try {
     const out = String(
       await generateText({
         system: opts.system,
         user: `Context (JSON):\n${JSON.stringify(opts.payload ?? null, null, 2)}`,
+        profile: normalizePuraAiProfile(opts.profile),
       }),
     )
       .trim()
@@ -143,6 +343,8 @@ export async function processDuePortalAiChatScheduledMessages(
     });
     if (!claim?.count) continue;
 
+    let responseProfile = normalizePuraAiProfile(undefined);
+
     try {
 
     const thread = await (prisma as any).portalAiChatThread.findFirst({
@@ -167,7 +369,27 @@ export async function processDuePortalAiChatScheduledMessages(
       .slice(-120);
 
     const threadContext = (thread as any)?.contextJson ?? null;
+    responseProfile = normalizePuraAiProfile((threadContext as any)?.responseProfile);
     const text = String((p as any).text || "").trim().slice(0, 4000);
+    const pendingScheduleResume =
+      threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
+        ? normalizePendingScheduleResumeState((threadContext as any).pendingScheduleResume)
+        : null;
+
+    if (pendingScheduleResume?.awaitingReply) {
+      await enqueueNextRecurringScheduledMessage({
+        ownerId,
+        threadId,
+        text: String((p as any).text || ""),
+        attachmentsJson: normalizedAttachmentsJson,
+        createdByUserId: (p as any).createdByUserId ?? null,
+        scheduledAt,
+        repeatEveryMinutes,
+        recurrenceTimeZone: effectiveRecurrenceTimeZone,
+      });
+      processed += 1;
+      continue;
+    }
 
     const envelope = tryParseScheduledActionEnvelope(text);
 
@@ -178,7 +400,7 @@ export async function processDuePortalAiChatScheduledMessages(
       return { ...prevCtx, ownerTimeZone };
     })();
 
-    const plan = envelope
+    const plan = await runWithPuraAiProfile(responseProfile, async () => envelope
       ? ({
           mode: "execute" as const,
           workTitle: envelope.workTitle || "Scheduled action",
@@ -198,7 +420,7 @@ export async function processDuePortalAiChatScheduledMessages(
             recentMessages,
             threadContext: effectiveThreadContext,
           });
-        })();
+        })());
 
     // For deterministic scheduled-action envelopes, each step already contains its own explicit ref hints.
     // Do NOT reuse `workTitle` as a resolver hint (it is often a generic schedule label like "Weekday SMS"
@@ -228,6 +450,7 @@ export async function processDuePortalAiChatScheduledMessages(
               : "no_actions_to_execute",
         },
         maxLen: 800,
+        profile: responseProfile,
       });
 
       if (assistantText) {
@@ -259,8 +482,10 @@ export async function processDuePortalAiChatScheduledMessages(
         system: [
           "You are an assistant inside a SaaS portal.",
           "A scheduled run cannot proceed because the action requires manual confirmation.",
-          "Write a short message (1-2 sentences) telling the user to open the thread and confirm.",
+          "Write a short message (1-2 sentences) asking for confirmation in the portal chat.",
           "Rules:",
+          "- Do not mention SMS, texting, phones, or any other channel.",
+          "- Do not tell the user to reply here or open another thread.",
           "- No JSON.",
         ].join("\n"),
         payload: {
@@ -268,6 +493,7 @@ export async function processDuePortalAiChatScheduledMessages(
           requiresConfirmation: true,
         },
         maxLen: 600,
+        profile: responseProfile,
       });
 
       if (assistantText) {
@@ -285,7 +511,21 @@ export async function processDuePortalAiChatScheduledMessages(
           select: { id: true },
         });
       }
-      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date() } });
+      const pendingScheduleResumeState = await maybeNotifyScheduledTaskNeedsInputBySms({
+        ownerId,
+        actorUserId,
+        threadContext: effectiveThreadContext,
+        scheduledMessageId: String(p.id),
+        repeatEveryMinutes,
+        recurrenceTimeZone: effectiveRecurrenceTimeZone,
+        workTitle: (plan as any)?.workTitle ?? confirmSpec?.title ?? null,
+        question: assistantText || `Please reply YES if you want me to continue ${(plan as any)?.workTitle ?? "this scheduled task"}.`,
+      });
+      const prevCtx = effectiveThreadContext && typeof effectiveThreadContext === "object" && !Array.isArray(effectiveThreadContext) ? (effectiveThreadContext as any) : {};
+      await (prisma as any).portalAiChatThread.update({
+        where: { id: threadId },
+        data: { lastMessageAt: new Date(), contextJson: { ...prevCtx, pendingScheduleResume: pendingScheduleResumeState ?? null } },
+      });
       processed += 1;
       continue;
     }
@@ -325,6 +565,8 @@ export async function processDuePortalAiChatScheduledMessages(
             "Ask ONE concise clarifying question so the user can provide the missing detail.",
             "Rules:",
             "- 1-2 sentences.",
+            "- Do not mention SMS, texting, phones, or any other channel.",
+            "- Do not tell the user to reply here or elsewhere.",
             "- Do not ask for internal IDs unless the user must paste one.",
             "- No JSON.",
           ].join("\n"),
@@ -334,6 +576,7 @@ export async function processDuePortalAiChatScheduledMessages(
             rawClarifyPrompt: rawClarifyPrompt || null,
           },
           maxLen: 600,
+          profile: responseProfile,
         });
 
         if (!clarifyText) {
@@ -358,7 +601,23 @@ export async function processDuePortalAiChatScheduledMessages(
           select: { id: true },
         });
 
-        const nextCtx = { ...localCtx, pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null } };
+        const pendingScheduleResumeState = await maybeNotifyScheduledTaskNeedsInputBySms({
+          ownerId,
+          actorUserId,
+          threadContext: localCtx,
+          scheduledMessageId: String(p.id),
+          repeatEveryMinutes,
+          recurrenceTimeZone: effectiveRecurrenceTimeZone,
+          workTitle: (plan as any)?.workTitle ?? step.title ?? null,
+          question: clarifyText || rawClarifyPrompt || null,
+        });
+
+        const nextCtx = {
+          ...localCtx,
+          pendingPlan: plan,
+          pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null },
+          pendingScheduleResume: pendingScheduleResumeState ?? null,
+        };
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date(), contextJson: nextCtx } });
 
         // Stop on the first unresolved step.
@@ -378,7 +637,7 @@ export async function processDuePortalAiChatScheduledMessages(
         localCtx = { ...localCtx, ...(resolved.contextPatch as any) };
       }
 
-      const exec = await executePortalAgentAction({ ownerId, actorUserId, action: step.key, args: resolvedArgs });
+      const exec = await executePortalAgentAction({ ownerId, actorUserId, action: step.key, args: resolvedArgs, responseProfile });
       results.push({
         ok: Boolean((exec as any).ok),
         status: Number((exec as any).status) || 0,
@@ -438,6 +697,7 @@ export async function processDuePortalAiChatScheduledMessages(
               null,
               2,
             )}`,
+            profile: responseProfile,
           }),
         ).trim();
       } catch {
@@ -481,8 +741,8 @@ export async function processDuePortalAiChatScheduledMessages(
       const runs = [...prevRuns.slice(-19), runTrace];
 
       const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-        ? { ...(prevCtx as any), ...mergedPatch, lastWorkTitle: (plan as any)?.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, pendingPlanClarify: null, runs }
-        : { ...mergedPatch, lastWorkTitle: (plan as any)?.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, pendingPlanClarify: null, runs };
+        ? { ...(prevCtx as any), ...mergedPatch, lastWorkTitle: (plan as any)?.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, pendingPlanClarify: null, pendingScheduleResume: null, runs }
+        : { ...mergedPatch, lastWorkTitle: (plan as any)?.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, pendingPlanClarify: null, pendingScheduleResume: null, runs };
 
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date(), contextJson: nextCtx } });
       await persistPortalAiChatRun({
@@ -497,28 +757,16 @@ export async function processDuePortalAiChatScheduledMessages(
     }
 
       // If this was a repeating scheduled message, enqueue the next run.
-      if (repeatEveryMinutes > 0) {
-        const nextAt = await computeNextRecurringRunAt({
-          scheduledAt,
-          repeatEveryMinutes,
-          recurrenceTimeZone: effectiveRecurrenceTimeZone,
-        });
-        if (!nextAt) throw new Error("Unable to compute next recurring run time");
-        await (prisma as any).portalAiChatMessage.create({
-          data: {
-            ownerId,
-            threadId,
-            role: "user",
-            text: String((p as any).text || "").slice(0, 4000),
-            attachmentsJson: normalizedAttachmentsJson,
-            createdByUserId: (p as any).createdByUserId ?? null,
-            sendAt: nextAt,
-            sentAt: null,
-            repeatEveryMinutes,
-          },
-          select: { id: true },
-        });
-      }
+      await enqueueNextRecurringScheduledMessage({
+        ownerId,
+        threadId,
+        text: String((p as any).text || ""),
+        attachmentsJson: normalizedAttachmentsJson,
+        createdByUserId: (p as any).createdByUserId ?? null,
+        scheduledAt,
+        repeatEveryMinutes,
+        recurrenceTimeZone: effectiveRecurrenceTimeZone,
+      });
 
       processed += 1;
     } catch (error) {
@@ -530,6 +778,9 @@ export async function processDuePortalAiChatScheduledMessages(
           "A scheduled task attempted to run but failed.",
           "Write a short message (1-2 sentences) letting the user know it failed.",
           "Rules:",
+          "- Say the exact failure reason in plain language when it is available.",
+          "- If the failure looks temporary (timeout, rate limit, provider outage, network issue), say that clearly and tell them retrying later may help.",
+          "- If the failure is due to something unsupported or not configured, say retrying later will not fix it until that limitation is addressed.",
           "- Do not include stack traces.",
           "- No JSON.",
         ].join("\n"),
@@ -563,28 +814,16 @@ export async function processDuePortalAiChatScheduledMessages(
         data: { lastMessageAt: new Date() },
       }).catch(() => null);
 
-      if (repeatEveryMinutes > 0) {
-        const nextAt = await computeNextRecurringRunAt({
-          scheduledAt,
-          repeatEveryMinutes,
-          recurrenceTimeZone: effectiveRecurrenceTimeZone,
-        });
-        if (!nextAt) throw new Error("Unable to compute next recurring run time");
-        await (prisma as any).portalAiChatMessage.create({
-          data: {
-            ownerId,
-            threadId,
-            role: "user",
-            text: String((p as any).text || "").slice(0, 4000),
-            attachmentsJson: normalizedAttachmentsJson,
-            createdByUserId: (p as any).createdByUserId ?? null,
-            sendAt: nextAt,
-            sentAt: null,
-            repeatEveryMinutes,
-          },
-          select: { id: true },
-        }).catch(() => null);
-      }
+      await enqueueNextRecurringScheduledMessage({
+        ownerId,
+        threadId,
+        text: String((p as any).text || ""),
+        attachmentsJson: normalizedAttachmentsJson,
+        createdByUserId: (p as any).createdByUserId ?? null,
+        scheduledAt,
+        repeatEveryMinutes,
+        recurrenceTimeZone: effectiveRecurrenceTimeZone,
+      }).catch(() => null);
     }
   }
 

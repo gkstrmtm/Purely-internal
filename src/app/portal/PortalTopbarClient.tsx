@@ -135,6 +135,7 @@ export function PortalTopbarClient(props: {
       }}
       className={classNames(
         "pa-portal-topbar sticky top-0 z-20 overflow-hidden bg-white/80 backdrop-blur transition-[height,border-color]",
+        isPortalAppRoute && "max-sm:hidden",
         hidden ? "pointer-events-none border-b border-transparent" : "border-b border-zinc-200",
       )}
     >

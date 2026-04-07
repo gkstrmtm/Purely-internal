@@ -31,6 +31,7 @@ import {
   PortalAgentActionArgsSchemaByKey,
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
+import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction } from "@/lib/portalAgentActionMeta";
 import { resolvePlanArgs } from "@/lib/puraResolver";
 import { findPlaceholderIdPaths, looksLikePlaceholderId, sanitizeIdLikeObjectDeep } from "@/lib/agentIdSanitizer";
 import { addCredits, addCreditsTx, consumeCredits, consumeCreditsOnce, getCreditsLifecycleForOwner, getCreditsState, setAutoTopUp } from "@/lib/credits";
@@ -59,7 +60,7 @@ import { runOwnerAutomationByIdForEvent, runOwnerAutomationByIdForInboundSms, ru
 import { processDueAppointmentEnded, processDueMissedAppointments, processDueScheduledAutomations } from "@/lib/portalAutomationsCron";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
-import { sendNewsletterToAudience, uniqueNewsletterSlug } from "@/lib/portalNewsletter";
+import { ensureNewsletterSiteForOwner, sendNewsletterToAudience, uniqueNewsletterSlug } from "@/lib/portalNewsletter";
 import { normalizeNewsletterFontKey, stripLegacyNewsletterFontWrapper } from "@/lib/portalNewsletterFonts";
 import { slugify } from "@/lib/slugify";
 import { getBookingCalendarsConfig, setBookingCalendarsConfig } from "@/lib/bookingCalendars";
@@ -116,7 +117,7 @@ import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { isLikelyImageMimeType, safeFilename, newPublicToken, newTag, normalizeMimeType, normalizeNameKey } from "@/lib/portalMedia";
 import { sendVerifyEmail } from "@/lib/portalEmailVerification.server";
 import { verifyEmailToken } from "@/lib/portalEmailVerification.server";
-import { addPortalDashboardWidget, getPortalDashboardData, isDashboardWidgetId, removePortalDashboardWidget, resetPortalDashboard, savePortalDashboardData, type DashboardWidgetId } from "@/lib/portalDashboard";
+import { addPortalDashboardWidget, getPortalDashboardData, getPortalDashboardMeta, isDashboardWidgetId, removePortalDashboardWidget, resetPortalDashboard, savePortalDashboardData, setPortalDashboardAnalysis, setPortalDashboardQuickAccess, type DashboardWidgetId, type PortalDashboardAnalysis } from "@/lib/portalDashboard";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import {
   cancelFollowUpsForBooking,
@@ -140,7 +141,9 @@ import { isB2cLeadPullUnlocked } from "@/lib/leadScrapingAccess";
 import { createPortalLeadCompat } from "@/lib/portalLeadCompat";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeDelete, stripeGet, stripePost } from "@/lib/stripeFetch";
-import { generateText, generateTextWithImages, transcribeAudio, transcribeAudioVerbose } from "@/lib/ai";
+import { generatePuraText as generateText, generatePuraTextWithImages as generateTextWithImages, isPuraAiConfigured, runWithPuraAiProfile, transcribePuraAudio as transcribeAudio, transcribePuraAudioVerbose as transcribeAudioVerbose } from "@/lib/puraAi";
+import { normalizePuraAiProfile } from "@/lib/puraAiProfile";
+import { createScopedPortalApiKey, deletePortalApiKey, listPortalApiKeys, revealPortalApiKey, updateScopedPortalApiKey } from "@/lib/portalApiKeys.server";
 import { getBusinessProfileAiContext, getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccountUsers, tryNotifyPortalUserIds } from "@/lib/portalNotifications";
 import { GET as authVerificationEmailCronGET } from "@/app/api/portal/auth/verification-email/cron/route";
@@ -202,6 +205,7 @@ import { clampSalesRangeKey, getSalesReportForOwner } from "@/lib/salesReporting
 import { validateSalesCredentials, type ConnectCredentialsInput } from "@/lib/salesReportingReport.server";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 import { getOrCreatePortalReferralCode, getPortalReferralStats, rotatePortalReferralCode } from "@/lib/portalReferrals.server";
+import { normalizePortalAiChatRunRecord } from "@/lib/portalAiChatRunLedger";
 import { buildSuggestedSetupPreviewForOwner } from "@/lib/suggestedSetup/server";
 import { applySuggestedSetupActions } from "@/lib/suggestedSetup/executor";
 import { renderTextToPdfBytes } from "@/lib/simplePdf";
@@ -258,6 +262,143 @@ function sanitizeThreadContextPatch(patch: Record<string, unknown> | null | unde
   return Object.keys(out).length ? out : null;
 }
 
+function isFreshIso(iso: string | null | undefined, maxAgeMs: number) {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return false;
+  return Date.now() - d.getTime() <= maxAgeMs;
+}
+
+function normalizePortalAiChatThreadLiveStatus(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const phase = typeof rec.phase === "string" ? String(rec.phase).trim().slice(0, 80) : null;
+  const label = typeof rec.label === "string" ? String(rec.label).trim().slice(0, 200) : null;
+  const actionKey = typeof rec.actionKey === "string" ? String(rec.actionKey).trim().slice(0, 120) : null;
+  const title = typeof rec.title === "string" ? String(rec.title).trim().slice(0, 200) : null;
+  const updatedAt = typeof rec.updatedAt === "string" ? String(rec.updatedAt).trim().slice(0, 80) : null;
+  const runId = typeof rec.runId === "string" ? String(rec.runId).trim().slice(0, 120) : null;
+  const canInterrupt = Boolean(rec.canInterrupt);
+  const round = Number.isFinite(Number(rec.round)) ? Math.max(1, Math.min(99, Math.floor(Number(rec.round)))) : null;
+  const completedSteps = Number.isFinite(Number(rec.completedSteps)) ? Math.max(0, Math.min(99, Math.floor(Number(rec.completedSteps)))) : null;
+  const lastCompletedTitle = typeof rec.lastCompletedTitle === "string" ? String(rec.lastCompletedTitle).trim().slice(0, 200) : null;
+  if (!phase && !label && !actionKey && !title && !updatedAt && !runId && !canInterrupt && round == null && completedSteps == null && !lastCompletedTitle) return null;
+  return { phase, label, actionKey, title, updatedAt, runId, canInterrupt, round, completedSteps, lastCompletedTitle };
+}
+
+function normalizePortalAiChatThreadContextSnapshot(raw: unknown) {
+  const ctx = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const lastCanvasUrl = typeof ctx.lastCanvasUrl === "string" && ctx.lastCanvasUrl.trim() ? String(ctx.lastCanvasUrl).trim().slice(0, 1200) : null;
+  const lastWorkTitle = typeof ctx.lastWorkTitle === "string" && ctx.lastWorkTitle.trim() ? String(ctx.lastWorkTitle).trim().slice(0, 200) : null;
+  const liveStatus = normalizePortalAiChatThreadLiveStatus(ctx.liveStatus);
+  return { lastCanvasUrl, lastWorkTitle, liveStatus };
+}
+
+function normalizePortalAiChatLatestRunStatus(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const status = typeof rec.status === "string" ? String(rec.status).trim().slice(0, 40) : "";
+  const runId = typeof rec.runId === "string" ? String(rec.runId).trim().slice(0, 120) : null;
+  const updatedAtValue = rec.interruptedAt || rec.completedAt || rec.updatedAt || rec.createdAt || null;
+  const updatedAt = updatedAtValue ? new Date(updatedAtValue as any).toISOString() : null;
+  if (!status) return null;
+  return { status, runId, updatedAt };
+}
+
+function normalizePortalAiChatNextStepContext(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const suggestions = Array.isArray(rec.suggestions)
+    ? (rec.suggestions as unknown[])
+        .map((value) => (typeof value === "string" ? String(value).trim().slice(0, 180) : ""))
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
+  const suggestedPrompt = typeof rec.suggestedPrompt === "string" && rec.suggestedPrompt.trim()
+    ? String(rec.suggestedPrompt).trim().slice(0, 180)
+    : suggestions[0] || null;
+  const objective = typeof rec.objective === "string" && rec.objective.trim() ? String(rec.objective).trim().slice(0, 400) : null;
+  const workTitle = typeof rec.workTitle === "string" && rec.workTitle.trim() ? String(rec.workTitle).trim().slice(0, 200) : null;
+  const summaryText = typeof rec.summaryText === "string" && rec.summaryText.trim() ? String(rec.summaryText).trim().slice(0, 280) : null;
+  const updatedAt = typeof rec.updatedAt === "string" && rec.updatedAt.trim() ? String(rec.updatedAt).trim().slice(0, 80) : null;
+  const canvasUrl = typeof rec.canvasUrl === "string" && rec.canvasUrl.trim() ? String(rec.canvasUrl).trim().slice(0, 1200) : null;
+  if (!suggestedPrompt && !objective && !workTitle && !summaryText) return null;
+  return { updatedAt, objective, workTitle, summaryText, suggestedPrompt, suggestions, canvasUrl };
+}
+
+async function loadPortalAiChatLatestRunStatusByThread(ownerId: string, threadIds: string[]) {
+  const ids = Array.from(new Set((threadIds || []).map((id) => String(id || "").trim()).filter(Boolean))).slice(0, 200);
+  if (!ids.length) return new Map<string, { status: string; runId: string | null; updatedAt: string | null }>();
+
+  const rows = await (prisma as any).portalAiChatRun.findMany({
+    where: { ownerId, threadId: { in: ids } },
+    orderBy: [{ threadId: "asc" }, { createdAt: "desc" }],
+    distinct: ["threadId"],
+    select: {
+      threadId: true,
+      runId: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      completedAt: true,
+      interruptedAt: true,
+    },
+  }).catch(() => []);
+
+  const next = new Map<string, { status: string; runId: string | null; updatedAt: string | null }>();
+  for (const row of rows || []) {
+    const threadId = typeof (row as any)?.threadId === "string" ? String((row as any).threadId).trim() : "";
+    if (!threadId || next.has(threadId)) continue;
+    const normalized = normalizePortalAiChatLatestRunStatus(row);
+    if (!normalized) continue;
+    next.set(threadId, normalized);
+  }
+  return next;
+}
+
+async function loadVisiblePortalAiChatThreadStatusSnapshots(ownerId: string, memberId: string) {
+  const threads = await (prisma as any).portalAiChatThread.findMany({
+    where: { ownerId, messages: { some: {} } },
+    orderBy: [{ isPinned: "desc" }, { pinnedAt: "desc" }, { lastMessageAt: "desc" }, { updatedAt: "desc" }],
+    take: 200,
+    select: {
+      id: true,
+      title: true,
+      lastMessageAt: true,
+      isPinned: true,
+      pinnedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      ownerId: true,
+      createdByUserId: true,
+      contextJson: true,
+    },
+  }).catch(() => []);
+
+  const visible = (Array.isArray(threads) ? threads : [])
+    .filter((thread: any) => canAccessPortalAiChatThread({ thread, memberId }))
+    .map((thread: any) => {
+      const ctxJson = thread.contextJson && typeof thread.contextJson === "object" && !Array.isArray(thread.contextJson) ? (thread.contextJson as any) : {};
+      return {
+        id: thread.id,
+        title: thread.title,
+        lastMessageAt: thread.lastMessageAt,
+        isPinned: thread.isPinned,
+        pinnedAt: thread.pinnedAt,
+        createdAt: thread.createdAt,
+        updatedAt: thread.updatedAt,
+        liveStatus: normalizePortalAiChatThreadLiveStatus(ctxJson.liveStatus),
+        nextStepContext: normalizePortalAiChatNextStepContext(ctxJson.nextStepContext),
+      };
+    });
+
+  const latestRunStatusByThread = await loadPortalAiChatLatestRunStatusByThread(ownerId, visible.map((thread) => String(thread.id)));
+  return visible.map((thread) => ({
+    ...thread,
+    latestRunStatus: latestRunStatusByThread.get(String(thread.id)) ?? null,
+  }));
+}
+
 function rejectIfPlaceholderIdsPresent(action: PortalAgentActionKey, args: Record<string, unknown>): { ok: true } | { ok: false; error: string } {
   const findings = findPlaceholderIdPaths(args, { maxDepth: 7, maxFindings: 6 });
   if (!findings.length) return { ok: true };
@@ -272,7 +413,7 @@ function rejectIfPlaceholderIdsPresent(action: PortalAgentActionKey, args: Recor
   };
 }
 
-function deriveLinkUrlForAction(action: PortalAgentActionKey, json: any): string | undefined {
+function deriveLinkUrlForAction(action: PortalAgentActionKey, json: any, args?: Record<string, unknown>): string | undefined {
   const linkUrl = typeof json?.linkUrl === "string" ? String(json.linkUrl).trim() : "";
   if (linkUrl) return linkUrl;
 
@@ -283,9 +424,25 @@ function deriveLinkUrlForAction(action: PortalAgentActionKey, json: any): string
     if (id) return `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(id)}/edit`;
   }
 
-  if (action === "funnel_builder.pages.create" && json?.page?.id) {
-    const funnelId = String(json?.page?.funnelId || "").trim();
-    const pageId = String(json?.page?.id || "").trim();
+  if (
+    action === "funnel_builder.funnels.get" ||
+    action === "funnel_builder.funnels.update" ||
+    action === "funnel_builder.funnels.delete"
+  ) {
+    const funnelId = String(json?.funnel?.id || args?.funnelId || "").trim();
+    if (funnelId) {
+      return `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(funnelId)}/edit`;
+    }
+  }
+
+  if (
+    action === "funnel_builder.pages.create" ||
+    action === "funnel_builder.pages.update" ||
+    action === "funnel_builder.pages.generate_html" ||
+    action === "funnel_builder.pages.export_custom_html"
+  ) {
+    const funnelId = String(json?.page?.funnelId || args?.funnelId || "").trim();
+    const pageId = String(json?.page?.id || args?.pageId || "").trim();
     if (funnelId) {
       return `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(funnelId)}/edit${pageId ? `?pageId=${encodeURIComponent(pageId)}` : ""}`;
     }
@@ -317,6 +474,9 @@ function deriveLinkUrlForAction(action: PortalAgentActionKey, json: any): string
 
   if (String(action).startsWith("nurture.")) return "/portal/app/services/nurture-campaigns";
 
+  const mappedCanvasUrl = portalCanvasUrlForAction(action, args);
+  if (mappedCanvasUrl) return mappedCanvasUrl;
+
   return undefined;
 }
 
@@ -335,10 +495,14 @@ async function generateAssistantTextForActionResult(opts: {
       "Summarize the outcome of running a tool/action for the user.",
       "Write concise markdown.",
       "Rules:",
+      "- Be explicit about what happened, whether it succeeded, and what the user should understand next.",
+      "- Never imply that work finished successfully unless ok=true and status is 2xx.",
       "- Do not invent details that are not present in the JSON.",
       "- If the action failed, say what failed and include the error message if provided.",
+      "- If the action partially succeeded or needs follow-up, say that plainly.",
       "- Do not mention internal IDs unless the user must paste one.",
       "- If a linkUrl is provided, include ONE markdown link CTA.",
+      "- Do not say 'all set' or similar unless the result clearly shows success.",
       "- No JSON output.",
     ].join("\n");
 
@@ -3100,6 +3264,88 @@ async function runDirectAction(opts: {
       };
     }
 
+    case "funnel_builder.forms.submissions.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const id = String(args?.formId || "").trim();
+      const submissionId = String(args?.submissionId || "").trim();
+      if (!id || !submissionId) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const form = await prisma.creditForm.findFirst({
+        where: { id, ownerId },
+        select: { id: true, slug: true, name: true },
+      });
+      if (!form) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const submission = await prisma.creditFormSubmission.findFirst({
+        where: { id: submissionId, formId: form.id },
+        select: { id: true, createdAt: true, dataJson: true, ip: true, userAgent: true },
+      });
+      if (!submission) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const ip = submission.ip || null;
+      const userAgent = submission.userAgent || null;
+      const deviceFingerprint = ip && userAgent ? crypto.createHash("sha256").update(`${ip}|${userAgent}`).digest("hex").slice(0, 12) : null;
+
+      let otherSubmissionCount: number | null = null;
+      let recentOtherSubmissions:
+        | Array<{ id: string; createdAt: string; form: { id: string; slug: string; name: string } }>
+        | null = null;
+
+      if (ip && userAgent) {
+        otherSubmissionCount = await prisma.creditFormSubmission.count({
+          where: {
+            ip,
+            userAgent,
+            form: { ownerId },
+          },
+        });
+
+        const recent = await prisma.creditFormSubmission.findMany({
+          where: {
+            ip,
+            userAgent,
+            form: { ownerId },
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: 15,
+          select: {
+            id: true,
+            createdAt: true,
+            form: { select: { id: true, slug: true, name: true } },
+          },
+        });
+
+        recentOtherSubmissions = recent.map((entry) => ({
+          id: entry.id,
+          createdAt: entry.createdAt.toISOString(),
+          form: { id: entry.form.id, slug: entry.form.slug, name: entry.form.name },
+        }));
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          form,
+          submission: {
+            id: submission.id,
+            createdAt: submission.createdAt.toISOString(),
+            dataJson: submission.dataJson,
+            ip,
+            userAgent,
+          },
+          device: {
+            fingerprint: deviceFingerprint,
+            ip,
+            userAgent,
+            otherSubmissionCount,
+            recentOtherSubmissions,
+          },
+        },
+      };
+    }
+
     case "funnel_builder.form_field_keys.get": {
       if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
@@ -3825,7 +4071,8 @@ async function runDirectAction(opts: {
         const wantsCheckout = /\b(checkout|purchase|pay now)\b/.test(s);
         const wantsCalendar = /\b(calendar|schedule|booking|book a call|book a meeting|appointment)\b/.test(s);
         const wantsChatbot = /\b(chatbot|chat bot|live chat|website chat)\b/.test(s);
-        const any = wantsShop || wantsCart || wantsCheckout || wantsCalendar || wantsChatbot;
+        const looksLikeDesignEdit = /\b(style|styling|restyle|redesign|design|layout|look|visual|brand|branding|theme|color|colors|font|fonts|spacing|hero|headline|modern|polish|refresh|improve|all pages|page design)\b/.test(s);
+        const any = (wantsShop || wantsCart || wantsCheckout || wantsCalendar || wantsChatbot) && !looksLikeDesignEdit;
         return { wantsShop, wantsCart, wantsCheckout, wantsCalendar, wantsChatbot, any };
       }
 
@@ -5654,7 +5901,7 @@ async function runDirectAction(opts: {
         ...(canUseSlugColumn ? { slug: true } : {}),
       };
 
-      let site = (await prisma.clientBlogSite.findUnique({ where: { ownerId }, select } as any)) as any;
+      let site = (await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select })) as any;
 
       const currentSlug = (site as any)?.slug as string | null | undefined;
       if (site && canUseSlugColumn && !currentSlug) {
@@ -6386,14 +6633,14 @@ async function runDirectAction(opts: {
       }
 
       function aiConfigured() {
-        return Boolean((process.env.AI_BASE_URL ?? "").trim() && (process.env.AI_API_KEY ?? "").trim());
+        return isPuraAiConfigured();
       }
 
       if (!aiConfigured()) {
         return {
           status: 503,
           json: {
-            error: "AI is not configured for this environment. Set AI_BASE_URL and AI_API_KEY.",
+            error: "Pura AI is not configured for this environment. Set PURA_AI_API_KEY and AI_BASE_URL.",
           },
         };
       }
@@ -6523,7 +6770,7 @@ async function runDirectAction(opts: {
 
     case "blogs.posts.generate_draft": {
       function aiConfigured() {
-        return Boolean((process.env.AI_BASE_URL ?? "").trim() && (process.env.AI_API_KEY ?? "").trim());
+        return isPuraAiConfigured();
       }
 
       const postId = String((args as any)?.postId || "").trim();
@@ -6538,7 +6785,7 @@ async function runDirectAction(opts: {
         return {
           status: 503,
           json: {
-            error: "AI is not configured for this environment. Set AI_BASE_URL and AI_API_KEY.",
+            error: "Pura AI is not configured for this environment. Set PURA_AI_API_KEY and AI_BASE_URL.",
           },
         };
       }
@@ -7174,7 +7421,7 @@ async function runDirectAction(opts: {
       const take = typeof takeRaw === "number" && Number.isFinite(takeRaw) ? Math.max(1, Math.min(20, Math.floor(takeRaw))) : 10;
 
       const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
-      const canUseAi = Boolean(process.env.AI_BASE_URL && process.env.AI_API_KEY);
+      const canUseAi = isPuraAiConfigured();
 
       let query = prompt;
       if (canUseAi) {
@@ -7266,8 +7513,7 @@ async function runDirectAction(opts: {
       const kind = kindRaw === "internal" ? ("INTERNAL" as const) : ("EXTERNAL" as const);
       const status = (args as any)?.status === "READY" ? "READY" : "DRAFT";
 
-      const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
-      if (!site?.id) return { status: 404, json: { ok: false, error: "Newsletter site not configured" } };
+      const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true } });
 
       const slug = await uniqueNewsletterSlug(site.id, kind, String((args as any).title || "").trim());
 
@@ -7302,8 +7548,7 @@ async function runDirectAction(opts: {
     case "newsletter.newsletters.get": {
       const newsletterId = String((args as any)?.newsletterId || "").trim();
 
-      const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true, slug: true, name: true } });
-      if (!site?.id) return { status: 404, json: { ok: false, error: "Newsletter site not configured" } };
+      const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true, slug: true, name: true } });
 
       const newsletter = await prisma.clientNewsletter.findFirst({
         where: { id: newsletterId, siteId: site.id },
@@ -7346,8 +7591,7 @@ async function runDirectAction(opts: {
       const newsletterId = String((args as any)?.newsletterId || "").trim();
       const hostedOnly = Boolean((args as any)?.hostedOnly);
 
-      const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
-      if (!site?.id) return { status: 404, json: { ok: false, error: "Newsletter site not configured" } };
+      const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true } });
 
       const current = await prisma.clientNewsletter.findFirst({
         where: { id: newsletterId, siteId: site.id },
@@ -7388,11 +7632,11 @@ async function runDirectAction(opts: {
         return { external: (rec as any)?.external ?? {}, internal: (rec as any)?.internal ?? {} };
       }
 
-      const site = await prisma.clientBlogSite.findUnique({
-        where: { ownerId },
+      const site = await ensureNewsletterSiteForOwner({
+        ownerId,
+        desiredName: "Newsletter site",
         select: { id: true, slug: true, name: true, ownerId: true },
       });
-      if (!site?.id) return { status: 404, json: { ok: false, error: "Newsletter site not configured" } };
 
       const newsletter = await prisma.clientNewsletter.findFirst({
         where: { id: newsletterId, siteId: site.id },
@@ -8008,7 +8252,7 @@ async function runDirectAction(opts: {
       const kind = clampKind(typeof (args as any)?.kind === "string" ? String((args as any).kind) : "external");
 
       const [site, setup, profile] = await Promise.all([
-        prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true, slug: true, name: true } }),
+        ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true, slug: true, name: true } }),
         prisma.portalServiceSetup.findUnique({
           where: { ownerId_serviceSlug: { ownerId, serviceSlug: "newsletter" } },
           select: { id: true, dataJson: true },
@@ -8026,8 +8270,6 @@ async function runDirectAction(opts: {
           },
         }),
       ]);
-
-      if (!site?.id) return { status: 409, json: { ok: false, error: "Newsletter site not configured yet" } };
 
       const stored = parseStored(setup?.dataJson);
       const s = kind === "INTERNAL" ? stored.internal : stored.external;
@@ -10888,7 +11130,7 @@ async function runDirectAction(opts: {
         "Write the letter now.",
       ].join("\n");
 
-      const model = (process.env.CREDIT_AI_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini";
+      const model = (process.env.CREDIT_AI_MODEL || "gpt-5.4").trim() || "gpt-5.4";
       const bodyTextRaw = await generateCreditText({ system, user, model });
       const bodyText = String(bodyTextRaw || "").trim();
 
@@ -12250,24 +12492,32 @@ async function runDirectAction(opts: {
       const contactId = String((args as any).contactId || "").trim().slice(0, 120);
       if (!contactId) return { status: 400, json: { ok: false, error: "Invalid contact id" } };
 
+      const hasName = Object.prototype.hasOwnProperty.call(args || {}, "name");
+      const hasEmail = Object.prototype.hasOwnProperty.call(args || {}, "email");
+      const hasPhone = Object.prototype.hasOwnProperty.call(args || {}, "phone");
+      const hasCustomVariables = Object.prototype.hasOwnProperty.call(args || {}, "customVariables");
       const name = typeof (args as any).name === "string" ? String((args as any).name).trim() : "";
       const emailRaw = typeof (args as any).email === "string" ? String((args as any).email).trim() : "";
       const phoneRaw = typeof (args as any).phone === "string" ? String((args as any).phone).trim() : "";
-      const hasCustomVariables = Object.prototype.hasOwnProperty.call(args || {}, "customVariables");
       const customVariablesRaw = (args as any).customVariables;
 
-      if (!name) return { status: 400, json: { ok: false, error: "Name is required." } };
+      if (!hasName && !hasEmail && !hasPhone && !hasCustomVariables) {
+        return { status: 400, json: { ok: false, error: "No contact changes provided." } };
+      }
+      if (hasName && !name) return { status: 400, json: { ok: false, error: "Name is required." } };
       if (name.length > 120) return { status: 400, json: { ok: false, error: "Name is too long." } };
 
-      let email: string | null = null;
-      if (emailRaw) {
+      let email: string | null | undefined = undefined;
+      if (hasEmail) email = null;
+      if (hasEmail && emailRaw) {
         const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw);
         if (!emailOk) return { status: 400, json: { ok: false, error: "Invalid email." } };
         email = emailRaw.toLowerCase();
       }
 
-      let phone: string | null = null;
-      if (phoneRaw) {
+      let phone: string | null | undefined = undefined;
+      if (hasPhone) phone = null;
+      if (hasPhone && phoneRaw) {
         const normalized = normalizePhoneStrict(phoneRaw);
         if (!normalized.ok) return { status: 400, json: { ok: false, error: normalized.error || "Invalid phone number." } };
         phone = normalized.e164;
@@ -12285,18 +12535,54 @@ async function runDirectAction(opts: {
         else return { status: 400, json: { ok: false, error: "Invalid custom variables." } };
       }
 
+      const data: Record<string, unknown> = {};
+      if (hasName) data.name = name;
+      if (hasEmail) data.email = email;
+      if (hasPhone) data.phone = phone;
+      if (hasCustomVariables) data.customVariables = customVariablesUpdate;
+
       const updated = await prisma.portalContact.updateMany({
         where: { id: contactId, ownerId },
-        data: {
-          name,
-          email,
-          phone,
-          customVariables: customVariablesUpdate,
-        },
+        data,
       });
 
       if (!updated.count) return { status: 404, json: { ok: false, error: "Contact not found." } };
       return { status: 200, json: { ok: true, contactId } };
+    }
+
+    case "contacts.delete": {
+      const ok = await requireServiceCapability("people", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalContactsSchema().catch(() => null);
+
+      const contactId = String((args as any).contactId || "").trim().slice(0, 120);
+      if (!contactId) return { status: 400, json: { ok: false, error: "Invalid contact id" } };
+
+      const existing = await prisma.portalContact
+        .findFirst({ where: { ownerId, id: contactId }, select: { id: true, name: true, email: true, phone: true } })
+        .catch(() => null);
+
+      if (!existing?.id) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      try {
+        await prisma.portalContact.delete({ where: { id: existing.id } });
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            deleted: {
+              id: String(existing.id),
+              name: String(existing.name || "").trim() || null,
+              email: typeof existing.email === "string" ? existing.email : null,
+              phone: typeof existing.phone === "string" ? existing.phone : null,
+            },
+          },
+        };
+      } catch (error) {
+        const details = error instanceof Error ? error.message : String(error ?? "Failed to delete");
+        return { status: 409, json: { ok: false, error: "Could not delete contact", details } };
+      }
     }
 
     case "contacts.tags.list": {
@@ -13342,6 +13628,79 @@ async function runDirectAction(opts: {
       }
 
       return { status: 200, json: { ok: true, note: "Password updated. Sign out/in on other devices." } };
+    }
+
+    case "integrations.api_keys.list": {
+      const ok = await requireServiceCapability("profile", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const payload = await listPortalApiKeys(ownerId);
+      return { status: 200, json: { ok: true, ...payload } };
+    }
+
+    case "integrations.api_keys.create": {
+      const ok = await requireServiceCapability("profile", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      try {
+        const created = await createScopedPortalApiKey({
+          ownerId,
+          name: String((args as any).name || ""),
+          permissions: Array.isArray((args as any).permissions) ? ((args as any).permissions as any[]) : [],
+          creditLimit: typeof (args as any).creditLimit === "number" || (args as any).creditLimit === null ? (args as any).creditLimit : null,
+        });
+        return { status: 200, json: { ok: true, key: created.key, value: created.rawValue } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to create API key";
+        return { status: 400, json: { ok: false, error: message } };
+      }
+    }
+
+    case "integrations.api_keys.update": {
+      const ok = await requireServiceCapability("profile", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      try {
+        const key = await updateScopedPortalApiKey({
+          ownerId,
+          keyId: String((args as any).keyId || "").trim().slice(0, 120),
+          ...(typeof (args as any).name === "string" ? { name: String((args as any).name) } : {}),
+          ...(Array.isArray((args as any).permissions) ? { permissions: (args as any).permissions as any[] } : {}),
+          ...((typeof (args as any).creditLimit === "number" || (args as any).creditLimit === null)
+            ? { creditLimit: (args as any).creditLimit as number | null }
+            : {}),
+        });
+        return { status: 200, json: { ok: true, key } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to update API key";
+        return { status: 400, json: { ok: false, error: message } };
+      }
+    }
+
+    case "integrations.api_keys.delete": {
+      const ok = await requireServiceCapability("profile", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      try {
+        await deletePortalApiKey(ownerId, String((args as any).keyId || "").trim().slice(0, 120));
+        return { status: 200, json: { ok: true } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to delete API key";
+        return { status: 400, json: { ok: false, error: message } };
+      }
+    }
+
+    case "integrations.api_keys.reveal": {
+      const ok = await requireServiceCapability("profile", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      try {
+        const value = await revealPortalApiKey(ownerId, String((args as any).keyId || "").trim().slice(0, 120));
+        return { status: 200, json: { ok: true, value } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to reveal API key";
+        return { status: 400, json: { ok: false, error: message } };
+      }
     }
 
     case "integrations.twilio.get": {
@@ -15990,6 +16349,81 @@ async function runDirectAction(opts: {
       return { status: 400, json: { ok: false, error: "Invalid request" } };
     }
 
+    case "ai_chat.threads.runs.list": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      if (!threadId) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const thread = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
+      });
+      if (!thread || !canAccessPortalAiChatThread({ thread, memberId: membership.memberId })) {
+        return { status: 404, json: { ok: false, error: "Not found" } };
+      }
+
+      const rows = await (prisma as any).portalAiChatRun.findMany({
+        where: { ownerId, threadId },
+        orderBy: [{ createdAt: "desc" }],
+        take: 40,
+        select: {
+          id: true,
+          runId: true,
+          triggerKind: true,
+          status: true,
+          workTitle: true,
+          canvasUrl: true,
+          summaryText: true,
+          assistantMessageId: true,
+          scheduledMessageId: true,
+          createdAt: true,
+          completedAt: true,
+          interruptedAt: true,
+          stepsJson: true,
+          followUpSuggestionsJson: true,
+        },
+      }).catch(() => []);
+
+      return { status: 200, json: { ok: true, runs: rows.map((row: any) => normalizePortalAiChatRunRecord(row)).filter(Boolean) } };
+    }
+
+    case "ai_chat.threads.status.get": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      if (!threadId) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const thread = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
+      });
+      if (!thread || !canAccessPortalAiChatThread({ thread, memberId: membership.memberId })) {
+        return { status: 404, json: { ok: false, error: "Not found" } };
+      }
+
+      return {
+        status: 200,
+        json: { ok: true, threadContext: normalizePortalAiChatThreadContextSnapshot((thread as any).contextJson) },
+      };
+    }
+
+    case "ai_chat.threads.status.list": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threads = await loadVisiblePortalAiChatThreadStatusSnapshots(ownerId, membership.memberId);
+      return { status: 200, json: { ok: true, threads } };
+    }
+
     case "ai_chat.messages.list": {
       const membership = await requirePortalMember();
       if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
@@ -16229,6 +16663,24 @@ async function runDirectAction(opts: {
 
       const text = String((args as any)?.text || "").trim().slice(0, 4000);
       if (!text) return { status: 400, json: { ok: false, error: "Missing text" } };
+
+      const scheduledEnvelope = tryParseScheduledActionEnvelope(text);
+      if (scheduledEnvelope && Array.isArray(scheduledEnvelope.steps) && scheduledEnvelope.steps.length) {
+        const confirmBlockedStep = scheduledEnvelope.steps.find((step) => getConfirmSpecForPortalAgentAction(step.key as any));
+        if (confirmBlockedStep) {
+          const blockedTitle =
+            typeof (confirmBlockedStep as any)?.title === "string" && String((confirmBlockedStep as any).title).trim()
+              ? String((confirmBlockedStep as any).title).trim()
+              : String((confirmBlockedStep as any)?.key || "this action").trim();
+          return {
+            status: 400,
+            json: {
+              ok: false,
+              error: `This scheduled task still needs approval for ${blockedTitle}. Confirm the action first, then schedule the recurrence.`,
+            },
+          };
+        }
+      }
 
       const clientTimeZone =
         typeof (args as any)?.clientTimeZone === "string" ? String((args as any).clientTimeZone).trim().slice(0, 80) : "";
@@ -21203,7 +21655,7 @@ async function runDirectAction(opts: {
       if (sendSmsRequested) {
         if (!booking.contactPhone) return { status: 400, json: { ok: false, error: "This booking has no phone number." } };
         const res = await sendOwnerTwilioSms({ ownerId, to: booking.contactPhone, body: message.slice(0, 900) });
-        if (!res.ok) return { status: 400, json: { ok: false, error: res.error || "Texting is not configured yet." } };
+        if (!res.ok) return { status: 400, json: { ok: false, error: res.error || "Texting is not configured for this workspace yet. Connect Twilio in Integrations." } };
         sent.sms = true;
       }
 
@@ -22933,7 +23385,7 @@ async function runDirectAction(opts: {
       try {
         const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
         if (!charged.ok) return { status: 402, json: { ok: false, error: "Insufficient credits" } };
-        raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+        raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "AI request failed";
         return { status: 502, json: { ok: false, error: msg } };
@@ -23034,7 +23486,7 @@ async function runDirectAction(opts: {
       try {
         const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
         if (!charged.ok) return { status: 402, json: { ok: false, error: "Insufficient credits" } };
-        reply = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+        reply = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "AI request failed";
         return { status: 502, json: { ok: false, error: msg } };
@@ -25495,7 +25947,7 @@ async function runDirectAction(opts: {
 
       let raw = "";
       try {
-        raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+        raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "AI request failed";
         return { status: 502, json: { ok: false, error: msg } };
@@ -25603,7 +26055,7 @@ async function runDirectAction(opts: {
 
       let raw = "";
       try {
-        raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+        raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "AI request failed";
         return { status: 502, json: { ok: false, error: msg } };
@@ -25706,7 +26158,7 @@ async function runDirectAction(opts: {
 
       let raw = "";
       try {
-        raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+        raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "AI request failed";
         return { status: 502, json: { ok: false, error: msg } };
@@ -25794,7 +26246,7 @@ async function runDirectAction(opts: {
 
       let replyRaw = "";
       try {
-        replyRaw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+        replyRaw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" });
       } catch (e) {
         const msg = e instanceof Error ? e.message : "AI request failed";
         return { status: 502, json: { ok: false, error: msg } };
@@ -26378,6 +26830,66 @@ async function runDirectAction(opts: {
       const data = await savePortalDashboardData(ownerId, scope, { version: 1, widgets: widgetIds.map((id) => ({ id })), layout: simpleDashboardLayout(widgetIds) } as any);
       return { status: 200, json: { ok: true, scope, niche: niche || null, data } };
     }
+
+    case "dashboard.analysis.get": {
+      const meta = await getPortalDashboardMeta(ownerId);
+      return { status: 200, json: { ok: true, analysis: meta.analysis ?? null } };
+    }
+
+    case "dashboard.analysis.generate": {
+      const trigger = typeof (args as any)?.trigger === "string" ? String((args as any).trigger).trim().slice(0, 120) : "";
+      const force = (args as any)?.force === true || trigger === "force";
+      const meta = await getPortalDashboardMeta(ownerId);
+      if (meta.analysis && isFreshIso(meta.analysis.generatedAtIso, 12 * 60 * 60 * 1000) && !force) {
+        return { status: 200, json: { ok: true, analysis: meta.analysis } };
+      }
+
+      const reporting7d = await getPortalReportingSummaryForOwner(ownerId, "7d");
+      const system = [
+        "You are a crisp analytics assistant for a business automation portal.",
+        "Write a short analysis summary based ONLY on the provided metrics.",
+        "No fluff, no hype. Be specific and actionable.",
+      ].join(" ");
+      const user =
+        "Generate an analysis summary. Format:\n" +
+        "- Title line\n" +
+        "- 3 bullets: what happened\n" +
+        "- 3 bullets: what to do next\n" +
+        "- One final line: biggest bottleneck\n\n" +
+        `Trigger: ${trigger || "unknown"}\n\n` +
+        `Metrics JSON:\n${JSON.stringify(reporting7d, null, 2)}`;
+
+      let text = "";
+      try {
+        text = String(await generateText({ system, user })).trim();
+      } catch (error) {
+        console.error("dashboard.analysis.generate failed", error);
+        return { status: 502, json: { ok: false, error: "Unable to generate analysis" } };
+      }
+
+      const analysis: PortalDashboardAnalysis = {
+        text: text || "No analysis available.",
+        generatedAtIso: new Date().toISOString(),
+      };
+      const nextMeta = await setPortalDashboardAnalysis(ownerId, analysis);
+      return { status: 200, json: { ok: true, analysis: nextMeta.analysis ?? analysis } };
+    }
+
+    case "dashboard.quick_access.get": {
+      const meta = await getPortalDashboardMeta(ownerId);
+      return { status: 200, json: { ok: true, slugs: meta.quickAccessSlugs ?? [] } };
+    }
+
+    case "dashboard.quick_access.update": {
+      const knownServiceSlugs = new Set([...PORTAL_SERVICES.map((service) => service.slug), "sales-dashboard"]);
+      const slugs = (Array.isArray((args as any)?.slugs) ? ((args as any).slugs as unknown[]) : [])
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter((value) => Boolean(value) && knownServiceSlugs.has(value))
+        .slice(0, 12);
+
+      const meta = await setPortalDashboardQuickAccess(ownerId, slugs);
+      return { status: 200, json: { ok: true, slugs: meta.quickAccessSlugs ?? [] } };
+    }
   }
 }
 
@@ -26410,6 +26922,8 @@ export async function executePortalAgentActionForThread(opts: {
     select: { id: true, contextJson: true },
   });
 
+  return await runWithPuraAiProfile(normalizePuraAiProfile((thread?.contextJson as any)?.responseProfile), async () => {
+
   const resolved = await resolvePlanArgs({
     ownerId: opts.ownerId,
     stepKey: opts.action,
@@ -26435,9 +26949,12 @@ export async function executePortalAgentActionForThread(opts: {
         "You are asking ONE clarifying question so you can run a tool/action.",
         "Write a single short question.",
         "Rules:",
+        "- Ask only for the one missing detail that truly blocks execution.",
+        "- Do not ask for anything that can be inferred from thread context, current page context, or the provided choices.",
         "- Do not ask for internal IDs unless the user must paste one.",
         "- If clickable choices are available, mention they can click one.",
         "- If the user said to create something new, allow that option.",
+        "- Be concrete, not vague. Ask for the target, value, or decision that is actually missing.",
         "- No JSON.",
       ].join("\n");
 
@@ -26518,6 +27035,7 @@ export async function executePortalAgentActionForThread(opts: {
       status: 409,
       action: opts.action,
       error: clarifyText || "Missing required detail",
+      failureMeta: classifyPortalAgentFailure({ status: 409, error: clarifyText || "Missing required detail", action: opts.action }),
       assistantMessage: assistantMsg,
       assistantChoices: clarifyChoices,
       linkUrl: null,
@@ -26614,7 +27132,7 @@ export async function executePortalAgentActionForThread(opts: {
     status < 300 &&
     !(json && typeof json === "object" && typeof (json as any).ok === "boolean" && (json as any).ok === false);
 
-  const linkUrl = deriveLinkUrlForAction(opts.action, json);
+  const linkUrl = deriveLinkUrlForAction(opts.action, json, argsForExec);
   const assistantText = await generateAssistantTextForActionResult({
     action: opts.action,
     ok,
@@ -26657,10 +27175,11 @@ export async function executePortalAgentActionForThread(opts: {
       : null,
   );
   const derivedPatch = sanitizeThreadContextPatch(deriveThreadContextPatchFromAction(opts.action, resolvedArgs, json));
-  const nextCtx = mergedPatch
+  const canvasPatch = typeof linkUrl === "string" && linkUrl.trim() ? { lastCanvasUrl: String(linkUrl).trim() } : null;
+  const nextCtx = mergedPatch || canvasPatch
     ? (prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-        ? { ...(prevCtx as any), ...mergedPatch, ...(derivedPatch ? derivedPatch : {}), pendingPlan: null, pendingPlanClarify: null }
-        : { ...mergedPatch, ...(derivedPatch ? derivedPatch : {}), pendingPlan: null, pendingPlanClarify: null })
+        ? { ...(prevCtx as any), ...(mergedPatch ? mergedPatch : {}), ...(derivedPatch ? derivedPatch : {}), ...(canvasPatch ? canvasPatch : {}), pendingPlan: null, pendingPlanClarify: null }
+        : { ...(mergedPatch ? mergedPatch : {}), ...(derivedPatch ? derivedPatch : {}), ...(canvasPatch ? canvasPatch : {}), pendingPlan: null, pendingPlanClarify: null })
     : prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
       ? { ...(prevCtx as any), ...(derivedPatch ? derivedPatch : {}), pendingPlan: null, pendingPlanClarify: null }
       : undefined;
@@ -26682,11 +27201,13 @@ export async function executePortalAgentActionForThread(opts: {
     status,
     action: opts.action,
     result: json,
+    failureMeta: ok ? null : classifyPortalAgentFailure({ status, result: json, action: opts.action }),
     assistantMessage: assistantMsg,
     linkUrl,
     clientUiAction,
     assistantChoices: null,
   };
+  });
 }
 
 export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey, args: Record<string, unknown>, json: any): Record<string, unknown> | null {
@@ -26767,6 +27288,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       const page = (json as any).page;
       const funnelId = cleanId(page?.funnelId || (args as any)?.funnelId || "");
       const pageId = cleanId(page?.id || "");
+      const bookingCalendarId = cleanId((json as any).calendarId || (args as any)?.calendarId || "");
       if (funnelId && pageId) {
         const label = String(page?.title || page?.slug || "Page").trim().slice(0, 120) || "Page";
         const activeFunnelPage = buildActiveFunnelPageContext(page, funnelId);
@@ -26774,6 +27296,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
           lastFunnel: { id: funnelId.slice(0, 120), label: "Funnel" },
           lastFunnelPage: { id: pageId, label, funnelId },
           ...(activeFunnelPage ? { activeFunnelPage } : {}),
+          ...(bookingCalendarId ? { lastBookingCalendar: { id: bookingCalendarId, label: "Booking calendar" } } : {}),
         };
       }
     }
@@ -26786,6 +27309,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     ) {
       const funnelId = cleanId((args as any)?.funnelId || "");
       const pageId = cleanId((json as any).page?.id || (args as any)?.pageId || "");
+      const bookingCalendarId = cleanId((json as any).calendarId || (args as any)?.calendarId || "");
       if (funnelId && pageId) {
         const label = String((json as any).page?.title || (json as any).page?.slug || "Page").trim().slice(0, 120) || "Page";
         const activeFunnelPage = buildActiveFunnelPageContext((json as any).page || { id: pageId, slug: (args as any)?.slug, title: (args as any)?.title }, funnelId);
@@ -26793,6 +27317,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
           lastFunnel: { id: funnelId.slice(0, 120), label: "Funnel" },
           lastFunnelPage: { id: pageId, label, funnelId },
           ...(activeFunnelPage ? { activeFunnelPage } : {}),
+          ...(bookingCalendarId ? { lastBookingCalendar: { id: bookingCalendarId, label: "Booking calendar" } } : {}),
         };
       }
     }
@@ -27078,11 +27603,229 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
   return null;
 }
 
+export type PortalAgentFailureKind =
+  | "invalid_args"
+  | "missing_input"
+  | "not_configured"
+  | "unsupported"
+  | "not_implemented"
+  | "external_dependency"
+  | "rate_limited"
+  | "temporary_unavailable"
+  | "permission"
+  | "not_found"
+  | "conflict"
+  | "unknown";
+
+export type PortalAgentFailureMeta = {
+  kind: PortalAgentFailureKind;
+  retryable: boolean;
+  setupHint: string | null;
+  setupUrlPath?: string | null;
+  setupClickPath?: string | null;
+};
+
+function getPortalAgentSetupGuidance(actionRaw: unknown, errorRaw: unknown): {
+  setupHint: string | null;
+  setupUrlPath: string | null;
+  setupClickPath: string | null;
+} {
+  const action = String(actionRaw || "").trim();
+  const error = String(errorRaw || "").trim().toLowerCase();
+
+  if (/^newsletter\./.test(action) || /\bnewsletter\b/.test(error)) {
+    return {
+      setupHint: "Open Newsletter to review the audience and sender settings, then retry.",
+      setupUrlPath: "/portal/app/services/newsletter",
+      setupClickPath: "Sidebar → Services → Newsletter",
+    };
+  }
+
+  if (/twilio|texting|sms/.test(error) || /^integrations\.twilio\./.test(action) || /^inbox\./.test(action)) {
+    return {
+      setupHint: "Connect Twilio with an Account SID, Auth Token, and SMS-capable From number, then verify the number/webhooks if needed.",
+      setupUrlPath: "/portal/app/profile",
+      setupClickPath: "Sidebar → Profile → Advanced → Twilio/Webhooks",
+    };
+  }
+
+  if (/^integrations\.stripe\./.test(action) || /\bstripe\b/.test(error)) {
+    return {
+      setupHint: "Open the Stripe integration in Profile and reconnect the secret key after confirming server encryption is configured.",
+      setupUrlPath: "/portal/app/profile",
+      setupClickPath: "Sidebar → Profile → Advanced → Stripe",
+    };
+  }
+
+  if (/^integrations\.sales_reporting\./.test(action) || /sales reporting/.test(error)) {
+    return {
+      setupHint: "Open Sales Reporting in Profile, choose the provider, add credentials, and set the active provider before retrying.",
+      setupUrlPath: "/portal/app/profile",
+      setupClickPath: "Sidebar → Profile → Advanced → Sales Reporting",
+    };
+  }
+
+  if (/outbound is not enabled|b2c pulls are not enabled|service is not enabled|module isn'?t enabled/.test(error) || /^ai_outbound|^lead_scraping\./.test(action)) {
+    return {
+      setupHint: "Enable the required module or entitlement in Billing, then retry the action.",
+      setupUrlPath: "/portal/app/billing",
+      setupClickPath: "Sidebar → Billing",
+    };
+  }
+
+  if (/ai receptionist|voice agent|elevenlabs|voice preview|calls handler|calls webhook/.test(error) || /^ai_receptionist\./.test(action)) {
+    return {
+      setupHint: "Open AI Receptionist to configure the voice agent, then confirm Twilio/webhooks are connected if calls or SMS are involved.",
+      setupUrlPath: "/portal/app/services/ai-receptionist",
+      setupClickPath: "Sidebar → Services → AI Receptionist",
+    };
+  }
+
+  if (/google places|google_places_api_key|places api/.test(error) || /^lead_scraping\./.test(action)) {
+    return {
+      setupHint: "This flow needs Google Places configured for the environment before local business discovery can run.",
+      setupUrlPath: null,
+      setupClickPath: null,
+    };
+  }
+
+  if (/external storage provider|vercel blob|media fails|upload failed/.test(error) || /^media\./.test(action)) {
+    return {
+      setupHint: "Use smaller files for now, or configure the external storage provider used by Media uploads before retrying large-file actions.",
+      setupUrlPath: "/portal/app/services/media-library",
+      setupClickPath: "Sidebar → Services → Media Library",
+    };
+  }
+
+  if (/pura ai is not configured|support chat is not configured|missing portal_encryption_master_key|ai_base_url|pura_ai_api_key/.test(error)) {
+    return {
+      setupHint: "This is an environment-level configuration issue on the server, so it needs deployment/env setup rather than an in-portal change.",
+      setupUrlPath: null,
+      setupClickPath: null,
+    };
+  }
+
+  if (/credit pull/.test(error) || /^credit\./.test(action)) {
+    return {
+      setupHint: "This workflow still depends on a credit-pull provider integration that is not fully available in this workspace yet.",
+      setupUrlPath: null,
+      setupClickPath: null,
+    };
+  }
+
+  return {
+    setupHint: null,
+    setupUrlPath: null,
+    setupClickPath: null,
+  };
+}
+
+export function classifyPortalAgentFailure(opts: {
+  status?: number | null;
+  error?: string | null;
+  result?: unknown;
+  action?: PortalAgentActionKey | string | null;
+}): PortalAgentFailureMeta | null {
+  const status = Number(opts.status) || 0;
+  const rawError = String(
+    opts.error ||
+      (opts.result && typeof opts.result === "object" && !Array.isArray(opts.result) && typeof (opts.result as any).error === "string"
+        ? (opts.result as any).error
+        : ""),
+  )
+    .trim()
+    .slice(0, 800);
+  const error = rawError.toLowerCase();
+  const guidance = getPortalAgentSetupGuidance(opts.action, rawError);
+
+  if (!rawError && !status) return null;
+
+  if (/^invalid action args\b/i.test(rawError) || /placeholder/i.test(rawError)) {
+    return { kind: "invalid_args", retryable: false, setupHint: null, setupUrlPath: null, setupClickPath: null };
+  }
+
+  if (/\b(missing required detail|missing .*required|missing .*field|choose .*from the available|unknown booking calendar)\b/i.test(rawError)) {
+    return { kind: "missing_input", retryable: false, setupHint: null, setupUrlPath: null, setupClickPath: null };
+  }
+
+  if (status === 401 || status === 403 || /\b(forbidden|unauthorized|insufficient permissions)\b/.test(error)) {
+    return { kind: "permission", retryable: false, setupHint: null, setupUrlPath: null, setupClickPath: null };
+  }
+
+  if (status === 404 || /\bnot found\b/.test(error)) {
+    return { kind: "not_found", retryable: false, setupHint: null, setupUrlPath: null, setupClickPath: null };
+  }
+
+  if (status === 409 || /\b(already sent|already claimed|already exists|conflict)\b/.test(error)) {
+    return { kind: "conflict", retryable: false, setupHint: null, setupUrlPath: null, setupClickPath: null };
+  }
+
+  if (/\b(not enabled|is not enabled on your account|is not enabled in this environment)\b/.test(error)) {
+    return {
+      kind: "not_configured",
+      retryable: false,
+      setupHint: guidance.setupHint,
+      setupUrlPath: guidance.setupUrlPath,
+      setupClickPath: guidance.setupClickPath,
+    };
+  }
+
+  if (/\bnot configured( yet)?\b/.test(error)) {
+    return {
+      kind: "not_configured",
+      retryable: false,
+      setupHint: guidance.setupHint || (/\bprovider\b/.test(error) ? "Finish the required integration setup for this workspace, then retry." : null),
+      setupUrlPath: guidance.setupUrlPath,
+      setupClickPath: guidance.setupClickPath,
+    };
+  }
+
+  if (/\bmissing .*api[_-]?key\b/.test(error) || /\bmissing portal_encryption_master_key\b/.test(error) || /\bnot configured for this environment\b/.test(error)) {
+    return {
+      kind: "not_configured",
+      retryable: false,
+      setupHint: guidance.setupHint,
+      setupUrlPath: guidance.setupUrlPath,
+      setupClickPath: guidance.setupClickPath,
+    };
+  }
+
+  if (/\b(not supported|unsupported)\b/.test(error)) {
+    return { kind: "unsupported", retryable: false, setupHint: guidance.setupHint, setupUrlPath: guidance.setupUrlPath, setupClickPath: guidance.setupClickPath };
+  }
+
+  if (/\bnot implemented\b/.test(error)) {
+    return { kind: "not_implemented", retryable: false, setupHint: guidance.setupHint, setupUrlPath: guidance.setupUrlPath, setupClickPath: guidance.setupClickPath };
+  }
+
+  if (/\brequire[s]? an external .* provider\b/.test(error) || /\bexternal storage provider\b/.test(error)) {
+    return { kind: "external_dependency", retryable: false, setupHint: guidance.setupHint, setupUrlPath: guidance.setupUrlPath, setupClickPath: guidance.setupClickPath };
+  }
+
+  if (status === 429 || /\brate[-\s]?limit(?:ed)?\b/.test(error)) {
+    return { kind: "rate_limited", retryable: true, setupHint: null, setupUrlPath: null, setupClickPath: null };
+  }
+
+  if (
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    /\b(timeout|timed out|time-out|temporary|temporarily unavailable|try again later|network error|connection reset|connection aborted|econnreset|econnrefused|etimedout|service unavailable|bad gateway|gateway timeout)\b/.test(
+      error,
+    )
+  ) {
+    return { kind: "temporary_unavailable", retryable: true, setupHint: null, setupUrlPath: null, setupClickPath: null };
+  }
+
+  return { kind: "unknown", retryable: false, setupHint: guidance.setupHint, setupUrlPath: guidance.setupUrlPath, setupClickPath: guidance.setupClickPath };
+}
+
 export async function executePortalAgentAction(opts: {
   ownerId: string;
   actorUserId?: string;
   action: PortalAgentActionKey;
   args: Record<string, unknown>;
+  responseProfile?: unknown;
 }) {
   const argsSchema = PortalAgentActionArgsSchemaByKey[opts.action];
   const argsParsed = argsSchema.safeParse(opts.args);
@@ -27104,6 +27847,7 @@ export async function executePortalAgentAction(opts: {
       action: opts.action,
       error,
       result: { ok: false, error },
+      failureMeta: classifyPortalAgentFailure({ status: 400, error, result: { ok: false, error }, action: opts.action }),
       assistantText: "",
       linkUrl: null,
       clientUiAction: null,
@@ -27111,6 +27855,8 @@ export async function executePortalAgentAction(opts: {
   }
 
   const actorUserId = opts.actorUserId || opts.ownerId;
+
+  return await runWithPuraAiProfile(normalizePuraAiProfile(opts.responseProfile), async () => {
 
   const placeholderGuard = rejectIfPlaceholderIdsPresent(opts.action, argsParsed.data as any);
   if (!placeholderGuard.ok) {
@@ -27121,6 +27867,7 @@ export async function executePortalAgentAction(opts: {
       action: opts.action,
       error,
       result: { ok: false, error },
+      failureMeta: classifyPortalAgentFailure({ status: 400, error, result: { ok: false, error }, action: opts.action }),
       assistantText: "",
       linkUrl: null,
       clientUiAction: null,
@@ -27139,7 +27886,7 @@ export async function executePortalAgentAction(opts: {
     status < 300 &&
     !(json && typeof json === "object" && typeof (json as any).ok === "boolean" && (json as any).ok === false);
 
-  const linkUrl = deriveLinkUrlForAction(opts.action, json);
+  const linkUrl = deriveLinkUrlForAction(opts.action, json, (argsParsed.data as any) ?? {});
   const assistantText = await generateAssistantTextForActionResult({
     action: opts.action,
     ok,
@@ -27155,10 +27902,12 @@ export async function executePortalAgentAction(opts: {
     status,
     action: opts.action,
     result: json,
+    failureMeta: ok ? null : classifyPortalAgentFailure({ status, result: json, action: opts.action }),
     assistantText,
     linkUrl,
     clientUiAction,
   };
+  });
 }
 
 export async function executePortalAgentActionRaw(opts: {
@@ -27196,6 +27945,7 @@ export async function executePortalAgentActionRaw(opts: {
     status,
     action: opts.action,
     result: json,
+    failureMeta: ok ? null : classifyPortalAgentFailure({ status, result: json, action: opts.action }),
     linkUrl: typeof (json as any)?.linkUrl === "string" ? String((json as any).linkUrl) : undefined,
     clientUiAction,
   };

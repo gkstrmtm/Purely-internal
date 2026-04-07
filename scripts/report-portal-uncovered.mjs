@@ -5,6 +5,11 @@ const REPO_ROOT = process.cwd();
 const INVENTORY_PATH = path.join(REPO_ROOT, "docs", "portal-api-inventory.json");
 const GENERATOR_PATH = path.join(REPO_ROOT, "scripts", "generate-portal-api-inventory.mjs");
 
+const EXCLUDED_FROM_AGENT_COVERAGE = [
+  { method: "POST", endpoint: "/api/portal/ai-flow-sim" },
+  { method: "POST", endpoint: "/api/portal/ai-flow-sim/explain" },
+];
+
 function parseArgs(argv) {
   const out = { limit: 500 };
   for (let i = 0; i < argv.length; i += 1) {
@@ -29,6 +34,11 @@ function groupKey(endpoint) {
   // /api/portal/<group>/...
   if (parts.length >= 3 && parts[0] === "api" && parts[1] === "portal") return parts[2];
   return parts[0] || "(unknown)";
+}
+
+function isExcluded(method, endpoint) {
+  const key = pairKey(method, endpoint);
+  return EXCLUDED_FROM_AGENT_COVERAGE.some((entry) => pairKey(entry.method, entry.endpoint) === key);
 }
 
 async function loadCoveragePairs() {
@@ -65,7 +75,7 @@ async function main() {
   }
 
   const uncovered = allPairs
-    .filter((p) => !coveredPairs.has(pairKey(p.method, p.endpoint)))
+    .filter((p) => !coveredPairs.has(pairKey(p.method, p.endpoint)) && !isExcluded(p.method, p.endpoint))
     .sort((a, b) => (a.endpoint + a.method).localeCompare(b.endpoint + b.method));
 
   const coveredCount = allPairs.length - uncovered.length;

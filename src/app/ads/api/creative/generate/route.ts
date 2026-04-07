@@ -127,7 +127,7 @@ export async function POST(req: Request) {
 
   let raw = "";
   try {
-    raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+    raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" });
   } catch {
     // fall back below
   }

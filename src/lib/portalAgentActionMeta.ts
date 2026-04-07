@@ -31,11 +31,15 @@ export function getConfirmSpecForPortalAgentAction(action: PortalAgentActionKey)
   if (
     action === "billing.subscriptions.cancel" ||
     action === "billing.subscriptions.cancel_by_id" ||
+    action === "billing.checkout_module" ||
     action === "ads.click" ||
     action === "credits.topup.start" ||
     action === "integrations.stripe.delete" ||
     action === "integrations.sales_reporting.disconnect" ||
+    action === "integrations.api_keys.reveal" ||
     action === "funnel.create" ||
+    action === "people.contacts.merge" ||
+    action === "services.lifecycle.update" ||
     action === "tasks.create_for_all" ||
     action === "booking.cancel"
   ) {
@@ -99,6 +103,12 @@ export function portalInboxUiUrl(opts?: {
 export type PortalBookingUiTab = "appointments" | "bookings" | "reminders" | "follow-up" | "settings";
 export type PortalBookingUiModal = "contact" | "reschedule";
 
+export function portalAiChatUiUrl(threadId?: string | null): string {
+  const id = String(threadId || "").trim();
+  if (!id) return "/portal/app/ai-chat";
+  return `/portal/app/ai-chat?thread=${encodeURIComponent(id)}`;
+}
+
 export function portalBookingUiUrl(opts?: {
   tab?: PortalBookingUiTab | null;
   bookingId?: string | null;
@@ -134,6 +144,24 @@ export function portalCanvasUrlForAction(action: PortalAgentActionKey, args?: Re
   const a = String(action || "");
   const safeArgs = args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : undefined;
 
+  // AI chat.
+  if (a.startsWith("ai_chat.")) {
+    const threadId = pickStringArg(safeArgs, "threadId");
+    return portalAiChatUiUrl(threadId);
+  }
+
+  // General portal/account surfaces.
+  if (a === "me.get" || a.startsWith("profile.")) return "/portal/app/profile";
+  if (a.startsWith("auth.") || a === "push.register" || a === "webhooks.get") return "/portal/app/settings";
+  if (a === "notifications.recipients.list") return "/portal/app/settings";
+  if (a.startsWith("services.")) return "/portal/app/services";
+  if (a.startsWith("onboarding.") || a.startsWith("suggested_setup.")) return "/portal/app/onboarding";
+  if (a.startsWith("billing.") || a.startsWith("referrals.")) return "/portal/app/billing";
+  if (a.startsWith("business_profile.")) return "/portal/app/settings/business";
+  if (a.startsWith("integrations.api_keys.")) return "/portal/app/profile";
+  if (a.startsWith("integrations.")) return "/portal/app/settings/integrations";
+  if (a.startsWith("voice_agent.") || a === "ai_agents.list") return "/portal/app/settings/appearance";
+
   // Contacts.
   if (a.startsWith("contacts.")) {
     const contactId = pickStringArg(safeArgs, "contactId");
@@ -164,17 +192,23 @@ export function portalCanvasUrlForAction(action: PortalAgentActionKey, args?: Re
   // Booking.
   if (a.startsWith("booking.")) {
     const bookingId = pickStringArg(safeArgs, "bookingId");
+    if (a.startsWith("booking.availability.")) return "/portal/app/services/booking/availability";
+    if (a.startsWith("booking.reminders.")) return "/portal/app/services/booking/reminders";
+    if (a.startsWith("booking.settings.") || a.startsWith("booking.form.") || a.startsWith("booking.site.")) {
+      return "/portal/app/services/booking/settings";
+    }
     if (a === "booking.reschedule") return portalBookingUiUrl({ bookingId, tab: "bookings", modal: "reschedule" });
     if (a === "booking.contact") return portalBookingUiUrl({ bookingId, tab: "bookings", modal: "contact" });
     if (bookingId) return portalBookingUiUrl({ bookingId, tab: "bookings" });
-    if (a.startsWith("booking.reminders.")) return portalBookingUiUrl({ tab: "reminders" });
-    if (a.startsWith("booking.settings.")) return portalBookingUiUrl({ tab: "settings" });
     return portalBookingUiUrl();
   }
 
   // Funnel Builder.
   if (a === "funnel.create" || a.startsWith("funnel_builder.")) {
     const formId = pickStringArg(safeArgs, "formId");
+    if (formId && a.startsWith("funnel_builder.forms.submissions.")) {
+      return `/portal/app/services/funnel-builder/forms/${encodeURIComponent(formId)}/responses`;
+    }
     if (formId) return `/portal/app/services/funnel-builder/forms/${encodeURIComponent(formId)}/edit`;
 
     const funnelId = pickStringArg(safeArgs, "funnelId");
@@ -210,6 +244,7 @@ export function portalCanvasUrlForAction(action: PortalAgentActionKey, args?: Re
 
   // Reviews.
   if (a.startsWith("reviews.")) {
+    if (a.startsWith("reviews.site.")) return "/portal/app/services/reviews/setup";
     return "/portal/app/services/reviews";
   }
 
@@ -228,6 +263,31 @@ export function portalCanvasUrlForAction(action: PortalAgentActionKey, args?: Re
     return "/portal/app/services/nurture-campaigns";
   }
 
+  // Follow-Up.
+  if (a.startsWith("follow_up.")) {
+    return "/portal/app/services/follow-up";
+  }
+
+  // Mailbox / inbox settings.
+  if (a.startsWith("mailbox.")) {
+    return "/portal/app/services/inbox/email";
+  }
+
+  // Missed-call text-back.
+  if (a.startsWith("missed_call_textback.")) {
+    return "/portal/app/services/missed-call-textback";
+  }
+
+  // Contact tag management lives off the people/contacts surface.
+  if (a.startsWith("contact_tags.")) {
+    return "/portal/app/people/contacts";
+  }
+
+  // Dashboard.
+  if (a.startsWith("dashboard.")) {
+    return "/portal/app";
+  }
+
   // Tasks.
   if (a.startsWith("tasks.")) {
     return "/portal/app/services/tasks";
@@ -244,6 +304,11 @@ export function portalCanvasUrlForAction(action: PortalAgentActionKey, args?: Re
   if (a.startsWith("ai_receptionist.")) {
     return "/portal/app/services/ai-receptionist";
   }
+
+  // Reporting.
+  if (a === "reporting.sales.get") return "/portal/app/services/reporting/sales";
+  if (a === "reporting.stripe.get") return "/portal/app/services/reporting/stripe";
+  if (a.startsWith("reporting.")) return "/portal/app/services/reporting";
 
   // Credit.
   if (a.startsWith("credit.disputes.") || a.startsWith("credit.pulls.")) {

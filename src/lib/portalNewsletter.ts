@@ -1,8 +1,94 @@
+import crypto from "node:crypto";
+
 import { prisma } from "@/lib/db";
+import { hasPublicColumn } from "@/lib/dbSchema";
 import { slugify } from "@/lib/slugify";
 import { baseUrlFromRequest, sendEmail, sendSms } from "@/lib/leadOutbound";
+import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 
 export type NewsletterKind = "EXTERNAL" | "INTERNAL";
+type NewsletterSiteSelect = Record<string, boolean>;
+
+async function ensureUniqueNewsletterSiteSlug(ownerId: string, desiredName: string): Promise<{ canUseSlugColumn: boolean; slug: string | null }> {
+  const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+  const base = slugify(desiredName) || "site";
+  const desired = base.length >= 3 ? base : "site";
+
+  if (!canUseSlugColumn) return { canUseSlugColumn, slug: desired };
+
+  let slug = desired;
+  const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug }, select: { ownerId: true } }).catch(() => null)) as any;
+  if (collision?.ownerId && String(collision.ownerId) !== ownerId) slug = `${desired}-${ownerId.slice(0, 6)}`;
+
+  return { canUseSlugColumn, slug };
+}
+
+export async function ensureNewsletterSiteForOwner(opts: {
+  ownerId: string;
+  desiredName?: string | null;
+  select?: NewsletterSiteSelect;
+}) {
+  const ownerId = String(opts.ownerId || "").trim();
+  const desiredName = String(opts.desiredName || "").trim() || "Newsletter site";
+  const slugMeta = await ensureUniqueNewsletterSiteSlug(ownerId, desiredName);
+
+  const select: NewsletterSiteSelect = {
+    id: true,
+    name: true,
+    ...(slugMeta.canUseSlugColumn ? { slug: true } : {}),
+    ...(opts.select || {}),
+  };
+
+  let site = (await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: select as any }).catch(() => null)) as any;
+  if (site) {
+    if (slugMeta.canUseSlugColumn && Object.prototype.hasOwnProperty.call(select, "slug") && !String((site as any)?.slug || "").trim()) {
+      const nextSlug = await ensureUniqueNewsletterSiteSlug(ownerId, String((site as any)?.name || desiredName));
+      site = (await (prisma.clientBlogSite as any).update({ where: { ownerId }, data: { slug: nextSlug.slug }, select: select as any }).catch(() => site)) as any;
+    }
+
+    if (!slugMeta.canUseSlugColumn && Object.prototype.hasOwnProperty.call(opts.select || {}, "slug")) {
+      let fallbackSlug = await getStoredBlogSiteSlug(ownerId);
+      if (!fallbackSlug) fallbackSlug = await ensureStoredBlogSiteSlug(ownerId, String((site as any)?.name || desiredName));
+      return { ...(site as any), slug: fallbackSlug } as any;
+    }
+
+    return site as any;
+  }
+
+  const [profile, user] = await Promise.all([
+    prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }).catch(() => null),
+    prisma.user.findUnique({ where: { id: ownerId }, select: { name: true, email: true } }).catch(() => null),
+  ]);
+
+  const name =
+    String(profile?.businessName || "").trim() ||
+    desiredName ||
+    String(user?.name || "").trim() ||
+    String(user?.email || "").trim().split("@")[0] ||
+    "Newsletter site";
+
+  if (!slugMeta.canUseSlugColumn) {
+    await ensureStoredBlogSiteSlug(ownerId, name).catch(() => null);
+  }
+
+  const created = (await (prisma.clientBlogSite as any).create({
+    data: {
+      ownerId,
+      name,
+      primaryDomain: null,
+      verificationToken: crypto.randomBytes(18).toString("hex"),
+      ...(slugMeta.canUseSlugColumn && slugMeta.slug ? { slug: slugMeta.slug } : {}),
+    },
+    select: select as any,
+  })) as any;
+
+  if (!slugMeta.canUseSlugColumn && Object.prototype.hasOwnProperty.call(opts.select || {}, "slug")) {
+    const fallbackSlug = (await getStoredBlogSiteSlug(ownerId)) || (await ensureStoredBlogSiteSlug(ownerId, name));
+    return { ...(created as any), slug: fallbackSlug } as any;
+  }
+
+  return created as any;
+}
 
 export type StoredAudience = {
   tagIds?: string[];

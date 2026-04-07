@@ -5,13 +5,20 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { isPortalAiChatThreadOwner } from "@/lib/portalAiChatSharing";
+import { PURA_AI_PROFILE_VALUES, normalizePuraAiProfile } from "@/lib/puraAiProfile";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const ActionSchema = z.object({
-  action: z.enum(["pin", "unpin", "delete", "duplicate", "interrupt"]),
+  action: z.enum(["pin", "unpin", "delete", "duplicate", "interrupt", "set_mode", "set_response_profile"]),
+  chatMode: z.enum(["plan", "work"]).optional(),
+  responseProfile: z.enum(PURA_AI_PROFILE_VALUES).optional(),
 });
+
+function normalizeThreadChatMode(raw: unknown): "plan" | "work" {
+  return raw === "work" ? "work" : "plan";
+}
 
 function normalizeThreadLiveStatus(raw: unknown) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -138,6 +145,32 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     });
 
     return NextResponse.json({ ok: true, interrupted: true, liveStatus: normalizeThreadLiveStatus(nextCtx.liveStatus) });
+  }
+
+  if (action === "set_mode") {
+    const ctxJson = thread.contextJson && typeof thread.contextJson === "object" && !Array.isArray(thread.contextJson) ? (thread.contextJson as any) : {};
+    const chatMode = normalizeThreadChatMode(parsed.data.chatMode);
+    const nextCtx = { ...ctxJson, chatMode };
+
+    await (prisma as any).portalAiChatThread.update({
+      where: { id: threadId },
+      data: { contextJson: nextCtx },
+    });
+
+    return NextResponse.json({ ok: true, chatMode });
+  }
+
+  if (action === "set_response_profile") {
+    const ctxJson = thread.contextJson && typeof thread.contextJson === "object" && !Array.isArray(thread.contextJson) ? (thread.contextJson as any) : {};
+    const responseProfile = normalizePuraAiProfile(parsed.data.responseProfile);
+    const nextCtx = { ...ctxJson, responseProfile };
+
+    await (prisma as any).portalAiChatThread.update({
+      where: { id: threadId },
+      data: { contextJson: nextCtx },
+    });
+
+    return NextResponse.json({ ok: true, responseProfile });
   }
 
   if (action === "duplicate") {

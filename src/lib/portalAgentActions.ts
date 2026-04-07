@@ -51,6 +51,7 @@ export async function resolvePortalAgentId(args: Record<string, any>, key: strin
   return { id: val, entityType };
 }
 import { z } from "zod";
+import { PORTAL_API_KEY_PERMISSION_VALUES } from "@/lib/portalApiKeys.shared";
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -94,6 +95,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "funnel_builder.forms.update",
   "funnel_builder.forms.delete",
   "funnel_builder.forms.submissions.list",
+  "funnel_builder.forms.submissions.get",
   "funnel_builder.form_field_keys.get",
   "funnel_builder.funnels.list",
   "funnel_builder.funnels.get",
@@ -206,6 +208,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "contacts.create",
   "contacts.get",
   "contacts.update",
+  "contacts.delete",
   "contacts.tags.list",
   "contacts.tags.add",
   "contacts.tags.remove",
@@ -225,6 +228,9 @@ export const PortalAgentActionKeySchema = z.enum([
   "ai_chat.threads.share.set",
   "ai_chat.threads.choice.set",
   "ai_chat.threads.actions.run",
+  "ai_chat.threads.runs.list",
+  "ai_chat.threads.status.get",
+  "ai_chat.threads.status.list",
   "ai_chat.messages.list",
   "ai_chat.messages.send",
   "ai_chat.scheduled.create",
@@ -263,6 +269,11 @@ export const PortalAgentActionKeySchema = z.enum([
   "integrations.sales_reporting.get",
   "integrations.sales_reporting.disconnect",
   "integrations.sales_reporting.update",
+  "integrations.api_keys.list",
+  "integrations.api_keys.create",
+  "integrations.api_keys.update",
+  "integrations.api_keys.delete",
+  "integrations.api_keys.reveal",
 
   "follow_up.settings.get",
   "follow_up.settings.update",
@@ -368,6 +379,10 @@ export const PortalAgentActionKeySchema = z.enum([
   "dashboard.add_widget",
   "dashboard.remove_widget",
   "dashboard.optimize",
+  "dashboard.analysis.get",
+  "dashboard.analysis.generate",
+  "dashboard.quick_access.get",
+  "dashboard.quick_access.update",
   "booking.calendar.create",
   "booking.availability.set_daily",
   "booking.calendars.get",
@@ -564,6 +579,20 @@ export const PortalAgentActionArgsSchemaByKey = {
       title: z.string().trim().min(1).max(120).optional(),
     })
     .strict(),
+
+  "ai_chat.threads.runs.list": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_chat.threads.status.get": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_chat.threads.status.list": z.object({}).strict(),
 
   "ai_chat.messages.list": z
     .object({
@@ -791,6 +820,13 @@ export const PortalAgentActionArgsSchemaByKey = {
       formId: z.string().trim().min(1).max(120),
       limit: z.number().int().min(1).max(100).optional().nullable(),
       cursor: z.string().trim().max(120).optional().nullable(),
+    })
+    .strict(),
+
+  "funnel_builder.forms.submissions.get": z
+    .object({
+      formId: z.string().trim().min(1).max(120),
+      submissionId: z.string().trim().min(1).max(120),
     })
     .strict(),
 
@@ -1613,10 +1649,19 @@ export const PortalAgentActionArgsSchemaByKey = {
   "contacts.update": z
     .object({
       contactId: z.string().trim().min(1).max(120),
-      name: z.string().trim().min(1).max(120),
+      name: z.string().trim().min(1).max(120).optional(),
       email: z.string().trim().max(200).optional().nullable(),
       phone: z.string().trim().max(60).optional().nullable(),
       customVariables: z.record(z.string().trim().max(60), z.string()).optional().nullable(),
+    })
+    .strict()
+    .refine((value) => value.name !== undefined || value.email !== undefined || value.phone !== undefined || value.customVariables !== undefined, {
+      message: "No contact changes provided",
+    }),
+
+  "contacts.delete": z
+    .object({
+      contactId: z.string().trim().min(1).max(120),
     })
     .strict(),
 
@@ -1846,6 +1891,40 @@ export const PortalAgentActionArgsSchemaByKey = {
       ]),
       credentials: z.record(z.string().trim().min(1).max(80), z.string().trim().max(2000)).optional().nullable(),
       setActive: z.boolean().optional().nullable(),
+    })
+    .strict(),
+
+  "integrations.api_keys.list": z.object({}).strict(),
+
+  "integrations.api_keys.create": z
+    .object({
+      name: z.string().trim().min(2).max(80),
+      permissions: z.array(z.enum(PORTAL_API_KEY_PERMISSION_VALUES as [string, ...string[]])).min(1),
+      creditLimit: z.number().int().min(0).nullable().optional(),
+    })
+    .strict(),
+
+  "integrations.api_keys.update": z
+    .object({
+      keyId: z.string().trim().min(1).max(120),
+      name: z.string().trim().min(2).max(80).optional(),
+      permissions: z.array(z.enum(PORTAL_API_KEY_PERMISSION_VALUES as [string, ...string[]])).min(1).optional(),
+      creditLimit: z.number().int().min(0).nullable().optional(),
+    })
+    .strict()
+    .refine((value) => value.name !== undefined || value.permissions !== undefined || value.creditLimit !== undefined, {
+      message: "No changes",
+    }),
+
+  "integrations.api_keys.delete": z
+    .object({
+      keyId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "integrations.api_keys.reveal": z
+    .object({
+      keyId: z.string().trim().min(1).max(120),
     })
     .strict(),
 
@@ -2540,6 +2619,23 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       scope: z.enum(["default", "embedded"]).optional().nullable(),
       niche: z.string().trim().min(1).max(120).optional().nullable(),
+    })
+    .strict(),
+
+  "dashboard.analysis.get": z.object({}).strict(),
+
+  "dashboard.analysis.generate": z
+    .object({
+      trigger: z.string().trim().max(120).optional(),
+      force: z.boolean().optional(),
+    })
+    .strict(),
+
+  "dashboard.quick_access.get": z.object({}).strict(),
+
+  "dashboard.quick_access.update": z
+    .object({
+      slugs: z.array(z.string().trim().min(1).max(80)).max(12),
     })
     .strict(),
 
@@ -3533,6 +3629,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- funnel_builder.forms.update: Update a Funnel Builder form (fields: formId, name?, status?, slug?, schemaJson?)",
     "- funnel_builder.forms.delete: Delete a Funnel Builder form (fields: formId)",
     "- funnel_builder.forms.submissions.list: List form submissions (fields: formId, limit?, cursor?)",
+    "- funnel_builder.forms.submissions.get: Get a single form submission with device context (fields: formId, submissionId)",
     "- funnel_builder.form_field_keys.get: List unique form field keys across forms",
     "- funnel_builder.funnels.list: List funnels",
     "- funnel_builder.funnels.get: Get a funnel (fields: funnelId)",
@@ -3631,6 +3728,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- contacts.create: Create a contact (fields: name, email?, phone?, tags?, customVariables?)",
     "- contacts.get: Get a contact by id with recent activity (fields: contactId)",
     "- contacts.update: Update a contact (fields: contactId, name, email?, phone?, customVariables?)",
+    "- contacts.delete: Delete a contact (fields: contactId)",
     "- contacts.tags.list: List tag assignments for a contact (fields: contactId)",
     "- contacts.tags.add: Assign a tag to a contact (fields: contactId, tagId)",
     "- contacts.tags.remove: Remove a tag from a contact (fields: contactId, tagId)",
@@ -3647,6 +3745,9 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- ai_chat.threads.share.set: Share a thread with portal users (fields: threadId, userIds[])",
     "- ai_chat.threads.choice.set: Set a thread choice/selection (fields: threadId, kind, value)",
     "- ai_chat.threads.actions.run: Run a thread action (fields: threadId, action=pin|unpin|delete|duplicate, title? (duplicate))",
+    "- ai_chat.threads.runs.list: List recent run ledger entries for a thread (fields: threadId)",
+    "- ai_chat.threads.status.get: Get the current live status snapshot for a thread (fields: threadId)",
+    "- ai_chat.threads.status.list: Get live status snapshots across visible threads",
     "- ai_chat.messages.list: List messages in an AI chat thread (fields: threadId)",
     "- ai_chat.messages.send: Send a chat message and get an assistant reply (fields: threadId, text?, url?, attachments?)",
     "- ai_chat.attachments.upload: Upload one or more files for chat (fields: files[{fileName,mimeType?,contentBase64}])",
@@ -3682,6 +3783,11 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- integrations.sales_reporting.get: Get sales reporting integration status (active provider + configured providers)",
     "- integrations.sales_reporting.disconnect: Disconnect a sales reporting provider (fields: provider)",
     "- integrations.sales_reporting.update: Connect/update a sales reporting provider (fields: provider, credentials?, setActive?) (encryption required for most providers)",
+    "- integrations.api_keys.list: List portal API keys",
+    "- integrations.api_keys.create: Create a scoped portal API key (fields: name, permissions, creditLimit?)",
+    "- integrations.api_keys.update: Update a scoped portal API key (fields: keyId, name?, permissions?, creditLimit?)",
+    "- integrations.api_keys.delete: Delete a scoped portal API key (fields: keyId)",
+    "- integrations.api_keys.reveal: Reveal the raw value for a portal API key (fields: keyId)",
     "- follow_up.settings.get: Get Follow-Up automation settings and queue preview",
     "- follow_up.settings.update: Update Follow-Up automation settings (fields: settings)",
     "- follow_up.custom_variables.get: Get Follow-Up custom variables (available to lead scraping and follow-up)",
@@ -3767,6 +3873,10 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- dashboard.add_widget: Add a dashboard widget (fields: scope?, widgetId)",
     "- dashboard.remove_widget: Remove a dashboard widget (fields: scope?, widgetId)",
     "- dashboard.optimize: Optimize dashboard widgets/layout for a niche (fields: scope?, niche?)",
+    "- dashboard.analysis.get: Get the cached dashboard analysis summary",
+    "- dashboard.analysis.generate: Generate or refresh the dashboard analysis summary (fields: trigger?, force?)",
+    "- dashboard.quick_access.get: Get dashboard quick access shortcuts",
+    "- dashboard.quick_access.update: Update dashboard quick access shortcuts (fields: slugs)",
     "- booking.calendar.create: Create a booking calendar config entry (fields: title, id?, description?, durationMinutes?, meetingLocation?, meetingDetails?, notificationEmails?)",
     "- booking.availability.set_daily: Set business-hour availability for a date range (fields: startDateLocal, endDateLocal, startTimeLocal, endTimeLocal, timeZone?, isoWeekdays?, replaceExisting?)",
     "- booking.calendars.get: Get booking calendars config",

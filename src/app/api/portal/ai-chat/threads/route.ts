@@ -5,13 +5,20 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
+import { PURA_AI_PROFILE_VALUES, normalizePuraAiProfile } from "@/lib/puraAiProfile";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const CreateThreadSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
+  chatMode: z.enum(["plan", "work"]).optional(),
+  responseProfile: z.enum(PURA_AI_PROFILE_VALUES).optional(),
 });
+
+function normalizeThreadChatMode(raw: unknown): "plan" | "work" {
+  return raw === "work" ? "work" : "plan";
+}
 
 function normalizeThreadLiveStatus(raw: unknown) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -162,6 +169,8 @@ export async function GET(req: Request) {
         updatedAt: t.updatedAt,
         liveStatus: normalizeThreadLiveStatus(ctxJson.liveStatus),
         nextStepContext: normalizeThreadNextStepContext(ctxJson.nextStepContext),
+        chatMode: normalizeThreadChatMode(ctxJson.chatMode),
+        responseProfile: normalizePuraAiProfile(ctxJson.responseProfile),
       };
     });
 
@@ -196,6 +205,8 @@ export async function POST(req: Request) {
   }
 
   const title = parsed.data.title?.trim() || "New chat";
+  const chatMode = normalizeThreadChatMode(parsed.data.chatMode);
+  const responseProfile = normalizePuraAiProfile(parsed.data.responseProfile);
 
   const thread = await (prisma as any).portalAiChatThread.create({
     data: {
@@ -205,6 +216,7 @@ export async function POST(req: Request) {
       lastMessageAt: null,
       isPinned: false,
       pinnedAt: null,
+      contextJson: { chatMode, responseProfile },
     },
     select: {
       id: true,
@@ -217,5 +229,5 @@ export async function POST(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, thread });
+  return NextResponse.json({ ok: true, thread: { ...thread, chatMode, responseProfile } });
 }

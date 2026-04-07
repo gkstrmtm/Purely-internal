@@ -57,15 +57,19 @@ export async function generateText({
   user,
   model,
   temperature,
+  baseUrlOverride,
+  apiKeyOverride,
 }: {
   system?: string;
   user: string;
   model?: string;
   temperature?: number;
+  baseUrlOverride?: string;
+  apiKeyOverride?: string;
 }): Promise<string> {
-  const baseUrl = process.env.AI_BASE_URL;
-  const apiKey = process.env.AI_API_KEY;
-  const resolvedModel = model ?? process.env.AI_MODEL ?? "gpt-4o-mini";
+  const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
+  const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
+  const resolvedModel = model ?? process.env.AI_MODEL ?? "gpt-5.4";
 
   if (!baseUrl || !apiKey) {
     throw new Error("AI provider not configured. Set AI_BASE_URL and AI_API_KEY");
@@ -104,16 +108,20 @@ export async function generateTextWithImages({
   imageUrls,
   model,
   temperature,
+  baseUrlOverride,
+  apiKeyOverride,
 }: {
   system?: string;
   user: string;
   imageUrls: string[];
   model?: string;
   temperature?: number;
+  baseUrlOverride?: string;
+  apiKeyOverride?: string;
 }): Promise<string> {
-  const baseUrl = process.env.AI_BASE_URL;
-  const apiKey = process.env.AI_API_KEY;
-  const resolvedModel = model ?? process.env.AI_VISION_MODEL ?? process.env.AI_MODEL ?? "gpt-4o-mini";
+  const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
+  const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
+  const resolvedModel = model ?? process.env.AI_VISION_MODEL ?? process.env.AI_MODEL ?? "gpt-5.4";
 
   if (!baseUrl || !apiKey) {
     throw new Error("AI provider not configured. Set AI_BASE_URL and AI_API_KEY");
@@ -159,14 +167,18 @@ export async function transcribeAudio({
   filename,
   mimeType,
   model,
+  baseUrlOverride,
+  apiKeyOverride,
 }: {
   bytes: ArrayBuffer | Uint8Array;
   filename?: string;
   mimeType?: string;
   model?: string;
+  baseUrlOverride?: string;
+  apiKeyOverride?: string;
 }): Promise<string> {
-  const baseUrl = process.env.AI_BASE_URL;
-  const apiKey = process.env.AI_API_KEY;
+  const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
+  const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
   const resolvedModel = model ?? process.env.AI_TRANSCRIBE_MODEL ?? "whisper-1";
 
   if (!baseUrl || !apiKey) {
@@ -213,14 +225,18 @@ export async function transcribeAudioVerbose({
   filename,
   mimeType,
   model,
+  baseUrlOverride,
+  apiKeyOverride,
 }: {
   bytes: ArrayBuffer | Uint8Array;
   filename?: string;
   mimeType?: string;
   model?: string;
+  baseUrlOverride?: string;
+  apiKeyOverride?: string;
 }): Promise<{ text: string; segments: Array<{ start: number; end: number; text: string }> }> {
-  const baseUrl = process.env.AI_BASE_URL;
-  const apiKey = process.env.AI_API_KEY;
+  const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
+  const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
   const resolvedModel = model ?? process.env.AI_TRANSCRIBE_MODEL ?? "whisper-1";
 
   if (!baseUrl || !apiKey) {

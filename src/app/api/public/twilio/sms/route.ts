@@ -6,6 +6,7 @@ import { makeSmsThreadKey, normalizeSmsPeerKey, upsertPortalInboxMessage } from 
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { findPortalContactByPhone } from "@/lib/portalContacts";
 import { listContactTagsForContact } from "@/lib/portalContactTags";
+import { resumeScheduledPortalAiChatFromSms } from "@/lib/portalAiChatScheduled";
 import { prisma } from "@/lib/db";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
@@ -205,12 +206,21 @@ export async function POST(req: Request) {
       .filter(Boolean)
       .join("\n\n");
 
-    const ai = await withTimeout(generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" }), 5500).catch(() => "");
+    const ai = await withTimeout(generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" }), 5500).catch(() => "");
     const reply = normalizeSmsReply(ai);
     return reply || null;
   };
 
   const receptionistReply = await tryAiReceptionistReply().catch(() => null);
+
+  const scheduledResume = await withTimeout(
+    resumeScheduledPortalAiChatFromSms({ ownerId, fromPhone: peerPhone, body }),
+    2500,
+  ).catch(() => null);
+
+  if (scheduledResume?.matched) {
+    return twimlMessage(scheduledResume.replyText || "Got it — I’ll continue that scheduled task and follow up in the portal.");
+  }
 
   if (receptionistReply) {
     try {

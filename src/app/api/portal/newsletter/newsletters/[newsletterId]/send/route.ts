@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
-import { sendNewsletterToAudience } from "@/lib/portalNewsletter";
+import { ensureNewsletterSiteForOwner, sendNewsletterToAudience } from "@/lib/portalNewsletter";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const runtime = "nodejs";
@@ -28,10 +28,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ newsletterId: 
   const ownerId = auth.session.user.id;
   const { newsletterId } = await ctx.params;
 
-  const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true, slug: true, name: true, ownerId: true } });
-  if (!site?.id) {
-    return NextResponse.json({ ok: false, error: "Newsletter site not configured" }, { status: 404 });
-  }
+  const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true, slug: true, name: true, ownerId: true } });
 
   const newsletter = await prisma.clientNewsletter.findFirst({
     where: { id: newsletterId, siteId: site.id },

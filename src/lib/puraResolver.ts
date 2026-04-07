@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { generateText } from "@/lib/ai";
+import { generatePuraText as generateText } from "@/lib/puraAi";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { createOwnerContactTag } from "@/lib/portalContactTags";
@@ -8,6 +8,7 @@ import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { listPortalAccountMembers } from "@/lib/portalAccounts";
 import { isPuraRef, type PuraRef } from "@/lib/puraPlanner";
+import { getConfirmSpecForPortalAgentAction } from "@/lib/portalAgentActionMeta";
 import { encodeScheduledActionEnvelope, tryParseScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
 import { looksLikePlaceholderId, sanitizeIdLikeObjectDeep } from "@/lib/agentIdSanitizer";
 
@@ -3107,8 +3108,9 @@ async function resolveBookingCalendarId(opts: {
   }
 
   // If the user refers to the "same" calendar and we have one in context, reuse it.
-  if (/\b(same\s+one|same\s+calendar|the\s+same|that\s+one|the\s+one\s+we\s+just\s+used)\b/i.test(hintRaw) && lastCal) {
-    return { kind: "ok", calendarId: lastCal.id, label: lastCal.title };
+  if (/\b(same\s+one|same\s+calendar|the\s+same|that\s+one|the\s+one\s+we\s+just\s+used)\b/i.test(hintRaw)) {
+    if (lastCal) return { kind: "ok", calendarId: lastCal.id, label: lastCal.title };
+    return { kind: "ok", calendarId: defaultCal.id, label: defaultCal.title };
   }
 
   if (hintMeansAny(hintRaw)) {
@@ -3722,6 +3724,15 @@ export async function resolvePlanArgs(opts: {
           return {
             ok: false,
             clarifyQuestion: "This schedule contains a nested schedule step. Please rephrase the schedule so it only runs one action (e.g., ‘text Chester good morning’).",
+          };
+        }
+
+        const confirmSpec = getConfirmSpecForPortalAgentAction(s.key as any);
+        if (confirmSpec) {
+          const scheduledTitle = typeof s?.title === "string" && s.title.trim() ? s.title.trim() : String((s as any)?.key || "this action").trim();
+          return {
+            ok: false,
+            clarifyQuestion: `Before I schedule this recurring task, please confirm that I should run ${scheduledTitle} automatically whenever this schedule fires.`,
           };
         }
 

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { ensureNewsletterSiteForOwner } from "@/lib/portalNewsletter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,10 +36,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ newsletterId: 
   const ownerId = auth.session.user.id;
   const { newsletterId } = await ctx.params;
 
-  const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true, slug: true, name: true } });
-  if (!site?.id) {
-    return NextResponse.json({ ok: false, error: "Newsletter site not configured" }, { status: 404 });
-  }
+  const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true, slug: true, name: true } });
 
   const newsletter = await prisma.clientNewsletter.findFirst({
     where: { id: newsletterId, siteId: site.id },
@@ -89,10 +87,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ newsletterId: s
     return NextResponse.json({ ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
   }
 
-  const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
-  if (!site?.id) {
-    return NextResponse.json({ ok: false, error: "Newsletter site not configured" }, { status: 404 });
-  }
+  const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true } });
 
   const current = await prisma.clientNewsletter.findFirst({
     where: { id: newsletterId, siteId: site.id },

@@ -490,7 +490,7 @@ export async function generateOneDraft(
   const raw = await generateText({
     system: blogSystemPrompt(),
     user: blogUserPromptForOne(topic, opts),
-    model: process.env.AI_MODEL ?? "gpt-4o-mini",
+    model: process.env.AI_MODEL ?? "gpt-5.4",
   });
 
   return assertDraft(tryParseJson(raw));
@@ -506,7 +506,7 @@ export async function generateManyDrafts(
   const raw = await generateText({
     system: blogSystemPrompt(),
     user: blogUserPromptForMany(plan, opts),
-    model: process.env.AI_MODEL ?? "gpt-4o-mini",
+    model: process.env.AI_MODEL ?? "gpt-5.4",
   });
 
   const drafts = assertDraftList(tryParseJson(raw)).posts;
@@ -1093,7 +1093,7 @@ export async function suggestTopics({ count = 20, seed }: { count?: number; seed
     .filter(Boolean)
     .join("\n");
 
-  const raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+  const raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" });
   const parsed = tryParseJson(raw) as { topics?: unknown };
   const topics = uniqueNonEmptyStrings(parsed.topics) ?? [];
   return topics.map((t) => stripDoubleAsterisks(t)).slice(0, n);

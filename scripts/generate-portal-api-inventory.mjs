@@ -8,6 +8,19 @@ const PORTAL_ROOT = path.join(API_ROOT, "portal");
 const OUT_JSON = path.join(REPO_ROOT, "docs", "portal-api-inventory.json");
 const OUT_MD = path.join(REPO_ROOT, "docs", "portal-agent-coverage.md");
 
+const EXCLUDED_FROM_AGENT_COVERAGE = [
+  {
+    method: "POST",
+    endpoint: "/api/portal/ai-flow-sim",
+    reason: "Internal simulator/dev tooling; not a user-facing portal action.",
+  },
+  {
+    method: "POST",
+    endpoint: "/api/portal/ai-flow-sim/explain",
+    reason: "Internal simulator/dev tooling; not a user-facing portal action.",
+  },
+];
+
 /**
  * Minimal, explicit mapping of agent actions -> portal endpoints.
  * This is intentionally conservative: only mark coverage when we know an action
@@ -19,6 +32,7 @@ const ACTION_COVERAGE = [
 
   { action: "contacts.get", method: "GET", endpoint: "/api/portal/contacts/[contactId]" },
   { action: "contacts.update", method: "PATCH", endpoint: "/api/portal/contacts/[contactId]" },
+  { action: "contacts.delete", method: "DELETE", endpoint: "/api/portal/contacts/[contactId]" },
 
   { action: "contacts.tags.list", method: "GET", endpoint: "/api/portal/contacts/[contactId]/tags" },
   { action: "contacts.tags.add", method: "POST", endpoint: "/api/portal/contacts/[contactId]/tags" },
@@ -79,6 +93,10 @@ const ACTION_COVERAGE = [
   { action: "ai_chat.threads.share.set", method: "POST", endpoint: "/api/portal/ai-chat/threads/[threadId]/share" },
   { action: "ai_chat.threads.choice.set", method: "POST", endpoint: "/api/portal/ai-chat/threads/[threadId]/choice" },
   { action: "ai_chat.threads.actions.run", method: "POST", endpoint: "/api/portal/ai-chat/threads/[threadId]/actions" },
+  { action: "ai_chat.threads.runs.list", method: "GET", endpoint: "/api/portal/ai-chat/threads/[threadId]/runs" },
+  { action: "ai_chat.threads.status.get", method: "GET", endpoint: "/api/portal/ai-chat/threads/[threadId]/status" },
+  { action: "ai_chat.threads.status.list", method: "GET", endpoint: "/api/portal/ai-chat/threads/status" },
+  { action: "ai_chat.messages.dictate", method: "POST", endpoint: "/api/portal/ai-chat/threads/[threadId]/dictate" },
   { action: "ai_chat.messages.list", method: "GET", endpoint: "/api/portal/ai-chat/threads/[threadId]/messages" },
   { action: "ai_chat.messages.send", method: "POST", endpoint: "/api/portal/ai-chat/threads/[threadId]/messages" },
   { action: "ai_chat.attachments.upload", method: "POST", endpoint: "/api/portal/ai-chat/attachments" },
@@ -101,6 +119,11 @@ const ACTION_COVERAGE = [
   { action: "integrations.sales_reporting.get", method: "GET", endpoint: "/api/portal/integrations/sales-reporting" },
   { action: "integrations.sales_reporting.disconnect", method: "DELETE", endpoint: "/api/portal/integrations/sales-reporting" },
   { action: "integrations.sales_reporting.update", method: "PUT", endpoint: "/api/portal/integrations/sales-reporting" },
+  { action: "integrations.api_keys.list", method: "GET", endpoint: "/api/portal/integrations/api-keys" },
+  { action: "integrations.api_keys.create", method: "POST", endpoint: "/api/portal/integrations/api-keys" },
+  { action: "integrations.api_keys.update", method: "PATCH", endpoint: "/api/portal/integrations/api-keys/[keyId]" },
+  { action: "integrations.api_keys.delete", method: "DELETE", endpoint: "/api/portal/integrations/api-keys/[keyId]" },
+  { action: "integrations.api_keys.reveal", method: "POST", endpoint: "/api/portal/integrations/api-keys/[keyId]/reveal" },
 
   { action: "follow_up.settings.get", method: "GET", endpoint: "/api/portal/follow-up/settings" },
   { action: "follow_up.settings.update", method: "PUT", endpoint: "/api/portal/follow-up/settings" },
@@ -185,6 +208,10 @@ const ACTION_COVERAGE = [
   { action: "dashboard.add_widget", method: "POST", endpoint: "/api/portal/dashboard/widgets" },
   { action: "dashboard.remove_widget", method: "DELETE", endpoint: "/api/portal/dashboard/widgets" },
   { action: "dashboard.optimize", method: "POST", endpoint: "/api/portal/dashboard/optimize" },
+  { action: "dashboard.analysis.get", method: "GET", endpoint: "/api/portal/dashboard/analysis" },
+  { action: "dashboard.analysis.generate", method: "POST", endpoint: "/api/portal/dashboard/analysis" },
+  { action: "dashboard.quick_access.get", method: "GET", endpoint: "/api/portal/dashboard/quick-access" },
+  { action: "dashboard.quick_access.update", method: "PUT", endpoint: "/api/portal/dashboard/quick-access" },
 
   { action: "booking.bookings.list", method: "GET", endpoint: "/api/portal/booking/bookings" },
   { action: "booking.cancel", method: "POST", endpoint: "/api/portal/booking/bookings/[bookingId]/cancel" },
@@ -389,6 +416,7 @@ const ACTION_COVERAGE = [
   { action: "funnel_builder.forms.update", method: "PATCH", endpoint: "/api/portal/funnel-builder/forms/[formId]" },
   { action: "funnel_builder.forms.delete", method: "DELETE", endpoint: "/api/portal/funnel-builder/forms/[formId]" },
   { action: "funnel_builder.forms.submissions.list", method: "GET", endpoint: "/api/portal/funnel-builder/forms/[formId]/submissions" },
+  { action: "funnel_builder.forms.submissions.get", method: "GET", endpoint: "/api/portal/funnel-builder/forms/[formId]/submissions/[submissionId]" },
   { action: "funnel_builder.form_field_keys.get", method: "GET", endpoint: "/api/portal/funnel-builder/form-field-keys" },
 
   { action: "funnel_builder.funnels.list", method: "GET", endpoint: "/api/portal/funnel-builder/funnels" },
@@ -464,6 +492,10 @@ function coveredBy(endpoint, method) {
   return ACTION_COVERAGE.filter((m) => m.endpoint === endpoint && m.method === method).map((m) => m.action);
 }
 
+function exclusionFor(endpoint, method) {
+  return EXCLUDED_FROM_AGENT_COVERAGE.find((m) => m.endpoint === endpoint && m.method === method) || null;
+}
+
 function mdEscape(s) {
   return String(s).replaceAll("|", "\\|");
 }
@@ -496,18 +528,21 @@ async function main() {
   const rows = [];
   let coveredOps = 0;
   let totalOps = 0;
+  let excludedOps = 0;
 
   for (const r of routes) {
     const methods = r.methods.length ? r.methods : ["(unknown)"];
     for (const m of methods) {
       if (m === "(unknown)") {
-        rows.push({ endpoint: r.endpoint, method: m, covered: [], file: r.file });
+        rows.push({ endpoint: r.endpoint, method: m, covered: [], excluded: null, file: r.file });
         continue;
       }
       totalOps += 1;
       const covered = coveredBy(r.endpoint, m);
+      const excluded = exclusionFor(r.endpoint, m);
       if (covered.length) coveredOps += 1;
-      rows.push({ endpoint: r.endpoint, method: m, covered, file: r.file });
+      else if (excluded) excludedOps += 1;
+      rows.push({ endpoint: r.endpoint, method: m, covered, excluded, file: r.file });
     }
   }
 
@@ -520,19 +555,22 @@ async function main() {
   md.push(`- Portal route files: ${routeFiles.length}`);
   md.push(`- Operations (route+method): ${totalOps}`);
   md.push(`- Operations mapped to agent actions: ${coveredOps}`);
+  md.push(`- Operations excluded from coverage gaps: ${excludedOps}`);
+  md.push(`- Remaining unmapped product-facing operations: ${rows.filter((r) => r.method !== "(unknown)" && (!r.covered || r.covered.length === 0) && !r.excluded).length}`);
   md.push("");
 
   md.push("## Coverage Table");
   md.push("");
-  md.push("| Endpoint | Method | Agent Actions | Route File |");
-  md.push("|---|---:|---|---|");
+  md.push("| Endpoint | Method | Agent Actions | Coverage Status | Route File |");
+  md.push("|---|---:|---|---|---|");
 
   for (const r of rows) {
     const actions = r.covered.length ? r.covered.join(", ") : "";
-    md.push(`| ${mdEscape(r.endpoint)} | ${mdEscape(r.method)} | ${mdEscape(actions)} | ${mdEscape(r.file)} |`);
+    const status = r.covered.length ? "mapped" : r.excluded ? `excluded - ${r.excluded.reason}` : "unmapped";
+    md.push(`| ${mdEscape(r.endpoint)} | ${mdEscape(r.method)} | ${mdEscape(actions)} | ${mdEscape(status)} | ${mdEscape(r.file)} |`);
   }
 
-  const unmapped = rows.filter((r) => r.method !== "(unknown)" && (!r.covered || r.covered.length === 0));
+  const unmapped = rows.filter((r) => r.method !== "(unknown)" && (!r.covered || r.covered.length === 0) && !r.excluded);
   const byService = new Map();
   for (const r of unmapped) {
     const parts = String(r.endpoint || "").split("/");
@@ -546,6 +584,17 @@ async function main() {
   md.push("## Unmapped Operations");
   md.push("");
   md.push(`- Unmapped operations (no agent action mapping): ${unmapped.length}`);
+
+  if (EXCLUDED_FROM_AGENT_COVERAGE.length) {
+    md.push("");
+    md.push("## Excluded Operations");
+    md.push("");
+    md.push("| Endpoint | Method | Reason |");
+    md.push("|---|---:|---|");
+    for (const row of EXCLUDED_FROM_AGENT_COVERAGE) {
+      md.push(`| ${mdEscape(row.endpoint)} | ${mdEscape(row.method)} | ${mdEscape(row.reason)} |`);
+    }
+  }
 
   const services = Array.from(byService.keys()).sort((a, b) => a.localeCompare(b));
   for (const service of services) {
@@ -566,6 +615,7 @@ async function main() {
   md.push("## Notes");
   md.push("");
   md.push("- Coverage is conservative: endpoints are only marked covered when an explicit action mapping exists in the generator script.");
+  md.push("- Simulator/internal support routes can be explicitly excluded when they are not intended to be first-class user actions.");
   md.push("- Next step: expand `ACTION_COVERAGE` entries as new agent actions ship (and as we verify parity).");
 
   await fs.writeFile(OUT_MD, md.join("\n") + "\n", "utf8");

@@ -428,7 +428,7 @@ async function sendEmail({
 
 async function sendSms({ ownerId, to, body }: { ownerId: string; to: string; body: string }) {
   const res = await sendOwnerTwilioSms({ ownerId, to, body: body.slice(0, 900) });
-  if (!res.ok) throw new Error(res.error || "Texting is not configured yet.");
+  if (!res.ok) throw new Error(res.error || "Texting is not configured for this workspace yet. Connect Twilio in Integrations.");
 }
 
 function normalizeSettings(value: unknown): Settings {

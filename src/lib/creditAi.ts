@@ -36,6 +36,6 @@ export async function generateCreditText({
   return generateText({
     system,
     user,
-    model: (model || process.env.AI_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini",
+    model: (model || process.env.AI_MODEL || "gpt-5.4").trim() || "gpt-5.4",
   });
 }

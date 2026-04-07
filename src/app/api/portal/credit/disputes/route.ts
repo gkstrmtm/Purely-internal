@@ -150,7 +150,7 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join("\n");
 
-  const model = (process.env.AI_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini";
+  const model = (process.env.AI_MODEL || "gpt-5.4").trim() || "gpt-5.4";
   const bodyTextRaw = await generateText({ system, user, model });
   const bodyText = normalizeDisputeLetterText(String(bodyTextRaw || "").trim(), {
     contactName: contact.name,

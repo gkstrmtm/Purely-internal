@@ -2875,10 +2875,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             >
               <IconChevron />
             </button>
-
-            <div className="pointer-events-auto flex items-center gap-2">
-              {sidebarOverride?.mobileHeaderActions ? sidebarOverride.mobileHeaderActions : <div className="h-10 w-10" aria-hidden />}
-            </div>
           </div>
 
           <main

@@ -290,7 +290,12 @@ export async function sendOwnerTwilioSms(opts: {
   logToInbox?: boolean;
 }): Promise<{ ok: true; messageSid?: string } | { ok: false; error: string }> {
   const config = await getOwnerTwilioSmsConfig(opts.ownerId);
-  if (!config) return { ok: false, error: "Texting not configured" };
+  if (!config) {
+    return {
+      ok: false,
+      error: "Texting is not configured for this workspace yet. Connect Twilio in Integrations with an Account SID, Auth Token, and SMS-capable From number.",
+    };
+  }
 
   const toParsed = normalizePhoneStrict(String(opts.to ?? "").trim());
   if (!toParsed.ok) return { ok: false, error: toParsed.error };

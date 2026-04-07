@@ -3,17 +3,24 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
-import { generateText } from "@/lib/ai";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { persistPortalAiChatRun, type PortalAiChatRunStatus, type PortalAiChatRunTraceInput } from "@/lib/portalAiChatRunLedger";
 import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
+import { generatePuraText as generateText, runWithPuraAiProfile } from "@/lib/puraAi";
+import { PURA_AI_PROFILE_VALUES, normalizePuraAiProfile } from "@/lib/puraAiProfile";
 import {
   PortalAgentActionKeySchema,
   extractJsonObject,
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
-import { deriveThreadContextPatchFromAction, executePortalAgentAction, executePortalAgentActionForThread } from "@/lib/portalAgentActionExecutor";
+import {
+  classifyPortalAgentFailure,
+  deriveThreadContextPatchFromAction,
+  executePortalAgentAction,
+  executePortalAgentActionForThread,
+  type PortalAgentFailureMeta,
+} from "@/lib/portalAgentActionExecutor";
 import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction, portalContactUiUrl } from "@/lib/portalAgentActionMeta";
 import { encodeScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
@@ -89,6 +96,8 @@ const SendMessageSchema = z
     text: z.string().trim().max(4000).optional(),
     url: z.string().trim().optional(),
     canvasUrl: z.string().trim().max(1200).optional(),
+    chatMode: z.enum(["plan", "work"]).optional(),
+    responseProfile: z.enum(PURA_AI_PROFILE_VALUES).optional(),
     attachments: z.array(AttachmentSchema).max(10).optional(),
     clientTimeZone: z.string().trim().max(80).optional(),
     confirmToken: z.string().trim().min(1).max(200).optional(),
@@ -125,6 +134,10 @@ function buildWidgetSuggestionAssistantContext(widgetSuggestion: NonNullable<z.i
         .slice(0, 20)
     : [];
   return { serviceLabel, detailLines };
+}
+
+function normalizeThreadChatMode(raw: unknown): "plan" | "work" {
+  return raw === "work" ? "work" : "plan";
 }
 
 async function generateWidgetSuggestionAssistantText(widgetSuggestion: NonNullable<z.infer<typeof WidgetSuggestionSchema>>): Promise<string> {
@@ -387,6 +400,13 @@ function withUnresolvedRun(threadContextValue: unknown, unresolvedRun: Unresolve
 
 function clearUnresolvedRun(threadContextValue: unknown) {
   return withUnresolvedRun(threadContextValue, null);
+}
+
+function clearPendingScheduleResume(threadContextValue: unknown) {
+  const prev = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue)
+    ? (threadContextValue as Record<string, unknown>)
+    : {};
+  return { ...prev, pendingScheduleResume: null };
 }
 
 type NextStepContextShape = {
@@ -2498,13 +2518,21 @@ function detectDeterministicActionsFromText(opts: {
     const tags = tagsMatch?.[1] ? String(tagsMatch[1]).trim().slice(0, 600) : null;
 
     let name = "";
+    const explicitName =
+      /\bgive\s+(?:it|the\s+contact)\s+the\s+name\s+"?([^"\n]{2,80})"?/i.exec(t) ||
+      /\bname(?:d)?\s*[:=]\s*"?([^"\n]{2,80})"?/i.exec(t) ||
+      /\bnamed\s+"?([^"\n]{2,80})"?/i.exec(t);
     const quotedName = /\bcontact\b\s+"([^"\n]{2,80})"/i.exec(t) || /\bcontact\b\s+'([^'\n]{2,80})'/i.exec(t);
-    if (quotedName?.[1]) {
+    if (explicitName?.[1]) {
+      name = String(explicitName[1]).trim().slice(0, 80);
+    } else if (quotedName?.[1]) {
       name = String(quotedName[1]).trim().slice(0, 80);
     } else {
       const after = /\bcontact\b\s*(?:named|called)?\s*([^\n]{2,120})/i.exec(t);
       if (after?.[1]) {
         const candidate = String(after[1])
+          .replace(/\band\s+give\s+it\s+the\s+name\b[\s\S]*$/i, "")
+          .replace(/\bname(?:d)?\b[\s\S]*$/i, "")
           .replace(/\b(tags?|email|phone)\b[\s\S]*$/i, "")
           .replace(/\b([A-Z0-9._%+-]{1,64}@[A-Z0-9.-]{2,80}\.[A-Z]{2,})\b/i, "")
           .replace(/(\+?\d[\d\s().-]{7,}\d)/, "")
@@ -2522,6 +2550,38 @@ function detectDeterministicActionsFromText(opts: {
           ...(email ? { email } : {}),
           ...(phone ? { phone } : {}),
           ...(tags ? { tags } : {}),
+        },
+      }];
+    }
+  }
+
+  // People: update a contact using a fuzzy contact hint plus partial fields.
+  if (/\b(update|edit|change|rename|set)\b/i.test(t) && /\bcontact\b/i.test(t)) {
+    const emailMatch = /\b([A-Z0-9._%+-]{1,64}@[A-Z0-9.-]{2,80}\.[A-Z]{2,})\b/i.exec(t);
+    const email = emailMatch?.[1] ? String(emailMatch[1]).trim().slice(0, 120) : undefined;
+    const phoneMatch = /(\+?\d[\d\s().-]{7,}\d)/.exec(t);
+    const phone = phoneMatch ? normalizePhoneLike(phoneMatch[1]) || undefined : undefined;
+    const renameMatch = /\brename\b[\s\S]{0,24}\bto\b\s+"?([^"\n]{2,80})"?/i.exec(t) || /\bname\s+(?:to|=|:)\s*"?([^"\n]{2,80})"?/i.exec(t);
+    const nextName = renameMatch?.[1] ? String(renameMatch[1]).trim().slice(0, 120) : undefined;
+    const targetMatch =
+      /\bcontact\s+(?:named|called)\s+"?([^"\n]{2,80})"?/i.exec(t) ||
+      /\bcontact\s+([^\n]{2,80})/i.exec(t);
+    const targetHint = targetMatch?.[1]
+      ? String(targetMatch[1])
+          .replace(/\b(update|edit|change|rename|set|name|email|phone|number)\b[\s\S]*$/i, "")
+          .trim()
+          .slice(0, 120)
+      : "";
+
+    if (targetHint && (nextName !== undefined || email !== undefined || phone !== undefined)) {
+      return [{
+        key: "contacts.update",
+        title: "Update contact",
+        args: {
+          contactId: targetHint,
+          ...(nextName !== undefined ? { name: nextName } : {}),
+          ...(email !== undefined ? { email } : {}),
+          ...(phone !== undefined ? { phone } : {}),
         },
       }];
     }
@@ -2756,8 +2816,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
 
   const unresolvedRun = normalizeUnresolvedRun(ctxJson.unresolvedRun);
   const nextStepContext = normalizeNextStepContext(ctxJson.nextStepContext);
+  const threadSummary = typeof ctxJson.threadSummary === "string" && ctxJson.threadSummary.trim() ? String(ctxJson.threadSummary).trim().slice(0, 1200) : null;
+  const threadSummaryUpdatedAt =
+    typeof ctxJson.threadSummaryUpdatedAt === "string" && ctxJson.threadSummaryUpdatedAt.trim()
+      ? String(ctxJson.threadSummaryUpdatedAt).trim().slice(0, 80)
+      : null;
+  const chatMode = normalizeThreadChatMode(ctxJson.chatMode);
+  const responseProfile = normalizePuraAiProfile(ctxJson.responseProfile);
 
-  const threadContext = { lastCanvasUrl, lastWorkTitle, liveStatus, runs, unresolvedRun, nextStepContext };
+  const threadContext = { lastCanvasUrl, lastWorkTitle, liveStatus, runs, unresolvedRun, nextStepContext, threadSummary, threadSummaryUpdatedAt, chatMode, responseProfile };
 
   if (view === "status") {
     return NextResponse.json({ ok: true, threadContext });
@@ -2818,6 +2885,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   const bodyClientTimeZone =
     typeof (parsed.data as any)?.clientTimeZone === "string" ? String((parsed.data as any).clientTimeZone).trim().slice(0, 80) : "";
   const clientTimeZone = (bodyClientTimeZone || headerClientTimeZone || "").trim().slice(0, 80);
+  const requestedChatModeRaw = typeof (parsed.data as any)?.chatMode === "string" ? String((parsed.data as any).chatMode).trim() : "";
+  const requestedChatMode = requestedChatModeRaw ? normalizeThreadChatMode(requestedChatModeRaw) : null;
+  const requestedResponseProfileRaw = typeof (parsed.data as any)?.responseProfile === "string" ? String((parsed.data as any).responseProfile).trim() : "";
+  const requestedResponseProfile = requestedResponseProfileRaw ? normalizePuraAiProfile(requestedResponseProfileRaw) : null;
 
   const getTimeZoneHint = (threadContext?: any): string | null => {
     const ctxTz =
@@ -2894,6 +2965,17 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     persistedThreadContext = nextCtx;
     return nextCtx;
   };
+
+  const initialThreadContext = persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext)
+    ? (persistedThreadContext as any)
+    : {};
+  const storedChatMode = normalizeThreadChatMode(initialThreadContext.chatMode);
+  const threadChatMode = requestedChatMode || storedChatMode;
+  const storedResponseProfile = normalizePuraAiProfile(initialThreadContext.responseProfile);
+  const threadResponseProfile = requestedResponseProfile || storedResponseProfile;
+  if (storedChatMode !== threadChatMode || storedResponseProfile !== threadResponseProfile) {
+    persistedThreadContext = await persistThreadContext({ ...initialThreadContext, chatMode: threadChatMode, responseProfile: threadResponseProfile });
+  }
 
   const persistLiveStatus = async (
     status: LiveStatusShape | null,
@@ -3325,6 +3407,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         pendingPlanClarify: null,
         pendingAction: null,
         pendingActionClarify: null,
+        pendingScheduleResume: null,
         threadSummary: null,
         liveStatus: null,
       };
@@ -3647,8 +3730,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     const runStatus: PortalAiChatRunStatus = failedCount > 0 ? (okCount > 0 ? "partial" : "failed") : "completed";
 
     const nextCtxBase = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-      ? { ...(prevCtx as any), pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs }
-      : { pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs };
+      ? { ...(prevCtx as any), pendingConfirm: null, pendingPlan: null, pendingScheduleResume: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs }
+      : { pendingConfirm: null, pendingPlan: null, pendingScheduleResume: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs };
     const completedRunId = activeRunId;
     const completedRunStartedAt = activeRunStartedAt;
     const nextCtx = completeInterruptibleRun(
@@ -3771,7 +3854,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext)
         ? (persistedThreadContext as any)
         : {};
-    const nextCtx = { ...prevCtx, pendingConfirm: null, pendingPlan: null, pendingPlanClarify: null, pendingAction: null, pendingActionClarify: null, liveStatus: null };
+    const nextCtx = { ...prevCtx, pendingConfirm: null, pendingPlan: null, pendingPlanClarify: null, pendingAction: null, pendingActionClarify: null, pendingScheduleResume: null, liveStatus: null };
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
     persistedThreadContext = nextCtx;
   }
@@ -3801,9 +3884,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       });
 
   if (userMsg) {
+    const nextCtx = clearPendingScheduleResume(persistedThreadContext);
+    persistedThreadContext = nextCtx;
     await (prisma as any).portalAiChatThread.update({
       where: { id: threadId },
-      data: { lastMessageAt: now },
+      data: { lastMessageAt: now, contextJson: nextCtx },
     });
 
     // Auto-title threads in the agentic flow as soon as we have a real user message.
@@ -3852,7 +3937,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   // 0.5) Agentic planning + deterministic resolution (multi-step, no IDs required).
   // This runs before the legacy action-proposal flow, and it executes immediately for imperative requests.
-  let fallbackThreadContext = isConfirmOnly ? persistedThreadContext : await beginInterruptibleRun(persistedThreadContext);
+  let fallbackThreadContext = isConfirmOnly || threadChatMode !== "work" ? persistedThreadContext : await beginInterruptibleRun(persistedThreadContext);
   if (isPortalSupportChatConfigured()) {
     try {
       let threadContext = fallbackThreadContext;
@@ -4051,9 +4136,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                     "You need ONE clarifying question so you can run the requested action.",
                     "Write a single short question.",
                     "Rules:",
+                    "- Ask only for the one missing detail that truly blocks execution.",
+                    "- Do not ask for anything that can be inferred from thread context, page context, or the provided clickable choices.",
                     "- Do not ask for internal IDs unless the user must paste one.",
                     "- If clickable choices are available, mention they can click one.",
                     "- Do NOT list the choices in the message; the UI shows them as clickable options.",
+                    "- Be concrete, not vague.",
                     "- No JSON output.",
                   ].join("\n"),
                   user: `Context (JSON):\n${JSON.stringify(
@@ -4507,17 +4595,22 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           return buildAction("booking.calendars.get", "Find the booking calendars", {});
         }
 
-        if (/\b(task|tasks|todo|to-do|follow[-\s]?up|followup|checklist)\b/.test(combined)) {
-          return buildAction("tasks.list", "Find the tasks", { status: "OPEN", limit: 25 });
-        }
-
         if (/\b(inbox|email|emails|sms|text message|text messages|texts|conversation|conversations|message thread|message threads)\b/.test(combined)) {
           const channel = /\b(email|emails)\b/.test(combined) ? "EMAIL" : /\b(sms|text message|text messages|texts)\b/.test(combined) ? "SMS" : null;
           return buildAction("inbox.threads.list", "Find the inbox threads", channel ? { channel, take: 25 } : { take: 25 });
         }
 
-        if (/\b(contact|contacts|lead|leads|customer|customers|client|clients|prospect|prospects)\b/.test(combined)) {
+        if (
+          /\b(contact|contacts|lead|leads|customer|customers|client|clients|prospect|prospects)\b/.test(combined) ||
+          /\b[A-Z0-9._%+-]{1,80}@[A-Z0-9.-]{1,120}\.[A-Z]{2,24}\b/i.test(combined) ||
+          /\+?\d[\d\s().-]{7,}\d/.test(combined) ||
+          (Boolean(localCtx?.lastContact?.id) && /\b(name|email|phone|number|rename|contact info|crm)\b/.test(combined))
+        ) {
           return buildAction("contacts.list", "Find the contacts", { limit: 25 });
+        }
+
+        if (/\b(task|tasks|todo|to-do|follow[-\s]?up|followup|checklist)\b/.test(combined)) {
+          return buildAction("tasks.list", "Find the tasks", { status: "OPEN", limit: 25 });
         }
 
         if (/\b(user|users|team|staff|employee|employees|member|members|owner|owners)\b/.test(combined)) {
@@ -4557,6 +4650,29 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       };
 
       const buildSafeDiscoveryFallback = (preferredActionKey?: PortalAgentActionKey | null) => [buildSafeDiscoveryFallbackStep(preferredActionKey)] as any;
+
+      const buildExecutionFailureDirectMessage = (opts: { title: string; error: string; status: number; failureMeta?: PortalAgentFailureMeta | null }): string => {
+        const title = String(opts.title || "this action").trim() || "this action";
+        const error = String(opts.error || "That action failed.").trim().replace(/\s+/g, " ").slice(0, 400) || "That action failed.";
+        const failureMeta = opts.failureMeta || classifyPortalAgentFailure({ status: opts.status, error });
+        if (failureMeta?.kind === "not_configured") {
+          return `I couldn’t finish ${title} because ${error}${failureMeta.setupHint ? ` ${failureMeta.setupHint}` : ""}${failureMeta.setupClickPath ? ` Go to ${failureMeta.setupClickPath}.` : ""} This is a setup issue, so retrying the same step won’t help until that is configured.`;
+        }
+        if (
+          failureMeta?.kind === "unsupported" ||
+          failureMeta?.kind === "not_implemented" ||
+          failureMeta?.kind === "external_dependency"
+        ) {
+          return `I couldn’t finish ${title} because ${error} This looks like a real portal limitation or dependency issue, so retrying the same step won’t fix it from chat alone.`;
+        }
+        if (
+          failureMeta?.kind === "temporary_unavailable" ||
+          failureMeta?.kind === "rate_limited"
+        ) {
+          return `I couldn’t finish ${title} because ${error} This looks like a temporary provider or network issue, so I stopped instead of looping on the same failing call. Retrying in a bit may help.`;
+        }
+        return `I couldn’t finish ${title} because ${error}`;
+      };
 
       const hasHotContextForDiscoveryAction = (key: PortalAgentActionKey): boolean => {
         switch (key) {
@@ -4871,6 +4987,51 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         seenPlanKeys.add(planKey);
 
         const actions = planned.actions;
+
+        if (threadChatMode !== "work" && actions.length) {
+          const discussText = "You’re in discuss mode, so I didn’t make portal changes. Switch this chat to Work and send that request again if you want me to do it.";
+          const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+            data: {
+              ownerId,
+              threadId,
+              role: "assistant",
+              text: discussText,
+              attachmentsJson: null,
+              createdByUserId: null,
+              sendAt: null,
+              sentAt: now,
+            },
+            select: {
+              id: true,
+              role: true,
+              text: true,
+              attachmentsJson: true,
+              createdAt: true,
+              sendAt: true,
+              sentAt: true,
+            },
+          });
+
+          const prevCtx = localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) ? (localCtx as any) : {};
+          const nextCtx = {
+            ...prevCtx,
+            chatMode: threadChatMode,
+            pendingConfirm: null,
+            pendingPlan: null,
+            pendingPlanClarify: null,
+            pendingAction: null,
+            pendingActionClarify: null,
+            liveStatus: null,
+          };
+
+          await (prisma as any).portalAiChatThread.update({
+            where: { id: threadId },
+            data: { lastMessageAt: now, contextJson: nextCtx },
+          });
+          persistedThreadContext = nextCtx;
+
+          return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null, assistantChoices: null, clientUiActions: [] });
+        }
 
         // If any requested action needs confirmation, ask for it and stop.
         const confirmSpec =
@@ -5260,11 +5421,22 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         if (cua) allClientUiActions.push(cua);
 
         if (!Boolean((exec as any).ok) || Number((exec as any).status) < 200 || Number((exec as any).status) >= 300) {
+          const failureMeta = ((exec as any).failureMeta as PortalAgentFailureMeta | null | undefined) ||
+            classifyPortalAgentFailure({ status: Number((exec as any).status) || 0, error: execError, result: (exec as any).result ?? null });
           lastAutoExecutionError = {
             action: String(key),
             status: Number((exec as any).status) || 0,
             error: String(execError || "Execution failed").slice(0, 800),
           };
+          if (failureMeta && (failureMeta.retryable || failureMeta.kind !== "unknown")) {
+            finalDirectMessage = buildExecutionFailureDirectMessage({
+              title,
+              error: execError || "Execution failed.",
+              status: Number((exec as any).status) || 0,
+              failureMeta,
+            });
+            break;
+          }
           blockedForReplan = true;
           break;
         }
@@ -5625,7 +5797,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
 export async function POST(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
   try {
-    return await handlePostMessage(req, ctx);
+    const cloned = req.clone();
+    const body = await cloned.json().catch(() => null);
+    const requestedResponseProfileRaw = typeof body?.responseProfile === "string" ? String(body.responseProfile).trim() : "";
+    const requestedResponseProfile = requestedResponseProfileRaw ? normalizePuraAiProfile(requestedResponseProfileRaw) : null;
+    const { threadId } = await ctx.params;
+    const thread = await (prisma as any).portalAiChatThread.findFirst({
+      where: { id: threadId },
+      select: { contextJson: true },
+    }).catch(() => null);
+    const storedResponseProfile = normalizePuraAiProfile((thread as any)?.contextJson?.responseProfile);
+    const activeResponseProfile = requestedResponseProfile || storedResponseProfile;
+    return await runWithPuraAiProfile(activeResponseProfile, async () => await handlePostMessage(req, ctx));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal server error";
     console.error("[AI Chat POST Error]", { message, stack: err instanceof Error ? err.stack : undefined });

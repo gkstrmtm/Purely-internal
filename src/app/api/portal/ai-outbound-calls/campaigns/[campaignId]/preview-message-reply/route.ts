@@ -118,7 +118,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     if (!charged.ok) {
       return NextResponse.json({ ok: false, error: "Insufficient credits" }, { status: 402 });
     }
-    reply = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+    reply = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "AI request failed";
     return NextResponse.json({ ok: false, error: msg }, { status: 502 });

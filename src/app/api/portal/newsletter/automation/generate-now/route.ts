@@ -6,7 +6,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
-import { uniqueNewsletterSlug, sendNewsletterToAudience } from "@/lib/portalNewsletter";
+import { ensureNewsletterSiteForOwner, uniqueNewsletterSlug, sendNewsletterToAudience } from "@/lib/portalNewsletter";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { normalizeNewsletterFontKey, stripLegacyNewsletterFontWrapper } from "@/lib/portalNewsletterFonts";
 
@@ -157,7 +157,7 @@ export async function POST(req: Request) {
   const kind = clampKind(parsedBody.data.kind);
 
   const [site, setup, profile] = await Promise.all([
-    prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true, slug: true, name: true } }),
+    ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true, slug: true, name: true } }),
     prisma.portalServiceSetup.findUnique({
       where: { ownerId_serviceSlug: { ownerId, serviceSlug: "newsletter" } },
       select: { id: true, dataJson: true },
@@ -175,10 +175,6 @@ export async function POST(req: Request) {
       },
     }),
   ]);
-
-  if (!site?.id) {
-    return NextResponse.json({ ok: false, error: "Newsletter site not configured yet" }, { status: 409 });
-  }
 
   const stored = parseStored(setup?.dataJson);
   const s = kind === "INTERNAL" ? stored.internal : stored.external;

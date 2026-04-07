@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
-import { uniqueNewsletterSlug } from "@/lib/portalNewsletter";
+import { ensureNewsletterSiteForOwner, uniqueNewsletterSlug } from "@/lib/portalNewsletter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,10 +31,7 @@ export async function GET(req: Request) {
   const kind = clampKind(url.searchParams.get("kind"));
   const take = clampTake(url.searchParams.get("take"));
 
-  const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true, slug: true } });
-  if (!site?.id) {
-    return NextResponse.json({ ok: true, site: null, newsletters: [] });
-  }
+  const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true, slug: true } });
 
   const newsletters = await prisma.clientNewsletter.findMany({
     where: { siteId: site.id, kind },
@@ -103,10 +100,7 @@ export async function POST(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
-  const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
-  if (!site?.id) {
-    return NextResponse.json({ ok: false, error: "Newsletter site not configured" }, { status: 404 });
-  }
+  const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true } });
 
   const kind = parsed.data.kind === "internal" ? "INTERNAL" : "EXTERNAL";
   const slug = await uniqueNewsletterSlug(site.id, kind, parsed.data.title);

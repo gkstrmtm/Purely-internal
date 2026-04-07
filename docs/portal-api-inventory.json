@@ -1,5 +1,5 @@
 {
-  "generatedAtIso": "2026-03-28T23:02:58.649Z",
+  "generatedAtIso": "2026-04-06T23:57:03.502Z",
   "routes": [
     {
       "endpoint": "/api/portal/ads/claim",
@@ -132,12 +132,47 @@
       "file": "src/app/api/portal/ai-chat/threads/[threadId]/messages/route.ts"
     },
     {
+      "endpoint": "/api/portal/ai-chat/threads/[threadId]/runs",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-chat/threads/[threadId]/runs/route.ts"
+    },
+    {
       "endpoint": "/api/portal/ai-chat/threads/[threadId]/share",
       "methods": [
         "GET",
         "POST"
       ],
       "file": "src/app/api/portal/ai-chat/threads/[threadId]/share/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/threads/[threadId]/status",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-chat/threads/[threadId]/status/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/threads/status",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-chat/threads/status/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-flow-sim",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-flow-sim/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-flow-sim/explain",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-flow-sim/explain/route.ts"
     },
     {
       "endpoint": "/api/portal/ai-outbound-calls/campaigns",
@@ -744,6 +779,7 @@
     {
       "endpoint": "/api/portal/contacts/[contactId]",
       "methods": [
+        "DELETE",
         "GET",
         "PATCH"
       ],
@@ -863,6 +899,22 @@
       "file": "src/app/api/portal/dashboard/route.ts"
     },
     {
+      "endpoint": "/api/portal/dashboard/analysis",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/dashboard/analysis/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/dashboard/quick-access",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/dashboard/quick-access/route.ts"
+    },
+    {
       "endpoint": "/api/portal/elevenlabs/convai/signed-url",
       "methods": [
         "POST"
@@ -980,6 +1032,13 @@
         "GET"
       ],
       "file": "src/app/api/portal/funnel-builder/forms/[formId]/submissions/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/forms/[formId]/submissions/[submissionId]",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/funnel-builder/forms/[formId]/submissions/[submissionId]/route.ts"
     },
     {
       "endpoint": "/api/portal/funnel-builder/funnels",
@@ -1121,6 +1180,29 @@
         "GET"
       ],
       "file": "src/app/api/portal/inbox/threads/[threadId]/messages/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/integrations/api-keys",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/integrations/api-keys/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/integrations/api-keys/[keyId]",
+      "methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/integrations/api-keys/[keyId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/integrations/api-keys/[keyId]/reveal",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/integrations/api-keys/[keyId]/reveal/route.ts"
     },
     {
       "endpoint": "/api/portal/integrations/sales-reporting",

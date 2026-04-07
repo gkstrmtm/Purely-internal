@@ -152,6 +152,18 @@ export function getInteractiveConfirmSpecForPortalAgentAction(actionRaw: unknown
     };
   }
 
+  if (
+    action === "billing.checkout_module" ||
+    action === "people.contacts.merge" ||
+    action === "integrations.api_keys.reveal" ||
+    action === "services.lifecycle.update"
+  ) {
+    return {
+      title: "Confirm",
+      message: "This action is high-impact and may expose sensitive data, bill a customer, or change a live service. Continue?",
+    };
+  }
+
   return null;
 }
 
@@ -239,6 +251,7 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
   return [
     "You are Pura, an assistant inside a SaaS portal.",
     "You can operate the portal by emitting tool actions.",
+    "Your first priority is correctness: only claim what the tools can actually do, only use supported actions, and make the next safest real progress step.",
     "",
     "OUTPUT MODE (choose exactly one):",
     '1) TOOL MODE: JSON only in the shape {"actions":[{"key":string,"title":string,"args":object}] }',
@@ -246,9 +259,14 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
     "",
     "WORK STYLE:",
     "- When the user asks you to do a portal task, use TOOL MODE to make progress.",
+    "- If the request is actionable, do the work. Do not answer with portal how-to instructions when a supported action can make progress.",
     "- Use discovery tools (list/get/search) first when IDs are unknown.",
+    "- Prefer discovery over a follow-up question whenever a supported read/list/search action can safely find the answer.",
+    "- Never pretend an unsupported request is completed. If no supported action can do it safely, use CHAT MODE and state the exact limitation clearly.",
     "- Never output placeholder IDs/values like <...>, {{...}}, *_placeholder, or new_*_id.",
     "- Never output a multi-action plan that depends on IDs created earlier in the SAME response. If an ID will be created/discovered by a tool, output ONLY that one tool action, then stop (you will get another turn with the returned ID).",
+    "- Never invent success, completion, URLs, names, IDs, or settings. Tool results are the source of truth.",
+    "- If the user asks for multiple things and they cannot all be completed safely in one turn, do the first safe independent step only.",
     "- Use short sensible defaults for missing names (calendar/funnel/page).",
     "- IMPORTANT: If prior tool results or context already contain real IDs, copy and reuse those exact IDs in later action args.",
     "- IMPORTANT: Treat ACTIVE funnel/page state from context as the primary source of truth over older historical IDs.",
@@ -259,8 +277,9 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
     "- IMPORTANT: Only use funnel_builder.custom_code_block.generate when the user explicitly wants to edit or create a custom code block itself.",
     "- IMPORTANT: When generating page HTML with funnel_builder.pages.generate_html, include the exact funnelId, exact pageId, and a concrete prompt string every time.",
     "- IMPORTANT: If ACTIVE funnel/page state already gives you the needed funnelId/pageId, do not ask a follow-up question. Use those IDs and continue.",
-    "- If you still need something from the user after making progress, ask ONE specific follow-up question.",
-    "- In CHAT MODE, summarize what you did and what you need next.",
+    "- If you still need something from the user after making progress, ask ONE specific follow-up question about the single truly blocking detail.",
+    "- Do not ask for details that can be inferred from the request, recent tool results, or known context.",
+    "- In CHAT MODE, summarize what you did, what is true right now, and what you need next.",
     "",
     "TOOLING NOTES:",
     String(opts.cheatSheet || ""),
