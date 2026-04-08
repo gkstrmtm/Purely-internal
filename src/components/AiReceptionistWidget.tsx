@@ -287,10 +287,10 @@ function renderMarkdownish(text: string): React.ReactNode {
   );
 }
 
-export function AiReceptionistWidget() {
-  const pathname = usePathname() || "";
-
-  if (pathname === "/pura-preview") return null;
+function AiReceptionistWidgetContent() {
+  const pathnameRaw = usePathname();
+  const pathname = pathnameRaw ?? "";
+  const hiddenByPreviewPath = pathname === "/pura-preview";
 
   const [hostname, setHostname] = useState<string>("");
   useEffect(() => {
@@ -367,7 +367,7 @@ export function AiReceptionistWidget() {
     hiddenByPublicBusinessPath;
 
   // Never show the Purely marketing chat widget on customer custom-domain pages.
-  const hidden = hiddenByPath || !isPlatformHost;
+  const hidden = hiddenByPreviewPath || hiddenByPath || !isPlatformHost;
 
   const phone = process.env.NEXT_PUBLIC_AI_RECEPTIONIST_PHONE || "980-238-3381";
   const telHref = useMemo(() => toTelHref(phone), [phone]);
@@ -782,9 +782,7 @@ export function AiReceptionistWidget() {
     flushQueue(ws);
   }
 
-  if (hidden) return null;
-
-  return (
+  return hidden ? null : (
     <div className="fixed bottom-4 right-4 z-50">
       {open ? (
         <div className="mb-3 w-[min(92vw,420px)] overflow-hidden rounded-3xl border border-zinc-200 bg-white text-zinc-900 shadow-2xl">
@@ -903,4 +901,8 @@ export function AiReceptionistWidget() {
       ) : null}
     </div>
   );
+}
+
+export function AiReceptionistWidget() {
+  return <AiReceptionistWidgetContent />;
 }

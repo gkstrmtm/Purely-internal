@@ -441,7 +441,8 @@ function blogUserPromptForOne(
     "- excerpt must be 1 to 2 sentences.",
     "- content must be plain text with headings using '## ' and optional bullet lists with '- '.",
     "- Do not use markdown emphasis like **bold** or *italics*. Do not include asterisks for styling.",
-    "- End the post with a short call to action that tells readers to book a call on purelyautomation.com.",
+    "- Avoid placeholder copy, fake claims, and vague sections that could fit any company.",
+    "- End the post with a short call to action that includes a real markdown link to [Purely Automation](https://purelyautomation.com).",
     "- No em dashes, no emojis.",
   ]
     .filter(Boolean)
@@ -471,7 +472,8 @@ function blogUserPromptForMany(
     "- excerpt must be 1 to 2 sentences.",
     "- content must be plain text with headings using '## ' and optional bullet lists with '- '.",
     "- Do not use markdown emphasis like **bold** or *italics*. Do not include asterisks for styling.",
-    "- End the post with a short call to action that tells readers to book a call on purelyautomation.com.",
+    "- Avoid placeholder copy, fake claims, and vague sections that could fit any company.",
+    "- End the post with a short call to action that includes a real markdown link to [Purely Automation](https://purelyautomation.com).",
     "- No em dashes, no emojis.",
     "Create one post for each item below, in the same order:",
     JSON.stringify(plan),

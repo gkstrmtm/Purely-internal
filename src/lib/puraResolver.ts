@@ -698,6 +698,7 @@ async function resolveInboxThreadId(opts: {
 
   const emailLike = extractFirstEmailLike(hint);
   const smsLike = normalizeSmsPeerKey(hint);
+  const nameLike = hint.replace(/\b(text|sms|thread|conversation|email|with|for|about)\b/gi, " ").replace(/\s+/g, " ").trim();
 
   const channel =
     opts.channel === "sms" || opts.channel === "email"
@@ -709,9 +710,49 @@ async function resolveInboxThreadId(opts: {
           : null;
 
   if (!channel) {
+    if (nameLike) {
+      const contacts = (await (prisma as any).portalContact.findMany({
+        where: {
+          ownerId,
+          OR: [
+            { name: { contains: nameLike, mode: "insensitive" } },
+            { email: { contains: nameLike, mode: "insensitive" } },
+            { phone: { contains: nameLike } },
+          ],
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 5,
+        select: { id: true },
+      }).catch(() => [])) as any[];
+
+      if (contacts.length === 1) {
+        const row = await (prisma as any).portalInboxThread
+          .findFirst({
+            where: { ownerId, contactId: String(contacts[0].id) },
+            orderBy: { lastMessageAt: "desc" },
+            select: { id: true, channel: true },
+          })
+          .catch(() => null);
+        if (row?.id) {
+          return {
+            kind: "ok",
+            threadId: String(row.id),
+            channel: String(row.channel || "").trim().toUpperCase() === "EMAIL" ? "email" : "sms",
+          };
+        }
+      }
+
+      if (contacts.length > 1) {
+        return {
+          kind: "clarify",
+          question: `I found multiple contacts matching “${hint}”. Reply with the phone number or email used in the conversation.`,
+        };
+      }
+    }
+
     return {
       kind: "clarify",
-      question: "Is this an email or SMS conversation? Reply with the email address or phone number.",
+      question: "Is this an email or SMS conversation? Reply with the email address, phone number, or contact name.",
     };
   }
 
@@ -739,6 +780,47 @@ async function resolveInboxThreadId(opts: {
       .catch(() => null);
 
     if (row?.id) return { kind: "ok", threadId: String(row.id), channel: "sms" };
+
+    if (nameLike) {
+      const contacts = (await (prisma as any).portalContact.findMany({
+        where: { ownerId, OR: [{ name: { contains: nameLike, mode: "insensitive" } }, { phone: { contains: nameLike } }] },
+        orderBy: { updatedAt: "desc" },
+        take: 5,
+        select: { id: true },
+      }).catch(() => [])) as any[];
+
+      if (contacts.length === 1) {
+        const byContact = await (prisma as any).portalInboxThread
+          .findFirst({
+            where: { ownerId, channel: "SMS", contactId: String(contacts[0].id) },
+            orderBy: { lastMessageAt: "desc" },
+            select: { id: true },
+          })
+          .catch(() => null);
+        if (byContact?.id) return { kind: "ok", threadId: String(byContact.id), channel: "sms" };
+      }
+
+      const reviews = (await prisma.portalReview.findMany({
+        where: { ownerId, name: { contains: nameLike, mode: "insensitive" } },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: { phone: true },
+      }).catch(() => [])) as Array<{ phone: string | null }>;
+      const reviewPhones = reviews
+        .map((review) => normalizePhoneKey(review.phone || "").phoneKey)
+        .filter((value): value is string => Boolean(value));
+      if (reviewPhones.length === 1) {
+        const byReviewPhone = await (prisma as any).portalInboxThread
+          .findFirst({
+            where: { ownerId, channel: "SMS", peerKey: reviewPhones[0] },
+            orderBy: { lastMessageAt: "desc" },
+            select: { id: true },
+          })
+          .catch(() => null);
+        if (byReviewPhone?.id) return { kind: "ok", threadId: String(byReviewPhone.id), channel: "sms" };
+      }
+    }
+
     return { kind: "not_found", question: `I couldn’t find an SMS conversation for “${hint}”. Reply with the phone number used in the thread.` };
   }
 
@@ -776,6 +858,44 @@ async function resolveInboxThreadId(opts: {
       kind: "clarify",
       question: `I found multiple email threads with ${emailLike}. Reply with the subject line you mean:\n\n${list}`,
     };
+  }
+
+  if (nameLike) {
+    const contacts = (await (prisma as any).portalContact.findMany({
+      where: { ownerId, OR: [{ name: { contains: nameLike, mode: "insensitive" } }, { email: { contains: nameLike, mode: "insensitive" } }] },
+      orderBy: { updatedAt: "desc" },
+      take: 5,
+      select: { id: true },
+    }).catch(() => [])) as any[];
+
+    if (contacts.length === 1) {
+      const byContact = await (prisma as any).portalInboxThread
+        .findFirst({
+          where: { ownerId, channel: "EMAIL", contactId: String(contacts[0].id) },
+          orderBy: { lastMessageAt: "desc" },
+          select: { id: true },
+        })
+        .catch(() => null);
+      if (byContact?.id) return { kind: "ok", threadId: String(byContact.id), channel: "email" };
+    }
+
+    const reviews = (await prisma.portalReview.findMany({
+      where: { ownerId, name: { contains: nameLike, mode: "insensitive" } },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { email: true },
+    }).catch(() => [])) as Array<{ email: string | null }>;
+    const reviewEmails = reviews.map((review) => normalizeEmailKey(review.email || "")).filter((value): value is string => Boolean(value));
+    if (reviewEmails.length === 1) {
+      const byReviewEmail = await (prisma as any).portalInboxThread
+        .findFirst({
+          where: { ownerId, channel: "EMAIL", peerKey: reviewEmails[0] },
+          orderBy: { lastMessageAt: "desc" },
+          select: { id: true },
+        })
+        .catch(() => null);
+      if (byReviewEmail?.id) return { kind: "ok", threadId: String(byReviewEmail.id), channel: "email" };
+    }
   }
 
   return { kind: "not_found", question: `I couldn’t find an email conversation for ${emailLike}.` };
@@ -1599,14 +1719,14 @@ async function resolveTaskId(opts: {
   const ownerId = String(opts.ownerId);
   const hintRaw = String(opts.hint || "").trim();
 
-  const fromUrl = extractTaskIdFromUrl(opts.url);
-  if (!hintRaw && fromUrl) {
+  const fromUrl = !hintRaw || hintRefersToActiveContext(hintRaw) ? extractTaskIdFromUrl(opts.url) : null;
+  if ((!hintRaw || hintRefersToActiveContext(hintRaw)) && fromUrl) {
     const row = await prisma.portalTask.findFirst({ where: { ownerId, id: fromUrl }, select: { id: true, title: true, status: true } }).catch(() => null);
     if (row?.id) return { kind: "ok", taskId: String(row.id), taskTitle: String(row.title || "Task") };
   }
 
-  const last = !hintRaw ? getLastEntityId(opts.threadContext, "lastTask") : null;
-  if (!hintRaw && last) {
+  const last = !hintRaw || hintRefersToActiveContext(hintRaw) ? getLastEntityId(opts.threadContext, "lastTask") : null;
+  if ((!hintRaw || hintRefersToActiveContext(hintRaw)) && last) {
     const row = await prisma.portalTask.findFirst({ where: { ownerId, id: last }, select: { id: true, title: true } }).catch(() => null);
     if (row?.id) return { kind: "ok", taskId: String(row.id), taskTitle: String(row.title || "Task") };
   }
@@ -4122,7 +4242,7 @@ export async function resolvePlanArgs(opts: {
       return { ok: true, value: ri.itemId };
     }
 
-    if (argKeyLower === "userid" || argKeyLower === "memberid" || argKeyLower === "assignedtouserid") {
+    if (argKeyLower === "userid" || argKeyLower === "memberid" || argKeyLower === "assignedtouserid" || argKeyLower === "assigneeuserid") {
       if (resolvedUser?.id) return { ok: true, value: resolvedUser.id };
       const overrideUserId =
         threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).userId === "string"

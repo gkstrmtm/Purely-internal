@@ -68,6 +68,18 @@ function normalizePortalHostedPaths(html: string): string {
   return out;
 }
 
+function sanitizeGeneratedHtmlLinks(html: string): string {
+  let out = String(html || "");
+  if (!out) return out;
+
+  out = out
+    .replace(/https?:\/\/(?:www\.)?(?:example\.com|yourdomain\.com|placeholder\.com|test\.com)([^"'\s>]*)/gi, "https://purelyautomation.com$1")
+    .replace(/href=(['"])\s*javascript:[^'"]*\1/gi, 'href="https://purelyautomation.com"')
+    .replace(/href=(['"])\s*(?:#|)\s*\1/gi, 'href="https://purelyautomation.com"');
+
+  return out;
+}
+
 function newBlockId(prefix = "b"): string {
   const g: any = globalThis as any;
   const uuid = typeof g.crypto?.randomUUID === "function" ? String(g.crypto.randomUUID()) : "";
@@ -600,6 +612,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "- Use plain HTML + inline <style>. No external JS/CSS, no frameworks.",
     "- Mobile-first, modern, clean styling.",
     "- Use relative links (no /portal/* links).",
+    "- Every CTA href must be real and usable. Never output placeholder URLs, example.com links, javascript: links, or empty '#'-only buttons.",
     "Integration:",
     `- This page will be hosted at: ${basePath}/f/${page.funnel.slug}`,
     `- Hosted forms are at: ${basePath}/forms/{formSlug}`,
@@ -615,17 +628,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "Output rules:",
     "- Include <meta name=\"viewport\"> and a <title>.",
     "- Avoid placeholder braces like {{var}} unless asked.",
+    "- Avoid lorem ipsum, generic 'your company' copy, and weak filler sections.",
   ];
 
   const effectiveCurrentHtml =
     (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : page.customHtml || "").trim();
   const hasCurrentHtml = Boolean(effectiveCurrentHtml);
+  const wantsDesignRedesign = /\b(hero|proof strip|credibility strip|benefits?|testimonials?|cta|call to action|layout|design|redesign|premium|modern|landing page|sales page|polish|refresh)\b/i.test(prompt);
 
   const system = [
     ...baseSystem,
     hasCurrentHtml
-      ? "Editing mode: You will be given CURRENT_HTML. Apply the user's instruction as a minimal change to CURRENT_HTML. Return the FULL updated HTML document."
+      ? wantsDesignRedesign
+        ? "Redesign mode: You will be given CURRENT_HTML. Replace simplistic placeholder markup with a materially improved, polished landing page that fully satisfies the requested sections. Return the FULL updated HTML document."
+        : "Editing mode: You will be given CURRENT_HTML. Apply the user's instruction as a minimal change to CURRENT_HTML. Return the FULL updated HTML document."
       : "Generation mode: Create a new HTML document from the user's instruction.",
+    wantsDesignRedesign
+      ? "For design or redesign requests, produce a complete landing page with strong hierarchy, multiple clear sections, persuasive non-placeholder copy, polished spacing, and clear CTA treatment."
+      : "",
   ].join("\n");
 
   const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
@@ -710,6 +730,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       stripeProductsBlock,
       `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
       `Page: ${page.title} (slug: ${page.slug})`,
+      wantsDesignRedesign
+        ? [
+            "DESIGN_BRIEF:",
+            "- Treat this as a real conversion-focused redesign, not a placeholder patch.",
+            "- Replace generic filler copy with concrete, persuasive copy tailored to the request and business context.",
+            "- Include a strong hero, proof or credibility strip, benefits section, testimonial section, objection-handling section, and multiple clear CTAs.",
+            "- Use modern visual hierarchy, section backgrounds, cards, spacing, contrast, and polished buttons so the page feels intentionally designed.",
+            "- Make the above-the-fold section immediately credible and conversion-focused.",
+            "- Ensure every CTA is clickable and points to a real destination.",
+          ].join("\n")
+        : "",
       "",
       currentHtmlBlock,
       prompt,
@@ -759,7 +790,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
   if (!html) return NextResponse.json({ ok: false, error: "AI returned empty HTML" }, { status: 502 });
 
-  html = normalizePortalHostedPaths(html);
+  html = sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html));
 
   if (!/<!doctype\s+html|<html\b/i.test(html)) {
     html = [
@@ -792,7 +823,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     where: { id: page.id },
     data: {
       editorMode: "CUSTOM_HTML",
-      customHtml: normalizePortalHostedPaths(html),
+      customHtml: sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html)),
       customChatJson: nextChat,
     },
     select: {

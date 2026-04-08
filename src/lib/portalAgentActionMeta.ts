@@ -16,6 +16,27 @@ const NO_CONFIRM_KEYS = new Set<PortalAgentActionKey>([
   "ai_receptionist.highlights.get",
 ]);
 
+const READ_ONLY_ACTION_EXACT_KEYS = new Set<PortalAgentActionKey>([
+  "dashboard.analysis.generate",
+  "funnel_builder.custom_code_block.generate",
+  "ai_receptionist.settings.generate",
+  "ai_receptionist.sms_system_prompt.generate",
+  "blogs.posts.generate_draft",
+  "newsletter.generate_now",
+  "blogs.generate_now",
+  "voice_agent.voices.preview",
+  "ai_receptionist.events.refresh",
+  "ai_outbound_calls.manual_calls.refresh",
+]);
+
+const READ_ONLY_ACTION_SUFFIX_RE = /(^|\.)(get|list|search|preview)$/i;
+
+export function isReadOnlyPortalAgentAction(action: PortalAgentActionKey): boolean {
+  if (READ_ONLY_ACTION_EXACT_KEYS.has(action)) return true;
+  if (READ_ONLY_ACTION_SUFFIX_RE.test(action)) return true;
+  return false;
+}
+
 export function getConfirmSpecForPortalAgentAction(action: PortalAgentActionKey): PortalAgentConfirmSpec | null {
   if (action === "ai_chat.cron.run") return null;
   if (NO_CONFIRM_KEYS.has(action)) return null;

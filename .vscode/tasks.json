@@ -97,6 +97,47 @@
 				"generate"
 			],
 			"problemMatcher": []
+		},
+		{
+			"label": "Dev: next dev insecure tls",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"export NODE_TLS_REJECT_UNAUTHORIZED=0 && npm run dev"
+			],
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "Dev: next dev insecure tls abs",
+			"type": "shell",
+			"command": "/opt/homebrew/bin/npm",
+			"args": [
+				"run",
+				"dev"
+			],
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "Inspect: demo inbox linkage",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_demo_inbox.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Dev: next dev absolute",
+			"type": "shell",
+			"command": "/opt/homebrew/bin/npm",
+			"args": [
+				"run",
+				"dev"
+			],
+			"isBackground": true
 		}
 	]
 }

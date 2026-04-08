@@ -20,8 +20,14 @@ const EXCLUDE_EXACT = new Set([
   "src/lib/planningnotes.md",
 ]);
 
+const EXCLUDE_PREFIXES = [
+  // Transcript artifacts should never block CI.
+  "src/lib/notes/",
+];
+
 function isAllowedFile(rel) {
   if (EXCLUDE_EXACT.has(rel)) return false;
+  if (EXCLUDE_PREFIXES.some((prefix) => rel.startsWith(prefix))) return false;
 
   if (!(rel.startsWith("src/") || rel.startsWith("mobile-app/src/"))) return false;
 

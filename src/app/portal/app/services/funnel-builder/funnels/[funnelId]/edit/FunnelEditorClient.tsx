@@ -474,7 +474,7 @@ function ColorPickerField({
             }
             onChange(normalized);
           }}
-          className="min-w-[180px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+          className="min-w-45 flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
           placeholder="#0f172a or rgba(0,0,0,0.6)"
         />
         <button
@@ -570,7 +570,7 @@ function AlignPicker({
             className={classNames(
               "flex-1 rounded-xl border px-3 py-2 text-sm font-semibold",
               value === v
-                ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-zinc-900"
+                ? "border-(--color-brand-blue) bg-blue-50 text-zinc-900"
                 : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
             )}
             aria-pressed={value === v}
@@ -614,7 +614,7 @@ function PaddingPicker({
           max={maxV}
           value={Math.round(v)}
           onChange={(e) => onChange(Number(e.target.value) || 0)}
-          className="min-w-[160px] flex-1"
+          className="min-w-40 flex-1"
         />
         <input
           type="number"
@@ -698,8 +698,8 @@ function RichTextField({
 
       <div
         className={classNames(
-          "min-h-[44px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm",
-          "focus-within:border-[color:var(--color-brand-blue)]",
+          "min-h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm",
+          "focus-within:border-(--color-brand-blue)",
         )}
       >
         <div
@@ -792,7 +792,7 @@ function RadiusPicker({
           max={maxV}
           value={Math.round(v)}
           onChange={(e) => onChange(Number(e.target.value) || 0)}
-          className="min-w-[160px] flex-1"
+          className="min-w-40 flex-1"
         />
         <input
           type="number"
@@ -843,7 +843,7 @@ function MaxWidthPicker({
             className={classNames(
               "rounded-xl border px-3 py-2 text-xs font-semibold",
               (value ?? undefined) === (o.px ?? undefined)
-                ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-zinc-900"
+                ? "border-(--color-brand-blue) bg-blue-50 text-zinc-900"
                 : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
             )}
           >
@@ -854,7 +854,7 @@ function MaxWidthPicker({
       <div className="mt-2 flex items-center gap-2">
         <div className="h-2 flex-1 rounded-full bg-zinc-100">
           <div
-            className="h-2 rounded-full bg-[color:var(--color-brand-blue)]"
+            className="h-2 rounded-full bg-(--color-brand-blue)"
             style={{
               width:
                 typeof value === "number" && value > 0
@@ -4415,7 +4415,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   };
 
   return (
-    <div className="flex min-h-screen flex-col lg:h-[100dvh] lg:overflow-hidden">
+    <div className="flex min-h-screen flex-col lg:h-dvh lg:overflow-hidden">
       {allFontPreviewGoogleCss ? <style>{allFontPreviewGoogleCss}</style> : null}
 
       <PortalMediaPickerModal
@@ -4614,7 +4614,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             <button
               type="button"
               className={classNames(
-                "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
+                "rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
                 busy ? "opacity-60" : "",
               )}
               disabled={busy}
@@ -4682,7 +4682,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             <button
               type="button"
               className={classNames(
-                "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
+                "rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
                 busy ? "opacity-60" : "",
               )}
               disabled={busy}
@@ -4825,7 +4825,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             <button
               type="button"
               className={classNames(
-                "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
+                "rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
                 busy ? "opacity-60" : "",
               )}
               onClick={() => setAiContextOpen(false)}
@@ -4975,7 +4975,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               className={classNames(
                 "rounded-xl border px-3 py-2 text-sm font-semibold",
                 selectedPage?.editorMode === "BLOCKS"
-                  ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
+                  ? "border-(--color-brand-blue) bg-blue-50 text-blue-800"
                   : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
               )}
             >
@@ -4987,7 +4987,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               onClick={() => void setEditorMode("CUSTOM_HTML")}
               className={classNames(
                 "inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold text-white disabled:opacity-60",
-                "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] hover:opacity-90 shadow-sm",
+                "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) hover:opacity-90 shadow-sm",
               )}
             >
               <AiSparkIcon className="h-4 w-4" />
@@ -5007,7 +5007,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 { value: "", label: "Select a page…", disabled: true },
                 ...(pages || []).map((p) => ({ value: p.id, label: p.title })),
               ]}
-              className="min-w-[220px]"
+              className="min-w-55"
               buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
               disabled={busy || !pages || pages.length === 0}
             />
@@ -5018,7 +5018,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               onClick={() => void createPage()}
               className={classNames(
                 "rounded-xl px-3 py-2 text-sm font-semibold text-white",
-                busy ? "bg-zinc-400" : "bg-[color:var(--color-brand-blue)] hover:bg-blue-700",
+                busy ? "bg-zinc-400" : "bg-(--color-brand-blue) hover:bg-blue-700",
               )}
             >
               + Page
@@ -5091,7 +5091,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       ) : null}
 
       <div className="flex flex-1 flex-col overflow-auto lg:min-h-0 lg:flex-row lg:overflow-hidden">
-        <aside className="w-full shrink-0 border-b border-zinc-200 bg-white p-4 lg:min-h-0 lg:w-[380px] lg:overflow-y-auto lg:border-b-0 lg:border-r">
+        <aside className="w-full shrink-0 border-b border-zinc-200 bg-white p-4 lg:min-h-0 lg:w-95 lg:overflow-y-auto lg:border-b-0 lg:border-r">
           {!selectedPage ? (
             <div className="text-sm text-zinc-600">Select a page to edit.</div>
           ) : selectedPage.editorMode === "MARKDOWN" ? (
@@ -5151,9 +5151,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     className={classNames(
                       "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
                       t.key === "ai"
-                        ? "inline-flex items-center gap-2 border-transparent bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90"
+                        ? "inline-flex items-center gap-2 border-transparent bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90"
                         : t.key === sidebarPanel
-                          ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-zinc-900"
+                          ? "border-(--color-brand-blue) bg-blue-50 text-zinc-900"
                           : "border-zinc-200 bg-zinc-50 text-zinc-800 hover:bg-white",
                       t.key === "selected" && !selectedBlock ? "opacity-50" : "",
                     )}
@@ -5797,7 +5797,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             )}
                           >
                             <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{m.role}</div>
-                            <div className="mt-1 whitespace-pre-wrap break-words">{chatDisplayContent(m)}</div>
+                            <div className="mt-1 whitespace-pre-wrap wrap-break-word">{chatDisplayContent(m)}</div>
                           </div>
                         ));
                       })()}
@@ -5806,7 +5806,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     <textarea
                       value={aiSidebarCustomCodePrompt}
                       onChange={(e) => setAiSidebarCustomCodePrompt(e.target.value)}
-                      className="mt-3 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      className="mt-3 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                       placeholder="Describe what to build or change…"
                     />
 
@@ -6340,7 +6340,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           "flex-1 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white",
                           busy || aiSidebarCustomCodeBusy || !aiSidebarCustomCodePrompt.trim()
                             ? "bg-zinc-400"
-                            : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] hover:opacity-90 shadow-sm",
+                            : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) hover:opacity-90 shadow-sm",
                         )}
                       >
                         <AiSparkIcon className="h-4 w-4" />
@@ -6401,7 +6401,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   props: { ...(block.props as any), html: e.target.value },
                                 } as any)
                               }
-                              className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                              className="min-h-30 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
                               placeholder="<div>Hello world</div>"
                             />
                           </label>
@@ -6416,7 +6416,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   props: { ...(block.props as any), css: e.target.value },
                                 } as any)
                               }
-                              className="min-h-[100px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                              className="min-h-25 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
                               placeholder=".container { max-width: 900px; }"
                             />
                           </label>
@@ -6498,7 +6498,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     )}
                                   >
                                     <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{m.role}</div>
-                                    <div className="mt-1 whitespace-pre-wrap break-words">{chatDisplayContent(m)}</div>
+                                    <div className="mt-1 whitespace-pre-wrap wrap-break-word">{chatDisplayContent(m)}</div>
                                   </div>
                                 ))
                               ) : (
@@ -6509,7 +6509,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             <textarea
                               value={customCodeBlockPrompt}
                               onChange={(e) => setCustomCodeBlockPrompt(e.target.value)}
-                              className="mt-3 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              className="mt-3 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                               placeholder="Describe what to build or change…"
                             />
 
@@ -6929,7 +6929,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   "flex-1 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white",
                                   busy || customCodeBlockBusy || !customCodeBlockPrompt.trim()
                                     ? "bg-zinc-400"
-                                    : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] hover:opacity-90 shadow-sm",
+                                    : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) hover:opacity-90 shadow-sm",
                                 )}
                               >
                                 <AiSparkIcon className="h-4 w-4" />
@@ -6976,7 +6976,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   props: { ...(selectedBlock.props as any), html: e.target.value },
                                 } as any)
                               }
-                              className="min-h-[140px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                              className="min-h-35 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
                               placeholder="<div>Hello world</div>"
                             />
                           </label>
@@ -6990,7 +6990,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   props: { ...(selectedBlock.props as any), css: e.target.value },
                                 } as any)
                               }
-                              className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                              className="min-h-30 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
                               placeholder=".container { max-width: 900px; }"
                             />
                           </label>

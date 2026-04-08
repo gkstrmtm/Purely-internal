@@ -42,7 +42,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className="min-h-[100dvh] overflow-x-hidden antialiased"
+        className="min-h-dvh overflow-x-hidden antialiased"
       >
         <ToastProvider>
           {children}

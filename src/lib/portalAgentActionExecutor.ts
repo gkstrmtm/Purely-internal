@@ -68,6 +68,7 @@ import { getBookingFormConfig, setBookingFormConfig } from "@/lib/bookingForm";
 import { computeAvailableSlots } from "@/lib/bookingSlots";
 import { getBlogAppearance, setBlogAppearance } from "@/lib/blogAppearance";
 import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug, setStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
+import { formatAssistantMarkdownLink, normalizeAssistantLinkUrl } from "@/lib/portalAssistantLinks";
 import {
   getAppointmentReminderSettingsForCalendar,
   listAppointmentReminderEvents,
@@ -213,6 +214,1769 @@ import { provisionTwilioSmsWebhooksForFromNumber } from "@/lib/twilioProvisionin
 
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
+
+const DASHBOARD_WIDGET_ALIAS_MAP: Record<string, DashboardWidgetId> = {
+  hourssaved: "hoursSaved",
+  timesaved: "hoursSaved",
+  billing: "billing",
+  revenue: "stripeSales",
+  sales: "stripeSales",
+  stripesales: "stripeSales",
+  services: "services",
+  media: "mediaLibrary",
+  medialibrary: "mediaLibrary",
+  credits: "creditsRemaining",
+  creditsremaining: "creditsRemaining",
+  creditsused: "creditsUsed",
+  blogs: "blogGenerations",
+  bloggenerations: "blogGenerations",
+  automations: "automationsRun",
+  automationsrun: "automationsRun",
+  success: "successRate",
+  successrate: "successRate",
+  failures: "failures",
+  errors: "failures",
+  runway: "creditsRunway",
+  creditsrunway: "creditsRunway",
+  leads: "leadsCaptured",
+  leadscaptured: "leadsCaptured",
+  reliability: "reliabilitySummary",
+  reliabilitysummary: "reliabilitySummary",
+  calls: "aiCalls",
+  aicalls: "aiCalls",
+  outboundcalls: "aiOutboundCalls",
+  missedcalls: "missedCalls",
+  bookings: "bookingsCreated",
+  bookingscreated: "bookingsCreated",
+  reviews: "reviewsCollected",
+  reviewscollected: "reviewsCollected",
+  avgreviewrating: "avgReviewRating",
+  rating: "avgReviewRating",
+  newsletters: "newsletterSends",
+  newslettersends: "newsletterSends",
+  nurture: "nurtureEnrollments",
+  nurtureenrollments: "nurtureEnrollments",
+  tasks: "tasks",
+  inboxin: "inboxMessagesIn",
+  inboxmessagesin: "inboxMessagesIn",
+  inboxout: "inboxMessagesOut",
+  inboxmessagesout: "inboxMessagesOut",
+  leadscreated: "leadsCreated",
+  contactscreated: "contactsCreated",
+  leadscraperuns: "leadScrapeRuns",
+  leadscraping: "leadScrapeRuns",
+  activity: "dailyActivity",
+  dailyactivity: "dailyActivity",
+};
+
+const PORTAL_MODULE_ALIAS_MAP: Record<string, string> = {
+  blog: "blog",
+  blogs: "blog",
+  automatedblogs: "blog",
+  seo: "blog",
+  booking: "booking",
+  bookings: "booking",
+  calendar: "booking",
+  calendars: "booking",
+  appointment: "booking",
+  appointments: "booking",
+  automations: "automations",
+  automation: "automations",
+  workflow: "automations",
+  workflows: "automations",
+  reviews: "reviews",
+  reviewrequests: "reviews",
+  reputation: "reviews",
+  newsletter: "newsletter",
+  emailmarketing: "newsletter",
+  nurture: "nurture",
+  nurturecampaigns: "nurture",
+  campaigns: "nurture",
+  aireceptionist: "aiReceptionist",
+  receptionist: "aiReceptionist",
+  inboundcalls: "aiReceptionist",
+  leadscraping: "leadScraping",
+  leads: "leadScraping",
+  prospecting: "leadScraping",
+  crm: "crm",
+  followup: "crm",
+  followupautomation: "crm",
+  aioutbound: "leadOutbound",
+  aioutboundcalls: "leadOutbound",
+  outbound: "leadOutbound",
+  outboundcalling: "leadOutbound",
+};
+
+const SERVICE_SLUG_ALIAS_MAP: Record<string, string> = {
+  media: "media-library",
+  medialibrary: "media-library",
+  files: "media-library",
+  booking: "booking",
+  bookings: "booking",
+  calendar: "booking",
+  calendars: "booking",
+  appointment: "booking",
+  appointments: "booking",
+  followup: "follow-up",
+  followups: "follow-up",
+  crm: "follow-up",
+  leadscraping: "lead-scraping",
+  leads: "lead-scraping",
+  prospecting: "lead-scraping",
+  aioutbound: "ai-outbound-calls",
+  outbound: "ai-outbound-calls",
+  outboundcalls: "ai-outbound-calls",
+  outboundcalling: "ai-outbound-calls",
+  aireceptionist: "ai-receptionist",
+  receptionist: "ai-receptionist",
+  inboundcalls: "ai-receptionist",
+  blog: "blogs",
+  blogs: "blogs",
+  reporting: "reporting",
+  reports: "reporting",
+  reviews: "reviews",
+  newsletter: "newsletter",
+  nurture: "nurture-campaigns",
+  nurturecampaigns: "nurture-campaigns",
+  automations: "automations",
+  automation: "automations",
+  tasks: "tasks",
+  inbox: "inbox",
+};
+
+const ONBOARDING_PLAN_ALIAS_MAP: Record<string, string> = {
+  core: "core",
+  portal: "core",
+  coreportal: "core",
+  automations: "automations",
+  automation: "automations",
+  booking: "booking",
+  bookings: "booking",
+  calendar: "booking",
+  calendars: "booking",
+  reviews: "reviews",
+  reviewrequests: "reviews",
+  newsletter: "newsletter",
+  nurture: "nurture",
+  nurturecampaigns: "nurture",
+  blogs: "blogs",
+  blog: "blogs",
+  aioutbound: "ai-outbound",
+  outbound: "ai-outbound",
+  aireceptionist: "ai-receptionist",
+  receptionist: "ai-receptionist",
+  leadscraping: "lead-scraping-b2b",
+  leadscrapingb2b: "lead-scraping-b2b",
+  b2bleads: "lead-scraping-b2b",
+  leadscrapingb2c: "lead-scraping-b2c",
+  b2cleads: "lead-scraping-b2c",
+};
+
+const BILLING_BUNDLE_ALIAS_MAP: Record<string, "launch-kit" | "sales-loop" | "brand-builder"> = {
+  launchkit: "launch-kit",
+  launch: "launch-kit",
+  starter: "launch-kit",
+  starterbundle: "launch-kit",
+  salesloop: "sales-loop",
+  sales: "sales-loop",
+  growth: "sales-loop",
+  brandbuilder: "brand-builder",
+  branding: "brand-builder",
+  brand: "brand-builder",
+};
+
+function asLooseRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : {};
+}
+
+function pickFirstDefined(rec: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(rec, key) && rec[key] !== undefined) return rec[key];
+  }
+  return undefined;
+}
+
+function pickFirstText(rec: Record<string, unknown>, keys: string[]): string | undefined {
+  const value = pickFirstDefined(rec, keys);
+  return typeof value === "string" ? value : undefined;
+}
+
+function splitLooseStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
+  }
+  if (typeof value !== "string") return [];
+  return value
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeLooseBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "yes", "y", "1", "archive", "archived", "include"].includes(normalized)) return true;
+  if (["false", "no", "n", "0", "unarchive", "unarchived", "exclude"].includes(normalized)) return false;
+  return undefined;
+}
+
+function normalizePortalMemberRoleInput(value: unknown): "ADMIN" | "MEMBER" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (["admin", "administrator"].includes(normalized)) return "ADMIN";
+  if (["member", "user", "staff", "employee", "teammate", "team member", "basic"].includes(normalized)) return "MEMBER";
+  return undefined;
+}
+
+function normalizeDashboardScopeInput(value: unknown): "default" | "embedded" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["default", "main", "portal", "standard"].includes(normalized)) return "default";
+  if (["embedded", "embed", "iframe", "widget"].includes(normalized)) return "embedded";
+  return undefined;
+}
+
+function normalizeDashboardWidgetInput(value: unknown): DashboardWidgetId | undefined {
+  if (typeof value !== "string") return undefined;
+  const raw = value.trim();
+  if (!raw) return undefined;
+  if (isDashboardWidgetId(raw)) return raw;
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return DASHBOARD_WIDGET_ALIAS_MAP[normalized];
+}
+
+function normalizeReportingRangeInput(action: PortalAgentActionKey, value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return undefined;
+
+  if (action === "reporting.summary.get") {
+    if (["today", "day", "1d"].includes(normalized)) return "today";
+    if (["7d", "7days", "week", "weekly", "last7days", "past7days"].includes(normalized)) return "7d";
+    if (["30d", "30days", "month", "monthly", "last30days", "past30days"].includes(normalized)) return "30d";
+    if (["90d", "90days", "quarter", "quarterly", "last90days", "past90days"].includes(normalized)) return "90d";
+    if (["all", "alltime", "all time", "lifetime", "everything"].includes(normalized)) return "all";
+    return undefined;
+  }
+
+  if (["7d", "7days", "week", "weekly", "last7days", "past7days"].includes(normalized)) return "7d";
+  if (["30d", "30days", "month", "monthly", "last30days", "past30days"].includes(normalized)) return "30d";
+  return undefined;
+}
+
+function normalizePortalModuleKeyInput(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const raw = value.trim();
+  if (!raw) return undefined;
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return PORTAL_MODULE_ALIAS_MAP[normalized] ?? undefined;
+}
+
+function normalizeServiceSlugInput(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const raw = value.trim();
+  if (!raw) return undefined;
+  if (PORTAL_SERVICES.some((service) => service.slug === raw)) return raw;
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const aliased = SERVICE_SLUG_ALIAS_MAP[normalized];
+  if (aliased) return aliased;
+  const byTitle = PORTAL_SERVICES.find((service) => service.title.toLowerCase().replace(/[^a-z0-9]+/g, "") === normalized);
+  return byTitle?.slug;
+}
+
+function normalizeServiceLifecycleActionInput(value: unknown): "pause" | "cancel" | "resume" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["pause", "paused", "hold", "snooze"].includes(normalized)) return "pause";
+  if (["cancel", "cancelled", "canceled", "stop", "end", "terminate"].includes(normalized)) return "cancel";
+  if (["resume", "resumed", "restart", "reactivate", "enable", "enabled", "start"].includes(normalized)) return "resume";
+  return undefined;
+}
+
+function normalizeCreditsOnlyActionInput(value: unknown): "cancel" | "resume" | undefined {
+  switch (normalizeServiceLifecycleActionInput(value)) {
+    case "resume":
+      return "resume";
+    case "pause":
+    case "cancel":
+      return "cancel";
+    default:
+      return undefined;
+  }
+}
+
+function normalizeBundleIdInput(value: unknown): "launch-kit" | "sales-loop" | "brand-builder" | undefined {
+  if (typeof value !== "string") return undefined;
+  const raw = value.trim();
+  if (!raw) return undefined;
+  if (raw === "launch-kit" || raw === "sales-loop" || raw === "brand-builder") return raw;
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return BILLING_BUNDLE_ALIAS_MAP[normalized];
+}
+
+function normalizeOnboardingPlanIdInput(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const raw = value.trim();
+  if (!raw) return undefined;
+  if (planById(raw)) return raw;
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return ONBOARDING_PLAN_ALIAS_MAP[normalized];
+}
+
+function normalizeInboxChannelInput(value: unknown): "email" | "sms" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["sms", "text", "textmessage", "message"].includes(normalized)) return "sms";
+  if (["email", "mail", "gmail", "outlook"].includes(normalized)) return "email";
+  return undefined;
+}
+
+function normalizeContentKindInput(value: unknown): "internal" | "external" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["internal", "team", "staff", "employee"].includes(normalized)) return "internal";
+  if (["external", "customer", "client", "public"].includes(normalized)) return "external";
+  return undefined;
+}
+
+function normalizeAutomationTemplateInput(value: unknown): "blank" | "post_appointment_nurture_enrollment" | undefined {
+  if (typeof value !== "string") return undefined;
+  const raw = value.trim();
+  if (!raw) return undefined;
+  if (raw === "blank" || raw === "post_appointment_nurture_enrollment") return raw;
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["blank", "custom", "manual", "scratch", "empty"].includes(normalized)) return "blank";
+  if (["postappointmentnurtureenrollment", "postappointmentnurture", "postappointmentfollowup", "appointmentfollowup", "afterappointmentnurture"].includes(normalized)) {
+    return "post_appointment_nurture_enrollment";
+  }
+  return undefined;
+}
+
+function normalizeAutomationPausedStateInput(value: unknown): boolean | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["pause", "paused", "off", "disabled", "inactive", "stopped", "hold", "snoozed"].includes(normalized)) return true;
+  if (["active", "enabled", "running", "live", "on", "resume", "resumed"].includes(normalized)) return false;
+  return undefined;
+}
+
+function normalizeLeadScrapingKindInput(value: unknown): "B2B" | "B2C" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["b2b", "business", "businesses", "companies", "company"].includes(normalized)) return "B2B";
+  if (["b2c", "consumer", "consumers", "residential", "people"].includes(normalized)) return "B2C";
+  return undefined;
+}
+
+function normalizeLeadScrapingDraftKindInput(value: unknown): "SMS" | "EMAIL" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["sms", "text", "message", "textmessage"].includes(normalized)) return "SMS";
+  if (["email", "mail"].includes(normalized)) return "EMAIL";
+  return undefined;
+}
+
+function normalizeNurtureStepKindInput(value: unknown): "SMS" | "EMAIL" | "TAG" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toUpperCase().replace(/[^A-Z]/g, "");
+  if (normalized === "SMS") return "SMS";
+  if (normalized === "EMAIL") return "EMAIL";
+  if (normalized === "TAG") return "TAG";
+  return undefined;
+}
+
+function normalizeLeadScrapingChannelPolicyInput(value: unknown): "SMS" | "EMAIL" | "BOTH" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["sms", "text"].includes(normalized)) return "SMS";
+  if (["email", "mail"].includes(normalized)) return "EMAIL";
+  if (["both", "all", "either", "emailandsms", "smsandemail"].includes(normalized)) return "BOTH";
+  return undefined;
+}
+
+function normalizeApprovalInput(value: unknown): boolean | undefined {
+  const loose = normalizeLooseBoolean(value);
+  if (loose !== undefined) return loose;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["approve", "approved", "allow", "allowed"].includes(normalized)) return true;
+  if (["unapprove", "unapproved", "disallow", "blocked", "deny", "denied"].includes(normalized)) return false;
+  return undefined;
+}
+
+function normalizeAiReceptionistModeInput(value: unknown): "AI" | "FORWARD" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["ai", "assistant", "agent"].includes(normalized)) return "AI";
+  if (["forward", "forwardonly", "transfer", "handoff", "human"].includes(normalized)) return "FORWARD";
+  return undefined;
+}
+
+function normalizeAiReceptionistTextKindInput(value: unknown): "systemPrompt" | "greeting" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["systemprompt", "prompt", "system", "instructions"].includes(normalized)) return "systemPrompt";
+  if (["greeting", "welcome", "opening", "intro"].includes(normalized)) return "greeting";
+  return undefined;
+}
+
+function normalizeAiReceptionistChannelInput(value: unknown): "voice" | "sms" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (["voice", "call", "phone"].includes(normalized)) return "voice";
+  if (["sms", "text", "message"].includes(normalized)) return "sms";
+  return undefined;
+}
+
+function normalizeAiReceptionistKnowledgeBaseInput(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const kb = asLooseRecord(value as Record<string, unknown>);
+  const seedUrl = pickFirstDefined(kb, ["seedUrl", "url", "website", "siteUrl"]);
+  const crawlDepth = pickFirstDefined(kb, ["crawlDepth", "depth"]);
+  const maxUrls = pickFirstDefined(kb, ["maxUrls", "limit", "count"]);
+  const text = pickFirstDefined(kb, ["text", "content", "notes"]);
+  return {
+    ...kb,
+    ...(seedUrl !== undefined ? { seedUrl } : {}),
+    ...(crawlDepth !== undefined ? { crawlDepth } : {}),
+    ...(maxUrls !== undefined ? { maxUrls } : {}),
+    ...(text !== undefined ? { text } : {}),
+  };
+}
+
+function normalizeAiOutboundConfigInput(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const config = asLooseRecord(value as Record<string, unknown>);
+  const firstMessage = pickFirstDefined(config, ["firstMessage", "opening", "opener", "intro"]);
+  const goal = pickFirstDefined(config, ["goal", "objective"]);
+  const personality = pickFirstDefined(config, ["personality", "persona"]);
+  const environment = pickFirstDefined(config, ["environment", "context"]);
+  const tone = pickFirstDefined(config, ["tone", "style", "voice"]);
+  const guardRails = pickFirstDefined(config, ["guardRails", "guardrails", "rules"]);
+  const toolKeys = pickFirstDefined(config, ["toolKeys", "tools"]);
+  const toolIds = pickFirstDefined(config, ["toolIds"]);
+  return {
+    ...config,
+    ...(firstMessage !== undefined ? { firstMessage } : {}),
+    ...(goal !== undefined ? { goal } : {}),
+    ...(personality !== undefined ? { personality } : {}),
+    ...(environment !== undefined ? { environment } : {}),
+    ...(tone !== undefined ? { tone } : {}),
+    ...(guardRails !== undefined ? { guardRails } : {}),
+    ...(toolKeys !== undefined ? { toolKeys: Array.isArray(toolKeys) ? toolKeys : splitLooseStringList(toolKeys) } : {}),
+    ...(toolIds !== undefined ? { toolIds: Array.isArray(toolIds) ? toolIds : splitLooseStringList(toolIds) } : {}),
+  };
+}
+
+function normalizeAiOutboundOutcomeTaggingInput(value: unknown, sentKey: string): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const tagging = asLooseRecord(value as Record<string, unknown>);
+  const enabled = normalizeLooseBoolean(pickFirstDefined(tagging, ["enabled", "active"]));
+  const completed = pickFirstDefined(tagging, ["onCompletedTagIds", "completedTagIds"]);
+  const failed = pickFirstDefined(tagging, ["onFailedTagIds", "failedTagIds"]);
+  const skipped = pickFirstDefined(tagging, ["onSkippedTagIds", "skippedTagIds"]);
+  const sent = pickFirstDefined(tagging, [sentKey, "sentTagIds"]);
+  return {
+    ...tagging,
+    ...(enabled !== undefined ? { enabled } : {}),
+    ...(completed !== undefined ? { onCompletedTagIds: Array.isArray(completed) ? completed : splitLooseStringList(completed) } : {}),
+    ...(failed !== undefined ? { onFailedTagIds: Array.isArray(failed) ? failed : splitLooseStringList(failed) } : {}),
+    ...(skipped !== undefined ? { onSkippedTagIds: Array.isArray(skipped) ? skipped : splitLooseStringList(skipped) } : {}),
+    ...(sent !== undefined ? { [sentKey]: Array.isArray(sent) ? sent : splitLooseStringList(sent) } : {}),
+  };
+}
+
+function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Record<string, unknown>): Record<string, unknown> {
+  const args = asLooseRecord(input);
+
+  switch (action) {
+    case "ai_outbound_calls.campaigns.list": {
+      const lite = normalizeLooseBoolean(pickFirstDefined(args, ["lite", "summaryOnly", "compact"]));
+      if (lite !== undefined) args.lite = lite;
+      return args;
+    }
+
+    case "ai_outbound_calls.campaigns.create": {
+      const name = pickFirstDefined(args, ["name", "title", "campaignName"]);
+      if (name !== undefined) args.name = name;
+      return args;
+    }
+
+    case "ai_outbound_calls.campaigns.update": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign", "id"]);
+      const name = pickFirstDefined(args, ["name", "title", "campaignName"]);
+      const status = pickFirstDefined(args, ["status", "state"]);
+      const audienceTagIds = pickFirstDefined(args, ["audienceTagIds", "audienceTags", "tagIds"]);
+      const chatAudienceTagIds = pickFirstDefined(args, ["chatAudienceTagIds", "messageAudienceTagIds", "messageTagIds"]);
+      const messageChannelPolicy = normalizeLeadScrapingChannelPolicyInput(pickFirstDefined(args, ["messageChannelPolicy", "channelPolicy", "channel"]));
+      const voiceAgentId = pickFirstDefined(args, ["voiceAgentId", "agentId"]);
+      const manualVoiceAgentId = pickFirstDefined(args, ["manualVoiceAgentId", "manualAgentId"]);
+      const voiceAgentConfig = normalizeAiOutboundConfigInput(pickFirstDefined(args, ["voiceAgentConfig", "agentConfig", "callAgentConfig"]));
+      const voiceId = pickFirstDefined(args, ["voiceId"]);
+      const knowledgeBase = normalizeAiReceptionistKnowledgeBaseInput(pickFirstDefined(args, ["knowledgeBase", "kb", "voiceKnowledgeBase"]));
+      const messagesKnowledgeBase = normalizeAiReceptionistKnowledgeBaseInput(pickFirstDefined(args, ["messagesKnowledgeBase", "chatKnowledgeBase", "messageKnowledgeBase", "messagesKb"]));
+      const chatAgentId = pickFirstDefined(args, ["chatAgentId", "messagingAgentId"]);
+      const manualChatAgentId = pickFirstDefined(args, ["manualChatAgentId", "manualMessagingAgentId"]);
+      const chatAgentConfig = normalizeAiOutboundConfigInput(pickFirstDefined(args, ["chatAgentConfig", "messageAgentConfig", "messagingConfig"]));
+      const callOutcomeTagging = normalizeAiOutboundOutcomeTaggingInput(pickFirstDefined(args, ["callOutcomeTagging", "callTagging"]), "onCompletedTagIds");
+      const messageOutcomeTagging = normalizeAiOutboundOutcomeTaggingInput(pickFirstDefined(args, ["messageOutcomeTagging", "messageTagging"]), "onSentTagIds");
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      if (name !== undefined) args.name = name;
+      if (status !== undefined) args.status = status;
+      if (audienceTagIds !== undefined) args.audienceTagIds = Array.isArray(audienceTagIds) ? audienceTagIds : splitLooseStringList(audienceTagIds);
+      if (chatAudienceTagIds !== undefined) args.chatAudienceTagIds = Array.isArray(chatAudienceTagIds) ? chatAudienceTagIds : splitLooseStringList(chatAudienceTagIds);
+      if (messageChannelPolicy) args.messageChannelPolicy = messageChannelPolicy;
+      if (voiceAgentId !== undefined) args.voiceAgentId = voiceAgentId;
+      if (manualVoiceAgentId !== undefined) args.manualVoiceAgentId = manualVoiceAgentId;
+      if (voiceAgentConfig !== undefined) args.voiceAgentConfig = voiceAgentConfig;
+      if (voiceId !== undefined) args.voiceId = voiceId;
+      if (knowledgeBase !== undefined) args.knowledgeBase = knowledgeBase;
+      if (messagesKnowledgeBase !== undefined) args.messagesKnowledgeBase = messagesKnowledgeBase;
+      if (chatAgentId !== undefined) args.chatAgentId = chatAgentId;
+      if (manualChatAgentId !== undefined) args.manualChatAgentId = manualChatAgentId;
+      if (chatAgentConfig !== undefined) args.chatAgentConfig = chatAgentConfig;
+      if (callOutcomeTagging !== undefined) args.callOutcomeTagging = callOutcomeTagging;
+      if (messageOutcomeTagging !== undefined) args.messageOutcomeTagging = messageOutcomeTagging;
+      return args;
+    }
+
+    case "ai_outbound_calls.campaigns.activity.get": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign", "id"]);
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      return args;
+    }
+
+    case "ai_outbound_calls.campaigns.messages_activity.get": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign", "id"]);
+      const take = pickFirstDefined(args, ["take", "limit", "count"]);
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      if (take !== undefined) args.take = take;
+      return args;
+    }
+
+    case "ai_outbound_calls.contacts.search": {
+      const q = pickFirstDefined(args, ["q", "query", "search", "text"]);
+      const take = pickFirstDefined(args, ["take", "limit", "count"]);
+      if (q !== undefined) args.q = q;
+      if (take !== undefined) args.take = take;
+      return args;
+    }
+
+    case "ai_outbound_calls.manual_calls.list": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign"]);
+      const reconcileTwilio = normalizeLooseBoolean(pickFirstDefined(args, ["reconcileTwilio", "reconcile", "refresh"]));
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      if (reconcileTwilio !== undefined) args.reconcileTwilio = reconcileTwilio;
+      return args;
+    }
+
+    case "ai_outbound_calls.manual_calls.get":
+    case "ai_outbound_calls.manual_calls.refresh": {
+      const id = pickFirstDefined(args, ["id", "manualCallId", "call", "callId"]);
+      const reconcileTwilio = normalizeLooseBoolean(pickFirstDefined(args, ["reconcileTwilio", "reconcile", "refresh"]));
+      if (id !== undefined) args.id = id;
+      if (reconcileTwilio !== undefined) args.reconcileTwilio = reconcileTwilio;
+      return args;
+    }
+
+    case "ai_outbound_calls.campaigns.enroll_message": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign"]);
+      const contactId = pickFirstDefined(args, ["contactId", "contact", "recipientId"]);
+      const target = pickFirstDefined(args, ["target", "to", "recipient", "email", "phone"]);
+      const channelPolicy = normalizeLeadScrapingChannelPolicyInput(pickFirstDefined(args, ["channelPolicy", "channel", "type"]));
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      if (contactId !== undefined) args.contactId = contactId;
+      if (target !== undefined) args.target = target;
+      if (channelPolicy) args.channelPolicy = channelPolicy;
+      return args;
+    }
+
+    case "ai_outbound_calls.campaigns.generate_agent_config": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign"]);
+      const kind = pickFirstDefined(args, ["kind", "type", "channel"]);
+      const context = pickFirstDefined(args, ["context", "prompt", "description", "notes"]);
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      if (kind !== undefined) args.kind = kind;
+      if (context !== undefined) args.context = context;
+      return args;
+    }
+
+    case "ai_outbound_calls.campaigns.knowledge_base.sync":
+    case "ai_outbound_calls.campaigns.messages_knowledge_base.sync":
+    case "ai_outbound_calls.campaigns.sync_agent":
+    case "ai_outbound_calls.campaigns.sync_chat_agent": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign", "id"]);
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      return args;
+    }
+
+    case "ai_outbound_calls.campaigns.knowledge_base.upload":
+    case "ai_outbound_calls.campaigns.messages_knowledge_base.upload": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign"]);
+      const fileName = pickFirstDefined(args, ["fileName", "name", "title"]);
+      const mimeType = pickFirstDefined(args, ["mimeType", "contentType", "type"]);
+      const contentBase64 = pickFirstDefined(args, ["contentBase64", "base64", "content", "fileBase64"]);
+      const name = pickFirstDefined(args, ["name", "documentName", "label", "title"]);
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      if (fileName !== undefined) args.fileName = fileName;
+      if (mimeType !== undefined) args.mimeType = mimeType;
+      if (contentBase64 !== undefined) args.contentBase64 = contentBase64;
+      if (name !== undefined) args.name = name;
+      return args;
+    }
+
+    case "ai_outbound_calls.campaigns.manual_call": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign"]);
+      const toNumber = pickFirstDefined(args, ["toNumber", "to", "phone", "number"]);
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      if (toNumber !== undefined) args.toNumber = toNumber;
+      return args;
+    }
+
+    case "ai_outbound_calls.campaigns.preview_message_reply": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign"]);
+      const channel = normalizeInboxChannelInput(pickFirstDefined(args, ["channel", "type"]));
+      const inbound = pickFirstDefined(args, ["inbound", "message", "text", "body"]);
+      const history = pickFirstDefined(args, ["history", "messages", "thread"]);
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      if (channel) args.channel = channel;
+      if (inbound !== undefined) args.inbound = inbound;
+      if (history !== undefined) args.history = history;
+      return args;
+    }
+
+    case "ai_outbound_calls.recordings.get": {
+      const recordingSid = pickFirstDefined(args, ["recordingSid", "recording", "id"]);
+      const asBase64 = normalizeLooseBoolean(pickFirstDefined(args, ["asBase64", "base64", "includeBase64"]));
+      const maxBytes = pickFirstDefined(args, ["maxBytes", "limitBytes", "bytes"]);
+      if (recordingSid !== undefined) args.recordingSid = recordingSid;
+      if (asBase64 !== undefined) args.asBase64 = asBase64;
+      if (maxBytes !== undefined) args.maxBytes = maxBytes;
+      return args;
+    }
+
+    case "ai_outbound_calls.cron.run": {
+      return args;
+    }
+
+    case "ai_receptionist.settings.get": {
+      return args;
+    }
+
+    case "ai_receptionist.highlights.get": {
+      const lookbackHours = pickFirstDefined(args, ["lookbackHours", "hours", "lookback"]);
+      const limit = pickFirstDefined(args, ["limit", "take", "count"]);
+      if (lookbackHours !== undefined) args.lookbackHours = lookbackHours;
+      if (limit !== undefined) args.limit = limit;
+      return args;
+    }
+
+    case "ai_receptionist.settings.update": {
+      const settings = pickFirstDefined(args, ["settings", "config", "preferences"]);
+      const regenerateToken = normalizeLooseBoolean(pickFirstDefined(args, ["regenerateToken", "resetToken", "rotateToken"]));
+      const syncChatAgent = normalizeLooseBoolean(pickFirstDefined(args, ["syncChatAgent", "syncSmsAgent", "syncMessagingAgent"]));
+      if (settings !== undefined) args.settings = settings;
+      if (regenerateToken !== undefined) args.regenerateToken = regenerateToken;
+      if (syncChatAgent !== undefined) args.syncChatAgent = syncChatAgent;
+      return args;
+    }
+
+    case "ai_receptionist.events.refresh":
+    case "ai_receptionist.events.delete": {
+      const callSid = pickFirstDefined(args, ["callSid", "call", "eventId", "id"]);
+      if (callSid !== undefined) args.callSid = callSid;
+      return args;
+    }
+
+    case "ai_receptionist.recordings.get": {
+      const recordingSid = pickFirstDefined(args, ["recordingSid", "recording", "id"]);
+      if (recordingSid !== undefined) args.recordingSid = recordingSid;
+      return args;
+    }
+
+    case "ai_receptionist.recordings.demo.get":
+    case "ai_receptionist.demo_audio.get": {
+      const id = pickFirstDefined(args, ["id", "recordingId", "demoId", "audioId"]);
+      if (id !== undefined) args.id = id;
+      return args;
+    }
+
+    case "ai_receptionist.settings.generate": {
+      const context = pickFirstDefined(args, ["context", "prompt", "description", "notes"]);
+      const mode = normalizeAiReceptionistModeInput(pickFirstDefined(args, ["mode", "type"]));
+      const aiCanTransferToHuman = normalizeLooseBoolean(pickFirstDefined(args, ["aiCanTransferToHuman", "allowTransfer", "canTransfer"]));
+      const forwardToPhoneE164 = pickFirstDefined(args, ["forwardToPhoneE164", "forwardTo", "transferTo", "phone", "phoneNumber"]);
+      if (context !== undefined) args.context = context;
+      if (mode) args.mode = mode;
+      if (aiCanTransferToHuman !== undefined) args.aiCanTransferToHuman = aiCanTransferToHuman;
+      if (forwardToPhoneE164 !== undefined) args.forwardToPhoneE164 = forwardToPhoneE164;
+      return args;
+    }
+
+    case "ai_receptionist.sms_system_prompt.generate": {
+      const context = pickFirstDefined(args, ["context", "prompt", "description", "notes"]);
+      if (context !== undefined) args.context = context;
+      return args;
+    }
+
+    case "ai_receptionist.text.polish": {
+      const kind = normalizeAiReceptionistTextKindInput(pickFirstDefined(args, ["kind", "type", "target"]));
+      const channel = normalizeAiReceptionistChannelInput(pickFirstDefined(args, ["channel", "mode"]));
+      const text = pickFirstDefined(args, ["text", "content", "prompt", "message"]);
+      if (kind) args.kind = kind;
+      if (channel) args.channel = channel;
+      if (text !== undefined) args.text = text;
+      return args;
+    }
+
+    case "ai_receptionist.sms_reply.preview": {
+      const inbound = pickFirstDefined(args, ["inbound", "message", "text", "body"]);
+      const history = pickFirstDefined(args, ["history", "messages", "thread"]);
+      const contactTagIds = pickFirstDefined(args, ["contactTagIds", "tagIds", "tags"]);
+      if (inbound !== undefined) args.inbound = inbound;
+      if (history !== undefined) args.history = history;
+      if (contactTagIds !== undefined) args.contactTagIds = Array.isArray(contactTagIds) ? contactTagIds : splitLooseStringList(contactTagIds);
+      return args;
+    }
+
+    case "ai_receptionist.sms_knowledge_base.sync":
+    case "ai_receptionist.voice_knowledge_base.sync": {
+      const knowledgeBase = normalizeAiReceptionistKnowledgeBaseInput(pickFirstDefined(args, ["knowledgeBase", "kb", "source"]));
+      if (knowledgeBase !== undefined) args.knowledgeBase = knowledgeBase;
+      return args;
+    }
+
+    case "ai_receptionist.sms_knowledge_base.upload":
+    case "ai_receptionist.voice_knowledge_base.upload": {
+      const fileName = pickFirstDefined(args, ["fileName", "name", "title"]);
+      const mimeType = pickFirstDefined(args, ["mimeType", "contentType", "type"]);
+      const contentBase64 = pickFirstDefined(args, ["contentBase64", "base64", "content", "fileBase64"]);
+      const knowledgeBase = normalizeAiReceptionistKnowledgeBaseInput(pickFirstDefined(args, ["knowledgeBase", "kb", "source"]));
+      if (fileName !== undefined) args.fileName = fileName;
+      if (mimeType !== undefined) args.mimeType = mimeType;
+      if (contentBase64 !== undefined) args.contentBase64 = contentBase64;
+      if (knowledgeBase !== undefined) args.knowledgeBase = knowledgeBase;
+      return args;
+    }
+
+    case "media.folders.list":
+    case "media.stats.get": {
+      return args;
+    }
+
+    case "media.folders.update": {
+      const id = pickFirstDefined(args, ["id", "folderId", "folder"]);
+      const name = pickFirstDefined(args, ["name", "folderName", "title"]);
+      const parentId = pickFirstDefined(args, ["parentId", "parentFolderId", "parentFolder"]);
+      const color = pickFirstDefined(args, ["color", "folderColor"]);
+      if (id !== undefined) args.id = id;
+      if (name !== undefined) args.name = name;
+      if (parentId !== undefined) args.parentId = parentId;
+      if (color !== undefined) args.color = color;
+      return args;
+    }
+
+    case "media.folder.ensure": {
+      const name = pickFirstDefined(args, ["name", "folderName", "title"]);
+      const parentId = pickFirstDefined(args, ["parentId", "parentFolderId", "parentFolder"]);
+      const color = pickFirstDefined(args, ["color", "folderColor"]);
+      if (name !== undefined) args.name = name;
+      if (parentId !== undefined) args.parentId = parentId;
+      if (color !== undefined) args.color = color;
+      return args;
+    }
+
+    case "media.items.list": {
+      const q = pickFirstDefined(args, ["q", "query", "search", "text"]);
+      const folderId = pickFirstDefined(args, ["folderId", "folder", "folderName"]);
+      const limit = pickFirstDefined(args, ["limit", "take", "count"]);
+      if (q !== undefined) args.q = q;
+      if (folderId !== undefined) args.folderId = folderId;
+      if (limit !== undefined) args.limit = limit;
+      return args;
+    }
+
+    case "media.items.move": {
+      const itemIdsRaw = pickFirstDefined(args, ["itemIds", "items", "ids", "itemId", "id"]);
+      const folderId = pickFirstDefined(args, ["folderId", "folder"]);
+      const folderName = pickFirstDefined(args, ["folderName", "targetFolder", "destinationFolder", "name"]);
+      const parentId = pickFirstDefined(args, ["parentId", "parentFolderId", "parentFolder"]);
+      if (itemIdsRaw !== undefined) {
+        if (Array.isArray(itemIdsRaw)) args.itemIds = itemIdsRaw;
+        else args.itemIds = splitLooseStringList(itemIdsRaw);
+      }
+      if (folderId !== undefined) args.folderId = folderId;
+      if (folderName !== undefined) args.folderName = folderName;
+      if (parentId !== undefined) args.parentId = parentId;
+      return args;
+    }
+
+    case "media.items.update": {
+      const id = pickFirstDefined(args, ["id", "itemId", "mediaItemId", "item"]);
+      const fileName = pickFirstDefined(args, ["fileName", "name", "title"]);
+      const folderId = pickFirstDefined(args, ["folderId", "folder"]);
+      if (id !== undefined) args.id = id;
+      if (fileName !== undefined) args.fileName = fileName;
+      if (folderId !== undefined) args.folderId = folderId;
+      return args;
+    }
+
+    case "media.items.delete": {
+      const id = pickFirstDefined(args, ["id", "itemId", "mediaItemId", "item"]);
+      if (id !== undefined) args.id = id;
+      return args;
+    }
+
+    case "media.items.create_from_blob": {
+      const url = pickFirstDefined(args, ["url", "blobUrl", "uploadUrl"]);
+      const fileName = pickFirstDefined(args, ["fileName", "name", "title"]);
+      const mimeType = pickFirstDefined(args, ["mimeType", "contentType", "type"]);
+      const fileSize = pickFirstDefined(args, ["fileSize", "size", "bytes"]);
+      const folderId = pickFirstDefined(args, ["folderId", "folder"]);
+      if (url !== undefined) args.url = url;
+      if (fileName !== undefined) args.fileName = fileName;
+      if (mimeType !== undefined) args.mimeType = mimeType;
+      if (fileSize !== undefined) args.fileSize = fileSize;
+      if (folderId !== undefined) args.folderId = folderId;
+      return args;
+    }
+
+    case "media.import_remote_image": {
+      const url = pickFirstDefined(args, ["url", "imageUrl", "remoteUrl", "src"]);
+      const fileName = pickFirstDefined(args, ["fileName", "name", "title"]);
+      const folderId = pickFirstDefined(args, ["folderId", "folder"]);
+      const folderName = pickFirstDefined(args, ["folderName", "targetFolder", "destinationFolder"]);
+      const parentId = pickFirstDefined(args, ["parentId", "parentFolderId", "parentFolder"]);
+      if (url !== undefined) args.url = url;
+      if (fileName !== undefined) args.fileName = fileName;
+      if (folderId !== undefined) args.folderId = folderId;
+      if (folderName !== undefined) args.folderName = folderName;
+      if (parentId !== undefined) args.parentId = parentId;
+      return args;
+    }
+
+    case "media.list.get": {
+      const folderId = pickFirstDefined(args, ["folderId", "folder"]);
+      if (folderId !== undefined) args.folderId = folderId;
+      return args;
+    }
+
+    case "media.blob_upload.create": {
+      const body = pickFirstDefined(args, ["body", "upload", "payload"]);
+      if (body !== undefined) {
+        args.body = body;
+      } else if (pickFirstDefined(args, ["type", "contentType", "mimeType", "fileName"]) !== undefined) {
+        args.body = {
+          ...(pickFirstDefined(args, ["type", "contentType", "mimeType"]) !== undefined
+            ? { type: pickFirstDefined(args, ["type", "contentType", "mimeType"]) }
+            : {}),
+          ...(pickFirstDefined(args, ["fileName", "name", "title"]) !== undefined
+            ? { fileName: pickFirstDefined(args, ["fileName", "name", "title"]) }
+            : {}),
+          ...(pickFirstDefined(args, ["size", "fileSize", "bytes"]) !== undefined
+            ? { size: pickFirstDefined(args, ["size", "fileSize", "bytes"]) }
+            : {}),
+        };
+      }
+      return args;
+    }
+
+    case "lead_scraping.settings.get":
+    case "lead_scraping.cron.run": {
+      return args;
+    }
+
+    case "lead_scraping.settings.update": {
+      const settings = pickFirstDefined(args, ["settings", "config", "preferences"]);
+      if (settings !== undefined) {
+        args.settings = settings;
+      } else {
+        const topLevelSettings = {
+          tagPresets: pickFirstDefined(args, ["tagPresets"]),
+          presets: pickFirstDefined(args, ["presets"]),
+          b2b: pickFirstDefined(args, ["b2b"]),
+          b2c: pickFirstDefined(args, ["b2c"]),
+          outbound: pickFirstDefined(args, ["outbound"]),
+          outboundState: pickFirstDefined(args, ["outboundState"]),
+        };
+        if (Object.keys(topLevelSettings).length > 0) {
+          args.settings = {
+            ...(topLevelSettings.presets !== undefined ? { tagPresets: topLevelSettings.presets } : {}),
+            ...(topLevelSettings.tagPresets !== undefined ? { tagPresets: topLevelSettings.tagPresets } : {}),
+            ...(topLevelSettings.b2b !== undefined ? { b2b: topLevelSettings.b2b } : {}),
+            ...(topLevelSettings.b2c !== undefined ? { b2c: topLevelSettings.b2c } : {}),
+            ...(topLevelSettings.outbound !== undefined ? { outbound: topLevelSettings.outbound } : {}),
+            ...(topLevelSettings.outboundState !== undefined ? { outboundState: topLevelSettings.outboundState } : {}),
+          };
+        }
+      }
+      return args;
+    }
+
+    case "lead_scraping.run": {
+      const kind = normalizeLeadScrapingKindInput(pickFirstDefined(args, ["kind", "type", "audience", "leadType"]));
+      const count = pickFirstDefined(args, ["count", "take", "limit"]);
+      const niche = pickFirstDefined(args, ["niche", "industry", "search", "query"]);
+      const location = pickFirstDefined(args, ["location", "city", "area", "region"]);
+      const requireEmail = normalizeLooseBoolean(pickFirstDefined(args, ["requireEmail", "needsEmail", "hasEmail"]));
+      const requirePhone = normalizeLooseBoolean(pickFirstDefined(args, ["requirePhone", "needsPhone", "hasPhone"]));
+      const requireWebsite = normalizeLooseBoolean(pickFirstDefined(args, ["requireWebsite", "needsWebsite", "hasWebsite"]));
+      const aiOutboundRaw = pickFirstDefined(args, ["aiOutbound", "outbound"]);
+      if (kind) args.kind = kind;
+      if (count !== undefined) args.count = count;
+      if (niche !== undefined) args.niche = niche;
+      if (location !== undefined) args.location = location;
+      if (requireEmail !== undefined) args.requireEmail = requireEmail;
+      if (requirePhone !== undefined) args.requirePhone = requirePhone;
+      if (requireWebsite !== undefined) args.requireWebsite = requireWebsite;
+      if (aiOutboundRaw && typeof aiOutboundRaw === "object" && !Array.isArray(aiOutboundRaw)) {
+        const aiOutbound = asLooseRecord(aiOutboundRaw as Record<string, unknown>);
+        const callsRaw = pickFirstDefined(aiOutbound, ["calls", "callCampaign"]);
+        const messagesRaw = pickFirstDefined(aiOutbound, ["messages", "messageCampaign", "emailSms"]);
+        args.aiOutbound = {
+          ...(callsRaw && typeof callsRaw === "object" && !Array.isArray(callsRaw)
+            ? {
+                calls: {
+                  ...asLooseRecord(callsRaw as Record<string, unknown>),
+                  ...(normalizeLooseBoolean(pickFirstDefined(asLooseRecord(callsRaw as Record<string, unknown>), ["enabled", "active"])) !== undefined
+                    ? { enabled: normalizeLooseBoolean(pickFirstDefined(asLooseRecord(callsRaw as Record<string, unknown>), ["enabled", "active"])) }
+                    : {}),
+                  ...(pickFirstDefined(asLooseRecord(callsRaw as Record<string, unknown>), ["campaignId", "campaign", "id"]) !== undefined
+                    ? { campaignId: pickFirstDefined(asLooseRecord(callsRaw as Record<string, unknown>), ["campaignId", "campaign", "id"]) }
+                    : {}),
+                },
+              }
+            : {}),
+          ...(messagesRaw && typeof messagesRaw === "object" && !Array.isArray(messagesRaw)
+            ? {
+                messages: {
+                  ...asLooseRecord(messagesRaw as Record<string, unknown>),
+                  ...(normalizeLooseBoolean(pickFirstDefined(asLooseRecord(messagesRaw as Record<string, unknown>), ["enabled", "active"])) !== undefined
+                    ? { enabled: normalizeLooseBoolean(pickFirstDefined(asLooseRecord(messagesRaw as Record<string, unknown>), ["enabled", "active"])) }
+                    : {}),
+                  ...(pickFirstDefined(asLooseRecord(messagesRaw as Record<string, unknown>), ["campaignId", "campaign", "id"]) !== undefined
+                    ? { campaignId: pickFirstDefined(asLooseRecord(messagesRaw as Record<string, unknown>), ["campaignId", "campaign", "id"]) }
+                    : {}),
+                  ...(normalizeLeadScrapingChannelPolicyInput(
+                    pickFirstDefined(asLooseRecord(messagesRaw as Record<string, unknown>), ["channelPolicy", "channel", "type"]),
+                  )
+                    ? {
+                        channelPolicy: normalizeLeadScrapingChannelPolicyInput(
+                          pickFirstDefined(asLooseRecord(messagesRaw as Record<string, unknown>), ["channelPolicy", "channel", "type"]),
+                        ),
+                      }
+                    : {}),
+                },
+              }
+            : {}),
+        };
+      }
+      return args;
+    }
+
+    case "lead_scraping.leads.list": {
+      const take = pickFirstDefined(args, ["take", "limit", "count"]);
+      const q = pickFirstDefined(args, ["q", "query", "search", "text"]);
+      const kind = normalizeLeadScrapingKindInput(pickFirstDefined(args, ["kind", "type", "audience", "leadType"]));
+      if (take !== undefined) args.take = take;
+      if (q !== undefined) args.q = q;
+      if (kind) args.kind = kind;
+      return args;
+    }
+
+    case "lead_scraping.leads.update": {
+      const leadId = pickFirstDefined(args, ["leadId", "lead", "id"]);
+      const starred = normalizeLooseBoolean(pickFirstDefined(args, ["starred", "star", "favorite"]));
+      const email = pickFirstDefined(args, ["email", "contactEmail"]);
+      const tag = pickFirstDefined(args, ["tag", "label", "status"]);
+      const tagColor = pickFirstDefined(args, ["tagColor", "color", "labelColor"]);
+      if (leadId !== undefined) args.leadId = leadId;
+      if (starred !== undefined) args.starred = starred;
+      if (email !== undefined) args.email = email;
+      if (tag !== undefined) args.tag = tag;
+      if (tagColor !== undefined) args.tagColor = tagColor;
+      return args;
+    }
+
+    case "lead_scraping.leads.delete":
+    case "lead_scraping.outbound.send": {
+      const leadId = pickFirstDefined(args, ["leadId", "lead", "id"]);
+      if (leadId !== undefined) args.leadId = leadId;
+      return args;
+    }
+
+    case "lead_scraping.outbound.ai.draft_template": {
+      const kind = normalizeLeadScrapingDraftKindInput(pickFirstDefined(args, ["kind", "channel", "type"]));
+      const prompt = pickFirstDefined(args, ["prompt", "instructions", "description"]);
+      const existingSubject = pickFirstDefined(args, ["existingSubject", "subject", "title"]);
+      const existingBody = pickFirstDefined(args, ["existingBody", "body", "message", "text", "template"]);
+      if (kind) args.kind = kind;
+      if (prompt !== undefined) args.prompt = prompt;
+      if (existingSubject !== undefined) args.existingSubject = existingSubject;
+      if (existingBody !== undefined) args.existingBody = existingBody;
+      return args;
+    }
+
+    case "lead_scraping.contact.send": {
+      const leadId = pickFirstDefined(args, ["leadId", "lead", "id"]);
+      const subject = pickFirstDefined(args, ["subject", "title"]);
+      const message = pickFirstDefined(args, ["message", "body", "text"]);
+      const sendEmail = normalizeLooseBoolean(pickFirstDefined(args, ["sendEmail", "email"]));
+      const sendSms = normalizeLooseBoolean(pickFirstDefined(args, ["sendSms", "sms", "textMessage"]));
+      const channel = normalizeLeadScrapingChannelPolicyInput(pickFirstDefined(args, ["channel", "type"]));
+      if (leadId !== undefined) args.leadId = leadId;
+      if (subject !== undefined) args.subject = subject;
+      if (message !== undefined) args.message = message;
+      if (sendEmail !== undefined) args.sendEmail = sendEmail;
+      if (sendSms !== undefined) args.sendSms = sendSms;
+      if (channel === "EMAIL") args.sendEmail = true;
+      if (channel === "SMS") args.sendSms = true;
+      if (channel === "BOTH") {
+        args.sendEmail = true;
+        args.sendSms = true;
+      }
+      return args;
+    }
+
+    case "lead_scraping.outbound.approve": {
+      const leadId = pickFirstDefined(args, ["leadId", "lead", "id"]);
+      const approved = normalizeApprovalInput(pickFirstDefined(args, ["approved", "approve", "status", "state"]));
+      if (leadId !== undefined) args.leadId = leadId;
+      if (approved !== undefined) args.approved = approved;
+      return args;
+    }
+
+    case "automations.run": {
+      const automationId = pickFirstDefined(args, ["automationId", "automation", "workflowId", "workflow", "flowId", "flow", "id"]);
+      const contactId = pickFirstDefined(args, ["contactId", "targetContactId", "recipientId"]);
+      const contactName = pickFirstDefined(args, ["contactName", "recipientName"]);
+      const contactEmail = pickFirstDefined(args, ["contactEmail", "recipientEmail"]);
+      const contactPhone = pickFirstDefined(args, ["contactPhone", "recipientPhone", "mobile"]);
+      const contactRaw = pickFirstDefined(args, ["contact", "target", "recipient"]);
+      if (automationId !== undefined) args.automationId = automationId;
+      if (contactRaw && typeof contactRaw === "object" && !Array.isArray(contactRaw)) {
+        const contact = asLooseRecord(contactRaw as Record<string, unknown>);
+        args.contact = {
+          ...contact,
+          ...(pickFirstDefined(contact, ["id", "contactId"]) !== undefined ? { id: pickFirstDefined(contact, ["id", "contactId"]) } : {}),
+          ...(pickFirstDefined(contact, ["name", "contactName"]) !== undefined ? { name: pickFirstDefined(contact, ["name", "contactName"]) } : {}),
+          ...(pickFirstDefined(contact, ["email", "contactEmail"]) !== undefined ? { email: pickFirstDefined(contact, ["email", "contactEmail"]) } : {}),
+          ...(pickFirstDefined(contact, ["phone", "contactPhone", "mobile"]) !== undefined ? { phone: pickFirstDefined(contact, ["phone", "contactPhone", "mobile"]) } : {}),
+        };
+      } else if (contactId !== undefined || contactName !== undefined || contactEmail !== undefined || contactPhone !== undefined) {
+        args.contact = {
+          ...(contactId !== undefined ? { id: contactId } : {}),
+          ...(contactName !== undefined ? { name: contactName } : {}),
+          ...(contactEmail !== undefined ? { email: contactEmail } : {}),
+          ...(contactPhone !== undefined ? { phone: contactPhone } : {}),
+        };
+      }
+      return args;
+    }
+
+    case "automations.create": {
+      const name = pickFirstDefined(args, ["name", "title", "workflowName", "automationName"]);
+      const template = normalizeAutomationTemplateInput(pickFirstDefined(args, ["template", "workflowTemplate", "templateId", "type"]));
+      const nurtureCampaignId = pickFirstDefined(args, ["nurtureCampaignId", "nurtureCampaign", "campaignId", "campaign"]);
+      const prompt = pickFirstDefined(args, ["prompt", "description", "instructions", "spec", "workflowPrompt"]);
+      const targetContactId = pickFirstDefined(args, ["targetContactId", "targetContact", "contactId", "contact", "recipientId"]);
+      if (name !== undefined) args.name = name;
+      if (template) args.template = template;
+      if (nurtureCampaignId !== undefined) args.nurtureCampaignId = nurtureCampaignId;
+      if (prompt !== undefined) args.prompt = prompt;
+      if (targetContactId !== undefined) args.targetContactId = targetContactId;
+      return args;
+    }
+
+    case "automations.settings.get":
+    case "automations.cron.run": {
+      return args;
+    }
+
+    case "automations.settings.update": {
+      const automationsRaw = pickFirstDefined(args, ["automations", "workflows", "workflowList", "automationList", "items"]);
+      if (automationsRaw !== undefined) {
+        const list = Array.isArray(automationsRaw) ? automationsRaw : [automationsRaw];
+        args.automations = list.map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+          const workflow = asLooseRecord(item as Record<string, unknown>);
+          const pausedExplicit = normalizeLooseBoolean(pickFirstDefined(workflow, ["paused"]));
+          const enabled = normalizeLooseBoolean(pickFirstDefined(workflow, ["enabled", "active"]));
+          const pausedFromState = normalizeAutomationPausedStateInput(pickFirstDefined(workflow, ["status", "state"]));
+          const paused = pausedExplicit ?? pausedFromState ?? (enabled !== undefined ? !enabled : undefined);
+          const createdByRaw = pickFirstDefined(workflow, ["createdBy", "owner", "author", "user"]);
+          const createdBy = createdByRaw && typeof createdByRaw === "object" && !Array.isArray(createdByRaw)
+            ? {
+                ...asLooseRecord(createdByRaw as Record<string, unknown>),
+                ...(pickFirstDefined(asLooseRecord(createdByRaw as Record<string, unknown>), ["userId", "id"]) !== undefined
+                  ? { userId: pickFirstDefined(asLooseRecord(createdByRaw as Record<string, unknown>), ["userId", "id"]) }
+                  : {}),
+                ...(pickFirstDefined(asLooseRecord(createdByRaw as Record<string, unknown>), ["email", "userEmail"]) !== undefined
+                  ? { email: pickFirstDefined(asLooseRecord(createdByRaw as Record<string, unknown>), ["email", "userEmail"]) }
+                  : {}),
+                ...(pickFirstDefined(asLooseRecord(createdByRaw as Record<string, unknown>), ["name", "fullName"]) !== undefined
+                  ? { name: pickFirstDefined(asLooseRecord(createdByRaw as Record<string, unknown>), ["name", "fullName"]) }
+                  : {}),
+              }
+            : createdByRaw;
+          return {
+            ...workflow,
+            ...(pickFirstDefined(workflow, ["id", "automationId", "workflowId"]) !== undefined ? { id: pickFirstDefined(workflow, ["id", "automationId", "workflowId"]) } : {}),
+            ...(pickFirstDefined(workflow, ["name", "title", "workflowName", "automationName"]) !== undefined
+              ? { name: pickFirstDefined(workflow, ["name", "title", "workflowName", "automationName"]) }
+              : {}),
+            ...(paused !== undefined ? { paused } : {}),
+            ...(pickFirstDefined(workflow, ["nodes", "steps", "blocks"]) !== undefined ? { nodes: pickFirstDefined(workflow, ["nodes", "steps", "blocks"]) } : {}),
+            ...(pickFirstDefined(workflow, ["edges", "connections", "links"]) !== undefined ? { edges: pickFirstDefined(workflow, ["edges", "connections", "links"]) } : {}),
+            ...(pickFirstDefined(workflow, ["createdAtIso", "createdAt"]) !== undefined ? { createdAtIso: pickFirstDefined(workflow, ["createdAtIso", "createdAt"]) } : {}),
+            ...(pickFirstDefined(workflow, ["updatedAtIso", "updatedAt"]) !== undefined ? { updatedAtIso: pickFirstDefined(workflow, ["updatedAtIso", "updatedAt"]) } : {}),
+            ...(createdBy !== undefined ? { createdBy } : {}),
+          };
+        });
+      }
+      return args;
+    }
+
+    case "automations.test_sms": {
+      const automationId = pickFirstDefined(args, ["automationId", "automation", "workflowId", "workflow", "flowId", "flow", "id"]);
+      const from = pickFirstDefined(args, ["from", "phone", "contactPhone", "sender", "number"]);
+      const body = pickFirstDefined(args, ["body", "message", "text", "sms"]);
+      if (automationId !== undefined) args.automationId = automationId;
+      if (from !== undefined) args.from = from;
+      if (body !== undefined) args.body = body;
+      return args;
+    }
+
+    case "contacts.list": {
+      const q = pickFirstDefined(args, ["q", "query", "search", "text", "name", "contact"]);
+      const limit = pickFirstDefined(args, ["limit", "take", "count"]);
+      if (q !== undefined) args.q = q;
+      if (limit !== undefined) args.limit = limit;
+      return args;
+    }
+
+    case "tasks.list": {
+      const q = pickFirstDefined(args, ["q", "query", "search", "text", "title", "task", "name"]);
+      const status = pickFirstDefined(args, ["status", "state"]);
+      const assigned = pickFirstDefined(args, ["assigned", "assignment", "scope"]);
+      const assignee = pickFirstDefined(args, ["assignee", "assignedTo", "assignedUser", "user"]);
+      const limit = pickFirstDefined(args, ["limit", "take", "count"]);
+      if (q !== undefined) args.q = q;
+      if (status !== undefined) args.status = status;
+      if (assigned !== undefined) args.assigned = assigned;
+      if (assignee !== undefined) args.assignee = assignee;
+      if (limit !== undefined) args.limit = limit;
+      return args;
+    }
+
+    case "contacts.get":
+    case "contacts.update":
+    case "contacts.delete":
+    case "contacts.tags.list": {
+      const contactId = pickFirstDefined(args, ["contactId", "contact", "contactName", "contactEmail", "contactPhone", "id"]);
+      if (contactId !== undefined) args.contactId = contactId;
+      return args;
+    }
+
+    case "contacts.create": {
+      const customVariables = pickFirstDefined(args, ["customVariables", "customFields", "fields"]);
+      if (customVariables !== undefined) args.customVariables = customVariables;
+      return args;
+    }
+
+    case "contacts.tags.add":
+    case "contacts.tags.remove": {
+      const contactId = pickFirstDefined(args, ["contactId", "contact", "contactName", "contactEmail", "contactPhone", "id"]);
+      const tagId = pickFirstDefined(args, ["tagId", "tag", "tagName", "label"]);
+      if (contactId !== undefined) args.contactId = contactId;
+      if (tagId !== undefined) args.tagId = tagId;
+      return args;
+    }
+
+    case "people.users.invite": {
+      const email = pickFirstText(args, ["email", "userEmail", "memberEmail", "inviteeEmail"]);
+      const role = normalizePortalMemberRoleInput(pickFirstDefined(args, ["role", "memberRole"]));
+      const permissions = pickFirstDefined(args, ["permissions", "permissionSet"]);
+      if (email) args.email = email;
+      if (role) args.role = role;
+      if (permissions !== undefined) args.permissions = permissions;
+      return args;
+    }
+
+    case "people.users.update":
+    case "people.users.delete": {
+      const userId = pickFirstDefined(args, ["userId", "memberId", "targetUserId", "user", "member", "id"]);
+      const role = normalizePortalMemberRoleInput(pickFirstDefined(args, ["role", "memberRole"]));
+      const permissions = pickFirstDefined(args, ["permissions", "permissionSet"]);
+      if (userId !== undefined) args.userId = userId;
+      if (role) args.role = role;
+      if (permissions !== undefined) args.permissions = permissions;
+      return args;
+    }
+
+    case "reviews.inbox.list": {
+      const includeArchived = normalizeLooseBoolean(pickFirstDefined(args, ["includeArchived", "archived", "showArchived"]));
+      const hasBusinessReply = normalizeLooseBoolean(pickFirstDefined(args, ["hasBusinessReply", "withReply", "replied", "businessReplied"]));
+      if (includeArchived !== undefined) args.includeArchived = includeArchived;
+      if (hasBusinessReply !== undefined) args.hasBusinessReply = hasBusinessReply;
+      return args;
+    }
+
+    case "reviews.reply": {
+      const reviewId = pickFirstDefined(args, ["reviewId", "review", "id"]);
+      const reply = pickFirstDefined(args, ["reply", "body", "message", "text", "response"]);
+      if (reviewId !== undefined) args.reviewId = reviewId;
+      if (reply !== undefined) args.reply = reply;
+      return args;
+    }
+
+    case "inbox.threads.list": {
+      const channel = pickFirstDefined(args, ["channel", "type"]);
+      const q = pickFirstDefined(args, ["q", "query", "search", "text", "name", "contact", "phone", "email", "subject"]);
+      const take = pickFirstDefined(args, ["take", "limit", "count"]);
+      const direction = pickFirstDefined(args, ["direction", "dir"]);
+      const box = pickFirstDefined(args, ["box", "mailbox", "folder"]);
+      const needsReply = normalizeLooseBoolean(pickFirstDefined(args, ["needsReply", "unansweredOnly", "onlyUnanswered", "replyNeeded"]));
+      if (channel !== undefined) args.channel = channel;
+      if (q !== undefined) args.q = q;
+      if (take !== undefined) args.take = take;
+      if (direction !== undefined) args.direction = direction;
+      if (box !== undefined) args.box = box;
+      if (needsReply !== undefined) args.needsReply = needsReply;
+      return args;
+    }
+
+    case "reviews.archive": {
+      const reviewId = pickFirstDefined(args, ["reviewId", "review", "id"]);
+      const archived = normalizeLooseBoolean(pickFirstDefined(args, ["archived", "archive", "isArchived"]));
+      if (reviewId !== undefined) args.reviewId = reviewId;
+      if (archived !== undefined) args.archived = archived;
+      return args;
+    }
+
+    case "reviews.contacts.search": {
+      const q = pickFirstDefined(args, ["q", "query", "search", "text"]);
+      const take = pickFirstDefined(args, ["take", "limit", "count"]);
+      if (q !== undefined) args.q = q;
+      if (take !== undefined) args.take = take;
+      return args;
+    }
+
+    case "reviews.events.list": {
+      const limit = pickFirstDefined(args, ["limit", "take", "count"]);
+      if (limit !== undefined) args.limit = limit;
+      return args;
+    }
+
+    case "reviews.questions.answer": {
+      const questionId = pickFirstDefined(args, ["id", "questionId", "reviewQuestionId", "question"]);
+      const answer = pickFirstDefined(args, ["answer", "response", "text"]);
+      if (questionId !== undefined) args.id = questionId;
+      if (answer !== undefined) args.answer = answer;
+      return args;
+    }
+
+    case "dashboard.get":
+    case "dashboard.save":
+    case "dashboard.reset":
+    case "dashboard.add_widget":
+    case "dashboard.remove_widget":
+    case "dashboard.optimize": {
+      const scope = normalizeDashboardScopeInput(pickFirstDefined(args, ["scope", "view", "variant", "mode"]));
+      if (scope) args.scope = scope;
+      if (action === "dashboard.add_widget" || action === "dashboard.remove_widget") {
+        const widgetId = normalizeDashboardWidgetInput(pickFirstDefined(args, ["widgetId", "widget", "widgetSlug", "slug", "name"]));
+        if (widgetId) args.widgetId = widgetId;
+      }
+      return args;
+    }
+
+    case "dashboard.analysis.generate": {
+      const trigger = pickFirstDefined(args, ["trigger", "reason", "prompt"]);
+      const force = normalizeLooseBoolean(pickFirstDefined(args, ["force", "refresh"]));
+      if (trigger !== undefined) args.trigger = trigger;
+      if (force !== undefined) args.force = force;
+      return args;
+    }
+
+    case "dashboard.quick_access.update": {
+      const slugsRaw = pickFirstDefined(args, ["slugs", "services", "items", "quickAccess"]);
+      if (slugsRaw !== undefined) {
+        args.slugs = splitLooseStringList(slugsRaw).map((value) => {
+          if (value.trim().toLowerCase() === "sales dashboard") return "sales-dashboard";
+          const exact = PORTAL_SERVICES.find((service) => service.slug === value.trim());
+          if (exact) return exact.slug;
+          const normalized = value.trim().toLowerCase();
+          const byName = PORTAL_SERVICES.find((service) => service.title.trim().toLowerCase() === normalized);
+          if (byName) return byName.slug;
+          return slugify(value).replace(/^-+|-+$/g, "");
+        });
+      }
+      return args;
+    }
+
+    case "profile.get":
+    case "webhooks.get":
+    case "mailbox.get":
+    case "inbox.settings.get":
+    case "business_profile.get": {
+      return args;
+    }
+
+    case "profile.update": {
+      const firstName = pickFirstDefined(args, ["firstName", "first", "givenName"]);
+      const lastName = pickFirstDefined(args, ["lastName", "last", "familyName", "surname"]);
+      const email = pickFirstDefined(args, ["email", "userEmail"]);
+      const phone = pickFirstDefined(args, ["phone", "phoneNumber", "mobile"]);
+      const city = pickFirstDefined(args, ["city", "town"]);
+      const state = pickFirstDefined(args, ["state", "province", "region"]);
+      const voiceAgentId = pickFirstDefined(args, ["voiceAgentId", "agentId", "voiceId"]);
+      const voiceAgentApiKey = pickFirstDefined(args, ["voiceAgentApiKey", "agentApiKey", "apiKey"]);
+      const enableSms = normalizeLooseBoolean(pickFirstDefined(args, ["enableDefaultSmsNotifications", "defaultSmsNotifications", "smsNotifications"]));
+      const currentPassword = pickFirstDefined(args, ["currentPassword", "password"]);
+      if (firstName !== undefined) args.firstName = firstName;
+      if (lastName !== undefined) args.lastName = lastName;
+      if (email !== undefined) args.email = email;
+      if (phone !== undefined) args.phone = phone;
+      if (city !== undefined) args.city = city;
+      if (state !== undefined) args.state = state;
+      if (voiceAgentId !== undefined) args.voiceAgentId = voiceAgentId;
+      if (voiceAgentApiKey !== undefined) args.voiceAgentApiKey = voiceAgentApiKey;
+      if (enableSms !== undefined) args.enableDefaultSmsNotifications = enableSms;
+      if (currentPassword !== undefined) args.currentPassword = currentPassword;
+      return args;
+    }
+
+    case "profile.password.update": {
+      const currentPassword = pickFirstDefined(args, ["currentPassword", "oldPassword", "password"]);
+      const newPassword = pickFirstDefined(args, ["newPassword", "password", "nextPassword"]);
+      if (currentPassword !== undefined) args.currentPassword = currentPassword;
+      if (newPassword !== undefined) args.newPassword = newPassword;
+      return args;
+    }
+
+    case "mailbox.update": {
+      const localPart = pickFirstDefined(args, ["localPart", "mailbox", "emailPrefix", "prefix"]);
+      if (localPart !== undefined) args.localPart = localPart;
+      return args;
+    }
+
+    case "inbox.thread.messages.list": {
+      const threadId = pickFirstDefined(args, ["threadId", "thread", "conversationId", "conversation", "id"]);
+      const take = pickFirstDefined(args, ["take", "limit", "count"]);
+      if (threadId !== undefined) args.threadId = threadId;
+      if (take !== undefined) args.take = take;
+      return args;
+    }
+
+    case "inbox.thread.contact.set": {
+      const threadId = pickFirstDefined(args, ["threadId", "thread", "conversationId", "conversation", "id"]);
+      const name = pickFirstDefined(args, ["name", "contactName", "fullName"]);
+      const email = pickFirstDefined(args, ["email", "contactEmail"]);
+      const phone = pickFirstDefined(args, ["phone", "contactPhone", "mobile"]);
+      if (threadId !== undefined) args.threadId = threadId;
+      if (name !== undefined) args.name = name;
+      if (email !== undefined) args.email = email;
+      if (phone !== undefined) args.phone = phone;
+      return args;
+    }
+
+    case "inbox.scheduled.update": {
+      const scheduledId = pickFirstDefined(args, ["scheduledId", "messageId", "scheduledMessageId", "id"]);
+      const scheduledFor = pickFirstDefined(args, ["scheduledFor", "sendAt", "when", "scheduledAt"]);
+      if (scheduledId !== undefined) args.scheduledId = scheduledId;
+      if (scheduledFor !== undefined) args.scheduledFor = scheduledFor;
+      return args;
+    }
+
+    case "inbox.scheduled.cron.run": {
+      const limit = pickFirstDefined(args, ["limit", "take", "count"]);
+      if (limit !== undefined) args.limit = limit;
+      return args;
+    }
+
+    case "inbox.attachments.create_from_media": {
+      const mediaItemId = pickFirstDefined(args, ["mediaItemId", "itemId", "mediaId", "id"]);
+      if (mediaItemId !== undefined) args.mediaItemId = mediaItemId;
+      return args;
+    }
+
+    case "inbox.attachments.delete": {
+      const id = pickFirstDefined(args, ["id", "attachmentId", "fileId"]);
+      if (id !== undefined) args.id = id;
+      return args;
+    }
+
+    case "inbox.settings.update": {
+      const regenerateToken = normalizeLooseBoolean(pickFirstDefined(args, ["regenerateToken", "resetToken", "rotateToken"]));
+      if (regenerateToken !== undefined) args.regenerateToken = regenerateToken;
+      return args;
+    }
+
+    case "inbox.send": {
+      const channel = normalizeInboxChannelInput(pickFirstDefined(args, ["channel", "type"]));
+      const to = pickFirstDefined(args, ["to", "recipient", "email", "phone"]);
+      const subject = pickFirstDefined(args, ["subject", "title"]);
+      const body = pickFirstDefined(args, ["body", "message", "text"]);
+      const attachmentIds = pickFirstDefined(args, ["attachmentIds", "attachments", "fileIds"]);
+      const threadId = pickFirstDefined(args, ["threadId", "thread", "conversationId", "conversation"]);
+      const sendAt = pickFirstDefined(args, ["sendAt", "scheduledFor", "when", "scheduledAt"]);
+      if (channel) args.channel = channel;
+      if (to !== undefined) args.to = to;
+      if (subject !== undefined) args.subject = subject;
+      if (body !== undefined) args.body = body;
+      if (attachmentIds !== undefined) args.attachmentIds = Array.isArray(attachmentIds) ? attachmentIds : splitLooseStringList(attachmentIds);
+      if (threadId !== undefined) args.threadId = threadId;
+      if (sendAt !== undefined) args.sendAt = sendAt;
+      return args;
+    }
+
+    case "inbox.send_sms": {
+      const to = pickFirstDefined(args, ["to", "phone", "recipient"]);
+      const contactId = pickFirstDefined(args, ["contactId", "contact"]);
+      const body = pickFirstDefined(args, ["body", "message", "text"]);
+      const bodyPrompt = pickFirstDefined(args, ["bodyPrompt", "prompt", "messagePrompt"]);
+      const threadId = pickFirstDefined(args, ["threadId", "thread", "conversationId", "conversation"]);
+      if (to !== undefined) args.to = to;
+      if (contactId !== undefined) args.contactId = contactId;
+      if (body !== undefined) args.body = body;
+      if (bodyPrompt !== undefined) args.bodyPrompt = bodyPrompt;
+      if (threadId !== undefined) args.threadId = threadId;
+      return args;
+    }
+
+    case "inbox.send_email": {
+      const to = pickFirstDefined(args, ["to", "recipient", "email"]);
+      const subject = pickFirstDefined(args, ["subject", "title"]);
+      const body = pickFirstDefined(args, ["body", "message", "text"]);
+      const threadId = pickFirstDefined(args, ["threadId", "thread", "conversationId", "conversation"]);
+      if (to !== undefined) args.to = to;
+      if (subject !== undefined) args.subject = subject;
+      if (body !== undefined) args.body = body;
+      if (threadId !== undefined) args.threadId = threadId;
+      return args;
+    }
+
+    case "business_profile.update": {
+      const businessName = pickFirstDefined(args, ["businessName", "companyName", "name"]);
+      const websiteUrl = pickFirstDefined(args, ["websiteUrl", "website", "siteUrl"]);
+      const industry = pickFirstDefined(args, ["industry", "niche"]);
+      const businessModel = pickFirstDefined(args, ["businessModel", "model"]);
+      const primaryGoals = pickFirstDefined(args, ["primaryGoals", "goals"]);
+      const targetCustomer = pickFirstDefined(args, ["targetCustomer", "audience", "idealCustomer"]);
+      const brandVoice = pickFirstDefined(args, ["brandVoice", "voice", "tone"]);
+      if (businessName !== undefined) args.businessName = businessName;
+      if (websiteUrl !== undefined) args.websiteUrl = websiteUrl;
+      if (industry !== undefined) args.industry = industry;
+      if (businessModel !== undefined) args.businessModel = businessModel;
+      if (primaryGoals !== undefined) args.primaryGoals = Array.isArray(primaryGoals) ? primaryGoals : splitLooseStringList(primaryGoals);
+      if (targetCustomer !== undefined) args.targetCustomer = targetCustomer;
+      if (brandVoice !== undefined) args.brandVoice = brandVoice;
+      return args;
+    }
+
+    case "blogs.posts.list": {
+      const take = pickFirstDefined(args, ["take", "limit", "count"]);
+      const includeArchived = normalizeLooseBoolean(pickFirstDefined(args, ["includeArchived", "archived", "showArchived"]));
+      if (take !== undefined) args.take = take;
+      if (includeArchived !== undefined) args.includeArchived = includeArchived;
+      return args;
+    }
+
+    case "blogs.posts.create": {
+      const title = pickFirstDefined(args, ["title", "name", "postTitle"]);
+      if (title !== undefined) args.title = title;
+      return args;
+    }
+
+    case "blogs.posts.get":
+    case "blogs.posts.delete":
+    case "blogs.posts.export_markdown":
+    case "blogs.posts.generate_draft":
+    case "blogs.posts.publish": {
+      const postId = pickFirstDefined(args, ["postId", "post", "blogPostId", "id"]);
+      if (postId !== undefined) args.postId = postId;
+      return args;
+    }
+
+    case "blogs.posts.update": {
+      const postId = pickFirstDefined(args, ["postId", "post", "blogPostId", "id"]);
+      const title = pickFirstDefined(args, ["title", "name", "postTitle"]);
+      const excerpt = pickFirstDefined(args, ["excerpt", "summary", "description"]);
+      const content = pickFirstDefined(args, ["content", "body", "markdown", "text"]);
+      const slug = pickFirstDefined(args, ["slug", "postSlug"]);
+      const seoKeywords = pickFirstDefined(args, ["seoKeywords", "keywords", "tags"]);
+      const archived = normalizeLooseBoolean(pickFirstDefined(args, ["archived", "archive"]));
+      const publishedAt = pickFirstDefined(args, ["publishedAt", "publishAt", "publishDate"]);
+      if (postId !== undefined) args.postId = postId;
+      if (title !== undefined) args.title = title;
+      if (excerpt !== undefined) args.excerpt = excerpt;
+      if (content !== undefined) args.content = content;
+      if (slug !== undefined) args.slug = slug;
+      if (seoKeywords !== undefined) args.seoKeywords = Array.isArray(seoKeywords) ? seoKeywords : splitLooseStringList(seoKeywords);
+      if (archived !== undefined) args.archived = archived;
+      if (publishedAt !== undefined) args.publishedAt = publishedAt;
+      return args;
+    }
+
+    case "blogs.posts.archive": {
+      const postId = pickFirstDefined(args, ["postId", "post", "blogPostId", "id"]);
+      const archived = normalizeLooseBoolean(pickFirstDefined(args, ["archived", "archive"]));
+      if (postId !== undefined) args.postId = postId;
+      if (archived !== undefined) args.archived = archived;
+      return args;
+    }
+
+    case "blogs.automation.settings.update": {
+      const enabled = normalizeLooseBoolean(pickFirstDefined(args, ["enabled", "active"]));
+      const frequencyDays = pickFirstDefined(args, ["frequencyDays", "frequency", "cadenceDays", "everyDays"]);
+      const topics = pickFirstDefined(args, ["topics", "topicList"]);
+      const autoPublish = normalizeLooseBoolean(pickFirstDefined(args, ["autoPublish", "publishAutomatically"]));
+      if (enabled !== undefined) args.enabled = enabled;
+      if (frequencyDays !== undefined) args.frequencyDays = frequencyDays;
+      if (topics !== undefined) args.topics = Array.isArray(topics) ? topics : splitLooseStringList(topics);
+      if (autoPublish !== undefined) args.autoPublish = autoPublish;
+      return args;
+    }
+
+    case "newsletter.newsletters.list": {
+      const kind = normalizeContentKindInput(pickFirstDefined(args, ["kind", "audienceKind", "type"]));
+      const take = pickFirstDefined(args, ["take", "limit", "count"]);
+      if (kind) args.kind = kind;
+      if (take !== undefined) args.take = take;
+      return args;
+    }
+
+    case "newsletter.newsletters.create": {
+      const kind = normalizeContentKindInput(pickFirstDefined(args, ["kind", "audienceKind", "type"]));
+      const status = pickFirstDefined(args, ["status", "state"]);
+      const title = pickFirstDefined(args, ["title", "name", "subject"]);
+      const excerpt = pickFirstDefined(args, ["excerpt", "summary", "description"]);
+      const content = pickFirstDefined(args, ["content", "body", "markdown", "html", "text"]);
+      const smsText = pickFirstDefined(args, ["smsText", "smsBody", "textMessage"]);
+      if (kind) args.kind = kind;
+      if (status !== undefined) args.status = status;
+      if (title !== undefined) args.title = title;
+      if (excerpt !== undefined) args.excerpt = excerpt;
+      if (content !== undefined) args.content = content;
+      if (smsText !== undefined) args.smsText = smsText;
+      return args;
+    }
+
+    case "nurture.campaigns.steps.add": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign", "id"]);
+      const step = pickFirstDefined(args, ["step", "stepData", "newStep"]);
+      const kind = normalizeNurtureStepKindInput(pickFirstDefined(args, ["kind", "channel", "type"]));
+      const delayMinutes = pickFirstDefined(
+        args,
+        ["delayMinutes", "delay", "waitMinutes", "delayInMinutes"],
+      );
+      const subject = pickFirstDefined(args, ["subject", "title"]);
+      const body = pickFirstDefined(args, ["body", "message", "text", "content"]);
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      const nested = step && typeof step === "object" && !Array.isArray(step) ? (step as Record<string, unknown>) : null;
+      const nestedKind = nested ? normalizeNurtureStepKindInput(pickFirstDefined(nested, ["kind", "channel", "type"])) : undefined;
+      const nestedDelay = nested ? pickFirstDefined(nested, ["delayMinutes", "delay", "waitMinutes", "delayInMinutes"]) : undefined;
+      const nestedSubject = nested ? pickFirstDefined(nested, ["subject", "title"]) : undefined;
+      const nestedBody = nested ? pickFirstDefined(nested, ["body", "message", "text", "content"]) : undefined;
+      const nextKind = kind || nestedKind || normalizeNurtureStepKindInput((args as any).kind);
+      if (nextKind === "EMAIL" || nextKind === "SMS" || nextKind === "TAG") args.kind = nextKind;
+      if (delayMinutes !== undefined || nestedDelay !== undefined) args.delayMinutes = delayMinutes ?? nestedDelay;
+      if (subject !== undefined || nestedSubject !== undefined) args.subject = subject ?? nestedSubject;
+      if (body !== undefined || nestedBody !== undefined) args.body = body ?? nestedBody;
+      if ("step" in args) delete (args as any).step;
+      return args;
+    }
+
+    case "newsletter.newsletters.get":
+    case "newsletter.newsletters.send": {
+      const newsletterId = pickFirstDefined(args, ["newsletterId", "newsletter", "draftId", "id"]);
+      if (newsletterId !== undefined) args.newsletterId = newsletterId;
+      return args;
+    }
+
+    case "newsletter.newsletters.update": {
+      const newsletterId = pickFirstDefined(args, ["newsletterId", "newsletter", "draftId", "id"]);
+      const title = pickFirstDefined(args, ["title", "name", "subject"]);
+      const excerpt = pickFirstDefined(args, ["excerpt", "summary", "description"]);
+      const content = pickFirstDefined(args, ["content", "body", "markdown", "html", "text"]);
+      const smsText = pickFirstDefined(args, ["smsText", "smsBody", "textMessage"]);
+      const hostedOnly = normalizeLooseBoolean(pickFirstDefined(args, ["hostedOnly", "webOnly"]));
+      if (newsletterId !== undefined) args.newsletterId = newsletterId;
+      if (title !== undefined) args.title = title;
+      if (excerpt !== undefined) args.excerpt = excerpt;
+      if (content !== undefined) args.content = content;
+      if (smsText !== undefined) args.smsText = smsText;
+      if (hostedOnly !== undefined) args.hostedOnly = hostedOnly;
+      return args;
+    }
+
+    case "newsletter.audience.contacts.search": {
+      const take = pickFirstDefined(args, ["take", "limit", "count"]);
+      const ids = pickFirstDefined(args, ["ids", "contactIds"]);
+      const q = pickFirstDefined(args, ["q", "query", "search", "text"]);
+      if (take !== undefined) args.take = take;
+      if (ids !== undefined) args.ids = Array.isArray(ids) ? ids : splitLooseStringList(ids);
+      if (q !== undefined) args.q = q;
+      return args;
+    }
+
+    case "newsletter.automation.settings.get": {
+      const kind = normalizeContentKindInput(pickFirstDefined(args, ["kind", "audienceKind", "type"]));
+      if (kind) args.kind = kind;
+      return args;
+    }
+
+    case "newsletter.automation.settings.update": {
+      const kind = normalizeContentKindInput(pickFirstDefined(args, ["kind", "audienceKind", "type"]));
+      const enabled = normalizeLooseBoolean(pickFirstDefined(args, ["enabled", "active"]));
+      const frequencyDays = pickFirstDefined(args, ["frequencyDays", "frequency", "cadenceDays", "everyDays"]);
+      const requireApproval = normalizeLooseBoolean(pickFirstDefined(args, ["requireApproval", "needsApproval"]));
+      const topics = pickFirstDefined(args, ["topics", "topicList"]);
+      const deliveryEmailHint = pickFirstDefined(args, ["deliveryEmailHint", "emailHint"]);
+      const deliverySmsHint = pickFirstDefined(args, ["deliverySmsHint", "smsHint"]);
+      const includeImages = normalizeLooseBoolean(pickFirstDefined(args, ["includeImages", "images"]));
+      const royaltyFreeImages = normalizeLooseBoolean(pickFirstDefined(args, ["royaltyFreeImages", "stockImages"]));
+      const includeImagesWhereNeeded = normalizeLooseBoolean(pickFirstDefined(args, ["includeImagesWhereNeeded", "imagesWhereNeeded"]));
+      if (kind) args.kind = kind;
+      if (enabled !== undefined) args.enabled = enabled;
+      if (frequencyDays !== undefined) args.frequencyDays = frequencyDays;
+      if (requireApproval !== undefined) args.requireApproval = requireApproval;
+      if (topics !== undefined) args.topics = Array.isArray(topics) ? topics : splitLooseStringList(topics);
+      if (deliveryEmailHint !== undefined) args.deliveryEmailHint = deliveryEmailHint;
+      if (deliverySmsHint !== undefined) args.deliverySmsHint = deliverySmsHint;
+      if (includeImages !== undefined) args.includeImages = includeImages;
+      if (royaltyFreeImages !== undefined) args.royaltyFreeImages = royaltyFreeImages;
+      if (includeImagesWhereNeeded !== undefined) args.includeImagesWhereNeeded = includeImagesWhereNeeded;
+      return args;
+    }
+
+    case "newsletter.generate_now": {
+      const kind = normalizeContentKindInput(pickFirstDefined(args, ["kind", "audienceKind", "type"]));
+      if (kind) args.kind = kind;
+      return args;
+    }
+
+    case "services.lifecycle.update": {
+      const serviceSlug = normalizeServiceSlugInput(pickFirstDefined(args, ["serviceSlug", "service", "serviceName", "slug", "module"]));
+      const actionValue = normalizeServiceLifecycleActionInput(pickFirstDefined(args, ["action", "status", "state", "lifecycleAction"]));
+      if (serviceSlug) args.serviceSlug = serviceSlug;
+      if (actionValue) args.action = actionValue;
+      return args;
+    }
+
+    case "billing.info.update": {
+      const billingEmail = pickFirstDefined(args, ["billingEmail", "email"]);
+      const billingName = pickFirstDefined(args, ["billingName", "name"]);
+      const billingPhone = pickFirstDefined(args, ["billingPhone", "phone"]);
+      const billingAddress = pickFirstDefined(args, ["billingAddress", "address", "address1", "line1"]);
+      const billingCity = pickFirstDefined(args, ["billingCity", "city"]);
+      const billingState = pickFirstDefined(args, ["billingState", "state", "province"]);
+      const billingPostalCode = pickFirstDefined(args, ["billingPostalCode", "postalCode", "zip", "zipCode"]);
+      if (billingEmail !== undefined) args.billingEmail = billingEmail;
+      if (billingName !== undefined) args.billingName = billingName;
+      if (billingPhone !== undefined) args.billingPhone = billingPhone;
+      if (billingAddress !== undefined) args.billingAddress = billingAddress;
+      if (billingCity !== undefined) args.billingCity = billingCity;
+      if (billingState !== undefined) args.billingState = billingState;
+      if (billingPostalCode !== undefined) args.billingPostalCode = billingPostalCode;
+      return args;
+    }
+
+    case "billing.subscriptions.cancel":
+    case "billing.subscriptions.cancel_by_id": {
+      const immediate = normalizeLooseBoolean(pickFirstDefined(args, ["immediate", "now", "cancelNow", "endNow"]));
+      const subscriptionId = pickFirstDefined(args, ["subscriptionId", "subscription", "subId", "id"]);
+      if (immediate !== undefined) args.immediate = immediate;
+      if (subscriptionId !== undefined) args.subscriptionId = subscriptionId;
+      return args;
+    }
+
+    case "billing.checkout_module": {
+      const moduleKey = normalizePortalModuleKeyInput(pickFirstDefined(args, ["module", "moduleKey", "service", "addon", "product"]))
+        ?? normalizePortalModuleKeyInput(normalizeServiceSlugInput(pickFirstDefined(args, ["serviceSlug", "service"])));
+      const successPath = pickFirstDefined(args, ["successPath", "successUrl", "returnPath"]);
+      const cancelPath = pickFirstDefined(args, ["cancelPath", "cancelUrl"]);
+      const promoCode = pickFirstDefined(args, ["promoCode", "couponCode", "coupon"]);
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign"]);
+      const serviceSlug = normalizeServiceSlugInput(pickFirstDefined(args, ["serviceSlug", "service", "serviceName", "slug"]));
+      if (moduleKey) args.module = moduleKey;
+      if (successPath !== undefined) args.successPath = successPath;
+      if (cancelPath !== undefined) args.cancelPath = cancelPath;
+      if (promoCode !== undefined) args.promoCode = promoCode;
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      if (serviceSlug) args.serviceSlug = serviceSlug;
+      return args;
+    }
+
+    case "billing.portal_session.create": {
+      const returnPath = pickFirstDefined(args, ["returnPath", "returnUrl", "successPath"]);
+      if (returnPath !== undefined) args.returnPath = returnPath;
+      return args;
+    }
+
+    case "billing.credits_only.cancel": {
+      const actionValue = normalizeCreditsOnlyActionInput(pickFirstDefined(args, ["action", "status", "state"]));
+      if (actionValue) args.action = actionValue;
+      return args;
+    }
+
+    case "billing.monthly_credits.cron.run": {
+      const limit = pickFirstDefined(args, ["limit", "take", "count"]);
+      const catchUp = pickFirstDefined(args, ["maxCatchUpGiftsPerOwner", "catchUpLimit", "maxCatchUp"]);
+      if (limit !== undefined) args.limit = limit;
+      if (catchUp !== undefined) args.maxCatchUpGiftsPerOwner = catchUp;
+      return args;
+    }
+
+    case "billing.onboarding.checkout": {
+      const rawPlanIds = pickFirstDefined(args, ["planIds", "plans", "selectedPlanIds", "services"]);
+      const planIds = (Array.isArray(rawPlanIds) ? rawPlanIds : splitLooseStringList(rawPlanIds))
+        .map((value) => normalizeOnboardingPlanIdInput(value))
+        .filter((value): value is string => Boolean(value));
+      const planQuantities = pickFirstDefined(args, ["planQuantities", "quantities", "selectedPlanQuantities"]);
+      const couponCode = pickFirstDefined(args, ["couponCode", "promoCode", "coupon"]);
+      if (planIds.length) args.planIds = planIds;
+      if (planQuantities !== undefined) args.planQuantities = planQuantities;
+      if (couponCode !== undefined) args.couponCode = couponCode;
+      return args;
+    }
+
+    case "billing.onboarding.confirm": {
+      const sessionId = pickFirstDefined(args, ["sessionId", "checkoutSessionId"]);
+      const bypass = normalizeLooseBoolean(pickFirstDefined(args, ["bypass", "skipCheckout"]));
+      if (sessionId !== undefined) args.sessionId = sessionId;
+      if (bypass !== undefined) args.bypass = bypass;
+      return args;
+    }
+
+    case "billing.setup_intent.finalize": {
+      const setupIntentId = pickFirstDefined(args, ["setupIntentId", "setupIntent", "id"]);
+      if (setupIntentId !== undefined) args.setupIntentId = setupIntentId;
+      return args;
+    }
+
+    case "billing.upgrade.checkout": {
+      const bundleId = normalizeBundleIdInput(pickFirstDefined(args, ["bundleId", "bundle", "package", "offer"]));
+      if (bundleId) args.bundleId = bundleId;
+      return args;
+    }
+
+    case "reporting.summary.get":
+    case "reporting.sales.get":
+    case "reporting.stripe.get": {
+      const range = normalizeReportingRangeInput(action, pickFirstDefined(args, ["range", "window", "period", "dateRange"]));
+      if (range) args.range = range;
+      return args;
+    }
+
+    default:
+      return args;
+  }
+}
 
 function safeJsonForPrompt(value: unknown, maxLen = 9000): string {
   try {
@@ -489,6 +2253,10 @@ async function generateAssistantTextForActionResult(opts: {
   linkUrl?: string | null;
   clientUiAction?: any;
 }): Promise<string> {
+  const assistantLinkUrl = normalizeAssistantLinkUrl(opts.linkUrl ?? null);
+  const deterministic = renderDeterministicAssistantTextForActionResult({ ...opts, linkUrl: assistantLinkUrl });
+  if (deterministic) return deterministic;
+
   try {
     const system = [
       "You are Pura, an AI assistant inside a SaaS business portal.",
@@ -510,7 +2278,7 @@ async function generateAssistantTextForActionResult(opts: {
       action: opts.action,
       ok: opts.ok,
       status: opts.status,
-      linkUrl: opts.linkUrl ?? null,
+      linkUrl: assistantLinkUrl,
       args: opts.args ?? {},
       result: stripAssistantVisibleAccountingFields(opts.result ?? null),
       clientUiAction: opts.clientUiAction ?? null,
@@ -522,6 +2290,215 @@ async function generateAssistantTextForActionResult(opts: {
   } catch {
     return "";
   }
+}
+
+function shortIso(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return "";
+  return new Date(ms).toLocaleString();
+}
+
+function assistantLink(label: string, raw: unknown, prefix = ""): string {
+  const link = formatAssistantMarkdownLink(label, raw);
+  return link ? `${prefix}${link}` : "";
+}
+
+function renderDeterministicAssistantTextForActionResult(opts: {
+  action: PortalAgentActionKey;
+  ok: boolean;
+  status: number;
+  args: Record<string, unknown>;
+  result: any;
+  linkUrl?: string | null;
+}): string | null {
+  if (!opts.ok || opts.status < 200 || opts.status >= 300 || !opts.result || typeof opts.result !== "object") return null;
+
+  if (opts.action === "tasks.list") {
+    const tasks = Array.isArray((opts.result as any).tasks) ? ((opts.result as any).tasks as any[]) : [];
+    const q = typeof (opts.args as any)?.q === "string" ? String((opts.args as any).q).trim() : "";
+    const statusRaw = typeof (opts.args as any)?.status === "string" ? String((opts.args as any).status).trim().toUpperCase() : "OPEN";
+    const label = statusRaw === "ALL" ? "tasks" : statusRaw === "DONE" ? "done tasks" : statusRaw === "CANCELED" ? "canceled tasks" : "open tasks";
+    if (!tasks.length) {
+      return q
+        ? `I didn’t find any ${label} matching “${q}”.${assistantLink("Open Tasks", opts.linkUrl, " Review them here: ")}`
+        : `You don’t have any ${label} right now.${assistantLink("Open Tasks", opts.linkUrl, " Review them here: ")}`;
+    }
+
+    const lines = tasks.slice(0, 6).map((task) => {
+      const title = String(task?.title || "Task").trim() || "Task";
+      const status = String(task?.status || "OPEN").trim().toUpperCase();
+      const due = shortIso(task?.dueAtIso);
+      return `- [${status}] ${title}${due ? ` - due ${due}` : ""}`;
+    });
+
+    return `${q ? `I found ${tasks.length} task${tasks.length === 1 ? "" : "s"} matching “${q}”` : `Here ${tasks.length === 1 ? "is" : "are"} your ${label}`}:
+
+  ${lines.join("\n")}${assistantLink("Open Tasks", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "contacts.list") {
+    const contacts = Array.isArray((opts.result as any).contacts) ? ((opts.result as any).contacts as any[]) : [];
+    const q = typeof (opts.args as any)?.q === "string" ? String((opts.args as any).q).trim() : "";
+    if (!contacts.length) {
+      return q
+        ? `I couldn’t find a contact matching “${q}”.${assistantLink("Open Contacts", opts.linkUrl, " Review contacts here: ")}`
+        : `I couldn’t find any contacts to show right now.${assistantLink("Open Contacts", opts.linkUrl, " Review contacts here: ")}`;
+    }
+
+    const lines = contacts.slice(0, 6).map((contact) => {
+      const name = String(contact?.name || "Contact").trim() || "Contact";
+      const email = typeof contact?.email === "string" && contact.email.trim() ? ` - ${String(contact.email).trim()}` : "";
+      const phone = typeof contact?.phone === "string" && contact.phone.trim() ? `${email ? " | " : " - "}${String(contact.phone).trim()}` : "";
+      return `- ${name}${email}${phone}`;
+    });
+
+    return `${q ? `I found ${contacts.length} contact${contacts.length === 1 ? "" : "s"} matching “${q}”` : `Here ${contacts.length === 1 ? "is" : "are"} the contact${contacts.length === 1 ? "" : "s"} I found`}:
+
+  ${lines.join("\n")}${assistantLink("Open Contacts", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "contacts.get") {
+    const contact = (opts.result as any)?.contact && typeof (opts.result as any).contact === "object" ? (opts.result as any).contact : null;
+    if (!contact) return null;
+    const name = String(contact?.name || "Contact").trim() || "Contact";
+    const lines = [
+      `- Name: ${name}`,
+      typeof contact?.email === "string" && contact.email.trim() ? `- Email: ${String(contact.email).trim()}` : null,
+      typeof contact?.phone === "string" && contact.phone.trim() ? `- Phone: ${String(contact.phone).trim()}` : null,
+    ].filter(Boolean);
+    return `Here are the important details I found for ${name}:\n\n${lines.join("\n")}${assistantLink("Open Contact", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "inbox.threads.list") {
+    const threads = Array.isArray((opts.result as any).threads) ? ((opts.result as any).threads as any[]) : [];
+    const q = typeof (opts.args as any)?.q === "string" ? String((opts.args as any).q).trim() : "";
+    if (!threads.length) {
+      return q
+        ? `I couldn’t find any inbox threads matching “${q}”.${assistantLink("Open Inbox", opts.linkUrl, " Review the inbox here: ")}`
+        : `I couldn’t find any inbox threads to summarize.${assistantLink("Open Inbox", opts.linkUrl, " Review the inbox here: ")}`;
+    }
+
+    const lines = threads.slice(0, 6).map((thread) => {
+      const contactName = typeof thread?.contact?.name === "string" && thread.contact.name.trim()
+        ? String(thread.contact.name).trim()
+        : String(thread?.peerAddress || "Conversation").trim() || "Conversation";
+      const channel = String(thread?.channel || "").trim().toUpperCase();
+      const preview = typeof thread?.lastMessagePreview === "string" ? String(thread.lastMessagePreview).trim().replace(/\s+/g, " ").slice(0, 140) : "";
+      const needsReply = thread?.needsReply === true ? " - needs reply" : "";
+      return `- ${contactName}${channel ? ` (${channel})` : ""}${preview ? ` - ${preview}` : ""}${needsReply}`;
+    });
+
+    return `${q ? `I found ${threads.length} inbox thread${threads.length === 1 ? "" : "s"} matching “${q}”` : `Here ${threads.length === 1 ? "is" : "are"} the inbox thread${threads.length === 1 ? "" : "s"} I found`}:
+
+  ${lines.join("\n")}${assistantLink("Open Inbox", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "inbox.thread.messages.list") {
+    const messages = Array.isArray((opts.result as any).messages) ? ((opts.result as any).messages as any[]) : [];
+    if (!messages.length) {
+      return `I found the conversation, but there aren’t any messages in it yet.${assistantLink("Open Conversation", opts.linkUrl, " Open it here: ")}`;
+    }
+
+    const summaryLines = messages.slice(-6).map((message) => {
+      const direction = String(message?.direction || "").trim().toUpperCase() === "OUT" ? "You" : "Contact";
+      const body = typeof message?.bodyText === "string" ? String(message.bodyText).trim().replace(/\s+/g, " ").slice(0, 160) : "";
+      return `- ${direction}: ${body || "(no text)"}`;
+    });
+
+    return `Here’s the recent message flow from that conversation:\n\n${summaryLines.join("\n")}${assistantLink("Open Conversation", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "reviews.inbox.list") {
+    const reviews = Array.isArray((opts.result as any).reviews) ? ((opts.result as any).reviews as any[]) : [];
+    if (!reviews.length) {
+      return `You don’t have any reviews to summarize right now.${assistantLink("Open Reviews", opts.linkUrl, " Review them here: ")}`;
+    }
+    const lines = reviews.slice(0, 6).map((review) => {
+      const name = String(review?.name || "Review").trim() || "Review";
+      const rating = Number(review?.rating || 0);
+      const body = typeof review?.body === "string" ? String(review.body).trim().replace(/\s+/g, " ").slice(0, 140) : "";
+      return `- ${name}${rating ? ` - ${rating}★` : ""}${body ? ` - ${body}` : ""}`;
+    });
+    return `Here are your latest reviews:\n\n${lines.join("\n")}${assistantLink("Open Reviews", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "blogs.posts.generate_draft") {
+    const draft = (opts.result as any)?.draft && typeof (opts.result as any).draft === "object" ? (opts.result as any).draft : null;
+    if (!draft) return null;
+    const title = String(draft?.title || "Blog draft").trim() || "Blog draft";
+    const excerpt = typeof draft?.excerpt === "string" ? String(draft.excerpt).trim().replace(/\s+/g, " ").slice(0, 220) : "";
+    return `I generated a stronger blog draft for “${title}.”${excerpt ? `\n\n${excerpt}` : ""}${assistantLink("Open Blogs", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "blogs.posts.publish") {
+    const post = (opts.result as any)?.post && typeof (opts.result as any).post === "object" ? (opts.result as any).post : null;
+    if (!post) return null;
+    const title = String(post?.title || post?.slug || "Blog post").trim() || "Blog post";
+    const publishedAt = typeof post?.publishedAt === "string" ? shortIso(post.publishedAt) : "";
+    return `I published “${title}.”${publishedAt ? `\n\n- Published: ${publishedAt}` : ""}${assistantLink("Open Blogs", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "newsletter.newsletters.create") {
+    const newsletter = (opts.result as any)?.newsletter && typeof (opts.result as any).newsletter === "object" ? (opts.result as any).newsletter : null;
+    if (!newsletter) return null;
+    const title = typeof (opts.args as any)?.title === "string" ? String((opts.args as any).title).trim() : "Newsletter";
+    const status = String(newsletter?.status || "DRAFT").trim().toUpperCase();
+    return `I created the newsletter “${title || "Newsletter"}.”\n\n- Status: ${status}${assistantLink("Open Newsletter", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "newsletter.newsletters.update") {
+    const title = typeof (opts.args as any)?.title === "string" ? String((opts.args as any).title).trim() : "Newsletter";
+    return `I updated the newsletter${title ? ` “${title}”` : ""}.${assistantLink("Open Newsletter", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "funnel.create") {
+    const funnel = (opts.result as any)?.funnel && typeof (opts.result as any).funnel === "object" ? (opts.result as any).funnel : null;
+    if (!funnel) return null;
+    const name = String(funnel?.name || funnel?.slug || "Funnel").trim() || "Funnel";
+    return `I created the funnel “${name}.”${assistantLink("Open Funnel Builder", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "funnel_builder.pages.create" || opts.action === "funnel_builder.pages.generate_html") {
+    const page = (opts.result as any)?.page && typeof (opts.result as any).page === "object" ? (opts.result as any).page : null;
+    const title = String(page?.title || page?.slug || "Page").trim() || "Page";
+    const verb = opts.action === "funnel_builder.pages.create" ? "created" : "updated";
+    return `I ${verb} the funnel page “${title}.”${assistantLink("Open Funnel Builder", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "reviews.reply") {
+    return `I posted the review reply.${assistantLink("Open Reviews", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "ai_receptionist.highlights.get") {
+    const stats = (opts.result as any)?.stats && typeof (opts.result as any).stats === "object" ? (opts.result as any).stats : null;
+    const warnings = Array.isArray((opts.result as any).warnings) ? ((opts.result as any).warnings as string[]) : [];
+    const issues = Array.isArray((opts.result as any).issues) ? ((opts.result as any).issues as any[]) : [];
+    if (!stats) return null;
+    const lines = [
+      `- Total recent calls: ${Number(stats.total || 0)}`,
+      `- Completed: ${Number(stats.completed || 0)}`,
+      `- Failed: ${Number(stats.failed || 0)}`,
+      `- In progress: ${Number(stats.inProgress || 0)}`,
+    ];
+    if (warnings.length) lines.push(`- Warning: ${String(warnings[0]).trim()}`);
+    if (issues.length) lines.push(`- Top issue: ${String(issues[0]?.summary || "").trim()}`);
+    return `Here’s the recent AI receptionist snapshot:\n\n${lines.join("\n")}`;
+  }
+
+  if (opts.action === "me.get") {
+    const role = typeof (opts.result as any)?.role === "string" ? String((opts.result as any).role).trim().toUpperCase() : "UNKNOWN";
+    const memberId = typeof (opts.result as any)?.memberId === "string" ? String((opts.result as any).memberId).trim() : "";
+    const ownerId = typeof (opts.result as any)?.ownerId === "string" ? String((opts.result as any).ownerId).trim() : "";
+    const permissions = (opts.result as any)?.permissions && typeof (opts.result as any).permissions === "object" ? (opts.result as any).permissions : {};
+    const enabledAreas = Object.entries(permissions)
+      .filter(([, value]) => value && typeof value === "object" && Object.values(value as Record<string, unknown>).some(Boolean))
+      .slice(0, 6)
+      .map(([key]) => key);
+    return `You’re signed in as ${role === "OWNER" ? "the account owner" : role.toLowerCase()}. ${memberId && ownerId && memberId === ownerId ? "This member is the owner record for the account." : ""}${enabledAreas.length ? ` Enabled areas include ${enabledAreas.join(", ")}.` : ""}${assistantLink("Open Profile", opts.linkUrl, " ")}`.trim();
+  }
+
+  return null;
 }
 
 function sanitizeHumanName(raw: unknown, maxLen: number) {
@@ -1930,9 +3907,25 @@ async function runDirectAction(opts: {
 
       const title = String(args.title || "").trim().slice(0, 160);
       const description = String(args.description || "").trim().slice(0, 5000);
-      const assignedToUserId = typeof args.assignedToUserId === "string" && args.assignedToUserId.trim() ? args.assignedToUserId.trim() : null;
+      const assignedToUserId =
+        typeof (args as any).assignedToUserId === "string" && (args as any).assignedToUserId.trim()
+          ? (args as any).assignedToUserId.trim()
+          : typeof (args as any).assigneeUserId === "string" && (args as any).assigneeUserId.trim()
+            ? (args as any).assigneeUserId.trim()
+            : typeof (args as any).assignedTo === "string" && (args as any).assignedTo.trim()
+              ? (args as any).assignedTo.trim()
+              : typeof (args as any).assignee === "string" && (args as any).assignee.trim()
+                ? (args as any).assignee.trim()
+                : null;
 
-      const dueAtIso = typeof args.dueAtIso === "string" ? args.dueAtIso.trim() : "";
+      const dueAtIso =
+        typeof (args as any).dueAtIso === "string"
+          ? (args as any).dueAtIso.trim()
+          : typeof (args as any).dueAt === "string"
+            ? (args as any).dueAt.trim()
+            : typeof (args as any).dueDate === "string"
+              ? (args as any).dueDate.trim()
+              : "";
       const dueAt = dueAtIso ? new Date(dueAtIso) : null;
       if (dueAt && !Number.isFinite(dueAt.getTime())) {
         return { status: 400, json: { ok: false, error: "Invalid due date" } };
@@ -2037,12 +4030,28 @@ async function runDirectAction(opts: {
       const taskId = String((args as any)?.taskId || "").trim();
       if (!taskId) return { status: 400, json: { ok: false, error: "Invalid taskId" } };
 
-      const statusReq = (args as any)?.status as unknown;
+      const statusRawNormalized = String((args as any)?.status || "")
+        .trim()
+        .toUpperCase();
+      const statusReq =
+        statusRawNormalized === "DONE" ||
+        statusRawNormalized === "COMPLETE" ||
+        statusRawNormalized === "COMPLETED" ||
+        statusRawNormalized === "FINISHED"
+          ? "DONE"
+          : statusRawNormalized === "OPEN" || statusRawNormalized === "TODO" || statusRawNormalized === "PENDING" || statusRawNormalized === "REOPEN"
+            ? "OPEN"
+            : statusRawNormalized === "CANCELED" || statusRawNormalized === "CANCELLED"
+              ? "CANCELED"
+              : ((args as any)?.status as unknown);
       const wantsStatusOnly =
         (statusReq === "OPEN" || statusReq === "DONE") &&
         (args as any).title === undefined &&
         (args as any).description === undefined &&
         (args as any).assignedToUserId === undefined &&
+        (args as any).assigneeUserId === undefined &&
+        (args as any).assignedTo === undefined &&
+        (args as any).assignee === undefined &&
         (args as any).dueAtIso === undefined;
 
       const allowed = wantsStatusOnly
@@ -2110,7 +4119,12 @@ async function runDirectAction(opts: {
       }
 
       // Only the creator can change assignee after creation.
-      if ((args as any).assignedToUserId !== undefined) {
+      if (
+        (args as any).assignedToUserId !== undefined ||
+        (args as any).assigneeUserId !== undefined ||
+        (args as any).assignedTo !== undefined ||
+        (args as any).assignee !== undefined
+      ) {
         const row = (await prisma.$queryRawUnsafe(
           `SELECT "createdByUserId" FROM "PortalTask" WHERE "ownerId" = $1 AND "id" = $2 LIMIT 1`,
           ownerId,
@@ -2142,14 +4156,22 @@ async function runDirectAction(opts: {
         sets.push(`"description" = $${params.length}`);
       }
 
-      if ((args as any).assignedToUserId !== undefined) {
-        const v = (args as any).assignedToUserId ? String((args as any).assignedToUserId).trim() : null;
+      if (
+        (args as any).assignedToUserId !== undefined ||
+        (args as any).assigneeUserId !== undefined ||
+        (args as any).assignedTo !== undefined ||
+        (args as any).assignee !== undefined
+      ) {
+        const rawAssigned =
+          (args as any).assignedToUserId ?? (args as any).assigneeUserId ?? (args as any).assignedTo ?? (args as any).assignee ?? null;
+        const v = rawAssigned ? String(rawAssigned).trim() : null;
         params.push(v || null);
         sets.push(`"assignedToUserId" = $${params.length}`);
       }
 
-      if ((args as any).dueAtIso !== undefined) {
-        const raw = (args as any).dueAtIso ? String((args as any).dueAtIso).trim() : "";
+      if ((args as any).dueAtIso !== undefined || (args as any).dueAt !== undefined || (args as any).dueDate !== undefined) {
+        const dueRaw = (args as any).dueAtIso ?? (args as any).dueAt ?? (args as any).dueDate ?? "";
+        const raw = dueRaw ? String(dueRaw).trim() : "";
         const dueAt = raw ? new Date(raw) : null;
         if (dueAt && !Number.isFinite(dueAt.getTime())) {
           return { status: 400, json: { ok: false, error: "Invalid due date" } };
@@ -2188,54 +4210,56 @@ async function runDirectAction(opts: {
       const assignedRaw = String((args as any)?.assigned ?? "all")
         .trim()
         .toLowerCase();
+      const assigneeRaw = String((args as any)?.assignee ?? "")
+        .trim()
+        .toLowerCase();
+      const qRaw = typeof (args as any)?.q === "string" ? String((args as any).q).trim() : "";
       const limitRaw = (args as any)?.limit;
       const limit = Math.max(1, Math.min(500, typeof limitRaw === "number" ? Math.floor(limitRaw) : 200));
 
       const status =
         statusRaw === "ALL"
           ? null
-          : statusRaw === "OPEN" || statusRaw === "DONE" || statusRaw === "CANCELED"
-            ? statusRaw
+          : statusRaw === "OPEN" || statusRaw === "TODO" || statusRaw === "PENDING"
+            ? "OPEN"
+            : statusRaw === "DONE" || statusRaw === "COMPLETED" || statusRaw === "COMPLETE" || statusRaw === "FINISHED"
+              ? "DONE"
+              : statusRaw === "CANCELED" || statusRaw === "CANCELLED"
+                ? "CANCELED"
             : "OPEN";
 
-      const whereParts: string[] = [`t."ownerId" = $1`];
-      const params: any[] = [ownerId, memberId];
-
-      if (status) {
-        params.push(status);
-        whereParts.push(`t."status" = $${params.length}`);
-      }
-
-      if (assignedRaw === "me") {
-        whereParts.push(`(t."assignedToUserId" = $2 OR t."assignedToUserId" IS NULL)`);
-      }
-
-      params.push(limit);
-
-      const sql = `
-        SELECT
-          t."id",
-          t."ownerId",
-          t."createdByUserId",
-          t."title",
-          t."description",
-          t."status",
-          t."assignedToUserId",
-          t."dueAt",
-          t."createdAt",
-          t."updatedAt",
-          u."email" as "assignedEmail",
-          u."name" as "assignedName",
-          c."completedAt" as "viewerCompletedAt"
-        FROM "PortalTask" t
-        LEFT JOIN "User" u ON u."id" = t."assignedToUserId"
-        LEFT JOIN "PortalTaskMemberCompletion" c ON c."taskId" = t."id" AND c."userId" = $2
-        WHERE ${whereParts.join(" AND ")}
-        ORDER BY t."updatedAt" DESC
-        LIMIT $${params.length}
-      `;
-
-      const rows = (await prisma.$queryRawUnsafe(sql, ...params).catch(() => [])) as any[];
+      const rows: any[] = await (prisma as any).portalTask.findMany({
+        where: {
+          ownerId,
+          ...(status ? { status: status as any } : {}),
+          ...((assignedRaw === "me" || assignedRaw === "mine" || assignedRaw === "my" || assigneeRaw === "me" || assigneeRaw === "mine" || assigneeRaw === "my")
+            ? {
+                OR: [{ assignedToUserId: memberId }, { assignedToUserId: null }],
+              }
+            : {}),
+          ...(qRaw
+            ? {
+                OR: [
+                  { title: { contains: qRaw, mode: "insensitive" } },
+                  { description: { contains: qRaw, mode: "insensitive" } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: { updatedAt: "desc" },
+        take: limit,
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          status: true,
+          assignedToUserId: true,
+          dueAt: true,
+          createdAt: true,
+          updatedAt: true,
+          assignedToUser: { select: { id: true, email: true, name: true } },
+        },
+      }).catch(() => [] as any[]);
 
       return {
         status: 200,
@@ -2249,11 +4273,15 @@ async function runDirectAction(opts: {
             status: String(r.status || "OPEN"),
             assignedToUserId: r.assignedToUserId ? String(r.assignedToUserId) : null,
             assignedTo: r.assignedToUserId
-              ? { userId: String(r.assignedToUserId), email: String(r.assignedEmail || ""), name: String(r.assignedName || "") }
+              ? {
+                  userId: String(r.assignedToUserId),
+                  email: String(r.assignedToUser?.email || ""),
+                  name: String(r.assignedToUser?.name || ""),
+                }
               : null,
-            createdByUserId: r.createdByUserId ? String(r.createdByUserId) : null,
-            canEditAssignee: r.createdByUserId ? String(r.createdByUserId) === String(memberId) : String(ownerId) === String(memberId),
-            viewerDoneAtIso: r.viewerCompletedAt ? new Date(r.viewerCompletedAt).toISOString() : null,
+            createdByUserId: null,
+            canEditAssignee: String(ownerId) === String(memberId),
+            viewerDoneAtIso: null,
             dueAtIso: r.dueAt ? new Date(r.dueAt).toISOString() : null,
             createdAtIso: r.createdAt ? new Date(r.createdAt).toISOString() : null,
             updatedAtIso: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,
@@ -4694,12 +6722,18 @@ async function runDirectAction(opts: {
         (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : exportedCurrentHtmlFromBlocks || page.customHtml || "")
       ).trim();
       const hasCurrentHtml = Boolean(effectiveCurrentHtml);
+      const wantsDesignRedesign = /\b(hero|proof strip|credibility strip|benefits?|testimonials?|cta|call to action|layout|design|redesign|premium|modern|landing page|sales page|polish|refresh)\b/i.test(prompt);
 
       const system = [
         ...baseSystem,
         hasCurrentHtml
-          ? "Editing mode: You will be given CURRENT_HTML. Apply the user's instruction as a minimal change to CURRENT_HTML. Return the FULL updated HTML document."
+          ? wantsDesignRedesign
+            ? "Redesign mode: You will be given CURRENT_HTML. Replace simplistic placeholder markup with a materially improved, polished landing page that fully satisfies the requested sections. Return the FULL updated HTML document."
+            : "Editing mode: You will be given CURRENT_HTML. Apply the user's instruction as a minimal change to CURRENT_HTML. Return the FULL updated HTML document."
           : "Generation mode: Create a new HTML document from the user's instruction.",
+        wantsDesignRedesign
+          ? "For design or redesign requests, produce a complete landing page with strong hierarchy, multiple clear sections, persuasive non-placeholder copy, polished spacing, and clear CTA treatment."
+          : "",
       ].join("\n");
 
       const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
@@ -4769,6 +6803,15 @@ async function runDirectAction(opts: {
           stripeProductsBlock,
           `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
           `Page: ${page.title} (slug: ${page.slug})`,
+          wantsDesignRedesign
+            ? [
+                "DESIGN_BRIEF:",
+                "- Treat this as a real conversion-focused redesign, not a placeholder patch.",
+                "- Replace generic filler copy with concrete, persuasive webinar-focused copy.",
+                "- Include a strong hero, proof or credibility strip, benefits section, testimonial section, and at least one clear CTA.",
+                "- Use modern visual hierarchy, section backgrounds, cards, spacing, and buttons so the page feels intentionally designed.",
+              ].join("\n")
+            : "",
           "",
           currentHtmlBlock,
           prompt,
@@ -6305,7 +8348,7 @@ async function runDirectAction(opts: {
     }
 
     case "blogs.posts.create": {
-      const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
+      const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Blog site", select: { id: true } });
       const siteId = site?.id ?? null;
       if (!siteId) return { status: 400, json: { ok: false, error: "Create your blog site first" } };
 
@@ -6777,7 +8820,7 @@ async function runDirectAction(opts: {
 
       const post = await prisma.clientBlogPost.findFirst({
         where: { id: postId, site: { ownerId } },
-        select: { id: true, status: true, siteId: true },
+        select: { id: true, status: true, siteId: true, title: true, excerpt: true, content: true },
       });
       if (!post) return { status: 404, json: { error: "Not found" } };
 
@@ -6792,7 +8835,22 @@ async function runDirectAction(opts: {
 
       const prompt = typeof (args as any)?.prompt === "string" ? String((args as any).prompt) : null;
       const topic = typeof (args as any)?.topic === "string" ? String((args as any).topic) : null;
-      const finalTopic = (prompt ?? topic)?.trim() || undefined;
+      const existingTitle = String(post.title || "").trim();
+      const existingExcerpt = String(post.excerpt || "").trim();
+      const existingContent = String(post.content || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 1200);
+      const finalTopic = [
+        existingTitle ? `Keep the draft centered on this exact topic/title: ${existingTitle}` : "",
+        existingExcerpt ? `Current excerpt: ${existingExcerpt}` : "",
+        existingContent ? `Current draft context: ${existingContent}` : "",
+        prompt ? `Rewrite instruction: ${prompt.trim()}` : topic ? `Topic instruction: ${topic.trim()}` : "",
+        "Do not switch to a different industry, service, or audience unless the user explicitly asks for that change.",
+      ]
+        .filter(Boolean)
+        .join("\n")
+        .trim() || undefined;
 
       const needCredits = PORTAL_CREDIT_COSTS.blogGenerateDraft;
       const consumed = await consumeCredits(ownerId, needCredits);
@@ -6839,6 +8897,7 @@ async function runDirectAction(opts: {
           targetCustomer: profile?.targetCustomer,
           brandVoice: profile?.brandVoice,
           topic: finalTopic,
+          strictTopicOnly: true,
         });
 
         try {
@@ -12269,11 +14328,21 @@ async function runDirectAction(opts: {
 
     case "contacts.list": {
       await ensurePortalContactsSchema().catch(() => null);
+      const q = typeof args.q === "string" ? String(args.q).trim() : "";
       const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? Math.max(1, Math.min(100, Math.floor(args.limit))) : 20;
 
       const rows = await (prisma as any).portalContact
         .findMany({
-          where: { ownerId },
+          where: q
+            ? {
+                ownerId,
+                OR: [
+                  { name: { contains: q, mode: "insensitive" } },
+                  { email: { contains: q, mode: "insensitive" } },
+                  { phone: { contains: q } },
+                ],
+              }
+            : { ownerId },
           orderBy: { updatedAt: "desc" },
           take: limit,
           select: { id: true, name: true, email: true, phone: true, updatedAt: true },
@@ -14681,7 +16750,17 @@ async function runDirectAction(opts: {
       const existingSubject = typeof args.existingSubject === "string" ? args.existingSubject.trim().slice(0, 200) : "";
       const existingBody = typeof args.existingBody === "string" ? args.existingBody.trim().slice(0, 8000) : "";
 
-      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+      const templateVars = await getBusinessProfileTemplateVars(ownerId).catch(() => ({} as Record<string, string>));
+      const businessName = String(templateVars.businessName || templateVars["business.name"] || "").trim().slice(0, 160);
+      const websiteUrl = String(templateVars.websiteUrl || templateVars["business.websiteUrl"] || "").trim().slice(0, 300);
+      const brandVoice = String(templateVars.brandVoice || templateVars["business.brandVoice"] || "").trim().slice(0, 240);
+      const brandContext = [
+        businessName ? `Brand name: ${businessName}` : "",
+        websiteUrl ? `Brand website: ${websiteUrl}` : "",
+        brandVoice ? `Preferred brand voice: ${brandVoice}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
       const needCredits = PORTAL_CREDIT_COSTS.aiDraftStep;
       const consumed = await consumeCredits(ownerId, needCredits);
       if (!consumed.ok) {
@@ -14691,19 +16770,52 @@ async function runDirectAction(opts: {
         };
       }
 
+      const recentLeads = await prisma.portalLead.findMany({
+        where: { ownerId },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: { businessName: true, niche: true, address: true, website: true, email: true },
+      }).catch(() => [] as Array<{ businessName: string | null; niche: string | null; address: string | null; website: string | null; email: string | null }>);
+
+      const recentLeadContext = recentLeads
+        .map((lead) => {
+          const businessName = typeof lead.businessName === "string" ? lead.businessName.trim() : "";
+          const niche = typeof lead.niche === "string" ? lead.niche.trim() : "";
+          const address = typeof lead.address === "string" ? lead.address.trim() : "";
+          const website = typeof lead.website === "string" ? lead.website.trim() : "";
+          const email = typeof lead.email === "string" ? lead.email.trim() : "";
+          return [businessName, niche ? `niche=${niche}` : "", address ? `address=${address}` : "", website ? `website=${website}` : "", email ? `email=${email}` : ""]
+            .filter(Boolean)
+            .join(" | ");
+        })
+        .filter(Boolean)
+        .slice(0, 5)
+        .join("\n");
+
       const system =
         kind === "SMS"
-          ? "You write short, practical cold outreach texts for a small business."
-          : "You write friendly, concise cold outreach emails for a small business.";
+          ? [
+              "You write short, practical cold outreach texts for a small business.",
+              "If the user prompt names a niche, offer, audience, or location, that explicit instruction overrides generic business-profile context.",
+              "Do not substitute a different industry or service just because it appears elsewhere in the context.",
+            ].join(" ")
+          : [
+              "You write friendly, concise cold outreach emails for a small business.",
+              "If the user prompt names a niche, offer, audience, or location, that explicit instruction overrides generic business-profile context.",
+              "Do not substitute a different industry or service just because it appears elsewhere in the context.",
+            ].join(" ");
 
       const user = [
         "Draft the copy for an outbound template used in Lead Scraping.",
-        businessContext ? businessContext : "",
+        brandContext ? brandContext : "",
+        recentLeadContext ? `Recent lead samples (ground to these when the prompt says 'those leads'):\n${recentLeadContext}` : "",
         `Channel: ${kind}`,
         "",
         "Allowed variables (keep braces exactly):",
         "- {businessName}, {phone}, {website}, {address}, {niche}",
         kind === "SMS" ? "Keep it under 320 characters if possible." : "",
+        "If the prompt specifies an offer, audience, niche, or city, keep the copy centered on that exact context.",
+        "Do not drift into a different industry or customer scenario unless the user explicitly asks for it.",
         "",
         existingSubject ? `Existing subject: ${existingSubject}` : "",
         existingBody ? `Existing body: ${existingBody}` : "",
@@ -19077,15 +21189,28 @@ async function runDirectAction(opts: {
     }
 
     case "inbox.threads.list": {
-      const channelRaw = String((args as any)?.channel || "EMAIL").trim().toUpperCase();
-      const channel = channelRaw === "SMS" ? ("SMS" as const) : ("EMAIL" as const);
+      const channelRaw = String((args as any)?.channel || "").trim().toUpperCase();
+      const mailboxRaw = String((args as any)?.mailbox || (args as any)?.box || "").trim().toUpperCase();
+      const q = typeof (args as any)?.q === "string" ? String((args as any).q).trim().toLowerCase() : "";
+      const allChannels = Boolean((args as any)?.allChannels) || channelRaw === "ALL" || mailboxRaw === "ALL";
+      const channel = channelRaw === "SMS" ? ("SMS" as const) : channelRaw === "EMAIL" ? ("EMAIL" as const) : null;
+      const directionRaw = String((args as any)?.direction || mailboxRaw || "").trim().toUpperCase();
+      const needsReply =
+        Boolean((args as any)?.needsReply) ||
+        Boolean((args as any)?.unansweredOnly) ||
+        Boolean((args as any)?.onlyUnanswered) ||
+        directionRaw === "IN" ||
+        directionRaw === "INBOUND" ||
+        directionRaw === "UNANSWERED" ||
+        directionRaw === "NEEDS_REPLY" ||
+        directionRaw === "INBOX";
       const takeRaw = typeof (args as any)?.take === "number" && Number.isFinite((args as any).take) ? Math.floor((args as any).take) : 200;
       const take = Math.max(1, Math.min(200, takeRaw));
 
       await ensurePortalInboxSchema();
 
       const threads = (await (prisma as any).portalInboxThread.findMany({
-        where: { ownerId, channel },
+        where: { ownerId, ...(allChannels || !channel ? {} : { channel }) },
         orderBy: { lastMessageAt: "desc" },
         take,
         select: {
@@ -19103,7 +21228,11 @@ async function runDirectAction(opts: {
         },
       })) as any[];
 
-      const threadsNeedingContact = (threads || []).filter((t) => !t?.contactId && t?.peerAddress).slice(0, 25);
+      const filteredThreads = needsReply
+        ? (threads || []).filter((thread) => String(thread?.lastMessageDirection || "").trim().toUpperCase() === "IN")
+        : threads || [];
+
+      const threadsNeedingContact = filteredThreads.filter((t) => !t?.contactId && t?.peerAddress).slice(0, 25);
       if (threadsNeedingContact.length) {
         await Promise.all(
           threadsNeedingContact.map(async (t) => {
@@ -19130,7 +21259,7 @@ async function runDirectAction(opts: {
         );
       }
 
-      const contactIds = Array.from(new Set((threads || []).map((t: any) => String(t.contactId || "")).filter(Boolean))).slice(0, 500);
+      const contactIds = Array.from(new Set(filteredThreads.map((t: any) => String(t.contactId || "")).filter(Boolean))).slice(0, 500);
 
       const contactsById = new Map<string, { id: string; name: string; email: string | null; phone: string | null }>();
       if (contactIds.length) {
@@ -19148,6 +21277,52 @@ async function runDirectAction(opts: {
               email: r.email ? String(r.email).slice(0, 120) : null,
               phone: r.phone ? String(r.phone).slice(0, 40) : null,
             });
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const placeholderContactIds = Array.from(contactsById.entries())
+        .filter(([, contact]) => {
+          const name = String(contact.name || "").trim();
+          return Boolean(name) && (name === String(contact.phone || "").trim() || name === String(contact.email || "").trim());
+        })
+        .map(([id]) => id)
+        .slice(0, 200);
+      if (placeholderContactIds.length) {
+        try {
+          const placeholderContacts = placeholderContactIds
+            .map((id) => contactsById.get(id))
+            .filter((contact): contact is { id: string; name: string; email: string | null; phone: string | null } => Boolean(contact));
+          const reviewRows = await prisma.portalReview.findMany({
+            where: {
+              ownerId,
+              OR: [
+                ...placeholderContacts.map((contact) => (contact.phone ? { phone: contact.phone } : null)).filter(Boolean) as any[],
+                ...placeholderContacts.map((contact) => (contact.email ? { email: contact.email } : null)).filter(Boolean) as any[],
+              ],
+            },
+            select: { name: true, phone: true, email: true },
+            take: 200,
+          }).catch(() => []);
+
+          const reviewNameByPhone = new Map<string, string>();
+          const reviewNameByEmail = new Map<string, string>();
+          for (const row of reviewRows || []) {
+            const reviewName = String(row.name || "").trim();
+            if (!reviewName) continue;
+            if (row.phone) reviewNameByPhone.set(String(row.phone).trim(), reviewName);
+            if (row.email) reviewNameByEmail.set(String(row.email).trim().toLowerCase(), reviewName);
+          }
+
+          for (const id of placeholderContactIds) {
+            const existing = contactsById.get(id);
+            if (!existing) continue;
+            const betterName = (existing.phone ? reviewNameByPhone.get(String(existing.phone).trim()) : null)
+              || (existing.email ? reviewNameByEmail.get(String(existing.email).trim().toLowerCase()) : null)
+              || null;
+            if (betterName) contactsById.set(id, { ...existing, name: betterName });
           }
         } catch {
           // ignore
@@ -19179,14 +21354,31 @@ async function runDirectAction(opts: {
         }
       }
 
-      const withTags = (threads || []).map((t: any) => ({
+      const withTags = filteredThreads.map((t: any) => ({
         ...t,
         contactId: t.contactId ? String(t.contactId) : null,
         contact: t.contactId ? contactsById.get(String(t.contactId)) || null : null,
         contactTags: t.contactId ? tagsByContactId.get(String(t.contactId)) || [] : [],
+        needsReply: String(t.lastMessageDirection || "").trim().toUpperCase() === "IN",
       }));
 
-      return { status: 200, json: { ok: true, threads: withTags } };
+      const searched = q
+        ? withTags.filter((thread: any) => {
+            const haystack = [
+              String(thread?.peerAddress || ""),
+              String(thread?.subject || ""),
+              String(thread?.lastMessagePreview || ""),
+              String(thread?.contact?.name || ""),
+              String(thread?.contact?.email || ""),
+              String(thread?.contact?.phone || ""),
+            ]
+              .join("\n")
+              .toLowerCase();
+            return haystack.includes(q);
+          })
+        : withTags;
+
+      return { status: 200, json: { ok: true, threads: searched } };
     }
 
     case "inbox.thread.messages.list": {
@@ -20204,6 +22396,7 @@ async function runDirectAction(opts: {
 
     case "reviews.inbox.list": {
       const includeArchived = Boolean((args as any)?.includeArchived);
+      const hasBusinessReplyFilter = typeof (args as any)?.hasBusinessReply === "boolean" ? Boolean((args as any).hasBusinessReply) : null;
 
       const [hasBusinessReply, hasBusinessReplyAt] = await Promise.all([
         hasPublicColumn("PortalReview", "businessReply"),
@@ -20234,7 +22427,14 @@ async function runDirectAction(opts: {
         select,
       });
 
-      return { status: 200, json: { ok: true, reviews } };
+      const filteredReviews = hasBusinessReplyFilter === null
+        ? reviews
+        : (reviews || []).filter((review: any) => {
+            const hasReply = typeof review?.businessReply === "string" && String(review.businessReply).trim().length > 0;
+            return hasBusinessReplyFilter ? hasReply : !hasReply;
+          });
+
+      return { status: 200, json: { ok: true, reviews: filteredReviews } };
     }
 
     case "reviews.archive": {
@@ -21976,6 +24176,11 @@ async function runDirectAction(opts: {
       const campaignId = String(args.campaignId || "").trim();
       if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
       const kind = (args.kind === "EMAIL" || args.kind === "TAG" || args.kind === "SMS") ? args.kind : "SMS";
+      const delayMinutesRaw = typeof (args as any)?.delayMinutes === "number" && Number.isFinite((args as any).delayMinutes)
+        ? Math.max(0, Math.min(60 * 24 * 365, Math.floor((args as any).delayMinutes)))
+        : null;
+      const subjectRaw = typeof (args as any)?.subject === "string" ? String((args as any).subject).trim().slice(0, 200) : "";
+      const bodyRaw = typeof (args as any)?.body === "string" ? String((args as any).body).trim().slice(0, 8000) : "";
 
       await ensurePortalNurtureSchema();
 
@@ -21994,9 +24199,9 @@ async function runDirectAction(opts: {
             campaignId,
             ord,
             kind,
-            delayMinutes: ord === 0 ? 0 : 60 * 24,
+            delayMinutes: delayMinutesRaw ?? (ord === 0 ? 0 : 60 * 24),
             subject: null,
-            body: "TAG:",
+            body: bodyRaw || "TAG:",
             createdAt: now,
             updatedAt: now,
           },
@@ -22013,12 +24218,13 @@ async function runDirectAction(opts: {
           campaignId,
           ord,
           kind,
-          delayMinutes: ord === 0 ? 0 : 60 * 24,
-          subject: kind === "EMAIL" ? "Quick question" : null,
+          delayMinutes: delayMinutesRaw ?? (ord === 0 ? 0 : 60 * 24),
+          subject: kind === "EMAIL" ? (subjectRaw || "Quick question") : null,
           body:
-            kind === "EMAIL"
+            bodyRaw ||
+            (kind === "EMAIL"
               ? "Hi {contact.name},\n\nJust checking in. Do you want help getting this set up?\n\n- {business.name}"
-              : "Hey {contact.name}, just checking in. Want help getting this set up?",
+              : "Hey {contact.name}, just checking in. Want help getting this set up?"),
           createdAt: now,
           updatedAt: now,
         },
@@ -26903,7 +29109,8 @@ export async function executePortalAgentActionForThread(opts: {
   args: Record<string, unknown>;
 }) {
   const argsSchema = PortalAgentActionArgsSchemaByKey[opts.action];
-  const argsParsed = argsSchema.safeParse(opts.args);
+  const normalizedArgs = normalizePortalAgentActionArgs(opts.action, opts.args);
+  const argsParsed = argsSchema.safeParse(normalizedArgs);
   if (!argsParsed.success) {
     const issues = argsParsed.error?.issues || [];
     const summarized = issues
@@ -27482,6 +29689,44 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       }
     }
 
+    if (action === "blogs.posts.create" && typeof (json as any).post?.id === "string") {
+      const id = cleanId((json as any).post.id);
+      if (id) {
+        const label = String((json as any).post?.title || (args as any)?.title || "Blog post").trim().slice(0, 120) || "Blog post";
+        return { lastBlogPost: { id, label } };
+      }
+    }
+
+    if (
+      (action === "blogs.posts.get" || action === "blogs.posts.update" || action === "blogs.posts.publish") &&
+      typeof ((json as any).post?.id || (args as any)?.postId) === "string"
+    ) {
+      const id = cleanId((json as any).post?.id || (args as any).postId || "");
+      if (id) {
+        const label = String((json as any).post?.title || (args as any)?.title || "Blog post").trim().slice(0, 120) || "Blog post";
+        return { lastBlogPost: { id, label } };
+      }
+    }
+
+    if (action === "newsletter.newsletters.create" && typeof (json as any).newsletter?.id === "string") {
+      const id = cleanId((json as any).newsletter.id);
+      if (id) {
+        const label = String((args as any)?.title || "Newsletter").trim().slice(0, 120) || "Newsletter";
+        return { lastNewsletter: { id, label } };
+      }
+    }
+
+    if (
+      (action === "newsletter.newsletters.get" || action === "newsletter.newsletters.update" || action === "newsletter.newsletters.send") &&
+      typeof (((json as any).newsletter?.id) || (args as any)?.newsletterId) === "string"
+    ) {
+      const id = cleanId((json as any).newsletter?.id || (args as any).newsletterId || "");
+      if (id) {
+        const label = String((json as any).newsletter?.title || (args as any)?.title || "Newsletter").trim().slice(0, 120) || "Newsletter";
+        return { lastNewsletter: { id, label } };
+      }
+    }
+
     if (action === "booking.calendar.create" && typeof (json as any).calendarId === "string") {
       const id = String((json as any).calendarId).trim().slice(0, 120);
       if (id) {
@@ -27828,7 +30073,8 @@ export async function executePortalAgentAction(opts: {
   responseProfile?: unknown;
 }) {
   const argsSchema = PortalAgentActionArgsSchemaByKey[opts.action];
-  const argsParsed = argsSchema.safeParse(opts.args);
+  const normalizedArgs = normalizePortalAgentActionArgs(opts.action, opts.args);
+  const argsParsed = argsSchema.safeParse(normalizedArgs);
   if (!argsParsed.success) {
     const issues = argsParsed.error?.issues || [];
     const summarized = issues
@@ -27917,7 +30163,8 @@ export async function executePortalAgentActionRaw(opts: {
   args: Record<string, unknown>;
 }) {
   const argsSchema = PortalAgentActionArgsSchemaByKey[opts.action];
-  const argsParsed = argsSchema.safeParse(opts.args);
+  const normalizedArgs = normalizePortalAgentActionArgs(opts.action, opts.args);
+  const argsParsed = argsSchema.safeParse(normalizedArgs);
   if (!argsParsed.success) {
     return { ok: false as const, status: 400, error: "Invalid action args" };
   }

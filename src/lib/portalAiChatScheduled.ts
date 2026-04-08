@@ -205,8 +205,8 @@ export async function resumeScheduledPortalAiChatFromSms(opts: {
     matched: true,
     threadId: String(match.id),
     replyText: pending.workTitle
-      ? `Got it — I’ll continue ${pending.workTitle} and follow up in the portal.`
-      : "Got it — I’ll continue that scheduled task and follow up in the portal.",
+      ? `Got it - I'll continue ${pending.workTitle} and follow up in the portal.`
+      : "Got it - I'll continue that scheduled task and follow up in the portal.",
   };
 }
 

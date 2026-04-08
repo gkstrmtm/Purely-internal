@@ -95,24 +95,39 @@ export async function generateClientNewsletterDraft(ctx: ClientNewsletterGenerat
     "Schema: { title: string, excerpt: string, content: string, smsText?: string }.",
     "Write content in Markdown.",
     "No code fences, no extra commentary.",
-    "Keep it clear, concise, and non-fluffy.",
+    "Make it publishable, specific, and conversion-aware - never generic or placeholder-ish.",
     "IMPORTANT: excerpt is the email message body. The system will append a hosted link after the excerpt. Do NOT include a URL in excerpt.",
     "If you include smsText, keep it under 240 characters and do NOT include a URL (the system appends the link).",
     "No em dashes. Use a normal hyphen '-' instead.",
     "Avoid top-level '# ' headings. Prefer '## ' subheadings and plain paragraphs.",
+    "Never use placeholders such as [Your Name], TBD, lorem ipsum, coming soon, or generic 'monthly update' phrasing unless the user explicitly asks for that.",
+    "Never invent fake links or fake metrics.",
+    "If topicHint names a specific angle, outcome, audience, or workflow, keep the title, excerpt, content, and smsText tightly aligned to that exact topic.",
+    "Do not drift into a different offer, service line, or customer scenario just because it appears in the business profile.",
+    "External newsletters should feel like a polished customer send: sharp opener, concrete takeaways, 3-5 short sections, and a confident closing CTA.",
+    "Internal newsletters should lead with priorities, blockers, and next actions instead of marketing copy.",
+    "If the content mentions the website in the body, use a real markdown link to [Purely Automation](https://purelyautomation.com).",
   ].join(" ");
+
+  const business = ctx.topicHint
+    ? {
+        businessName: ctx.businessName ?? undefined,
+        websiteUrl: ctx.websiteUrl ?? undefined,
+        brandVoice: ctx.brandVoice ?? undefined,
+      }
+    : {
+        businessName: ctx.businessName ?? undefined,
+        websiteUrl: ctx.websiteUrl ?? undefined,
+        industry: ctx.industry ?? undefined,
+        businessModel: ctx.businessModel ?? undefined,
+        primaryGoals: ctx.primaryGoals ?? undefined,
+        targetCustomer: ctx.targetCustomer ?? undefined,
+        brandVoice: ctx.brandVoice ?? undefined,
+      };
 
   const prompt = {
     kind: ctx.kind,
-    business: {
-      businessName: ctx.businessName ?? undefined,
-      websiteUrl: ctx.websiteUrl ?? undefined,
-      industry: ctx.industry ?? undefined,
-      businessModel: ctx.businessModel ?? undefined,
-      primaryGoals: ctx.primaryGoals ?? undefined,
-      targetCustomer: ctx.targetCustomer ?? undefined,
-      brandVoice: ctx.brandVoice ?? undefined,
-    },
+    business,
     guidedAnswers: ctx.promptAnswers ?? {},
     topicHint: ctx.topicHint ?? undefined,
     deliveryHints: {
@@ -123,8 +138,8 @@ export async function generateClientNewsletterDraft(ctx: ClientNewsletterGenerat
 
   const system =
     ctx.kind === "INTERNAL"
-      ? "You write internal team newsletters. You are direct, operational, and avoid marketing fluff. You never invent metrics or claims."
-      : "You write external customer newsletters for a service business. You are helpful, friendly, and specific. You never invent metrics or claims.";
+      ? "You write high-quality internal team newsletters. You are direct, operational, crisp, and useful. Lead with priorities, blockers, and next steps. You never invent metrics or claims."
+      : "You write polished external customer newsletters for a service business. You are specific, persuasive, and grounded in real business value. You never invent metrics, fake proof, or filler copy.";
 
   const text = await generateText({
     system,

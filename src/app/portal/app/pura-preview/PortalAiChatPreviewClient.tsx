@@ -626,7 +626,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
 
   if (standalone) {
     return (
-      <div data-pura-preview-root className="flex h-[100dvh] overflow-hidden bg-[#f5f7fb] text-zinc-900">
+      <div data-pura-preview-root className="flex h-dvh overflow-hidden bg-[#f5f7fb] text-zinc-900">
         <aside className="hidden w-[18rem] shrink-0 border-r border-zinc-200 bg-white shadow-[2px_0_12px_rgba(0,0,0,0.06)] lg:flex lg:flex-col">
           <div className="shrink-0 border-b border-zinc-200 p-3">
             <div className="flex items-center gap-2">

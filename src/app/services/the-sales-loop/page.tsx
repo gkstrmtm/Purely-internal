@@ -103,7 +103,7 @@ export default function SalesLoopPackagePage() {
     <main className="min-h-screen bg-white">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
 
-      <section className="w-full bg-[color:var(--color-brand-blue)] text-white">
+      <section className="w-full bg-(--color-brand-blue) text-white">
         <div className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
           <div className="mb-7 flex flex-wrap items-center gap-2 text-sm text-white/85">
             <Link
@@ -172,9 +172,9 @@ export default function SalesLoopPackagePage() {
             </div>
 
             <div className="hidden md:block">
-              <div className="relative overflow-hidden rounded-3xl border border-white/15 bg-[color:rgba(255,255,255,0.06)] p-6 shadow-[0_18px_45px_rgba(0,0,0,0.22)]">
-                <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-[color:rgba(251,113,133,0.18)] blur-2xl" />
-                <div className="absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-[color:rgba(255,255,255,0.12)] blur-2xl" />
+              <div className="relative overflow-hidden rounded-3xl border border-white/15 bg-[rgba(255,255,255,0.06)] p-6 shadow-[0_18px_45px_rgba(0,0,0,0.22)]">
+                <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-[rgba(251,113,133,0.18)] blur-2xl" />
+                <div className="absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-[rgba(255,255,255,0.12)] blur-2xl" />
 
                 <div className="relative">
                   <div className="text-xs font-semibold tracking-wide text-white/75">THE LOOP</div>
@@ -189,7 +189,7 @@ export default function SalesLoopPackagePage() {
                     ].map((n) => (
                       <div
                         key={n.title}
-                        className="rounded-2xl border border-white/15 bg-[color:rgba(0,0,0,0.12)] p-4"
+                        className="rounded-2xl border border-white/15 bg-[rgba(0,0,0,0.12)] p-4"
                       >
                         <div className="text-sm font-semibold text-white/95">{n.title}</div>
                         <div className="mt-1 text-xs text-white/65">{n.hint}</div>
@@ -216,7 +216,7 @@ export default function SalesLoopPackagePage() {
                     <circle cx="480" cy="60" r="8" fill="rgba(255,255,255,0.55)" />
                   </svg>
 
-                  <div className="mt-2 rounded-2xl border border-white/15 bg-[color:rgba(0,0,0,0.12)] p-4">
+                  <div className="mt-2 rounded-2xl border border-white/15 bg-[rgba(0,0,0,0.12)] p-4">
                     <div className="text-sm font-semibold text-white/95">Outcome</div>
                     <div className="mt-1 text-xs text-white/65">More speed, more follow up, more booked calls.</div>
                   </div>
@@ -274,7 +274,7 @@ export default function SalesLoopPackagePage() {
 
             <div className="relative lg:col-span-7">
               <svg
-                className="pointer-events-none absolute -right-10 -top-10 hidden h-48 w-48 text-[color:rgba(29,78,216,0.10)] sm:block"
+                className="pointer-events-none absolute -right-10 -top-10 hidden h-48 w-48 text-[rgba(29,78,216,0.10)] sm:block"
                 viewBox="0 0 240 240"
                 fill="none"
                 aria-hidden="true"
@@ -291,7 +291,7 @@ export default function SalesLoopPackagePage() {
                 <h3 className="text-lg font-semibold text-brand-ink">Included services</h3>
                 <Link
                   href="/services"
-                  className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+                  className="text-sm font-semibold text-(--color-brand-blue) hover:underline hover:decoration-[rgba(29,78,216,0.35)] hover:underline-offset-4"
                 >
                   Browse all services →
                 </Link>
@@ -312,7 +312,7 @@ export default function SalesLoopPackagePage() {
                     </div>
                     <Link
                       href={`/services/${encodeURIComponent(s.slug)}`}
-                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+                      className="text-sm font-semibold text-(--color-brand-blue) hover:underline hover:decoration-[rgba(29,78,216,0.35)] hover:underline-offset-4"
                     >
                       View service →
                     </Link>
@@ -341,7 +341,7 @@ export default function SalesLoopPackagePage() {
                     </div>
                     <Link
                       href={`/services/${encodeURIComponent(s.slug)}`}
-                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+                      className="text-sm font-semibold text-(--color-brand-blue) hover:underline hover:decoration-[rgba(29,78,216,0.35)] hover:underline-offset-4"
                     >
                       View details →
                     </Link>
@@ -362,7 +362,7 @@ export default function SalesLoopPackagePage() {
                   "Teams that want more booked calls without adding headcount",
                 ].map((t) => (
                   <li key={t} className="flex items-start gap-3">
-                    <span className="mt-2 inline-block h-1.5 w-1.5 rounded-full bg-[color:rgba(29,78,216,0.95)]" aria-hidden="true" />
+                    <span className="mt-2 inline-block h-1.5 w-1.5 rounded-full bg-[rgba(29,78,216,0.95)]" aria-hidden="true" />
                     <span>{t}</span>
                   </li>
                 ))}
@@ -399,8 +399,8 @@ export default function SalesLoopPackagePage() {
             </div>
 
             <div className="relative overflow-hidden rounded-3xl bg-brand-mist p-8 sm:p-10">
-              <div className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full bg-[color:rgba(251,113,133,0.22)] blur-2xl" aria-hidden="true" />
-              <div className="pointer-events-none absolute -bottom-14 -left-14 h-52 w-52 rounded-full bg-[color:rgba(29,78,216,0.18)] blur-2xl" aria-hidden="true" />
+              <div className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full bg-[rgba(251,113,133,0.22)] blur-2xl" aria-hidden="true" />
+              <div className="pointer-events-none absolute -bottom-14 -left-14 h-52 w-52 rounded-full bg-[rgba(29,78,216,0.18)] blur-2xl" aria-hidden="true" />
 
               <div className="relative">
                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">A simple loop</div>
@@ -429,10 +429,10 @@ export default function SalesLoopPackagePage() {
                   ].map((s, idx) => (
                     <div key={s.title} className="relative pl-8">
                       {idx !== 2 ? (
-                        <div className="absolute left-[10px] top-[22px] h-[calc(100%-10px)] w-px bg-[color:rgba(51,65,85,0.20)]" aria-hidden="true" />
+                        <div className="absolute left-2.5 top-5.5 h-[calc(100%-10px)] w-px bg-[rgba(51,65,85,0.20)]" aria-hidden="true" />
                       ) : null}
-                      <div className="absolute left-0 top-1.5 h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-[color:rgba(51,65,85,0.15)]" aria-hidden="true">
-                        <div className={`mx-auto mt-[7px] h-2.5 w-2.5 rounded-full ${accentClasses(s.accent)}`} />
+                      <div className="absolute left-0 top-1.5 h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-[rgba(51,65,85,0.15)]" aria-hidden="true">
+                        <div className={`mx-auto mt-1.75 h-2.5 w-2.5 rounded-full ${accentClasses(s.accent)}`} />
                       </div>
                       <div className="text-sm font-semibold text-brand-ink">{s.title}</div>
                       <div className="mt-1 text-sm text-zinc-600">{s.desc}</div>
@@ -449,7 +449,7 @@ export default function SalesLoopPackagePage() {
                   </Link>
                   <Link
                     href="/services"
-                    className="inline-flex w-full items-center justify-center rounded-2xl border border-[color:rgba(51,65,85,0.35)] bg-white px-6 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80 sm:w-auto"
+                    className="inline-flex w-full items-center justify-center rounded-2xl border border-[rgba(51,65,85,0.35)] bg-white px-6 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80 sm:w-auto"
                   >
                     Browse services
                   </Link>
@@ -502,7 +502,7 @@ export default function SalesLoopPackagePage() {
                 <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
                   <Link
                     href="/portal/get-started"
-                    className="inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50 sm:w-auto"
+                    className="inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-(--color-brand-blue) hover:bg-zinc-50 sm:w-auto"
                   >
                     Get started
                   </Link>

@@ -119,23 +119,36 @@ function compareThreadsForSidebar(a: Thread, b: Thread): number {
   const pinnedDelta = threadTimestampValue(b.pinnedAt) - threadTimestampValue(a.pinnedAt);
   if (pinnedDelta !== 0) return pinnedDelta;
 
-  const priority = (thread: Thread): number => {
-    if (thread.liveStatus?.label) return 0;
-    const runStatus = String(thread.latestRunStatus?.status || "").trim().toLowerCase();
-    if (runStatus === "needs_input" || runStatus === "failed" || runStatus === "interrupted" || runStatus === "partial") return 1;
-    if (thread.nextStepContext) return 2;
-    return 3;
-  };
-
-  const priorityDelta = priority(a) - priority(b);
-  if (priorityDelta !== 0) return priorityDelta;
-
-  const nextStepDelta = threadTimestampValue(b.nextStepContext?.updatedAt) - threadTimestampValue(a.nextStepContext?.updatedAt);
-  if (nextStepDelta !== 0) return nextStepDelta;
-
   const lastMessageDelta = threadTimestampValue(b.lastMessageAt) - threadTimestampValue(a.lastMessageAt);
   if (lastMessageDelta !== 0) return lastMessageDelta;
   return threadTimestampValue(b.updatedAt) - threadTimestampValue(a.updatedAt);
+}
+
+function readStoredDraftChatMode(): ChatMode {
+  if (typeof window === "undefined") return "plan";
+  try {
+    return normalizeThreadChatMode(window.localStorage.getItem(PURA_CHAT_DEFAULT_MODE_STORAGE_KEY));
+  } catch {
+    return "plan";
+  }
+}
+
+function readStoredDraftResponseProfile(): PuraAiProfile {
+  if (typeof window === "undefined") return "balanced";
+  try {
+    return normalizePuraAiProfile(window.localStorage.getItem(PURA_CHAT_DEFAULT_PROFILE_STORAGE_KEY));
+  } catch {
+    return "balanced";
+  }
+}
+
+function decodeBase64AudioBlob(base64: string, contentType: string): Blob {
+  const binary = atob(String(base64 || ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: contentType || "audio/mpeg" });
 }
 
 type ShareMember = { userId: string; email: string; name: string };
@@ -243,9 +256,18 @@ type ThreadDraftState = {
   pendingAttachments: Attachment[];
 };
 
+type DictationPlaybackState = {
+  messageId: string;
+  audios: HTMLAudioElement[];
+  objectUrls: string[];
+  stopped: boolean;
+};
+
 type ChatMode = "plan" | "work";
 
 const DRAFT_THREAD_KEY = "__draft__";
+const PURA_CHAT_DEFAULT_MODE_STORAGE_KEY = "pura.chat.defaultMode";
+const PURA_CHAT_DEFAULT_PROFILE_STORAGE_KEY = "pura.chat.defaultProfile";
 
 function createEmptyThreadUiState(): ThreadUiState {
   return {
@@ -1459,10 +1481,10 @@ export function PortalAiChatClient({
   const [dictating, setDictating] = useState(false);
   const [dictatingMessageId, setDictatingMessageId] = useState<string | null>(null);
   const [dictationPlayingMessageId, setDictationPlayingMessageId] = useState<string | null>(null);
-  const dictationRef = useRef<{ audio: HTMLAudioElement; objectUrl: string; messageId: string } | null>(null);
+  const dictationRef = useRef<DictationPlaybackState | null>(null);
   const [regeneratingTarget, setRegeneratingTarget] = useState<null | { threadId: string; messageId: string }>(null);
-  const [chatMode, setChatMode] = useState<ChatMode>("plan");
-  const [responseProfile, setResponseProfile] = useState<PuraAiProfile>("balanced");
+  const [chatMode, setChatMode] = useState<ChatMode>(() => readStoredDraftChatMode());
+  const [responseProfile, setResponseProfile] = useState<PuraAiProfile>(() => readStoredDraftResponseProfile());
   const [modeControlsOpen, setModeControlsOpen] = useState(false);
   const [messageDisplayModesById, setMessageDisplayModesById] = useState<Record<string, ChatMode>>(() => ({}));
 
@@ -1572,11 +1594,15 @@ export function PortalAiChatClient({
   const forceScrollToBottomRef = useRef(false);
   const sendInFlightRef = useRef<Set<string>>(new Set());
   const activeThreadIdRef = useRef<string | null>(null);
+  const pendingChatModeByThreadRef = useRef<Record<string, ChatMode | undefined>>({});
+  const pendingResponseProfileByThreadRef = useRef<Record<string, PuraAiProfile | undefined>>({});
   const threadDraftsRef = useRef<Record<string, ThreadDraftState>>({ [DRAFT_THREAD_KEY]: createEmptyThreadDraftState() });
   const editingMessageIdByThreadRef = useRef<Record<string, string | null>>({});
   const threadsRef = useRef<Thread[]>([]);
   const messagesByThreadRef = useRef<Record<string, Message[]>>({ [DRAFT_THREAD_KEY]: [] });
   const messageDisplayModesByIdRef = useRef<Record<string, ChatMode>>({});
+  const threadLiveStatusByIdRef = useRef<Record<string, LiveStatus | null>>({});
+  const threadMessageRefreshInFlightRef = useRef<Set<string>>(new Set());
 
   const activeThreadKey = activeThreadId ?? DRAFT_THREAD_KEY;
   const activeThread = useMemo(() => (activeThreadId ? threads.find((thread) => thread.id === activeThreadId) ?? null : null), [activeThreadId, threads]);
@@ -1604,7 +1630,6 @@ export function PortalAiChatClient({
     return `${pathname || ""}${query ? `?${query}` : ""}`;
   }, [pathname, searchParams]);
   const effectiveChatMode: ChatMode = activeThread?.chatMode ? normalizeThreadChatMode(activeThread.chatMode) : chatMode;
-  const isDiscussMode = effectiveChatMode === "plan";
   const effectiveResponseProfile: PuraAiProfile = activeThread?.responseProfile ? normalizeThreadResponseProfile(activeThread.responseProfile) : responseProfile;
   const effectiveChatModeLabel = effectiveChatMode === "plan" ? "Discuss" : "Work";
   const effectiveResponseProfileLabel = useMemo(
@@ -1673,8 +1698,9 @@ export function PortalAiChatClient({
     if (!activeThreadId || !activeWorkingMemory) return false;
     const hasSummary = Boolean(activeWorkingMemory.threadSummary?.trim());
     const hasHistory = activeWorkingMemory.recentRuns.length >= 2;
+    if (activeUnresolvedRun || activeNextStepContext || showActiveLiveProgressCard) return false;
     return messages.length >= 6 && (hasSummary || hasHistory);
-  }, [activeThreadId, activeWorkingMemory, messages.length]);
+  }, [activeNextStepContext, activeThreadId, activeUnresolvedRun, activeWorkingMemory, messages.length, showActiveLiveProgressCard]);
   const workStatusLabel = useMemo(() => {
     if (liveWorkStatusLabel) return liveWorkStatusLabel;
     if (regenerating && regeneratingTarget?.messageId) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Reworking that response" : "Redoing that response");
@@ -1698,6 +1724,10 @@ export function PortalAiChatClient({
   useEffect(() => {
     messageDisplayModesByIdRef.current = messageDisplayModesById;
   }, [messageDisplayModesById]);
+
+  useEffect(() => {
+    threadLiveStatusByIdRef.current = threadLiveStatusById;
+  }, [threadLiveStatusById]);
 
   useEffect(() => {
     threadDraftsRef.current = threadDraftsById;
@@ -1728,26 +1758,49 @@ export function PortalAiChatClient({
     });
   }, []);
 
-  const applyThreadChatMode = useCallback((threadId: string, nextModeRaw: unknown) => {
-    const nextMode = normalizeThreadChatMode(nextModeRaw);
-    setThreads((prev) => prev.map((thread) => (thread.id === threadId ? { ...thread, chatMode: nextMode } : thread)));
-    if (activeThreadIdRef.current === threadId) {
-      setChatMode(nextMode);
+  const persistDraftPreferences = useCallback((nextMode: ChatMode, nextProfile: PuraAiProfile) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(PURA_CHAT_DEFAULT_MODE_STORAGE_KEY, nextMode);
+      window.localStorage.setItem(PURA_CHAT_DEFAULT_PROFILE_STORAGE_KEY, nextProfile);
+    } catch {
+      // ignore
     }
   }, []);
 
-  const applyThreadResponseProfile = useCallback((threadId: string, nextProfileRaw: unknown) => {
-    const nextProfile = normalizeThreadResponseProfile(nextProfileRaw);
-    setThreads((prev) => prev.map((thread) => (thread.id === threadId ? { ...thread, responseProfile: nextProfile } : thread)));
-    if (activeThreadIdRef.current === threadId) {
-      setResponseProfile(nextProfile);
-    }
+  const resolveThreadChatMode = useCallback((threadId: string, nextModeRaw: unknown) => {
+    const pending = pendingChatModeByThreadRef.current[threadId];
+    return pending ? normalizeThreadChatMode(pending) : normalizeThreadChatMode(nextModeRaw);
   }, []);
+
+  const resolveThreadResponseProfile = useCallback((threadId: string, nextProfileRaw: unknown) => {
+    const pending = pendingResponseProfileByThreadRef.current[threadId];
+    return pending ? normalizeThreadResponseProfile(pending) : normalizeThreadResponseProfile(nextProfileRaw);
+  }, []);
+
+  const loadThreadsRef = useRef<() => Promise<void>>(async () => {});
+  const loadThreadStatusRef = useRef<(threadId: string, payloadOverride?: any) => Promise<void>>(async () => {});
+
+  const applyThreadChatMode = useCallback((threadId: string, nextModeRaw: unknown) => {
+    const nextMode = resolveThreadChatMode(threadId, nextModeRaw);
+    setThreads((prev) => prev.map((thread) => (thread.id === threadId ? { ...thread, chatMode: nextMode } : thread)));
+  }, [resolveThreadChatMode]);
+
+  const applyThreadResponseProfile = useCallback((threadId: string, nextProfileRaw: unknown) => {
+    const nextProfile = resolveThreadResponseProfile(threadId, nextProfileRaw);
+    setThreads((prev) => prev.map((thread) => (thread.id === threadId ? { ...thread, responseProfile: nextProfile } : thread)));
+  }, [resolveThreadResponseProfile]);
 
   const setChatModeForCurrentThread = useCallback(
     async (nextMode: ChatMode) => {
+      if (activeThreadId && (sending || regenerating || Boolean(runningActionKey) || Boolean(activeLiveStatus?.label))) {
+        toast.error("Wait for the current run to finish before changing mode.");
+        return;
+      }
       setChatMode(nextMode);
+      persistDraftPreferences(nextMode, effectiveResponseProfile);
       if (!activeThreadId) return;
+      pendingChatModeByThreadRef.current[activeThreadId] = nextMode;
       applyThreadChatMode(activeThreadId, nextMode);
       try {
         const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/actions`, {
@@ -1757,18 +1810,24 @@ export function PortalAiChatClient({
         });
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Unable to update chat mode");
+        delete pendingChatModeByThreadRef.current[activeThreadId];
         applyThreadChatMode(activeThreadId, json.chatMode ?? nextMode);
       } catch (e) {
+        delete pendingChatModeByThreadRef.current[activeThreadId];
+        void loadThreadsRef.current();
+        void loadThreadStatusRef.current(activeThreadId);
         toast.error(e instanceof Error ? e.message : String(e));
       }
     },
-    [activeThreadId, applyThreadChatMode, toast],
+    [activeLiveStatus?.label, activeThreadId, applyThreadChatMode, effectiveResponseProfile, persistDraftPreferences, regenerating, runningActionKey, sending, toast],
   );
 
   const setResponseProfileForCurrentThread = useCallback(
     async (nextProfile: PuraAiProfile) => {
       setResponseProfile(nextProfile);
+      persistDraftPreferences(effectiveChatMode, nextProfile);
       if (!activeThreadId) return;
+      pendingResponseProfileByThreadRef.current[activeThreadId] = nextProfile;
       applyThreadResponseProfile(activeThreadId, nextProfile);
       try {
         const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/actions`, {
@@ -1778,12 +1837,16 @@ export function PortalAiChatClient({
         });
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Unable to update Pura pace");
+        delete pendingResponseProfileByThreadRef.current[activeThreadId];
         applyThreadResponseProfile(activeThreadId, json.responseProfile ?? nextProfile);
       } catch (e) {
+        delete pendingResponseProfileByThreadRef.current[activeThreadId];
+        void loadThreadsRef.current();
+        void loadThreadStatusRef.current(activeThreadId);
         toast.error(e instanceof Error ? e.message : String(e));
       }
     },
-    [activeThreadId, applyThreadResponseProfile, toast],
+    [activeThreadId, applyThreadResponseProfile, effectiveChatMode, persistDraftPreferences, toast],
   );
 
   const setThreadEditingMessageId = useCallback((threadKey: string, messageId: string | null) => {
@@ -1888,16 +1951,11 @@ export function PortalAiChatClient({
             liveStatus: normalizeLiveStatus(thread?.liveStatus),
             latestRunStatus: normalizeThreadRunStatus(thread?.latestRunStatus),
             nextStepContext: normalizeNextStepContext(thread?.nextStepContext),
-            chatMode: normalizeThreadChatMode(thread?.chatMode),
-            responseProfile: normalizeThreadResponseProfile(thread?.responseProfile),
+            chatMode: resolveThreadChatMode(String(thread.id), thread?.chatMode),
+            responseProfile: resolveThreadResponseProfile(String(thread.id), thread?.responseProfile),
           })).sort(compareThreadsForSidebar)
         : [];
       setThreads(next);
-      if (activeThreadIdRef.current) {
-        const activeThreadFromList = next.find((thread) => thread.id === activeThreadIdRef.current);
-        if (activeThreadFromList?.chatMode) setChatMode(normalizeThreadChatMode(activeThreadFromList.chatMode));
-        if (activeThreadFromList?.responseProfile) setResponseProfile(normalizeThreadResponseProfile(activeThreadFromList.responseProfile));
-      }
       setThreadLiveStatusById((prev) => {
         const nextStatuses: Record<string, LiveStatus | null> = {};
         for (const thread of next) {
@@ -1932,6 +1990,7 @@ export function PortalAiChatClient({
         const hasLocalThread = (threadsRef.current ?? []).some((t) => t.id === activeThreadId);
         const isSending = sendInFlightRef.current.has(activeThreadId);
         if (!isSending && !hasLocalMessages && !hasLocalThread) {
+          activeThreadIdRef.current = null;
           setActiveThreadId(null);
           navigateToThread(null, "replace");
         }
@@ -1942,7 +2001,9 @@ export function PortalAiChatClient({
     } finally {
       setThreadsLoading(false);
     }
-  }, [toast, activeThreadId, navigateToThread]);
+  }, [activeThreadId, navigateToThread, resolveThreadChatMode, resolveThreadResponseProfile, toast]);
+
+  loadThreadsRef.current = loadThreads;
 
   const applyThreadContextSnapshot = useCallback((threadId: string, threadContext: any) => {
     setThreadLiveStatusById((prev) => ({ ...prev, [threadId]: normalizeLiveStatus(threadContext?.liveStatus) }));
@@ -1985,6 +2046,7 @@ export function PortalAiChatClient({
         const msg = e instanceof Error ? e.message : String(e);
         toast.error(msg);
       } finally {
+        threadMessageRefreshInFlightRef.current.delete(threadId);
         setThreadLoading(threadId, false);
       }
     },
@@ -2000,7 +2062,9 @@ export function PortalAiChatClient({
             cache: "no-store",
           }).then((res) => res.json().catch(() => null)));
         if (!json?.ok) return;
+        const prevStatus = threadLiveStatusByIdRef.current[threadId] ?? null;
         const nextStatus = normalizeLiveStatus(json?.threadContext?.liveStatus);
+        threadLiveStatusByIdRef.current = { ...threadLiveStatusByIdRef.current, [threadId]: nextStatus };
         setThreadLiveStatusById((prev) => {
           const current = prev[threadId] ?? null;
           if (sameLiveStatus(current, nextStatus)) return prev;
@@ -2009,6 +2073,7 @@ export function PortalAiChatClient({
         setThreadUnresolvedRunById((prev) => ({ ...prev, [threadId]: normalizeUnresolvedRun(json?.threadContext?.unresolvedRun) }));
         setThreadNextStepContextById((prev) => ({ ...prev, [threadId]: normalizeNextStepContext(json?.threadContext?.nextStepContext) }));
         setThreadWorkingMemoryById((prev) => ({ ...prev, [threadId]: normalizeWorkingMemory(json?.threadContext) }));
+        applyThreadChatMode(threadId, json?.threadContext?.chatMode);
         applyThreadResponseProfile(threadId, json?.threadContext?.responseProfile);
         const nextLastCanvasUrl =
           typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
@@ -2017,12 +2082,25 @@ export function PortalAiChatClient({
         if (nextLastCanvasUrl && activeThreadIdRef.current === threadId) {
           setCanvasUrl(nextLastCanvasUrl);
         }
+        const shouldRefreshMessages =
+          activeThreadIdRef.current === threadId &&
+          !sendInFlightRef.current.has(threadId) &&
+          !threadMessageRefreshInFlightRef.current.has(threadId) &&
+          !nextStatus?.label &&
+          (Boolean(prevStatus?.label) ||
+            (typeof nextStatus?.updatedAt === "string" && nextStatus.updatedAt !== prevStatus?.updatedAt));
+        if (shouldRefreshMessages) {
+          threadMessageRefreshInFlightRef.current.add(threadId);
+          void loadMessages(threadId);
+        }
       } catch {
         // ignore lightweight status refresh failures
       }
     },
-    [applyThreadResponseProfile],
+    [applyThreadChatMode, applyThreadResponseProfile, loadMessages],
   );
+
+  loadThreadStatusRef.current = loadThreadStatus;
 
   const loadThreadStatusLegacy = useCallback(
     async (threadId: string) => {
@@ -2033,6 +2111,7 @@ export function PortalAiChatClient({
         const json = await res.json().catch(() => null);
         if (!json?.ok) return;
         const nextStatus = normalizeLiveStatus(json?.threadContext?.liveStatus);
+        threadLiveStatusByIdRef.current = { ...threadLiveStatusByIdRef.current, [threadId]: nextStatus };
         setThreadLiveStatusById((prev) => {
           const current = prev[threadId] ?? null;
           if (
@@ -2049,6 +2128,7 @@ export function PortalAiChatClient({
         setThreadUnresolvedRunById((prev) => ({ ...prev, [threadId]: normalizeUnresolvedRun(json?.threadContext?.unresolvedRun) }));
         setThreadNextStepContextById((prev) => ({ ...prev, [threadId]: normalizeNextStepContext(json?.threadContext?.nextStepContext) }));
         setThreadWorkingMemoryById((prev) => ({ ...prev, [threadId]: normalizeWorkingMemory(json?.threadContext) }));
+        applyThreadChatMode(threadId, json?.threadContext?.chatMode);
         applyThreadResponseProfile(threadId, json?.threadContext?.responseProfile);
         const nextLastCanvasUrl =
           typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
@@ -2061,7 +2141,7 @@ export function PortalAiChatClient({
         // ignore lightweight polling failures
       }
     },
-    [applyThreadResponseProfile],
+    [applyThreadChatMode, applyThreadResponseProfile],
   );
 
   const applyStreamedThreadsSnapshot = useCallback((threadsRaw: unknown) => {
@@ -2071,8 +2151,8 @@ export function PortalAiChatClient({
           liveStatus: normalizeLiveStatus(thread?.liveStatus),
           latestRunStatus: normalizeThreadRunStatus(thread?.latestRunStatus),
           nextStepContext: normalizeNextStepContext(thread?.nextStepContext),
-          chatMode: normalizeThreadChatMode(thread?.chatMode),
-          responseProfile: normalizeThreadResponseProfile(thread?.responseProfile),
+          chatMode: resolveThreadChatMode(String(thread.id), thread?.chatMode),
+          responseProfile: resolveThreadResponseProfile(String(thread.id), thread?.responseProfile),
         }))
       : [];
 
@@ -2104,16 +2184,14 @@ export function PortalAiChatClient({
       }
       return nextContexts;
     });
-  }, []);
+  }, [resolveThreadChatMode, resolveThreadResponseProfile]);
 
   const selectThread = useCallback(
     (threadId: string) => {
-      const selectedThread = threadsRef.current.find((thread) => thread.id === threadId) ?? null;
       forceScrollToBottomRef.current = true;
       setThreadLoading(threadId, true);
+      activeThreadIdRef.current = threadId;
       setActiveThreadId(threadId);
-      if (selectedThread?.chatMode) setChatMode(normalizeThreadChatMode(selectedThread.chatMode));
-      if (selectedThread?.responseProfile) setResponseProfile(normalizeThreadResponseProfile(selectedThread.responseProfile));
       setCanvasUrl(null);
       setCanvasModalOpen(false);
       setCanvasOpen(false);
@@ -2180,8 +2258,16 @@ export function PortalAiChatClient({
     // If we're currently sending in this thread, avoid reloading messages from the server.
     // The server may not have persisted the new message yet, and we'd overwrite optimistic UI.
     if (sendInFlightRef.current.has(activeThreadId)) return;
+    const threadExists = threads.some((thread) => thread.id === activeThreadId);
+    const hasLocalMessages = (messagesByThreadRef.current[activeThreadId] ?? []).length > 0;
+    if (!threadsLoading && !threadExists && !hasLocalMessages) {
+      activeThreadIdRef.current = null;
+      setActiveThreadId(null);
+      navigateToThread(null, "replace");
+      return;
+    }
     void loadMessages(activeThreadId);
-  }, [activeThreadId, loadMessages]);
+  }, [activeThreadId, loadMessages, navigateToThread, threads, threadsLoading]);
 
   useEffect(() => {
     if (!activeThreadId) return;
@@ -2221,6 +2307,7 @@ export function PortalAiChatClient({
     // "New chat" is a local-only draft until the user sends the first message.
     // This prevents empty threads from being persisted.
     forceScrollToBottomRef.current = true;
+    activeThreadIdRef.current = null;
     setActiveThreadId(null);
     setMessagesByThread((prev) => ({ ...prev, [DRAFT_THREAD_KEY]: [] }));
     clearThreadDraftState(DRAFT_THREAD_KEY);
@@ -2377,6 +2464,7 @@ export function PortalAiChatClient({
             selectThread(remaining[0]!.id);
             navigateToThread(remaining[0]!, "replace");
           } else {
+            activeThreadIdRef.current = null;
             setActiveThreadId(null);
             navigateToThread(null, "replace");
             void loadThreads();
@@ -2584,10 +2672,8 @@ export function PortalAiChatClient({
 
           // Switch the UI to the newly created thread immediately so the user sees
           // their optimistic message + the thinking indicator right away.
-          if (activeThreadIdRef.current === null) {
-            activeThreadIdRef.current = threadIdForSend;
-            setActiveThreadId(threadIdForSend);
-          }
+          activeThreadIdRef.current = threadIdForSend;
+          setActiveThreadId(threadIdForSend);
           setThreads((prev) => {
             const without = prev.filter((t) => t.id !== threadIdForSend);
             return [createdThread as Thread, ...without];
@@ -3186,13 +3272,17 @@ export function PortalAiChatClient({
   useEffect(() => {
     return () => {
       try {
-        dictationRef.current?.audio.pause();
-        if (dictationRef.current?.audio) dictationRef.current.audio.currentTime = 0;
+        for (const audio of dictationRef.current?.audios || []) {
+          audio.pause();
+          audio.currentTime = 0;
+        }
       } catch {
         // ignore
       }
       try {
-        if (dictationRef.current?.objectUrl) URL.revokeObjectURL(dictationRef.current.objectUrl);
+        for (const objectUrl of dictationRef.current?.objectUrls || []) {
+          URL.revokeObjectURL(objectUrl);
+        }
       } catch {
         // ignore
       }
@@ -3201,29 +3291,51 @@ export function PortalAiChatClient({
     };
   }, []);
 
+  const releaseDictationPlayback = useCallback((playback: DictationPlaybackState | null) => {
+    if (!playback) return;
+    playback.stopped = true;
+    for (const audio of playback.audios) {
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.onplay = null;
+        audio.onpause = null;
+        audio.onended = null;
+        audio.onerror = null;
+      } catch {
+        // ignore
+      }
+    }
+    for (const objectUrl of playback.objectUrls) {
+      try {
+        URL.revokeObjectURL(objectUrl);
+      } catch {
+        // ignore
+      }
+    }
+    if (dictationRef.current === playback) dictationRef.current = null;
+    setDictationPlayingMessageId((prev) => (prev === playback.messageId ? null : prev));
+  }, []);
+
   const dictateAssistantMessage = useCallback(
     async (messageId: string) => {
       if (!activeThreadId) return;
 
       const current = dictationRef.current;
       if (current && current.messageId === messageId) {
-        const audio = current.audio;
-        const isPlaying = !audio.paused && !audio.ended;
+        const isPlaying = current.audios.some((audio) => !audio.paused && !audio.ended);
 
         if (isPlaying) {
-          try {
-            audio.pause();
-            audio.currentTime = 0;
-          } catch {
-            // ignore
-          }
-          setDictationPlayingMessageId(null);
+          releaseDictationPlayback(current);
           return;
         }
 
         try {
-          audio.currentTime = 0;
-          await audio.play();
+          current.stopped = false;
+          for (const audio of current.audios) {
+            audio.currentTime = 0;
+          }
+          await current.audios[0]!.play();
           setDictationPlayingMessageId(messageId);
         } catch (e) {
           toast.error(e instanceof Error ? e.message : String(e));
@@ -3237,19 +3349,7 @@ export function PortalAiChatClient({
       setDictating(true);
       setDictatingMessageId(messageId);
       try {
-        try {
-          dictationRef.current?.audio.pause();
-          if (dictationRef.current?.audio) dictationRef.current.audio.currentTime = 0;
-        } catch {
-          // ignore
-        }
-        try {
-          if (dictationRef.current?.objectUrl) URL.revokeObjectURL(dictationRef.current.objectUrl);
-        } catch {
-          // ignore
-        }
-        dictationRef.current = null;
-        setDictationPlayingMessageId(null);
+        releaseDictationPlayback(dictationRef.current);
 
         const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/dictate`, {
           method: "POST",
@@ -3262,15 +3362,50 @@ export function PortalAiChatClient({
           throw new Error(json?.error || "Dictation failed");
         }
 
-        const blob = await res.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        const audio = new Audio(objectUrl);
-        audio.onplay = () => setDictationPlayingMessageId(messageId);
-        audio.onpause = () => setDictationPlayingMessageId((prev) => (prev === messageId ? null : prev));
-        audio.onended = () => setDictationPlayingMessageId((prev) => (prev === messageId ? null : prev));
+        const json = await res.json().catch(() => null);
+        const chunks = Array.isArray(json?.chunks) ? (json.chunks as Array<{ audioBase64?: string; contentType?: string }>) : [];
+        if (!chunks.length) throw new Error("Dictation returned no audio.");
 
-        dictationRef.current = { audio, objectUrl, messageId };
-        await audio.play();
+        const objectUrls: string[] = [];
+        const audios = chunks.map((chunk) => {
+          const blob = decodeBase64AudioBlob(String(chunk.audioBase64 || ""), String(chunk.contentType || "audio/mpeg"));
+          const objectUrl = URL.createObjectURL(blob);
+          objectUrls.push(objectUrl);
+          const audio = new Audio(objectUrl);
+          audio.preload = "auto";
+          return audio;
+        });
+
+        const playback: DictationPlaybackState = {
+          messageId,
+          audios,
+          objectUrls,
+          stopped: false,
+        };
+
+        audios.forEach((audio, index) => {
+          audio.onplay = () => setDictationPlayingMessageId(messageId);
+          audio.onerror = () => {
+            releaseDictationPlayback(playback);
+            toast.error("Dictation playback failed.");
+          };
+          audio.onended = () => {
+            if (playback.stopped) return;
+            const nextAudio = audios[index + 1] ?? null;
+            if (!nextAudio) {
+              setDictationPlayingMessageId((prev) => (prev === messageId ? null : prev));
+              return;
+            }
+            nextAudio.currentTime = 0;
+            void nextAudio.play().catch((error) => {
+              releaseDictationPlayback(playback);
+              toast.error(error instanceof Error ? error.message : String(error));
+            });
+          };
+        });
+
+        dictationRef.current = playback;
+        await audios[0]!.play();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : String(e));
       } finally {
@@ -3278,7 +3413,7 @@ export function PortalAiChatClient({
         setDictatingMessageId(null);
       }
     },
-    [activeThreadId, dictating, toast],
+    [activeThreadId, dictating, releaseDictationPlayback, toast],
   );
 
   const redoAssistantMessage = useCallback(
@@ -3299,6 +3434,7 @@ export function PortalAiChatClient({
             redoMessageId: assistantMessageId,
             url: typeof window !== "undefined" ? window.location.href : undefined,
             chatMode: effectiveChatMode,
+            responseProfile: effectiveResponseProfile,
             ...(canvasUrl ? { canvasUrl } : {}),
             ...(clientTimeZone ? { clientTimeZone } : {}),
           }),
@@ -3314,7 +3450,7 @@ export function PortalAiChatClient({
         setRegeneratingTarget((prev) => (prev?.threadId === threadIdAtStart ? null : prev));
       }
     },
-    [activeThreadId, canvasUrl, clientTimeZone, clientTimeZoneHeaders, effectiveChatMode, loadMessages, loadThreads, regeneratingTarget?.threadId, toast, updateThreadMessages],
+    [activeThreadId, canvasUrl, clientTimeZone, clientTimeZoneHeaders, effectiveChatMode, effectiveResponseProfile, loadMessages, loadThreads, regeneratingTarget?.threadId, toast, updateThreadMessages],
   );
 
   const copyMessageText = useCallback(

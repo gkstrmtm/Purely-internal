@@ -404,7 +404,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
                     ? questionFields.map((f) => (
                         <th
                           key={f.name}
-                          className="min-w-[220px] border-b border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                          className="min-w-55 border-b border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500"
                           title={f.label}
                         >
                           {f.label}
@@ -413,7 +413,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
                     : fallbackKeys.map((k) => (
                         <th
                           key={k}
-                          className="min-w-[220px] border-b border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500"
+                          className="min-w-55 border-b border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500"
                           title={k}
                         >
                           {k}
@@ -477,7 +477,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
                               return (
                                 <td key={f.name} className="border-b border-zinc-100 px-3 py-2 align-top">
                                   {files.length ? (
-                                    <div className="max-w-[360px] space-y-1 text-sm">
+                                    <div className="max-w-90 space-y-1 text-sm">
                                       {files.slice(0, 20).map((file, idx) => {
                                         const url = String(file.url || "").trim();
                                         const fileName = typeof file.fileName === "string" ? file.fileName.trim() : "";
@@ -507,7 +507,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
                             return (
                               <td key={f.name} className="border-b border-zinc-100 px-3 py-2 align-top">
                                 {display ? (
-                                  <div className="max-w-[360px] whitespace-pre-wrap wrap-break-word text-sm text-zinc-800" title={display}>
+                                  <div className="max-w-90 whitespace-pre-wrap wrap-break-word text-sm text-zinc-800" title={display}>
                                     {display}
                                   </div>
                                 ) : (
@@ -522,7 +522,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
                             return (
                               <td key={k} className="border-b border-zinc-100 px-3 py-2 align-top">
                                 {display ? (
-                                  <div className="max-w-[360px] whitespace-pre-wrap wrap-break-word text-sm text-zinc-800" title={display}>
+                                  <div className="max-w-90 whitespace-pre-wrap wrap-break-word text-sm text-zinc-800" title={display}>
                                     {display}
                                   </div>
                                 ) : (
@@ -580,7 +580,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
                 setDrawerOpen(false);
               }}
             />
-            <aside className="absolute right-0 top-0 h-full w-[92vw] max-w-md overflow-auto bg-white shadow-2xl lg:static lg:h-auto lg:w-[420px] lg:max-w-none lg:rounded-3xl lg:border lg:border-zinc-200 lg:shadow-none">
+            <aside className="absolute right-0 top-0 h-full w-[92vw] max-w-md overflow-auto bg-white shadow-2xl lg:static lg:h-auto lg:w-105 lg:max-w-none lg:rounded-3xl lg:border lg:border-zinc-200 lg:shadow-none">
               <div className="flex items-start justify-between gap-4 border-b border-zinc-200 p-4 lg:rounded-t-3xl">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Submission details</div>

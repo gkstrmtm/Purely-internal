@@ -219,7 +219,7 @@ export async function POST(req: Request) {
   ).catch(() => null);
 
   if (scheduledResume?.matched) {
-    return twimlMessage(scheduledResume.replyText || "Got it — I’ll continue that scheduled task and follow up in the portal.");
+    return twimlMessage(scheduledResume.replyText || "Got it - I'll continue that scheduled task and follow up in the portal.");
   }
 
   if (receptionistReply) {

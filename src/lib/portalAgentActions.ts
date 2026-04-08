@@ -481,9 +481,14 @@ export const PortalAgentActionArgsSchemaByKey = {
       title: z.string().trim().min(1).max(160),
       description: z.string().trim().max(5000).optional(),
       assignedToUserId: z.string().trim().min(1).optional().nullable(),
+      assigneeUserId: z.string().trim().min(1).optional().nullable(),
+      assignee: z.string().trim().min(1).max(160).optional().nullable(),
+      assignedTo: z.string().trim().min(1).max(160).optional().nullable(),
       dueAtIso: z.string().trim().optional().nullable(),
+      dueAt: z.string().trim().optional().nullable(),
+      dueDate: z.string().trim().optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "tasks.create_for_all": z
     .object({
@@ -496,21 +501,28 @@ export const PortalAgentActionArgsSchemaByKey = {
   "tasks.update": z
     .object({
       taskId: z.string().trim().min(1).max(120),
-      status: z.enum(["OPEN", "DONE", "CANCELED"]).optional(),
+      status: z.union([z.enum(["OPEN", "DONE", "CANCELED"]), z.string().trim().min(1).max(40)]).optional(),
       title: z.string().trim().min(1).max(160).optional(),
       description: z.string().trim().max(5000).optional().nullable(),
       assignedToUserId: z.string().trim().min(1).optional().nullable(),
+      assigneeUserId: z.string().trim().min(1).optional().nullable(),
+      assignee: z.string().trim().min(1).max(160).optional().nullable(),
+      assignedTo: z.string().trim().min(1).max(160).optional().nullable(),
       dueAtIso: z.string().trim().optional().nullable(),
+      dueAt: z.string().trim().optional().nullable(),
+      dueDate: z.string().trim().optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "tasks.list": z
     .object({
-      status: z.enum(["OPEN", "DONE", "CANCELED", "ALL"]).optional().nullable(),
-      assigned: z.enum(["all", "me"]).optional().nullable(),
+      status: z.union([z.enum(["OPEN", "DONE", "CANCELED", "ALL"]), z.string().trim().min(1).max(40)]).optional().nullable(),
+      assigned: z.union([z.enum(["all", "me"]), z.string().trim().min(1).max(40)]).optional().nullable(),
+      assignee: z.string().trim().min(1).max(80).optional().nullable(),
+      q: z.string().trim().min(1).max(200).optional().nullable(),
       limit: z.number().int().min(1).max(500).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "tasks.assignees.list": z.object({}).strict(),
 
@@ -748,7 +760,7 @@ export const PortalAgentActionArgsSchemaByKey = {
   "funnel.create": z
     .object({
       name: z.string().trim().min(1).max(120),
-      slug: z.string().trim().min(2).max(60),
+      slug: z.string().trim().min(2).max(60).optional().nullable(),
     })
     .strict(),
 
@@ -1050,7 +1062,7 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
-  "blogs.appearance.get": z.object({}).strict(),
+  "blogs.appearance.get": z.object({}).passthrough(),
 
   "blogs.appearance.update": z
     .object({
@@ -1060,7 +1072,7 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
-  "blogs.site.get": z.object({}).strict(),
+  "blogs.site.get": z.object({}).passthrough(),
 
   "blogs.site.create": z
     .object({
@@ -1082,26 +1094,26 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       range: z.enum(["7d", "30d", "90d", "all"]).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "blogs.posts.list": z
     .object({
       take: z.number().int().min(1).max(200).optional(),
       includeArchived: z.boolean().optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "blogs.posts.create": z
     .object({
       title: z.string().trim().max(180).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "blogs.posts.get": z
     .object({
       postId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "blogs.posts.update": z
     .object({
@@ -1118,28 +1130,28 @@ export const PortalAgentActionArgsSchemaByKey = {
         .optional(),
       archived: z.boolean().optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "blogs.posts.delete": z
     .object({
       postId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "blogs.posts.archive": z
     .object({
       postId: z.string().trim().min(1).max(120),
       archived: z.boolean(),
     })
-    .strict(),
+    .passthrough(),
 
   "blogs.posts.export_markdown": z
     .object({
       postId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
-  "blogs.automation.settings.get": z.object({}).strict(),
+  "blogs.automation.settings.get": z.object({}).passthrough(),
 
   "blogs.automation.settings.update": z
     .object({
@@ -1148,11 +1160,11 @@ export const PortalAgentActionArgsSchemaByKey = {
       topics: z.array(z.string().trim().min(1).max(200)).max(50),
       autoPublish: z.boolean().optional(),
     })
-    .strict(),
+    .passthrough(),
 
-  "blogs.automation.cron.run": z.object({}).strict(),
+  "blogs.automation.cron.run": z.object({}).passthrough(),
 
-  "blogs.generate_now": z.object({}).strict(),
+  "blogs.generate_now": z.object({}).passthrough(),
 
   "blogs.posts.generate_draft": z
     .object({
@@ -1160,13 +1172,13 @@ export const PortalAgentActionArgsSchemaByKey = {
       prompt: z.string().trim().min(1).max(2000).optional().nullable(),
       topic: z.string().trim().min(1).max(200).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "blogs.posts.publish": z
     .object({
       postId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "blogs.site.verify": z
     .object({
@@ -1174,7 +1186,7 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
-  "newsletter.site.get": z.object({}).strict(),
+  "newsletter.site.get": z.object({}).passthrough(),
 
   "newsletter.site.update": z
     .object({
@@ -1188,7 +1200,7 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       range: z.enum(["7d", "30d", "90d", "all"]).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "newsletter.royalty_free_images.search": z
     .object({
@@ -1209,15 +1221,15 @@ export const PortalAgentActionArgsSchemaByKey = {
       kind: z.enum(["external", "internal"]).optional(),
       take: z.number().int().min(1).max(200).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "newsletter.newsletters.create": z
     .object({
-      kind: z.enum(["external", "internal"]),
+      kind: z.enum(["external", "internal"]).optional().nullable(),
       status: z.enum(["DRAFT", "READY"]).optional(),
       title: z.string().trim().min(1).max(180),
-      excerpt: z.string().trim().max(6000),
-      content: z.string().trim().max(200000),
+      excerpt: z.string().trim().max(6000).optional().nullable(),
+      content: z.string().trim().max(200000).optional().nullable(),
       smsText: z
         .string()
         .trim()
@@ -1231,13 +1243,13 @@ export const PortalAgentActionArgsSchemaByKey = {
           return t ? t : null;
         }),
     })
-    .strict(),
+    .passthrough(),
 
   "newsletter.newsletters.get": z
     .object({
       newsletterId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "newsletter.newsletters.update": z
     .object({
@@ -1259,13 +1271,13 @@ export const PortalAgentActionArgsSchemaByKey = {
         }),
       hostedOnly: z.boolean().optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "newsletter.newsletters.send": z
     .object({
       newsletterId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "newsletter.audience.contacts.search": z
     .object({
@@ -1273,13 +1285,13 @@ export const PortalAgentActionArgsSchemaByKey = {
       ids: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
       take: z.number().int().min(1).max(200).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "newsletter.automation.settings.get": z
     .object({
       kind: z.enum(["external", "internal"]).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "newsletter.automation.settings.update": z
     .object({
@@ -1306,21 +1318,21 @@ export const PortalAgentActionArgsSchemaByKey = {
         })
         .optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "newsletter.generate_now": z
     .object({
       kind: z.enum(["external", "internal"]),
     })
-    .strict(),
+    .passthrough(),
 
-  "newsletter.automation.cron.run": z.object({}).strict(),
+  "newsletter.automation.cron.run": z.object({}).passthrough(),
 
-  "billing.summary.get": z.object({}).strict(),
+  "billing.summary.get": z.object({}).passthrough(),
 
-  "billing.subscriptions.list": z.object({}).strict(),
+  "billing.subscriptions.list": z.object({}).passthrough(),
 
-  "billing.info.get": z.object({}).strict(),
+  "billing.info.get": z.object({}).passthrough(),
 
   "billing.info.update": z
     .object({
@@ -1332,20 +1344,20 @@ export const PortalAgentActionArgsSchemaByKey = {
       billingState: z.string().trim().max(120).optional(),
       billingPostalCode: z.string().trim().max(40).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "billing.subscriptions.cancel": z
     .object({
       immediate: z.boolean().optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "billing.subscriptions.cancel_by_id": z
     .object({
       subscriptionId: z.string().trim().min(1).max(120),
       immediate: z.boolean().optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "billing.checkout_module": z
     .object({
@@ -1367,26 +1379,26 @@ export const PortalAgentActionArgsSchemaByKey = {
       campaignId: z.string().trim().min(1).max(64).optional(),
       serviceSlug: z.string().trim().min(1).max(64).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "billing.portal_session.create": z
     .object({
       returnPath: z.string().trim().min(1).max(2000).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "billing.credits_only.cancel": z
     .object({
       action: z.enum(["cancel", "resume"]),
     })
-    .strict(),
+    .passthrough(),
 
   "billing.monthly_credits.cron.run": z
     .object({
       limit: z.number().int().min(1).max(5000).optional(),
       maxCatchUpGiftsPerOwner: z.number().int().min(0).max(50).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "billing.onboarding.checkout": z
     .object({
@@ -1394,28 +1406,28 @@ export const PortalAgentActionArgsSchemaByKey = {
       planQuantities: z.record(z.string().trim().min(1).max(80), z.number().int().min(0).max(50)).optional(),
       couponCode: z.string().trim().max(80).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "billing.onboarding.confirm": z
     .object({
       sessionId: z.string().trim().min(10).max(200).optional(),
       bypass: z.boolean().optional(),
     })
-    .strict(),
+    .passthrough(),
 
-  "billing.setup_intent.create": z.object({}).strict(),
+  "billing.setup_intent.create": z.object({}).passthrough(),
 
   "billing.setup_intent.finalize": z
     .object({
       setupIntentId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "billing.upgrade.checkout": z
     .object({
       bundleId: z.enum(["launch-kit", "sales-loop", "brand-builder"]),
     })
-    .strict(),
+    .passthrough(),
 
   "pricing.get": z.object({}).strict(),
 
@@ -1592,7 +1604,7 @@ export const PortalAgentActionArgsSchemaByKey = {
         })
         .optional(),
     })
-    .strict(),
+      .passthrough(),
 
   "automations.create": z
     .object({
@@ -1604,15 +1616,15 @@ export const PortalAgentActionArgsSchemaByKey = {
       // Optional contact used to target scheduled automations (e.g., scheduled SMS to a specific person).
       targetContactId: z.string().trim().min(1).max(120).optional(),
     })
-    .strict(),
+    .passthrough(),
 
-  "automations.settings.get": z.object({}).strict(),
+  "automations.settings.get": z.object({}).passthrough(),
 
   "automations.settings.update": z
     .object({
       automations: z.array(z.unknown()).max(50),
     })
-    .strict(),
+    .passthrough(),
 
   "automations.test_sms": z
     .object({
@@ -1620,15 +1632,16 @@ export const PortalAgentActionArgsSchemaByKey = {
       from: z.string().trim().min(3).max(32),
       body: z.string().trim().min(0).max(2000).default(""),
     })
-    .strict(),
+    .passthrough(),
 
-  "automations.cron.run": z.object({}).strict(),
+  "automations.cron.run": z.object({}).passthrough(),
 
   "contacts.list": z
     .object({
+      q: z.string().trim().min(1).max(200).optional().nullable(),
       limit: z.number().int().min(1).max(100).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "contacts.create": z
     .object({
@@ -1638,13 +1651,13 @@ export const PortalAgentActionArgsSchemaByKey = {
       tags: z.union([z.array(z.string().trim().min(1).max(60)).max(10), z.string().trim().max(600)]).optional().nullable(),
       customVariables: z.record(z.string().trim().max(60), z.string().trim().max(120)).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "contacts.get": z
     .object({
       contactId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "contacts.update": z
     .object({
@@ -1654,7 +1667,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       phone: z.string().trim().max(60).optional().nullable(),
       customVariables: z.record(z.string().trim().max(60), z.string()).optional().nullable(),
     })
-    .strict()
+    .passthrough()
     .refine((value) => value.name !== undefined || value.email !== undefined || value.phone !== undefined || value.customVariables !== undefined, {
       message: "No contact changes provided",
     }),
@@ -1663,27 +1676,27 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       contactId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "contacts.tags.list": z
     .object({
       contactId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "contacts.tags.add": z
     .object({
       contactId: z.string().trim().min(1).max(120),
       tagId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "contacts.tags.remove": z
     .object({
       contactId: z.string().trim().min(1).max(120),
       tagId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "onboarding.status.get": z.object({}).strict(),
 
@@ -1780,7 +1793,7 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "referrals.link.rotate": z.object({}).strict(),
 
-  "profile.get": z.object({}).strict(),
+  "profile.get": z.object({}).passthrough(),
 
   "profile.update": z
     .object({
@@ -1800,7 +1813,7 @@ export const PortalAgentActionArgsSchemaByKey = {
 
       enableDefaultSmsNotifications: z.boolean().optional().nullable(),
     })
-    .strict()
+    .passthrough()
     .refine(
       (v) =>
         v.firstName !== undefined ||
@@ -1825,7 +1838,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       currentPassword: z.string().min(1).max(200),
       newPassword: z.string().min(8).max(200),
     })
-    .strict(),
+    .passthrough(),
 
   "integrations.twilio.get": z
     .object({
@@ -1970,13 +1983,13 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
-  "lead_scraping.settings.get": z.object({}).strict(),
+  "lead_scraping.settings.get": z.object({}).passthrough(),
 
   "lead_scraping.settings.update": z
     .object({
       settings: z.unknown(),
     })
-    .strict(),
+    .passthrough(),
 
   "lead_scraping.run": z
     .object({
@@ -2008,7 +2021,7 @@ export const PortalAgentActionArgsSchemaByKey = {
         .strict()
         .optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "lead_scraping.leads.list": z
     .object({
@@ -2016,7 +2029,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       q: z.string().trim().max(200).optional(),
       kind: z.enum(["B2B", "B2C"]).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "lead_scraping.leads.update": z
     .object({
@@ -2041,7 +2054,7 @@ export const PortalAgentActionArgsSchemaByKey = {
         .optional()
         .transform((v) => (v === "" ? null : v)),
     })
-    .strict()
+    .passthrough()
     .refine((v) => v.starred !== undefined || v.email !== undefined || v.tag !== undefined || v.tagColor !== undefined, {
       message: "No changes provided",
     })
@@ -2064,7 +2077,7 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       leadId: z.string().trim().min(1).max(64),
     })
-    .strict(),
+    .passthrough(),
 
   "lead_scraping.outbound.ai.draft_template": z
     .object({
@@ -2073,7 +2086,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       existingSubject: z.string().trim().max(200).optional(),
       existingBody: z.string().trim().max(8000).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "lead_scraping.contact.send": z
     .object({
@@ -2083,7 +2096,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       sendEmail: z.boolean().optional(),
       sendSms: z.boolean().optional(),
     })
-    .strict()
+    .passthrough()
     .refine((v) => Boolean(v.sendEmail) || Boolean(v.sendSms), { message: "Choose Email and/or Text" }),
 
   "lead_scraping.outbound.approve": z
@@ -2091,17 +2104,17 @@ export const PortalAgentActionArgsSchemaByKey = {
       leadId: z.string().trim().min(1).max(64),
       approved: z.boolean(),
     })
-    .strict(),
+    .passthrough(),
 
   "lead_scraping.outbound.send": z
     .object({
       leadId: z.string().trim().min(1).max(64),
     })
-    .strict(),
+    .passthrough(),
 
-  "lead_scraping.cron.run": z.object({}).strict(),
+  "lead_scraping.cron.run": z.object({}).passthrough(),
 
-  "webhooks.get": z.object({}).strict(),
+  "webhooks.get": z.object({}).passthrough(),
 
   "bug_report.submit": z
     .object({
@@ -2144,24 +2157,24 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
-  "services.catalog.get": z.object({}).strict(),
+  "services.catalog.get": z.object({}).passthrough(),
 
-  "services.status.get": z.object({}).strict(),
+  "services.status.get": z.object({}).passthrough(),
 
   "services.lifecycle.update": z
     .object({
       serviceSlug: z.string().trim().min(1).max(80),
       action: z.enum(["pause", "cancel", "resume"]),
     })
-    .strict(),
+    .passthrough(),
 
-  "mailbox.get": z.object({}).strict(),
+  "mailbox.get": z.object({}).passthrough(),
 
   "mailbox.update": z
     .object({
       localPart: z.string().trim().min(2).max(48),
     })
-    .strict(),
+    .passthrough(),
 
   "missed_call_textback.settings.get": z.object({}).strict(),
 
@@ -2173,7 +2186,7 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict()
     .refine((v) => v.regenerateToken === true || v.settings !== undefined, { message: "Missing settings" }),
 
-  "people.users.list": z.object({}).strict(),
+  "people.users.list": z.object({}).passthrough(),
 
   "people.users.invite": z
     .object({
@@ -2181,7 +2194,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       role: z.enum(["ADMIN", "MEMBER"]).optional().nullable(),
       permissions: z.unknown().optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "people.users.update": z
     .object({
@@ -2189,13 +2202,13 @@ export const PortalAgentActionArgsSchemaByKey = {
       role: z.enum(["ADMIN", "MEMBER"]).optional().nullable(),
       permissions: z.unknown().optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "people.users.delete": z
     .object({
       userId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "people.leads.update": z
     .object({
@@ -2245,17 +2258,28 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "inbox.threads.list": z
     .object({
-      channel: z.enum(["EMAIL", "SMS"]).optional().nullable(),
+      channel: z
+        .union([z.enum(["EMAIL", "SMS", "ALL"]), z.string().trim().min(1).max(20)])
+        .optional()
+        .nullable(),
+      q: z.string().trim().min(1).max(200).optional().nullable(),
       take: z.number().int().min(1).max(200).optional().nullable(),
+      direction: z.string().trim().min(1).max(20).optional().nullable(),
+      box: z.string().trim().min(1).max(40).optional().nullable(),
+      mailbox: z.string().trim().min(1).max(40).optional().nullable(),
+      needsReply: z.boolean().optional().nullable(),
+      unansweredOnly: z.boolean().optional().nullable(),
+      onlyUnanswered: z.boolean().optional().nullable(),
+      allChannels: z.boolean().optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "inbox.thread.messages.list": z
     .object({
       threadId: z.string().trim().min(1).max(120),
       take: z.number().int().min(10).max(500).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "inbox.thread.contact.set": z
     .object({
@@ -2270,20 +2294,20 @@ export const PortalAgentActionArgsSchemaByKey = {
         .refine((v) => v === null || v === undefined || v === "" || /.+@.+\..+/.test(v), { message: "Invalid email" }),
       phone: z.string().trim().max(40).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "inbox.scheduled.update": z
     .object({
       scheduledId: z.string().trim().min(1).max(120),
       scheduledFor: z.string().datetime(),
     })
-    .strict(),
+    .passthrough(),
 
   "inbox.scheduled.cron.run": z
     .object({
       limit: z.number().int().min(1).max(500).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "inbox.attachments.upload": z
     .object({
@@ -2306,21 +2330,21 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       mediaItemId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "inbox.attachments.delete": z
     .object({
       id: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
-  "inbox.settings.get": z.object({}).strict(),
+  "inbox.settings.get": z.object({}).passthrough(),
 
   "inbox.settings.update": z
     .object({
       regenerateToken: z.boolean().optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "inbox.send": z
     .object({
@@ -2332,7 +2356,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       threadId: z.string().trim().min(1).max(120).optional().nullable(),
       sendAt: z.string().datetime().optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "inbox.send_sms": z
     .object({
@@ -2344,7 +2368,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       bodyPrompt: z.string().trim().min(3).max(1200).optional(),
       threadId: z.string().trim().min(1).max(120).optional(),
     })
-    .strict()
+    .passthrough()
     .refine((v) => Boolean((v as any).to || (v as any).contactId || (v as any).threadId), { message: "Missing to/contactId/threadId" })
     .refine((v) => Boolean((v as any).body || (v as any).bodyPrompt), { message: "Missing body/bodyPrompt" }),
 
@@ -2355,7 +2379,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       body: z.string().trim().min(1).max(20000),
       threadId: z.string().trim().min(1).max(120).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "reviews.send_request_for_booking": z
     .object({
@@ -2395,15 +2419,16 @@ export const PortalAgentActionArgsSchemaByKey = {
   "reviews.inbox.list": z
     .object({
       includeArchived: z.boolean().optional().nullable(),
+      hasBusinessReply: z.boolean().optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "reviews.archive": z
     .object({
       reviewId: z.string().trim().min(1).max(120),
       archived: z.boolean(),
     })
-    .strict(),
+    .passthrough(),
 
   "reviews.bookings.list": z.object({}).strict(),
 
@@ -2412,13 +2437,13 @@ export const PortalAgentActionArgsSchemaByKey = {
       q: z.string().trim().max(200).optional().nullable(),
       take: z.number().int().min(1).max(50).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "reviews.events.list": z
     .object({
       limit: z.number().int().min(1).max(200).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "reviews.handle.get": z.object({}).strict(),
 
@@ -2429,7 +2454,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       id: z.string().trim().min(1).max(120),
       answer: z.string().max(2000).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "reviews.cron.run": z
     .object({
@@ -2439,7 +2464,7 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
-  "media.folders.list": z.object({}).strict(),
+  "media.folders.list": z.object({}).passthrough(),
 
   "media.folders.update": z
     .object({
@@ -2448,7 +2473,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       parentId: z.string().trim().min(1).optional().nullable(),
       color: z.string().trim().min(1).max(32).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "media.folder.ensure": z
     .object({
@@ -2456,7 +2481,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       parentId: z.string().trim().min(1).optional().nullable(),
       color: z.string().trim().min(1).max(32).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "media.items.list": z
     .object({
@@ -2464,7 +2489,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       folderId: z.string().trim().min(1).max(80).optional().nullable(),
       limit: z.number().int().min(1).max(500).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "media.items.move": z
     .object({
@@ -2473,7 +2498,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       folderName: z.string().trim().min(1).max(120).optional().nullable(),
       parentId: z.string().trim().min(1).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "media.items.update": z
     .object({
@@ -2481,14 +2506,14 @@ export const PortalAgentActionArgsSchemaByKey = {
       fileName: z.string().trim().min(1).max(200).optional(),
       folderId: z.string().trim().min(1).optional().nullable(),
     })
-    .strict()
+    .passthrough()
     .refine((v) => v.fileName !== undefined || v.folderId !== undefined, { message: "No changes" }),
 
   "media.items.delete": z
     .object({
       id: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "media.items.create_from_blob": z
     .object({
@@ -2498,7 +2523,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       fileSize: z.number().int().nonnegative(),
       folderId: z.string().trim().min(1).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "media.import_remote_image": z
     .object({
@@ -2508,15 +2533,15 @@ export const PortalAgentActionArgsSchemaByKey = {
       folderName: z.string().trim().min(1).max(120).optional().nullable(),
       parentId: z.string().trim().min(1).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "media.list.get": z
     .object({
       folderId: z.string().trim().min(1).max(80).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
-  "media.stats.get": z.object({}).strict(),
+  "media.stats.get": z.object({}).passthrough(),
 
   "media.blob_upload.create": z
     .object({
@@ -2526,7 +2551,7 @@ export const PortalAgentActionArgsSchemaByKey = {
           message: "body.type is required",
         }),
     })
-    .strict(),
+    .passthrough(),
 
   "seed_demo.run": z
     .object({
@@ -2586,41 +2611,41 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       scope: z.enum(["default", "embedded"]).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "dashboard.save": z
     .object({
       scope: z.enum(["default", "embedded"]).optional().nullable(),
       data: z.unknown().optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "dashboard.reset": z
     .object({
       scope: z.enum(["default", "embedded"]).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "dashboard.add_widget": z
     .object({
       scope: z.enum(["default", "embedded"]).optional().nullable(),
       widgetId: z.string().trim().min(1).max(80),
     })
-    .strict(),
+    .passthrough(),
 
   "dashboard.remove_widget": z
     .object({
       scope: z.enum(["default", "embedded"]).optional().nullable(),
       widgetId: z.string().trim().min(1).max(80),
     })
-    .strict(),
+    .passthrough(),
 
   "dashboard.optimize": z
     .object({
       scope: z.enum(["default", "embedded"]).optional().nullable(),
       niche: z.string().trim().min(1).max(120).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "dashboard.analysis.get": z.object({}).strict(),
 
@@ -2629,7 +2654,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       trigger: z.string().trim().max(120).optional(),
       force: z.boolean().optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "dashboard.quick_access.get": z.object({}).strict(),
 
@@ -2637,7 +2662,7 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       slugs: z.array(z.string().trim().min(1).max(80)).max(12),
     })
-    .strict(),
+    .passthrough(),
 
   "booking.calendar.create": z.preprocess(
     (raw) => {
@@ -3010,8 +3035,21 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       campaignId: z.string().trim().min(1).max(120),
       kind: z.enum(["SMS", "EMAIL", "TAG"]).optional(),
+      delayMinutes: z.number().int().min(0).max(60 * 24 * 365).optional().nullable(),
+      subject: z.string().max(200).optional().nullable(),
+      body: z.string().max(8000).optional().nullable(),
+      step: z
+        .object({
+          kind: z.enum(["SMS", "EMAIL", "TAG"]).optional().nullable(),
+          delayMinutes: z.number().int().min(0).max(60 * 24 * 365).optional().nullable(),
+          subject: z.string().max(200).optional().nullable(),
+          body: z.string().max(8000).optional().nullable(),
+        })
+        .partial()
+        .optional()
+        .nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "nurture.steps.update": z
     .object({
@@ -3061,13 +3099,13 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       lite: z.boolean().optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.create": z
     .object({
       name: z.string().trim().min(1).max(80).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.update": z
     .object({
@@ -3171,41 +3209,41 @@ export const PortalAgentActionArgsSchemaByKey = {
         .strict()
         .optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.activity.get": z
     .object({
       campaignId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.messages_activity.get": z
     .object({
       campaignId: z.string().trim().min(1).max(120),
       take: z.number().int().min(1).max(60).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.contacts.search": z
     .object({
       q: z.string().trim().max(80).optional().nullable(),
       take: z.number().int().min(1).max(20).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.manual_calls.list": z
     .object({
       campaignId: z.string().trim().max(120).optional().nullable(),
       reconcileTwilio: z.boolean().optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.manual_calls.get": z
     .object({
       id: z.string().trim().min(1).max(120),
       reconcileTwilio: z.boolean().optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.enroll_message": z
     .object({
@@ -3215,7 +3253,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       channelPolicy: z.enum(["SMS", "EMAIL", "BOTH"]).optional(),
     })
     .refine((v) => Boolean(v.contactId || v.target), { message: "contactId or target required" })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.generate_agent_config": z
     .object({
@@ -3223,13 +3261,13 @@ export const PortalAgentActionArgsSchemaByKey = {
       kind: z.enum(["calls", "messages"]),
       context: z.string().trim().min(3).max(4000),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.knowledge_base.sync": z
     .object({
       campaignId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.knowledge_base.upload": z
     .object({
@@ -3239,20 +3277,20 @@ export const PortalAgentActionArgsSchemaByKey = {
       contentBase64: z.string().trim().min(1).max(16_000_000),
       name: z.string().trim().max(200).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.manual_call": z
     .object({
       campaignId: z.string().trim().min(1).max(120),
       toNumber: z.string().trim().min(1).max(40),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.messages_knowledge_base.sync": z
     .object({
       campaignId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.messages_knowledge_base.upload": z
     .object({
@@ -3261,7 +3299,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       mimeType: z.string().trim().max(120).optional().nullable(),
       contentBase64: z.string().trim().min(1).max(16_000_000),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.preview_message_reply": z
     .object({
@@ -3280,27 +3318,27 @@ export const PortalAgentActionArgsSchemaByKey = {
         .max(20)
         .optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.sync_agent": z
     .object({
       campaignId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.campaigns.sync_chat_agent": z
     .object({
       campaignId: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
-  "ai_outbound_calls.cron.run": z.object({}).strict(),
+  "ai_outbound_calls.cron.run": z.object({}).passthrough(),
 
   "ai_outbound_calls.manual_calls.refresh": z
     .object({
       id: z.string().trim().min(1).max(120),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_outbound_calls.recordings.get": z
     .object({
@@ -3308,16 +3346,16 @@ export const PortalAgentActionArgsSchemaByKey = {
       asBase64: z.boolean().optional().nullable(),
       maxBytes: z.number().int().min(1).max(12 * 1024 * 1024).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
-  "ai_receptionist.settings.get": z.object({}).strict(),
+  "ai_receptionist.settings.get": z.object({}).passthrough(),
 
   "ai_receptionist.highlights.get": z
     .object({
       lookbackHours: z.number().int().min(1).max(24 * 30).optional(),
       limit: z.number().int().min(1).max(200).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.settings.update": z
     .object({
@@ -3325,38 +3363,38 @@ export const PortalAgentActionArgsSchemaByKey = {
       regenerateToken: z.boolean().optional(),
       syncChatAgent: z.boolean().optional().nullable(),
     })
-    .strict()
+    .passthrough()
     .refine((v) => v.regenerateToken === true || v.settings !== undefined, { message: "Missing settings" }),
 
   "ai_receptionist.events.refresh": z
     .object({
       callSid: z.string().trim().min(1).max(80),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.events.delete": z
     .object({
       callSid: z.string().trim().min(1).max(80),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.recordings.get": z
     .object({
       recordingSid: z.string().trim().min(1).max(64),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.recordings.demo.get": z
     .object({
       id: z.string().trim().min(1).max(40),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.demo_audio.get": z
     .object({
       id: z.string().trim().min(1).max(40),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.settings.generate": z
     .object({
@@ -3365,13 +3403,13 @@ export const PortalAgentActionArgsSchemaByKey = {
       aiCanTransferToHuman: z.boolean().optional().nullable(),
       forwardToPhoneE164: z.string().trim().max(60).nullable().optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.sms_system_prompt.generate": z
     .object({
       context: z.string().trim().max(4000).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.text.polish": z
     .object({
@@ -3379,7 +3417,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       channel: z.enum(["voice", "sms"]),
       text: z.string().trim().min(1).max(8000),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.sms_reply.preview": z
     .object({
@@ -3397,7 +3435,7 @@ export const PortalAgentActionArgsSchemaByKey = {
         .optional(),
       contactTagIds: z.array(z.string().trim().min(1).max(80)).max(60).optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.sms_knowledge_base.sync": z
     .object({
@@ -3412,7 +3450,7 @@ export const PortalAgentActionArgsSchemaByKey = {
         .optional()
         .nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.voice_knowledge_base.sync": z
     .object({
@@ -3427,7 +3465,7 @@ export const PortalAgentActionArgsSchemaByKey = {
         .optional()
         .nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.sms_knowledge_base.upload": z
     .object({
@@ -3445,7 +3483,7 @@ export const PortalAgentActionArgsSchemaByKey = {
         .optional()
         .nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "ai_receptionist.voice_knowledge_base.upload": z
     .object({
@@ -3463,9 +3501,9 @@ export const PortalAgentActionArgsSchemaByKey = {
         .optional()
         .nullable(),
     })
-    .strict(),
+    .passthrough(),
 
-  "business_profile.get": z.object({}).strict(),
+  "business_profile.get": z.object({}).passthrough(),
 
   "business_profile.update": z
     .object({
@@ -3565,7 +3603,7 @@ export const PortalAgentActionArgsSchemaByKey = {
         })
         .optional(),
     })
-    .strict(),
+    .passthrough(),
 
   "elevenlabs.convai.token.get": z
     .object({
@@ -3583,19 +3621,19 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       range: z.enum(["today", "7d", "30d", "90d", "all"]).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "reporting.sales.get": z
     .object({
       range: z.enum(["7d", "30d"]).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 
   "reporting.stripe.get": z
     .object({
       range: z.enum(["7d", "30d"]).optional().nullable(),
     })
-    .strict(),
+    .passthrough(),
 } as const;
 
 export type PortalAgentActionArgs<K extends PortalAgentActionKey> = z.infer<(typeof PortalAgentActionArgsSchemaByKey)[K]>;
@@ -3614,7 +3652,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- tasks.create: Create a portal task (fields: title, description?, assignedToUserId?, dueAtIso?)",
     "- tasks.create_for_all: Create the same task for every team member (fields: title, description?, dueAtIso?)",
     "- tasks.update: Update a task (fields: taskId, status?, title?, description?, assignedToUserId?, dueAtIso?)",
-    "- tasks.list: List tasks (fields: status=OPEN|DONE|CANCELED|ALL?, assigned=all|me?, limit?)",
+    "- tasks.list: List/search tasks (fields: status=OPEN|DONE|CANCELED|ALL?, assigned=all|me?, q?, limit?)",
     "- tasks.assignees.list: List task assignees (team members)",
     "- funnel.create: Create a Funnel Builder funnel (fields: name, slug)",
     "- funnel_builder.settings.get: Get Funnel Builder settings",
@@ -3724,7 +3762,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- automations.settings.get: Get automations settings (returns webhookToken, viewer, automations)",
     "- automations.settings.update: Replace automations settings (fields: automations)",
     "- automations.test_sms: Trigger an automation as if an inbound SMS occurred (fields: automationId, from, body?)",
-    "- contacts.list: List recent contacts (fields: limit?)",
+    "- contacts.list: List/search contacts (fields: q?, limit?)",
     "- contacts.create: Create a contact (fields: name, email?, phone?, tags?, customVariables?)",
     "- contacts.get: Get a contact by id with recent activity (fields: contactId)",
     "- contacts.update: Update a contact (fields: contactId, name, email?, phone?, customVariables?)",
@@ -3736,7 +3774,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- suggested_setup.preview.get: Get suggested setup preview (entitlements + proposed actions)",
     "- suggested_setup.apply: Apply selected suggested setup actions (fields: actionIds)",
     "- ai_agents.list: List known ElevenLabs agent IDs referenced by your portal account (voice/chat/outbound)",
-    "- ai_chat.threads.list: List AI chat threads",
+    "- ai_chat.threads.list: List Pura AI chat threads only (NOT customer inbox/email/SMS conversations)",
     "- ai_chat.threads.create: Create a new AI chat thread (fields: title?)",
     "- ai_chat.threads.update: Update thread metadata (fields: threadId, title?, pinned?)",
     "- ai_chat.threads.delete: Delete an AI chat thread (fields: threadId)",
@@ -3829,7 +3867,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- people.contacts.duplicates.get: List duplicate contact groups (fields: limitGroups?, summaryOnly?)",
     "- people.contacts.merge: Merge duplicate contacts (fields: primaryContactId, mergeContactIds, primaryEmail?)",
     "- people.contacts.custom_variables.patch: Set/remove a contact custom variable (fields: contactId, key, value?)",
-    "- inbox.threads.list: List inbox threads (fields: channel=EMAIL|SMS?, take?)",
+    "- inbox.threads.list: List/search inbox threads (fields: channel=EMAIL|SMS?, q?, take?)",
     "- inbox.thread.messages.list: Load messages for a thread (fields: threadId, take?)",
     "- inbox.thread.contact.set: Set/link the contact for an inbox thread (fields: threadId, name, email?, phone?)",
     "- inbox.scheduled.update: Reschedule a pending scheduled inbox message (fields: scheduledId, scheduledFor)",

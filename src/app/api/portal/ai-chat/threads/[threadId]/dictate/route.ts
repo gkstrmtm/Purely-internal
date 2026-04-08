@@ -21,6 +21,67 @@ const postSchema = z
   .strict()
   .optional();
 
+function chunkSpeakableText(raw: string, maxChars: number): string[] {
+  const text = String(raw || "").trim();
+  const limit = Math.max(180, Math.min(480, Math.floor(maxChars || 0)));
+  if (!text) return [];
+
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const chunks: string[] = [];
+  let current = "";
+
+  const pushCurrent = () => {
+    const trimmed = current.trim();
+    if (trimmed) chunks.push(trimmed);
+    current = "";
+  };
+
+  const appendPiece = (piece: string) => {
+    const trimmed = piece.trim();
+    if (!trimmed) return;
+    if (!current) {
+      current = trimmed;
+      return;
+    }
+    if (`${current} ${trimmed}`.length <= limit) {
+      current = `${current} ${trimmed}`;
+      return;
+    }
+    pushCurrent();
+    current = trimmed;
+  };
+
+  const source = sentences.length ? sentences : [text];
+  for (const sentence of source) {
+    if (sentence.length <= limit) {
+      appendPiece(sentence);
+      continue;
+    }
+    const words = sentence.split(/\s+/).filter(Boolean);
+    let wordBuffer = "";
+    for (const word of words) {
+      if (!wordBuffer) {
+        wordBuffer = word;
+        continue;
+      }
+      if (`${wordBuffer} ${word}`.length <= limit) {
+        wordBuffer = `${wordBuffer} ${word}`;
+        continue;
+      }
+      appendPiece(wordBuffer);
+      wordBuffer = word;
+    }
+    appendPiece(wordBuffer);
+  }
+  pushCurrent();
+
+  return chunks.slice(0, 24);
+}
+
 function envFirst(keys: string[]): string {
   for (const key of keys) {
     const v = (process.env[key] ?? "").trim();
@@ -105,8 +166,7 @@ function toSpeakableText(raw: string): string {
   // Collapse whitespace
   t = t.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
 
-  // Cap to keep TTS latency reasonable.
-  return t.slice(0, 1200);
+  return t.slice(0, 8000);
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
@@ -179,19 +239,32 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     );
   }
 
-  const result = await synthesizeElevenLabsVoicePreview({ apiKey, voiceId, text: speakable });
-  if (!result.ok) {
-    return NextResponse.json(
-      { ok: false, error: friendlyVoiceAgentError(result.status) },
-      { status: result.status || 502 },
-    );
+  const speakableChunks = chunkSpeakableText(speakable, 420);
+  if (!speakableChunks.length) {
+    return NextResponse.json({ ok: false, error: "No assistant message to dictate." }, { status: 400 });
   }
 
-  return new Response(Buffer.from(result.audio), {
-    status: 200,
-    headers: {
-      "content-type": result.contentType || "audio/mpeg",
-      "cache-control": "no-store",
-    },
+  const audioChunks: Array<{ index: number; contentType: string; audioBase64: string }> = [];
+  for (let index = 0; index < speakableChunks.length; index += 1) {
+    const result = await synthesizeElevenLabsVoicePreview({ apiKey, voiceId, text: speakableChunks[index]! });
+    if (!result.ok) {
+      return NextResponse.json(
+        { ok: false, error: friendlyVoiceAgentError(result.status) },
+        { status: result.status || 502 },
+      );
+    }
+
+    audioChunks.push({
+      index,
+      contentType: result.contentType || "audio/mpeg",
+      audioBase64: Buffer.from(result.audio).toString("base64"),
+    });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    messageId: message?.id ? String(message.id) : null,
+    totalChunks: audioChunks.length,
+    chunks: audioChunks,
   });
 }

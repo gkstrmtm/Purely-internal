@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { persistPortalAiChatRun, type PortalAiChatRunStatus, type PortalAiChatRunTraceInput } from "@/lib/portalAiChatRunLedger";
 import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
-import { generatePuraText as generateText, runWithPuraAiProfile } from "@/lib/puraAi";
+import { generatePuraText as generateText, isPuraAiConfigured, runWithPuraAiProfile } from "@/lib/puraAi";
 import { PURA_AI_PROFILE_VALUES, normalizePuraAiProfile } from "@/lib/puraAiProfile";
 import {
   PortalAgentActionKeySchema,
@@ -21,11 +21,17 @@ import {
   executePortalAgentActionForThread,
   type PortalAgentFailureMeta,
 } from "@/lib/portalAgentActionExecutor";
-import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction, portalContactUiUrl } from "@/lib/portalAgentActionMeta";
+import { getConfirmSpecForPortalAgentAction, isReadOnlyPortalAgentAction, portalCanvasUrlForAction, portalContactUiUrl } from "@/lib/portalAgentActionMeta";
 import { encodeScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 import { previewResultForPlanner, summarizeIdsFromArgs } from "@/lib/portalAgentPlannerContextPreview";
 import { resolvePlanArgs } from "@/lib/puraResolver";
+import { detectPuraDirectIntentSignals } from "@/lib/puraDirectIntentSignals";
+import { getPuraDirectActionPlan, getPuraDirectPrerequisiteMessage } from "@/lib/puraDirectIntentPlans";
+import { formatAssistantMarkdownLink } from "@/lib/portalAssistantLinks";
+import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
+import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
+import { slugify } from "@/lib/slugify";
 
 import {
   buildKnownPortalIdsSystemNote,
@@ -588,6 +594,66 @@ function heuristicThreadTitleFromUserText(textRaw: string): string {
   if (title.length < 3) return "";
   if (title.toLowerCase() === "new chat") return "";
   return title;
+}
+
+function stableJsonForRunFingerprint(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) return `[${value.map((item) => stableJsonForRunFingerprint(item)).join(",")}]`;
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJsonForRunFingerprint(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function extractRunErrorText(result: any): string {
+  const nestedError =
+    result?.result &&
+    typeof result.result === "object" &&
+    !Array.isArray(result.result) &&
+    typeof result.result.error === "string"
+      ? String(result.result.error)
+      : "";
+  const directError = typeof result?.error === "string" ? String(result.error) : "";
+  return (nestedError || directError).trim().toLowerCase();
+}
+
+function collapseRedundantConflictSteps<
+  TStep extends { key?: unknown; args?: unknown },
+  TResult extends { action?: unknown; args?: unknown; status?: unknown; ok?: unknown; result?: unknown; error?: unknown },
+>(steps: TStep[], results: TResult[]): { steps: TStep[]; results: TResult[] } {
+  if (!Array.isArray(steps) || !Array.isArray(results) || !steps.length || !results.length) {
+    return { steps, results };
+  }
+
+  const keepIndexes = new Set<number>();
+  const successfulFingerprints = new Set<string>();
+
+  for (let index = 0; index < Math.min(steps.length, results.length); index += 1) {
+    const step = steps[index];
+    const result = results[index];
+    const action = String(result?.action || step?.key || "").trim();
+    const args = result?.args ?? step?.args ?? null;
+    const fingerprint = `${action}::${stableJsonForRunFingerprint(args)}`;
+    const status = Number(result?.status) || 0;
+    const ok = Boolean(result?.ok) && status >= 200 && status < 300;
+    const errorText = extractRunErrorText(result);
+    const isRedundantConflict = status === 409 && /already sent|already exists|already claimed/.test(errorText) && successfulFingerprints.has(fingerprint);
+
+    if (!isRedundantConflict) {
+      keepIndexes.add(index);
+    }
+    if (ok) {
+      successfulFingerprints.add(fingerprint);
+    }
+  }
+
+  const filteredSteps = steps.filter((_, index) => keepIndexes.has(index));
+  const filteredResults = results.filter((_, index) => keepIndexes.has(index));
+  return filteredSteps.length && filteredResults.length ? { steps: filteredSteps, results: filteredResults } : { steps, results };
 }
 
 // Legacy/experimental schema kept for future use.
@@ -2973,6 +3039,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   const threadChatMode = requestedChatMode || storedChatMode;
   const storedResponseProfile = normalizePuraAiProfile(initialThreadContext.responseProfile);
   const threadResponseProfile = requestedResponseProfile || storedResponseProfile;
+  const aiConfigErrorMessage = !isPuraAiConfigured(threadResponseProfile)
+    ? threadResponseProfile === "fast"
+      ? "Pura AI is not configured for fast responses in this environment."
+      : `Pura AI is not configured for ${threadResponseProfile} responses in this environment.`
+    : !isPortalSupportChatConfigured()
+      ? "Pura AI support chat is not configured in this environment."
+      : null;
   if (storedChatMode !== threadChatMode || storedResponseProfile !== threadResponseProfile) {
     persistedThreadContext = await persistThreadContext({ ...initialThreadContext, chatMode: threadChatMode, responseProfile: threadResponseProfile });
   }
@@ -3655,6 +3728,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               "- NO headings, NO bullet lists, NO tables.",
               "- Do NOT print raw JSON or field dumps.",
               "- Do NOT use labels like 'Action:', 'Status:', 'Result:'.",
+              "- Never invent URLs, domains, or links. Only mention a link when linkUrl or canvasUrl is explicitly provided, and use that exact path/value.",
               "Content rules:",
               "- Say what you did and the outcome in plain language.",
               "- If something failed, say what failed and the next step.",
@@ -3682,6 +3756,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     } catch {
       assistantText = "";
     }
+
+    const normalizedConfirmed = collapseRedundantConflictSteps(confirmedSteps, results);
+    const effectiveConfirmedSteps = normalizedConfirmed.steps;
+    const effectiveResults = normalizedConfirmed.results;
 
     const assistantMsg = assistantText.trim()
       ? await (prisma as any).portalAiChatMessage.create({
@@ -3716,17 +3794,17 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       at: now.toISOString(),
       workTitle: pendingConfirm.workTitle ?? null,
       assistantMessageId: assistantMsg?.id ?? null,
-      steps: confirmedSteps.map((s, idx) => ({
+      steps: effectiveConfirmedSteps.map((s, idx) => ({
         key: s.key,
         title: s.title,
-        ok: Boolean(results[idx]?.ok),
-        linkUrl: results[idx]?.linkUrl ?? null,
+        ok: Boolean(effectiveResults[idx]?.ok),
+        linkUrl: effectiveResults[idx]?.linkUrl ?? null,
       })),
       canvasUrl,
     };
     const runs = [...prevRuns.slice(-19), runTrace];
-    const okCount = results.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length;
-    const failedCount = results.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length;
+    const okCount = effectiveResults.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length;
+    const failedCount = effectiveResults.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length;
     const runStatus: PortalAiChatRunStatus = failedCount > 0 ? (okCount > 0 ? "partial" : "failed") : "completed";
 
     const nextCtxBase = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
@@ -3750,9 +3828,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
-    const openScheduledTasks = confirmedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
+    const openScheduledTasks = effectiveConfirmedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
     const followUpSuggestions = buildProactiveFollowUpSuggestions({
-      actionKeys: confirmedSteps.map((s) => String(s.key || "")).filter(Boolean),
+      actionKeys: effectiveConfirmedSteps.map((s) => String(s.key || "")).filter(Boolean),
       canvasUrl,
       completedCount: okCount,
       failedCount,
@@ -4076,6 +4154,1220 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const planningTextWithAttachments = attachmentTextContext
         ? [effectivePlanningText, attachmentTextContext].filter(Boolean).join("\n").slice(0, 12_000)
         : effectivePlanningText;
+
+      if (hasNewUserText && !isConfirmOnly && !didClickChoice) {
+        const preflightPrompt = String(effectiveText || "").trim();
+        const preflightCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
+        const signals = detectPuraDirectIntentSignals(preflightPrompt, preflightCtx);
+        const preflightSmsThreadMatch = signals.smsThreadWithName;
+        const preflightInboxSearchQuery = signals.inboxSearchQuery;
+        const preflightInboxSearchChannel = signals.inboxSearchChannel;
+        const shouldRunPreflightInboxSummary = signals.shouldRunPreflightInboxSummary;
+        const shouldRunPreflightReceptionist = signals.shouldRunPreflightReceptionist;
+        const shouldRunPreflightReceptionistPeople = signals.shouldRunPreflightReceptionistPeople;
+        const shouldRunPreflightReviewSummary = signals.shouldRunPreflightReviewSummary;
+        const shouldRunPreflightWorkSummary = signals.shouldRunPreflightWorkSummary;
+        const shouldRunPreflightCrossSurfaceNextSteps = signals.shouldRunPreflightCrossSurfaceNextSteps;
+        const preflightContactDetailName = signals.contactDetailName;
+        const preflightTaskLookupQuery = signals.taskLookupQuery;
+        const preflightReviewDetailName = signals.reviewDetailName;
+        const draftInboxReplyIntent = signals.draftInboxReplyIntent;
+        const shouldTightenLatestNewsletter = signals.shouldTightenLatestNewsletter;
+        const shouldPolishLatestBlog = signals.shouldPolishLatestBlog;
+        const reviewReplyIntent = signals.reviewReplyIntent;
+        const shouldSetWeekdayAvailability = signals.shouldSetWeekdayAvailability;
+        const shouldAssessCrossSurfaceReadiness = signals.shouldAssessCrossSurfaceReadiness;
+
+        const runDirectActionPlan = async (plan: { action: PortalAgentActionKey; traceTitle: string; args: Record<string, unknown> } | null) => {
+          if (!plan) return null;
+          const exec = await executePortalAgentAction({
+            ownerId,
+            actorUserId: createdByUserId,
+            action: plan.action,
+            args: plan.args,
+          });
+          return finalizePreflightResponse({
+            exec,
+            traceKey: plan.action,
+            traceTitle: plan.traceTitle,
+            traceArgs: plan.args,
+            promptText: preflightPrompt,
+          });
+        };
+
+        const formatPreflightDateTime = (raw: unknown) => {
+          if (typeof raw !== "string") return "";
+          const timestamp = Date.parse(raw);
+          if (!Number.isFinite(timestamp)) return "";
+          return new Date(timestamp).toLocaleString();
+        };
+
+        const cleanPreflightText = (value: unknown, max = 180) =>
+          String(value || "")
+            .trim()
+            .replace(/[\r\n\t]+/g, " ")
+            .replace(/\s+/g, " ")
+            .slice(0, max)
+            .trim();
+
+        const summarizeReceptionistCaller = (event: any) => {
+          const name = cleanPreflightText(event?.contactName, 80);
+          const email = cleanPreflightText(event?.contactEmail, 120);
+          const phone = cleanPreflightText(event?.contactPhone || event?.from, 40);
+          return name || email || phone || "Unknown caller";
+        };
+
+        const formatTaskStatus = (task: any) => cleanPreflightText(task?.status || "OPEN", 40).toUpperCase() || "OPEN";
+
+        const isTaskClosed = (task: any) => /^(DONE|COMPLETED|CLOSED|CANCELLED|CANCELED)$/.test(formatTaskStatus(task));
+
+        const buildReceptionistRecentPeopleAssistantText = (events: any[], canvasUrl: string | null) => {
+          const cta = formatAssistantMarkdownLink("Open AI Receptionist", canvasUrl);
+          const recentEvents = (Array.isArray(events) ? events : []).filter((event) => {
+            const timestamp = typeof event?.createdAtIso === "string" ? Date.parse(event.createdAtIso) : NaN;
+            return Number.isFinite(timestamp) ? timestamp >= Date.now() - 7 * 24 * 60 * 60 * 1000 : true;
+          });
+          const deduped: any[] = [];
+          const seen = new Set<string>();
+          for (const event of recentEvents) {
+            const label = summarizeReceptionistCaller(event);
+            const key = label.toLowerCase();
+            if (!label || seen.has(key)) continue;
+            seen.add(key);
+            deduped.push(event);
+            if (deduped.length >= 4) break;
+          }
+          if (!deduped.length) {
+            return `I don’t see any recent people coming through the AI receptionist yet.${cta ? `\n\n${cta}` : ""}`;
+          }
+
+          const lines = deduped.map((event) => {
+            const who = summarizeReceptionistCaller(event);
+            const contactPoint = cleanPreflightText(event?.contactEmail || event?.contactPhone || event?.from, 80);
+            const status = cleanPreflightText(event?.status || "UNKNOWN", 20).toUpperCase();
+            const when = formatPreflightDateTime(event?.createdAtIso);
+            const detail = cleanPreflightText(event?.notes || event?.transcript, 120);
+            return `- ${who}${contactPoint && contactPoint !== who ? ` - ${contactPoint}` : ""}${status ? ` - ${status}` : ""}${when ? ` - ${when}` : ""}${detail ? ` - ${detail}` : ""}`;
+          });
+
+          return `Here are the most recent people who came through the AI receptionist:\n\n${lines.join("\n")}${cta ? `\n\n${cta}` : ""}`;
+        };
+
+        const buildReceptionistSummaryAssistantText = (highlights: any, events: any[], canvasUrl: string | null) => {
+          const stats = highlights && typeof highlights === "object" ? (highlights.stats as any) : null;
+          const warnings = Array.isArray(highlights?.warnings)
+            ? (highlights.warnings as unknown[]).map((value) => cleanPreflightText(value, 180)).filter(Boolean).slice(0, 3)
+            : [];
+          const issues = Array.isArray(highlights?.issues)
+            ? (highlights.issues as any[])
+                .map((issue) => cleanPreflightText(issue?.summary, 180))
+                .filter(Boolean)
+                .slice(0, 3)
+            : [];
+          const recentCalls = (Array.isArray(events) ? events : []).slice(0, 3).map((event) => {
+            const who = summarizeReceptionistCaller(event);
+            const status = cleanPreflightText(event?.status || "UNKNOWN", 20).toUpperCase();
+            const when = formatPreflightDateTime(event?.createdAtIso);
+            return `- ${who}${status ? ` - ${status}` : ""}${when ? ` - ${when}` : ""}`;
+          });
+          const cta = formatAssistantMarkdownLink("Open AI Receptionist", canvasUrl);
+          const total = Number(stats?.total || 0);
+          const completed = Number(stats?.completed || 0);
+          const failed = Number(stats?.failed || 0);
+          const inProgress = Number(stats?.inProgress || 0);
+          const missingTranscript = Number(stats?.missingTranscript || 0);
+
+          const sections = [
+            "Here’s the current AI receptionist snapshot:",
+            `- Volume: ${total} recent call${total === 1 ? "" : "s"}${completed ? `, ${completed} completed` : ""}${failed ? `, ${failed} failed` : ""}${inProgress ? `, ${inProgress} still in progress` : ""}${missingTranscript ? `, ${missingTranscript} missing transcripts` : ""}`,
+            recentCalls.length ? `Recent callers:\n${recentCalls.join("\n")}` : null,
+            warnings.length ? `Watchouts:\n${warnings.map((warning) => `- ${warning}`).join("\n")}` : null,
+            !warnings.length && issues.length ? `Latest issues:\n${issues.map((issue) => `- ${issue}`).join("\n")}` : null,
+            cta || null,
+          ].filter(Boolean);
+
+          return sections.join("\n\n");
+        };
+
+        const buildWorkSummaryAssistantText = (threads: any[], tasks: any[], inboxUrl: string | null, tasksUrl: string | null) => {
+          const inboxCta = formatAssistantMarkdownLink("Open Inbox", inboxUrl);
+          const tasksCta = formatAssistantMarkdownLink("Open Tasks", tasksUrl);
+          const needsReplyThreads = threads.filter((thread) => thread?.needsReply === true);
+          const openTasks = tasks.filter((task) => !isTaskClosed(task));
+          const topThreads = needsReplyThreads.slice(0, 2).map((thread) => {
+            const name = cleanPreflightText(thread?.contact?.name || thread?.peerAddress || thread?.subject || "Conversation", 80);
+            const preview = cleanPreflightText(thread?.lastMessagePreview || thread?.subject, 120);
+            const lastActivity = formatPreflightDateTime(thread?.lastMessageAtIso);
+            return `- ${name}${preview ? ` - ${preview}` : ""}${lastActivity ? ` - last activity ${lastActivity}` : ""}`;
+          });
+          const topTasks = openTasks.slice(0, 2).map((task) => {
+            const title = cleanPreflightText(task?.title || "Task", 100) || "Task";
+            const due = formatPreflightDateTime(task?.dueAtIso);
+            return `- [${formatTaskStatus(task)}] ${title}${due ? ` - due ${due}` : ""}`;
+          });
+
+          const recommendation = needsReplyThreads.length && openTasks.length
+            ? "Start with the inbox replies, then knock out the highest-priority open task."
+            : needsReplyThreads.length
+              ? "Inbox replies are the main thing needing attention right now."
+              : openTasks.length
+                ? "Tasks are the main thing needing attention right now."
+                : "You look caught up across both inbox and tasks right now.";
+
+          return [
+            "Here’s the quick work summary across tasks and inbox:",
+            `- Inbox: ${needsReplyThreads.length} conversation${needsReplyThreads.length === 1 ? "" : "s"} currently need a reply.${inboxCta ? ` ${inboxCta}` : ""}`,
+            topThreads.length ? `Top inbox items:\n${topThreads.join("\n")}` : null,
+            `- Tasks: ${openTasks.length} open task${openTasks.length === 1 ? "" : "s"} in the current sample.${tasksCta ? ` ${tasksCta}` : ""}`,
+            topTasks.length ? `Top tasks:\n${topTasks.join("\n")}` : null,
+            recommendation,
+          ].filter(Boolean).join("\n\n");
+        };
+
+        const buildCrossSurfaceNextStepsAssistantText = (opts: any) => {
+          const inboxCta = formatAssistantMarkdownLink("Open Inbox", opts.inboxUrl);
+          const tasksCta = formatAssistantMarkdownLink("Open Tasks", opts.tasksUrl);
+          const contactsCta = formatAssistantMarkdownLink("Open Contacts", opts.contactsUrl);
+          const reviewsCta = formatAssistantMarkdownLink("Open Reviews", opts.reviewsUrl);
+          const receptionistCta = formatAssistantMarkdownLink("Open AI Receptionist", opts.receptionistUrl);
+          const needsReplyThreads = opts.threads.filter((thread: any) => thread?.needsReply === true);
+          const openTasks = opts.tasks.filter((task: any) => !isTaskClosed(task));
+          const overdueTask =
+            openTasks.find((task: any) => {
+              const due = typeof task?.dueAtIso === "string" ? Date.parse(task.dueAtIso) : NaN;
+              return Number.isFinite(due) && due < Date.now();
+            }) || openTasks[0] || null;
+          const reviewsWithoutReply = opts.reviews.filter((review: any) => !cleanPreflightText(review?.businessReply, 40));
+          const reviewWithoutReply = reviewsWithoutReply[0] || null;
+          const receptionistWarnings = Array.isArray(opts.receptionistHighlights?.warnings)
+            ? (opts.receptionistHighlights.warnings as unknown[]).map((value) => cleanPreflightText(value, 160)).filter(Boolean)
+            : [];
+          const receptionistIssues = Array.isArray(opts.receptionistHighlights?.issues)
+            ? (opts.receptionistHighlights.issues as any[]).map((issue) => cleanPreflightText(issue?.summary, 160)).filter(Boolean)
+            : [];
+          const actions: string[] = [];
+
+          if (needsReplyThreads[0]) {
+            const thread = needsReplyThreads[0];
+            const name = cleanPreflightText(thread?.contact?.name || thread?.peerAddress || thread?.subject || "that inbox conversation", 80);
+            const preview = cleanPreflightText(thread?.lastMessagePreview || thread?.subject, 120);
+            const message = preview ? `- Inbox first: reply to ${name} about "${preview}".` : `- Inbox first: reply to ${name}.`;
+            actions.push(inboxCta ? `${message} ${inboxCta}` : message);
+          }
+
+          if (overdueTask) {
+            const title = cleanPreflightText(overdueTask?.title || "the top open task", 100);
+            const due = formatPreflightDateTime(overdueTask?.dueAtIso);
+            const message = due ? `- Task next: clear ${title} (due ${due}).` : `- Task next: clear ${title}.`;
+            actions.push(tasksCta ? `${message} ${tasksCta}` : message);
+          }
+
+          if (reviewWithoutReply) {
+            const name = cleanPreflightText(reviewWithoutReply?.name || "the latest review", 80);
+            const rating = Number(reviewWithoutReply?.rating || 0);
+            const reviewLabel = rating ? `${name}'s ${rating}/5 review` : `${name}'s review`;
+            const message = `- Reputation: post a business reply to ${reviewLabel}.`;
+            actions.push(reviewsCta ? `${message} ${reviewsCta}` : message);
+          }
+
+          if (receptionistIssues[0] || receptionistWarnings[0]) {
+            const warningText = cleanPreflightText(receptionistIssues[0] || receptionistWarnings[0], 160).replace(/[.]+$/g, "");
+            const message = `- Receptionist: check ${warningText}.`;
+            actions.push(receptionistCta ? `${message} ${receptionistCta}` : message);
+          }
+
+          if (actions.length < 4 && opts.contacts.length) {
+            const message = `- Contacts: I checked ${opts.contacts.length} recent contact${opts.contacts.length === 1 ? "" : "s"}, but I do not see a higher-priority contact-only action than the items above.`;
+            actions.push(contactsCta ? `${message} ${contactsCta}` : message);
+          }
+
+          if (!actions.length) {
+            const message = "- You look caught up across inbox, tasks, reviews, and receptionist activity right now.";
+            actions.push(contactsCta ? `${message} ${contactsCta}` : message);
+          }
+
+          const receptionistTotal = Number(opts.receptionistHighlights?.stats?.total || 0);
+          const signalCheck =
+            "- Signal check: " +
+            `${needsReplyThreads.length} inbox thread${needsReplyThreads.length === 1 ? "" : "s"} need replies, ` +
+            `${openTasks.length} open task${openTasks.length === 1 ? "" : "s"}, ` +
+            `${reviewsWithoutReply.length} review${reviewsWithoutReply.length === 1 ? "" : "s"} still need a reply, and ` +
+            `${receptionistTotal} recent receptionist call${receptionistTotal === 1 ? "" : "s"} were sampled.`;
+
+          return [
+            "Based on inbox, tasks, contacts, reviews, and receptionist calls, here's what I'd do next:",
+            signalCheck,
+            actions.slice(0, 4).join("\n"),
+          ].join("\n\n");
+        };
+
+        const buildContactDetailAssistantText = (contact: any, canvasUrl: string | null, preferredName?: string | null) => {
+          if (!contact || typeof contact !== "object") return "";
+          const rawName = String(contact?.name || "").trim();
+          const email = typeof contact?.email === "string" && contact.email.trim() ? String(contact.email).trim() : "";
+          const phone = typeof contact?.phone === "string" && contact.phone.trim() ? String(contact.phone).trim() : "";
+          const preferredNameText = String(preferredName || "").trim();
+          const nameLooksPlaceholder = Boolean(rawName) && (rawName === email || rawName === phone);
+          const name = (nameLooksPlaceholder && preferredNameText ? preferredNameText : rawName) || preferredNameText || "Contact";
+          const tags = Array.isArray(contact?.tags)
+            ? (contact.tags as any[])
+                .map((tag) => (typeof tag?.name === "string" ? String(tag.name).trim() : ""))
+                .filter(Boolean)
+                .slice(0, 6)
+            : [];
+          const latestThread = Array.isArray(contact?.inboxThreads) ? (contact.inboxThreads as any[])[0] : null;
+          const nextBooking = Array.isArray(contact?.bookings)
+            ? (contact.bookings as any[]).find((booking) => typeof booking?.startAtIso === "string") || (contact.bookings as any[])[0]
+            : null;
+          const latestLead = Array.isArray(contact?.leads) ? (contact.leads as any[])[0] : null;
+          const latestReview = Array.isArray(contact?.reviews) ? (contact.reviews as any[])[0] : null;
+          const lines = [
+            `- Name: ${name}`,
+            email ? `- Email: ${email}` : null,
+            phone ? `- Phone: ${phone}` : null,
+            tags.length ? `- Tags: ${tags.join(", ")}` : null,
+            latestThread
+              ? `- Latest inbox activity: ${String(latestThread?.channel || "").trim().toUpperCase() || "Conversation"}${latestThread?.lastMessagePreview ? ` - ${String(latestThread.lastMessagePreview).trim().replace(/\s+/g, " ").slice(0, 140)}` : ""}`
+              : null,
+            nextBooking
+              ? `- Latest booking: ${String(nextBooking?.status || "BOOKED").trim()}${formatPreflightDateTime(nextBooking?.startAtIso) ? ` - ${formatPreflightDateTime(nextBooking?.startAtIso)}` : ""}`
+              : null,
+            latestLead
+              ? `- Recent lead: ${String(latestLead?.businessName || latestLead?.website || latestLead?.niche || "Lead").trim()}`
+              : null,
+            latestReview && typeof latestReview?.rating === "number" ? `- Recent review rating: ${Number(latestReview.rating)}/5` : null,
+          ].filter(Boolean);
+
+          const cta = formatAssistantMarkdownLink("Open Contact", canvasUrl);
+          return `Here are the important details I found for ${name}:\n\n${lines.join("\n")}${cta ? `\n\n${cta}` : ""}`;
+        };
+
+        const buildInboxBackedContactAssistantText = (nameHint: string, thread: any, canvasUrl: string | null) => {
+          if (!thread || typeof thread !== "object") return "";
+          const contactName = typeof thread?.contact?.name === "string" && thread.contact.name.trim()
+            ? String(thread.contact.name).trim()
+            : String(nameHint || "Contact").trim() || "Contact";
+          const channel = String(thread?.channel || "").trim().toUpperCase() || "CONVERSATION";
+          const address = typeof thread?.contact?.email === "string" && thread.contact.email.trim()
+            ? String(thread.contact.email).trim()
+            : typeof thread?.contact?.phone === "string" && thread.contact.phone.trim()
+              ? String(thread.contact.phone).trim()
+              : typeof thread?.peerAddress === "string" && thread.peerAddress.trim()
+                ? String(thread.peerAddress).trim()
+                : "";
+          const preview = typeof thread?.lastMessagePreview === "string" ? String(thread.lastMessagePreview).trim().replace(/\s+/g, " ").slice(0, 160) : "";
+          const lastMessageAt = formatPreflightDateTime(thread?.lastMessageAtIso);
+          const lines = [
+            `- Name: ${contactName}`,
+            address ? `- Best contact point: ${address}` : null,
+            `- Latest conversation channel: ${channel}`,
+            preview ? `- Latest message: ${preview}` : null,
+            lastMessageAt ? `- Last activity: ${lastMessageAt}` : null,
+            thread?.needsReply === true ? "- Status: This conversation still needs a reply" : null,
+          ].filter(Boolean);
+
+          const cta = formatAssistantMarkdownLink("Open Inbox", canvasUrl);
+          return `I couldn’t find a full CRM contact card for ${contactName}, but here’s what I found from recent inbox activity:\n\n${lines.join("\n")}${cta ? `\n\n${cta}` : ""}`;
+        };
+
+        const buildTaskLookupAssistantText = (query: string, tasks: any[], canvasUrl: string | null) => {
+          const normalizedQuery = String(query || "").trim();
+          const taskCta = formatAssistantMarkdownLink("Open Tasks", canvasUrl);
+          if (!tasks.length) {
+            return normalizedQuery
+              ? `I couldn’t find a task matching “${normalizedQuery}”.${taskCta ? ` Review them here: ${taskCta}.` : ""}`
+              : `I couldn’t find a matching task right now.${taskCta ? ` Review them here: ${taskCta}.` : ""}`;
+          }
+
+          const bestTask = tasks[0];
+          const title = String(bestTask?.title || "Task").trim() || "Task";
+          const description = typeof bestTask?.description === "string" ? String(bestTask.description).trim().replace(/\s+/g, " ").slice(0, 180) : "";
+          const status = String(bestTask?.status || "OPEN").trim().toUpperCase();
+          const due = formatPreflightDateTime(bestTask?.dueAtIso);
+          const extraMatches = tasks.length > 1 ? tasks.slice(1, 3).map((task) => `- ${String(task?.title || "Task").trim() || "Task"}`).join("\n") : "";
+
+          return [
+            normalizedQuery ? `The best task match for “${normalizedQuery}” is:` : "Here’s the task I found:",
+            `- [${status}] ${title}${due ? ` - due ${due}` : ""}`,
+            description ? `- Details: ${description}` : null,
+            extraMatches ? `Other close matches:\n${extraMatches}` : null,
+            taskCta || null,
+          ].filter(Boolean).join("\n\n");
+        };
+
+        const buildReviewDetailAssistantText = (review: any, canvasUrl: string | null) => {
+          if (!review || typeof review !== "object") return "";
+          const name = String(review?.name || "Review").trim() || "Review";
+          const rating = Number(review?.rating || 0);
+          const body = typeof review?.body === "string" ? String(review.body).trim().replace(/\s+/g, " ") : "";
+          const reply = typeof review?.businessReply === "string" ? String(review.businessReply).trim().replace(/\s+/g, " ") : "";
+          const cta = formatAssistantMarkdownLink("Open Reviews", canvasUrl);
+          const lines = [
+            `- Reviewer: ${name}`,
+            rating ? `- Rating: ${rating}/5` : null,
+            body ? `- Review: ${body}` : null,
+            reply ? `- Business reply: ${reply}` : "- Business reply: Not added yet",
+          ].filter(Boolean);
+          return `Here’s the review from ${name}:\n\n${lines.join("\n")}${cta ? `\n\n${cta}` : ""}`;
+        };
+
+        const finalizePreflightResponse = async (opts: {
+          exec: any;
+          traceKey: string;
+          traceTitle: string;
+          traceArgs: Record<string, unknown>;
+          promptText: string;
+          contextActionKey?: PortalAgentActionKey | null;
+          suggestionActionKeys?: PortalAgentActionKey[];
+        }) => {
+          const canvasUrl = typeof opts.exec?.linkUrl === "string" ? String(opts.exec.linkUrl).trim().slice(0, 1200) : null;
+          const preflightAssistantText = typeof opts.exec?.assistantText === "string" ? String(opts.exec.assistantText).trim() : "";
+          if (!preflightAssistantText) return null;
+          const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+            data: {
+              ownerId,
+              threadId,
+              role: "assistant",
+              text: preflightAssistantText,
+              attachmentsJson: null,
+              createdByUserId: null,
+              sendAt: null,
+              sentAt: now,
+            },
+            select: {
+              id: true,
+              role: true,
+              text: true,
+              attachmentsJson: true,
+              createdAt: true,
+              sendAt: true,
+              sentAt: true,
+            },
+          });
+
+          const runTrace = {
+            at: now.toISOString(),
+            workTitle: opts.traceTitle,
+            assistantMessageId: assistantMsg.id,
+            steps: [{ key: opts.traceKey, title: opts.traceTitle, ok: Boolean(opts.exec?.ok), linkUrl: canvasUrl }],
+            canvasUrl,
+          };
+          const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
+          const prevRuns = Array.isArray(prevCtx.runs) ? (prevCtx.runs as unknown[]) : [];
+          const contextActionKey = opts.contextActionKey === undefined ? (opts.traceKey as PortalAgentActionKey) : opts.contextActionKey;
+          const derivedPatch = contextActionKey ? deriveThreadContextPatchFromAction(contextActionKey, opts.traceArgs, opts.exec?.result) : null;
+          const followUpSuggestions = buildProactiveFollowUpSuggestions({
+            actionKeys: Array.isArray(opts.suggestionActionKeys)
+              ? opts.suggestionActionKeys
+              : contextActionKey
+                ? [contextActionKey]
+                : [],
+            canvasUrl,
+            promptText: opts.promptText,
+            completedCount: Boolean(opts.exec?.ok) ? 1 : 0,
+            failedCount: Boolean(opts.exec?.ok) ? 0 : 1,
+            pendingCount: 0,
+          });
+          const nextCtx = withPersistedFollowUpSuggestions(
+            {
+              ...prevCtx,
+              ...(derivedPatch && typeof derivedPatch === "object" && !Array.isArray(derivedPatch) ? (derivedPatch as any) : {}),
+              lastWorkTitle: opts.traceTitle,
+              lastCanvasUrl: canvasUrl,
+              runs: [...prevRuns.slice(-19), runTrace],
+            },
+            assistantMsg.id,
+            followUpSuggestions,
+          );
+
+          await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+          threadContext = nextCtx;
+          await persistActiveChatRun({
+            status: Boolean(opts.exec?.ok) ? "completed" : "failed",
+            runId: activeRunId,
+            startedAt: activeRunStartedAt,
+            runTrace,
+            summaryText: preflightAssistantText,
+            followUpSuggestions,
+            completedAt: now,
+          });
+
+          return NextResponse.json({
+            ok: true,
+            userMessage: responseUserMessage,
+            assistantMessage: assistantMsg,
+            assistantActions: [],
+            autoActionMessage: null,
+            canvasUrl,
+            assistantChoices: null,
+            clientUiActions: Array.isArray(opts.exec?.clientUiAction)
+              ? opts.exec.clientUiAction
+              : opts.exec?.clientUiAction
+                ? [opts.exec.clientUiAction]
+                : [],
+            runTrace,
+            followUpSuggestions,
+          });
+        };
+
+        const shouldBypassSimpleDirectPlan = Boolean(
+          signals.newsletterCreateTitle ||
+          signals.blogCreateTitle ||
+          shouldRunPreflightReviewSummary ||
+          shouldRunPreflightReceptionistPeople ||
+          shouldRunPreflightWorkSummary ||
+          shouldRunPreflightCrossSurfaceNextSteps ||
+          preflightReviewDetailName ||
+          preflightContactDetailName ||
+          preflightTaskLookupQuery ||
+          shouldRunPreflightInboxSummary ||
+          preflightInboxSearchQuery ||
+          preflightSmsThreadMatch ||
+          shouldRunPreflightReceptionist ||
+          draftInboxReplyIntent ||
+          shouldTightenLatestNewsletter ||
+          shouldPolishLatestBlog ||
+          reviewReplyIntent ||
+          shouldSetWeekdayAvailability ||
+          shouldAssessCrossSurfaceReadiness
+        );
+        const simpleDirectPlan = shouldBypassSimpleDirectPlan
+          ? null
+          : getPuraDirectActionPlan({ prompt: preflightPrompt, signals, threadContext: preflightCtx });
+        const simpleDirectResponse = await runDirectActionPlan(simpleDirectPlan);
+        if (simpleDirectResponse) return simpleDirectResponse;
+
+        const directPrerequisiteMessage = getPuraDirectPrerequisiteMessage({ signals, threadContext: preflightCtx });
+        if (directPrerequisiteMessage) {
+          const prerequisiteResponse = await finalizePreflightResponse({
+            exec: { ok: false, assistantText: directPrerequisiteMessage },
+            traceKey: "direct.intent.prerequisite",
+            traceTitle: "Direct Intent Prerequisite Check",
+            traceArgs: {},
+            promptText: preflightPrompt,
+            contextActionKey: null,
+            suggestionActionKeys: [],
+          });
+          if (prerequisiteResponse) return prerequisiteResponse;
+        }
+
+        if (signals.newsletterCreateTitle) {
+          const profile = await prisma.businessProfile.findUnique({
+            where: { ownerId },
+            select: {
+              businessName: true,
+              websiteUrl: true,
+              industry: true,
+              businessModel: true,
+              primaryGoals: true,
+              targetCustomer: true,
+              brandVoice: true,
+            },
+          }).catch(() => null);
+          const primaryGoals = Array.isArray(profile?.primaryGoals)
+            ? (profile.primaryGoals as unknown[]).filter((value) => typeof value === "string").map((value) => String(value)).slice(0, 10)
+            : undefined;
+          const generatedDraft = await generateClientNewsletterDraft({
+            kind: "EXTERNAL",
+            businessName: profile?.businessName,
+            websiteUrl: profile?.websiteUrl,
+            industry: profile?.industry,
+            businessModel: profile?.businessModel,
+            primaryGoals,
+            targetCustomer: profile?.targetCustomer,
+            brandVoice: profile?.brandVoice,
+            topicHint: signals.newsletterCreateTitle,
+          }).catch(() => null);
+
+          const createArgs = generatedDraft
+            ? {
+                kind: "EXTERNAL",
+                status: "DRAFT",
+                title: generatedDraft.title,
+                excerpt: generatedDraft.excerpt,
+                content: generatedDraft.content,
+                ...(generatedDraft.smsText ? { smsText: generatedDraft.smsText } : {}),
+              }
+            : {
+                kind: "EXTERNAL",
+                status: "DRAFT",
+                title: signals.newsletterCreateTitle,
+                excerpt: `A sharper update focused on ${signals.newsletterCreateTitle}.`,
+                content: `## ${signals.newsletterCreateTitle}\n\nThis newsletter draft is ready for refinement and sending.`,
+              };
+          const createExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "newsletter.newsletters.create", args: createArgs });
+          const cta = formatAssistantMarkdownLink("Open Newsletter", typeof (createExec as any)?.linkUrl === "string" ? String((createExec as any).linkUrl).trim() : null);
+          const assistantText = `I created a full newsletter draft for “${String(createArgs.title || signals.newsletterCreateTitle).trim()}.”${generatedDraft?.excerpt ? `\n\n${String(generatedDraft.excerpt).trim()}` : ""}${cta ? `\n\n${cta}` : ""}`;
+          const newsletterCreateResponse = await finalizePreflightResponse({
+            exec: { ...(createExec as any), assistantText },
+            traceKey: "newsletter.newsletters.create",
+            traceTitle: "Create Newsletter",
+            traceArgs: createArgs,
+            promptText: preflightPrompt,
+          });
+          if (newsletterCreateResponse) return newsletterCreateResponse;
+        }
+
+        if (signals.blogCreateTitle) {
+          const profile = await prisma.businessProfile.findUnique({
+            where: { ownerId },
+            select: {
+              businessName: true,
+              websiteUrl: true,
+              industry: true,
+              businessModel: true,
+              primaryGoals: true,
+              targetCustomer: true,
+              brandVoice: true,
+            },
+          }).catch(() => null);
+          const primaryGoals = Array.isArray(profile?.primaryGoals)
+            ? (profile.primaryGoals as unknown[]).filter((value) => typeof value === "string").map((value) => String(value)).slice(0, 10)
+            : undefined;
+          const draft = await generateClientBlogDraft({
+            businessName: profile?.businessName,
+            websiteUrl: profile?.websiteUrl,
+            industry: profile?.industry,
+            businessModel: profile?.businessModel,
+            primaryGoals,
+            targetCustomer: profile?.targetCustomer,
+            brandVoice: profile?.brandVoice,
+            topic: signals.blogCreateTitle,
+            strictTopicOnly: true,
+          }).catch(() => null);
+          const createArgs = { title: draft?.title || signals.blogCreateTitle };
+          const createExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "blogs.posts.create", args: createArgs });
+          const postId = typeof (createExec as any)?.result?.post?.id === "string" ? String((createExec as any).result.post.id).trim() : "";
+          if (postId && draft) {
+            const updateArgs = {
+              postId,
+              title: draft.title,
+              slug: slugify(draft.title || signals.blogCreateTitle || "blog-post") || "blog-post",
+              excerpt: draft.excerpt,
+              content: draft.content,
+              ...(Array.isArray(draft.seoKeywords) && draft.seoKeywords.length ? { seoKeywords: draft.seoKeywords } : {}),
+            };
+            const updateExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "blogs.posts.update", args: updateArgs });
+            const blogCreateExec = Boolean((updateExec as any)?.ok) ? updateExec : createExec;
+            const cta = formatAssistantMarkdownLink("Open Blogs", typeof (blogCreateExec as any)?.linkUrl === "string" ? String((blogCreateExec as any).linkUrl).trim() : null);
+            const assistantText = Boolean((updateExec as any)?.ok)
+              ? `I created a full blog draft for “${draft.title}.”${draft.excerpt ? `\n\n${draft.excerpt}` : ""}${cta ? `\n\n${cta}` : ""}`
+              : "";
+            const blogCreateResponse = await finalizePreflightResponse({
+              exec: assistantText ? { ...(blogCreateExec as any), assistantText } : blogCreateExec,
+              traceKey: Boolean((updateExec as any)?.ok) ? "blogs.posts.update" : "blogs.posts.create",
+              traceTitle: "Create Blog Draft",
+              traceArgs: Boolean((updateExec as any)?.ok) ? updateArgs : createArgs,
+              promptText: preflightPrompt,
+            });
+            if (blogCreateResponse) return blogCreateResponse;
+          }
+        }
+
+        if (shouldRunPreflightReviewSummary || preflightReviewDetailName) {
+          const reviewsExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "reviews.inbox.list", args: {} });
+          const reviews = Array.isArray((reviewsExec as any)?.result?.reviews) ? ((reviewsExec as any).result.reviews as any[]) : [];
+          const cta = formatAssistantMarkdownLink("Open Reviews", typeof (reviewsExec as any)?.linkUrl === "string" ? String((reviewsExec as any).linkUrl).trim() : null);
+
+          if (preflightReviewDetailName) {
+            const normalizeMatch = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+            const queryNorm = normalizeMatch(preflightReviewDetailName);
+            const bestReview = reviews
+              .map((review) => {
+                const nameNorm = normalizeMatch(review?.name);
+                const score = nameNorm === queryNorm ? 100 : nameNorm.startsWith(queryNorm) ? 80 : nameNorm.includes(queryNorm) ? 60 : 0;
+                return { review, score };
+              })
+              .sort((left, right) => right.score - left.score)[0]?.review;
+            const assistantText = bestReview
+              ? buildReviewDetailAssistantText(bestReview, typeof (reviewsExec as any)?.linkUrl === "string" ? String((reviewsExec as any).linkUrl).trim() : null)
+              : `I couldn’t find a review from “${preflightReviewDetailName}.”${cta ? `\n\n${cta}` : ""}`;
+            const reviewDetailResponse = await finalizePreflightResponse({
+              exec: { ...(reviewsExec as any), assistantText },
+              traceKey: "reviews.inbox.list",
+              traceTitle: bestReview ? "Show Review Details" : "Find Review",
+              traceArgs: {},
+              promptText: preflightPrompt,
+            });
+            if (reviewDetailResponse) return reviewDetailResponse;
+          }
+
+          if (shouldRunPreflightReviewSummary) {
+            const topReviews = reviews.slice(0, 3).map((review) => {
+              const name = String(review?.name || "Review").trim() || "Review";
+              const rating = Number(review?.rating || 0);
+              const body = typeof review?.body === "string" ? String(review.body).trim().replace(/\s+/g, " ").slice(0, 140) : "";
+              const hasReply = typeof review?.businessReply === "string" && String(review.businessReply).trim().length > 0;
+              return `- ${name}${rating ? ` - ${rating}/5` : ""}${body ? ` - ${body}` : ""}${hasReply ? " - reply posted" : " - needs reply"}`;
+            });
+            const averageRating = reviews.length
+              ? (reviews.reduce((sum, review) => sum + Number(review?.rating || 0), 0) / reviews.length).toFixed(1)
+              : null;
+            const assistantText = reviews.length
+              ? `Here’s a quick review summary from the latest feedback:\n\n${topReviews.join("\n")}${averageRating ? `\n\nAverage rating: ${averageRating}/5` : ""}${cta ? `\n\n${cta}` : ""}`
+              : `You don’t have any reviews to summarize right now.${cta ? `\n\n${cta}` : ""}`;
+            const reviewSummaryResponse = await finalizePreflightResponse({
+              exec: { ...(reviewsExec as any), assistantText },
+              traceKey: "reviews.inbox.list",
+              traceTitle: "Summarize Reviews",
+              traceArgs: {},
+              promptText: preflightPrompt,
+            });
+            if (reviewSummaryResponse) return reviewSummaryResponse;
+          }
+        }
+
+        if (!shouldRunPreflightCrossSurfaceNextSteps && (shouldRunPreflightReceptionist || shouldRunPreflightReceptionistPeople)) {
+          const [receptionistSettingsExec, receptionistHighlightsExec] = await Promise.all([
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "ai_receptionist.settings.get", args: {} }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "ai_receptionist.highlights.get", args: { lookbackHours: 24 * 7, limit: 20 } }),
+          ]);
+          const receptionistEvents = Array.isArray((receptionistSettingsExec as any)?.result?.events)
+            ? ((receptionistSettingsExec as any).result.events as any[])
+            : [];
+          const receptionistLinkUrl = typeof (receptionistSettingsExec as any)?.linkUrl === "string"
+            ? String((receptionistSettingsExec as any).linkUrl).trim()
+            : typeof (receptionistHighlightsExec as any)?.linkUrl === "string"
+              ? String((receptionistHighlightsExec as any).linkUrl).trim()
+              : null;
+          const assistantText = shouldRunPreflightReceptionistPeople
+            ? buildReceptionistRecentPeopleAssistantText(receptionistEvents, receptionistLinkUrl)
+            : buildReceptionistSummaryAssistantText((receptionistHighlightsExec as any)?.result, receptionistEvents, receptionistLinkUrl);
+          const receptionistResponse = await finalizePreflightResponse({
+            exec: { ok: Boolean((receptionistSettingsExec as any)?.ok) || Boolean((receptionistHighlightsExec as any)?.ok), linkUrl: receptionistLinkUrl, assistantText },
+            traceKey: shouldRunPreflightReceptionistPeople ? "ai_receptionist.settings.get" : "ai_receptionist.highlights.get",
+            traceTitle: shouldRunPreflightReceptionistPeople ? "Show Recent AI Receptionist Callers" : "Summarize AI Receptionist Calls",
+            traceArgs: shouldRunPreflightReceptionistPeople ? {} : { lookbackHours: 24 * 7, limit: 20 },
+            promptText: preflightPrompt,
+            contextActionKey: null,
+            suggestionActionKeys: ["ai_receptionist.settings.get", "ai_receptionist.highlights.get"],
+          });
+          if (receptionistResponse) return receptionistResponse;
+        }
+
+        if (shouldRunPreflightWorkSummary) {
+          const inboxArgs = { channel: "ALL", take: 20, allChannels: true, needsReply: true };
+          const taskArgs = { status: "ALL", limit: 10 };
+          const [inboxExec, taskExec] = await Promise.all([
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "inbox.threads.list", args: inboxArgs }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "tasks.list", args: taskArgs }),
+          ]);
+          const threads = Array.isArray((inboxExec as any)?.result?.threads) ? ((inboxExec as any).result.threads as any[]) : [];
+          const tasks = Array.isArray((taskExec as any)?.result?.tasks) ? ((taskExec as any).result.tasks as any[]) : [];
+          const assistantText = buildWorkSummaryAssistantText(
+            threads,
+            tasks,
+            typeof (inboxExec as any)?.linkUrl === "string" ? String((inboxExec as any).linkUrl).trim() : null,
+            typeof (taskExec as any)?.linkUrl === "string" ? String((taskExec as any).linkUrl).trim() : null,
+          );
+          const workSummaryResponse = await finalizePreflightResponse({
+            exec: { ok: Boolean((inboxExec as any)?.ok) || Boolean((taskExec as any)?.ok), linkUrl: (inboxExec as any)?.linkUrl, assistantText },
+            traceKey: "inbox.threads.list",
+            traceTitle: "Summarize Tasks and Inbox",
+            traceArgs: inboxArgs,
+            promptText: preflightPrompt,
+            contextActionKey: null,
+            suggestionActionKeys: ["inbox.threads.list", "tasks.list"],
+          });
+          if (workSummaryResponse) return workSummaryResponse;
+        }
+
+        if (shouldRunPreflightCrossSurfaceNextSteps) {
+          const inboxArgs = { channel: "ALL", take: 10, allChannels: true, needsReply: true };
+          const taskArgs = { status: "ALL", limit: 10 };
+          const [inboxExec, taskExec, contactsExec, reviewsExec, receptionistHighlightsExec] = await Promise.all([
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "inbox.threads.list", args: inboxArgs }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "tasks.list", args: taskArgs }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "contacts.list", args: { limit: 5 } }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "reviews.inbox.list", args: {} }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "ai_receptionist.highlights.get", args: { lookbackHours: 24 * 7, limit: 20 } }),
+          ]);
+          const assistantText = buildCrossSurfaceNextStepsAssistantText({
+            threads: Array.isArray((inboxExec as any)?.result?.threads) ? ((inboxExec as any).result.threads as any[]) : [],
+            tasks: Array.isArray((taskExec as any)?.result?.tasks) ? ((taskExec as any).result.tasks as any[]) : [],
+            contacts: Array.isArray((contactsExec as any)?.result?.contacts) ? ((contactsExec as any).result.contacts as any[]) : [],
+            reviews: Array.isArray((reviewsExec as any)?.result?.reviews) ? ((reviewsExec as any).result.reviews as any[]) : [],
+            receptionistHighlights: (receptionistHighlightsExec as any)?.result,
+            inboxUrl: typeof (inboxExec as any)?.linkUrl === "string" ? String((inboxExec as any).linkUrl).trim() : null,
+            tasksUrl: typeof (taskExec as any)?.linkUrl === "string" ? String((taskExec as any).linkUrl).trim() : null,
+            contactsUrl: typeof (contactsExec as any)?.linkUrl === "string" ? String((contactsExec as any).linkUrl).trim() : null,
+            reviewsUrl: typeof (reviewsExec as any)?.linkUrl === "string" ? String((reviewsExec as any).linkUrl).trim() : null,
+            receptionistUrl: typeof (receptionistHighlightsExec as any)?.linkUrl === "string" ? String((receptionistHighlightsExec as any).linkUrl).trim() : null,
+          });
+          const nextStepsResponse = await finalizePreflightResponse({
+            exec: { ok: true, linkUrl: (inboxExec as any)?.linkUrl, assistantText },
+            traceKey: "inbox.threads.list",
+            traceTitle: "Recommend Next Actions",
+            traceArgs: inboxArgs,
+            promptText: preflightPrompt,
+            contextActionKey: null,
+            suggestionActionKeys: ["inbox.threads.list", "tasks.list", "contacts.list", "reviews.inbox.list", "ai_receptionist.highlights.get"],
+          });
+          if (nextStepsResponse) return nextStepsResponse;
+        }
+
+        if (preflightContactDetailName) {
+          const listArgs = { q: preflightContactDetailName, limit: 5 };
+          const contactListExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "contacts.list", args: listArgs });
+          const contacts = Array.isArray((contactListExec as any)?.result?.contacts) ? ((contactListExec as any).result.contacts as any[]) : [];
+          const normalizeMatch = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+          const queryNorm = normalizeMatch(preflightContactDetailName);
+          const bestContact = contacts
+            .map((contact) => {
+              const nameNorm = normalizeMatch(contact?.name);
+              const emailNorm = normalizeMatch(contact?.email);
+              const phoneNorm = normalizeMatch(contact?.phone);
+              const score = nameNorm === queryNorm ? 100 : nameNorm.startsWith(queryNorm) ? 80 : nameNorm.includes(queryNorm) ? 60 : emailNorm.includes(queryNorm) || phoneNorm.includes(queryNorm) ? 40 : 0;
+              return { contact, score };
+            })
+            .sort((left, right) => right.score - left.score)[0]?.contact;
+          const contactId = typeof bestContact?.id === "string" ? String(bestContact.id).trim() : "";
+
+          if (contactId) {
+            const detailArgs = { contactId };
+            const contactExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "contacts.get", args: detailArgs });
+            const assistantText = buildContactDetailAssistantText(
+              (contactExec as any)?.result?.contact,
+              typeof (contactExec as any)?.linkUrl === "string" ? String((contactExec as any).linkUrl).trim() : null,
+              preflightContactDetailName,
+            );
+            if (assistantText) {
+              const contactResponse = await finalizePreflightResponse({
+                exec: { ...(contactExec as any), assistantText },
+                traceKey: "contacts.get",
+                traceTitle: "Show Contact Details",
+                traceArgs: detailArgs,
+                promptText: preflightPrompt,
+              });
+              if (contactResponse) return contactResponse;
+            }
+          }
+
+          const inboxFallbackArgs = { channel: "ALL", q: preflightContactDetailName, take: 5, allChannels: true };
+          const inboxFallbackExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "inbox.threads.list", args: inboxFallbackArgs });
+          const fallbackThreads = Array.isArray((inboxFallbackExec as any)?.result?.threads) ? ((inboxFallbackExec as any).result.threads as any[]) : [];
+          const fallbackThread = fallbackThreads[0] || null;
+          const fallbackThreadContactId = typeof fallbackThread?.contact?.id === "string"
+            ? String(fallbackThread.contact.id).trim()
+            : typeof fallbackThread?.contactId === "string"
+              ? String(fallbackThread.contactId).trim()
+              : "";
+
+          if (fallbackThreadContactId) {
+            const detailArgs = { contactId: fallbackThreadContactId };
+            const contactExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "contacts.get", args: detailArgs });
+            const assistantText = buildContactDetailAssistantText(
+              (contactExec as any)?.result?.contact,
+              typeof (contactExec as any)?.linkUrl === "string" ? String((contactExec as any).linkUrl).trim() : null,
+              preflightContactDetailName,
+            );
+            if (assistantText) {
+              const contactResponse = await finalizePreflightResponse({
+                exec: { ...(contactExec as any), assistantText },
+                traceKey: "contacts.get",
+                traceTitle: "Show Contact Details",
+                traceArgs: detailArgs,
+                promptText: preflightPrompt,
+              });
+              if (contactResponse) return contactResponse;
+            }
+          }
+
+          if (fallbackThread) {
+            const assistantText = buildInboxBackedContactAssistantText(
+              preflightContactDetailName,
+              fallbackThread,
+              typeof (inboxFallbackExec as any)?.linkUrl === "string" ? String((inboxFallbackExec as any).linkUrl).trim() : null,
+            );
+            if (assistantText) {
+              const inboxFallbackResponse = await finalizePreflightResponse({
+                exec: { ...(inboxFallbackExec as any), assistantText },
+                traceKey: "inbox.threads.list",
+                traceTitle: "Find Contact Activity",
+                traceArgs: inboxFallbackArgs,
+                promptText: preflightPrompt,
+                contextActionKey: null,
+                suggestionActionKeys: [],
+              });
+              if (inboxFallbackResponse) return inboxFallbackResponse;
+            }
+          }
+
+          const fallbackAssistantText = contacts.length
+            ? `I found ${contacts.length} contact${contacts.length === 1 ? "" : "s"} matching “${preflightContactDetailName}”, but I need a more exact match to show one contact’s full details.${typeof (contactListExec as any)?.linkUrl === "string" ? ` Review them here: [Open Contacts](${String((contactListExec as any).linkUrl).trim()}).` : ""}`
+            : `I couldn’t find a contact matching “${preflightContactDetailName}”.${typeof (contactListExec as any)?.linkUrl === "string" ? ` Review contacts here: [Open Contacts](${String((contactListExec as any).linkUrl).trim()}).` : ""}`;
+          const fallbackResponse = await finalizePreflightResponse({
+            exec: { ...(contactListExec as any), assistantText: fallbackAssistantText },
+            traceKey: "contacts.list",
+            traceTitle: "Find Contact",
+            traceArgs: listArgs,
+            promptText: preflightPrompt,
+          });
+          if (fallbackResponse) return fallbackResponse;
+        }
+
+        if (preflightTaskLookupQuery) {
+          const taskArgs = { status: "ALL", q: preflightTaskLookupQuery, limit: 10 };
+          const taskExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "tasks.list", args: taskArgs });
+          const tasks = Array.isArray((taskExec as any)?.result?.tasks) ? ((taskExec as any).result.tasks as any[]) : [];
+          const assistantText = buildTaskLookupAssistantText(preflightTaskLookupQuery, tasks, typeof (taskExec as any)?.linkUrl === "string" ? String((taskExec as any).linkUrl).trim() : null);
+          if (assistantText) {
+            const taskResponse = await finalizePreflightResponse({
+              exec: { ...(taskExec as any), assistantText },
+              traceKey: "tasks.list",
+              traceTitle: "Find Task",
+              traceArgs: taskArgs,
+              promptText: preflightPrompt,
+            });
+            if (taskResponse) return taskResponse;
+          }
+        }
+
+        if (draftInboxReplyIntent) {
+          const searchArgs = {
+            channel: preflightInboxSearchChannel || "ALL",
+            q: preflightInboxSearchQuery || draftInboxReplyIntent.contactName,
+            take: 10,
+            allChannels: !preflightInboxSearchChannel || preflightInboxSearchChannel === "ALL",
+          };
+          const threadListExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "inbox.threads.list", args: searchArgs });
+          const threads = Array.isArray((threadListExec as any)?.result?.threads) ? ((threadListExec as any).result.threads as any[]) : [];
+          const topicTokens = String(draftInboxReplyIntent.topicHint || "")
+            .toLowerCase()
+            .split(/\s+/)
+            .map((token) => token.trim())
+            .filter((token) => token.length >= 3)
+            .slice(0, 8);
+          const scoredThreads = threads
+            .map((thread) => {
+              const haystack = [thread?.subject, thread?.lastMessagePreview, thread?.contact?.name, thread?.peerAddress].join("\n").toLowerCase();
+              const score = topicTokens.reduce((sum, token) => (haystack.includes(token) ? sum + 1 : sum), 0);
+              return { thread, score };
+            })
+            .sort((left, right) => right.score - left.score);
+          const chosenThreadId = typeof scoredThreads[0]?.thread?.id === "string" ? String(scoredThreads[0].thread.id).trim() : "";
+
+          if (!chosenThreadId) {
+            const draftReplyResponse = await finalizePreflightResponse({
+              exec: {
+                ok: false,
+                assistantText: `I couldn’t find a recent inbox conversation for ${draftInboxReplyIntent.contactName} to draft from yet. If you want, I can help once that thread is in the inbox or you can point me to the exact conversation.`,
+              },
+              traceKey: "inbox.threads.list",
+              traceTitle: "Find Inbox Conversation",
+              traceArgs: searchArgs,
+              promptText: preflightPrompt,
+              contextActionKey: null,
+              suggestionActionKeys: [],
+            });
+            if (draftReplyResponse) return draftReplyResponse;
+          }
+
+          const messagesExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "inbox.thread.messages.list", args: { threadId: chosenThreadId, take: 20 } });
+          const threadMessages = Array.isArray((messagesExec as any)?.result?.messages) ? ((messagesExec as any).result.messages as any[]) : [];
+
+          if (threadMessages.length) {
+            let draftAssistantText = "";
+            try {
+              draftAssistantText = stripEmptyAssistantBullets(
+                String(
+                  await generateText({
+                    system: [
+                      "You are Pura, an AI assistant inside a SaaS portal.",
+                      "The user asked for a draft reply only.",
+                      "Write a message draft they could send based on the conversation context.",
+                      "Hard constraints:",
+                      "- DO NOT claim the message was sent.",
+                      "- DO NOT ask for confirmation to send.",
+                      "- DO NOT invent facts not present in the thread or user request.",
+                      "Formatting rules:",
+                      "- Start with a single short lead-in sentence like 'Here’s a draft reply you can send.'",
+                      "- Then provide the draft message in plain text.",
+                      "- No headings, bullet lists, JSON, or fake links.",
+                    ].join("\n"),
+                    user: `User request:\n${preflightPrompt}\n\nDraft target:\n${JSON.stringify(draftInboxReplyIntent, null, 2)}\n\nRecent thread messages (JSON):\n${JSON.stringify(threadMessages.slice(-8), null, 2)}`,
+                  }),
+                ),
+              );
+            } catch {
+              draftAssistantText = "";
+            }
+
+            if (draftAssistantText.trim()) {
+              const draftReplyResponse = await finalizePreflightResponse({
+                exec: { ok: true, assistantText: draftAssistantText, result: { messages: threadMessages } },
+                traceKey: "inbox.thread.messages.list",
+                traceTitle: "Draft Inbox Reply",
+                traceArgs: { threadId: chosenThreadId, take: 20 },
+                promptText: preflightPrompt,
+                contextActionKey: null,
+                suggestionActionKeys: [],
+              });
+              if (draftReplyResponse) return draftReplyResponse;
+            }
+          }
+        }
+
+        if (shouldTightenLatestNewsletter && preflightCtx?.lastNewsletter?.id) {
+          const newsletterId = String(preflightCtx.lastNewsletter.id).trim();
+          const getArgs = { newsletterId };
+          const current = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "newsletter.newsletters.get", args: getArgs });
+          const existing = current?.result?.newsletter && typeof current.result.newsletter === "object" ? current.result.newsletter : null;
+          const title = String(existing?.title || preflightCtx?.lastNewsletter?.label || "Newsletter").trim().slice(0, 180) || "Newsletter";
+          const profile = await prisma.businessProfile.findUnique({
+            where: { ownerId },
+            select: {
+              businessName: true,
+              websiteUrl: true,
+              industry: true,
+              businessModel: true,
+              primaryGoals: true,
+              targetCustomer: true,
+              brandVoice: true,
+            },
+          }).catch(() => null);
+          const primaryGoals = Array.isArray(profile?.primaryGoals)
+            ? (profile.primaryGoals as unknown[]).filter((value) => typeof value === "string").map((value) => String(value)).slice(0, 10)
+            : undefined;
+          const generatedDraft = await generateClientNewsletterDraft({
+            kind: "EXTERNAL",
+            businessName: profile?.businessName,
+            websiteUrl: profile?.websiteUrl,
+            industry: profile?.industry,
+            businessModel: profile?.businessModel,
+            primaryGoals,
+            targetCustomer: profile?.targetCustomer,
+            brandVoice: profile?.brandVoice,
+            topicHint: `${title} - sharpen this draft`,
+            promptAnswers: {
+              currentExcerpt: String(existing?.excerpt || "").slice(0, 1200),
+              currentContent: String(existing?.content || "").slice(0, 6000),
+              rewriteGoal: preflightPrompt,
+            },
+          }).catch(() => null);
+          const updateArgs = generatedDraft
+            ? {
+                newsletterId,
+                title: generatedDraft.title,
+                excerpt: generatedDraft.excerpt,
+                content: generatedDraft.content,
+                ...(generatedDraft.smsText ? { smsText: generatedDraft.smsText } : {}),
+              }
+            : {
+                newsletterId,
+                title,
+                excerpt: `A sharper, more compelling opener for ${title}.`,
+                content: String(existing?.content || `## ${title}\n\nThis version has a stronger hook, clearer promise, and a tighter introduction for conversion.`).trim().slice(0, 200000),
+              };
+          const updateExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "newsletter.newsletters.update", args: updateArgs });
+          const newsletterCta = formatAssistantMarkdownLink("Open Newsletter", typeof (updateExec as any)?.linkUrl === "string" ? String((updateExec as any).linkUrl).trim() : null);
+          const newsletterAssistantText = `I tightened the newsletter “${String(updateArgs.title || title).trim()}.”${generatedDraft?.excerpt ? `\n\n${String(generatedDraft.excerpt).trim()}` : ""}${newsletterCta ? `\n\n${newsletterCta}` : ""}`;
+          const updateResponse = await finalizePreflightResponse({ exec: { ...(updateExec as any), assistantText: newsletterAssistantText }, traceKey: "newsletter.newsletters.update", traceTitle: "Update Newsletter", traceArgs: updateArgs, promptText: preflightPrompt });
+          if (updateResponse) return updateResponse;
+        }
+
+        if (shouldPolishLatestBlog && preflightCtx?.lastBlogPost?.id) {
+          const polishArgs = {
+            postId: String(preflightCtx.lastBlogPost.id).trim(),
+            prompt: `Rewrite and strengthen this blog draft so it sounds sharper, more premium, and more persuasive while keeping the same core topic. User request: ${preflightPrompt}`,
+          };
+          const polishExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "blogs.posts.generate_draft", args: polishArgs });
+          const draft = (polishExec as any)?.result?.draft && typeof (polishExec as any).result.draft === "object" ? (polishExec as any).result.draft : null;
+          if (draft) {
+            const updateArgs = {
+              postId: polishArgs.postId,
+              title: String(draft.title || preflightCtx?.lastBlogPost?.label || "Blog Post").trim(),
+              slug: slugify(String(draft.title || preflightCtx?.lastBlogPost?.label || "blog-post").trim() || "blog-post") || "blog-post",
+              excerpt: String(draft.excerpt || "").trim(),
+              content: String(draft.content || "").trim(),
+              ...(Array.isArray(draft.seoKeywords) && draft.seoKeywords.length ? { seoKeywords: draft.seoKeywords } : {}),
+            };
+            const updateExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "blogs.posts.update", args: updateArgs });
+            const blogCta = formatAssistantMarkdownLink("Open Blogs", typeof (updateExec as any)?.linkUrl === "string" ? String((updateExec as any).linkUrl).trim() : null);
+            const blogAssistantText = Boolean((updateExec as any)?.ok)
+              ? `I strengthened the blog draft${draft.title ? ` “${String(draft.title).trim()}”` : ""}.${draft.excerpt ? `\n\n${String(draft.excerpt).trim()}` : ""}${blogCta ? `\n\n${blogCta}` : ""}`
+              : "";
+            const polishResponse = await finalizePreflightResponse({ exec: blogAssistantText ? { ...(updateExec as any), assistantText: blogAssistantText } : updateExec, traceKey: "blogs.posts.update", traceTitle: "Polish Blog Draft", traceArgs: updateArgs, promptText: preflightPrompt });
+            if (polishResponse) return polishResponse;
+          }
+          const polishResponse = await finalizePreflightResponse({ exec: polishExec, traceKey: "blogs.posts.generate_draft", traceTitle: "Polish Blog Draft", traceArgs: polishArgs, promptText: preflightPrompt });
+          if (polishResponse) return polishResponse;
+        }
+
+        if (reviewReplyIntent) {
+          const reviewName = String(reviewReplyIntent.reviewName || "").trim();
+          const replyText = String(reviewReplyIntent.replyText || "").trim();
+          const reviewsExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "reviews.inbox.list", args: {} });
+          const reviews = Array.isArray(reviewsExec?.result?.reviews) ? (reviewsExec.result.reviews as any[]) : [];
+          const match = reviews.find((review) => String(review?.name || "").toLowerCase().includes(reviewName.toLowerCase()));
+          const reviewId = typeof match?.id === "string" ? String(match.id).trim() : "";
+          if (reviewId && replyText) {
+            const replyArgs = { reviewId, reply: replyText };
+            const replyExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "reviews.reply", args: replyArgs });
+            const replyResponse = await finalizePreflightResponse({ exec: replyExec, traceKey: "reviews.reply", traceTitle: "Reply to Review", traceArgs: replyArgs, promptText: preflightPrompt });
+            if (replyResponse) return replyResponse;
+          }
+        }
+
+        if (shouldSetWeekdayAvailability) {
+          const bookingSite = await (prisma as any).portalBookingSite.findUnique({ where: { ownerId }, select: { timeZone: true } }).catch(() => null);
+          const timeZone = typeof bookingSite?.timeZone === "string" && bookingSite.timeZone.trim() ? String(bookingSite.timeZone).trim() : "America/Chicago";
+          const startDate = new Date();
+          const endDate = new Date(startDate.getTime() + 6 * 24 * 60 * 60_000);
+          const formatDate = (value: Date) => value.toISOString().slice(0, 10);
+          const availabilityArgs = {
+            startDateLocal: formatDate(startDate),
+            endDateLocal: formatDate(endDate),
+            startTimeLocal: "9:00",
+            endTimeLocal: "17:00",
+            timeZone,
+            isoWeekdays: [1, 2, 3, 4, 5],
+            replaceExisting: true,
+          };
+          const availabilityExec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "booking.availability.set_daily", args: availabilityArgs });
+          const availabilityResponse = await finalizePreflightResponse({ exec: availabilityExec, traceKey: "booking.availability.set_daily", traceTitle: "Set Booking Availability", traceArgs: availabilityArgs, promptText: preflightPrompt });
+          if (availabilityResponse) return availabilityResponse;
+        }
+
+        if (shouldAssessCrossSurfaceReadiness) {
+          const [newslettersExec, blogsExec, nurtureExec, funnelsExec, mediaExec, reviewsExec, bookingSiteExec, slotsExec, leadsExec] = await Promise.all([
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "newsletter.newsletters.list", args: { take: 5 } }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "blogs.posts.list", args: { take: 5 } }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "nurture.campaigns.list", args: { take: 5 } }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "funnel_builder.funnels.list", args: {} }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "media.items.list", args: { limit: 5 } }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "reviews.inbox.list", args: {} }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "booking.site.get", args: {} }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "booking.suggestions.slots", args: { days: 7, limit: 5 } }),
+            executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "lead_scraping.leads.list", args: { take: 5 } }),
+          ]);
+
+          const funnels = Array.isArray((funnelsExec as any)?.result?.funnels) ? ((funnelsExec as any).result.funnels as any[]) : [];
+          const latestFunnelId = typeof funnels[0]?.id === "string" ? String(funnels[0].id).trim() : "";
+          const pagesExec = latestFunnelId
+            ? await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: "funnel_builder.pages.list", args: { funnelId: latestFunnelId } })
+            : null;
+          const pages = Array.isArray((pagesExec as any)?.result?.pages) ? ((pagesExec as any).result.pages as any[]) : [];
+
+          const newsletters = Array.isArray((newslettersExec as any)?.result?.newsletters) ? ((newslettersExec as any).result.newsletters as any[]) : [];
+          const blogs = Array.isArray((blogsExec as any)?.result?.posts) ? ((blogsExec as any).result.posts as any[]) : [];
+          const campaigns = Array.isArray((nurtureExec as any)?.result?.campaigns) ? ((nurtureExec as any).result.campaigns as any[]) : [];
+          const mediaItems = Array.isArray((mediaExec as any)?.result?.items) ? ((mediaExec as any).result.items as any[]) : [];
+          const reviews = Array.isArray((reviewsExec as any)?.result?.reviews) ? ((reviewsExec as any).result.reviews as any[]) : [];
+          const slots = Array.isArray((slotsExec as any)?.result?.slots) ? ((slotsExec as any).result.slots as any[]) : [];
+          const leads = Array.isArray((leadsExec as any)?.result?.leads) ? ((leadsExec as any).result.leads as any[]) : [];
+          const bookingSite = (bookingSiteExec as any)?.result?.site ?? null;
+
+          const strengths: string[] = [];
+          const weakSpots: string[] = [];
+          if (newsletters.length) strengths.push(`newsletters are present (${newsletters.length} recent item${newsletters.length === 1 ? "" : "s"})`);
+          else weakSpots.push("newsletters still look empty");
+          if (blogs.length) strengths.push(`blogs are present (${blogs.length} recent post${blogs.length === 1 ? "" : "s"})`);
+          else weakSpots.push("blogs still look empty");
+          if (campaigns.length) strengths.push(`nurture campaigns exist (${campaigns.length})`);
+          else weakSpots.push("nurture campaigns still look empty");
+          if (reviews.length) strengths.push(`reviews are populated (${reviews.length})`);
+          else weakSpots.push("reviews look sparse");
+          if (leads.length) strengths.push(`lead scraping has captured leads (${leads.length})`);
+          else weakSpots.push("lead scraping results are thin");
+          if (mediaItems.length) strengths.push(`media library has assets (${mediaItems.length} sampled)`);
+          else weakSpots.push("media library still looks underfilled");
+          if (!bookingSite) weakSpots.push("booking site details are incomplete");
+          if (!slots.length) weakSpots.push("booking availability still does not yield suggested slots this week");
+          if (!funnels.length) weakSpots.push("no funnel exists yet");
+          else if (!pages.length) weakSpots.push("the funnel exists but still needs at least one usable page/layout");
+          else strengths.push(`funnel builder has ${funnels.length} funnel${funnels.length === 1 ? "" : "s"} and ${pages.length} page${pages.length === 1 ? "" : "s"} on the latest funnel`);
+
+          const assistantText = [
+            "Here’s the current readiness read from the live demo account:",
+            strengths.length ? `Strongest areas: ${strengths.join("; ")}.` : "I do not yet see strong completed areas across the major surfaces.",
+            weakSpots.length ? `Still weak or incomplete: ${weakSpots.join("; ")}.` : "I do not see any obvious weak spots in the sampled surfaces.",
+            weakSpots.length ? "If you want, I can keep hardening the weakest remaining area first." : "This looks much closer to production-ready across the sampled surfaces.",
+          ].join("\n\n");
+
+          const crossSurfaceResponse = await finalizePreflightResponse({
+            exec: { ok: true, assistantText },
+            traceKey: "newsletter.newsletters.list",
+            traceTitle: "Assess Demo Readiness",
+            traceArgs: { take: 5 },
+            promptText: preflightPrompt,
+          });
+          if (crossSurfaceResponse) return crossSurfaceResponse;
+        }
+
+        const preflightAction = preflightSmsThreadMatch
+          ? {
+              action: "inbox.threads.list" as PortalAgentActionKey,
+              title: "Find SMS Thread",
+              args: { channel: "SMS", q: preflightSmsThreadMatch.trim() || preflightPrompt, take: 10 },
+            }
+          : preflightInboxSearchQuery
+            ? {
+                action: "inbox.threads.list" as PortalAgentActionKey,
+                title: "Find Inbox Thread",
+                args: {
+                  channel: preflightInboxSearchChannel || "ALL",
+                  q: preflightInboxSearchQuery,
+                  take: 10,
+                  allChannels: !preflightInboxSearchChannel || preflightInboxSearchChannel === "ALL",
+                },
+              }
+          : shouldRunPreflightInboxSummary
+            ? {
+                action: "inbox.threads.list" as PortalAgentActionKey,
+                title: "Summarize Inbox",
+                args: { channel: "ALL", take: 20, allChannels: true, needsReply: true },
+              }
+            : shouldRunPreflightReceptionist
+              ? {
+                  action: "ai_receptionist.highlights.get" as PortalAgentActionKey,
+                  title: "Summarize AI Receptionist Calls",
+                  args: { lookbackHours: 24 * 7, limit: 20 },
+                }
+              : null;
+
+        if (preflightAction) {
+          let preflightExec = await executePortalAgentAction({
+            ownerId,
+            actorUserId: createdByUserId,
+            action: preflightAction.action,
+            args: preflightAction.args as Record<string, unknown>,
+          });
+          let traceKey = preflightAction.action;
+          let traceTitle = preflightAction.title;
+
+          if (preflightSmsThreadMatch && Boolean((preflightExec as any)?.ok)) {
+            const threads = Array.isArray((preflightExec as any)?.result?.threads) ? ((preflightExec as any).result.threads as any[]) : [];
+            const firstThreadId = typeof threads[0]?.id === "string" ? String(threads[0].id).trim() : "";
+            if (firstThreadId) {
+              const secondExec = await executePortalAgentAction({
+                ownerId,
+                actorUserId: createdByUserId,
+                action: "inbox.thread.messages.list",
+                args: { threadId: firstThreadId, take: 20, channel: "SMS" },
+              });
+              if ((secondExec as any)?.ok || typeof (secondExec as any)?.assistantText === "string" || Array.isArray((secondExec as any)?.result?.messages)) {
+                preflightExec = secondExec as any;
+                traceKey = "inbox.thread.messages.list";
+                traceTitle = "Summarize SMS Thread";
+              }
+            }
+          }
+
+          const preflightAssistantText = typeof (preflightExec as any)?.assistantText === "string" ? String((preflightExec as any).assistantText).trim() : "";
+          if (preflightAssistantText) {
+            const preflightResponse = await finalizePreflightResponse({
+              exec: preflightExec,
+              traceKey,
+              traceTitle,
+              traceArgs: preflightAction.args as Record<string, unknown>,
+              promptText: preflightPrompt,
+            });
+            if (preflightResponse) return preflightResponse;
+          }
+        }
+      }
+
       const unresolvedRunForPlanning = normalizeUnresolvedRun(
         threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any).unresolvedRun : null,
       );
@@ -4267,6 +5559,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                     "- NO headings, NO bullet lists, NO tables.",
                     "- Do NOT print raw JSON or field dumps.",
                     "- Do NOT use labels like 'Action:', 'Status:', 'Result:'.",
+                    "- Never invent URLs, domains, or links. Only mention a link when linkUrl or canvasUrl is explicitly provided, and use that exact path/value.",
                     "Rules:",
                     "- Mention what you did and the outcome.",
                     "- If it failed, say what failed and what you need next.",
@@ -4988,7 +6281,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         const actions = planned.actions;
 
-        if (threadChatMode !== "work" && actions.length) {
+        if (threadChatMode !== "work" && actions.length && actions.some((action) => !isReadOnlyPortalAgentAction(action.key))) {
           const discussText = "You’re in discuss mode, so I didn’t make portal changes. Switch this chat to Work and send that request again if you want me to do it.";
           const assistantMsg = await (prisma as any).portalAiChatMessage.create({
             data: {
@@ -5461,8 +6754,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       const mappedCanvasUrl =
         (allResolvedSteps.map((s) => portalCanvasUrlForAction(s.key, s.args)).filter(Boolean).slice(-1)[0] as string | undefined) || null;
+      const normalizedResolved = collapseRedundantConflictSteps(allResolvedSteps, allResults);
+      const effectiveResolvedSteps = normalizedResolved.steps;
+      const effectiveAllResults = normalizedResolved.results;
       const canvasUrl =
-        (allResults.filter((r) => r.ok).map((r) => r.linkUrl).filter(Boolean).slice(-1)[0] as string | undefined) || mappedCanvasUrl || null;
+        (effectiveAllResults.filter((r) => r.ok).map((r) => r.linkUrl).filter(Boolean).slice(-1)[0] as string | undefined) || mappedCanvasUrl || null;
 
       let assistantTextFinal = "";
       try {
@@ -5479,7 +6775,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           },
           localCtx,
         );
-        const resultsForSummary = allResults.map((r: any) => {
+        const normalizedResolved = collapseRedundantConflictSteps(allResolvedSteps, allResults);
+        const effectiveResolvedSteps = normalizedResolved.steps;
+        const effectiveAllResults = normalizedResolved.results;
+        const resultsForSummary = effectiveAllResults.map((r: any) => {
           const cleaned = stripAssistantVisibleAccountingFields((r as any)?.result);
           const extractedError =
             cleaned && typeof cleaned === "object" && !Array.isArray(cleaned) && typeof (cleaned as any).error === "string"
@@ -5514,49 +6813,60 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           };
         });
 
-        const workTitle = allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || "";
+        const workTitle = effectiveResolvedSteps[0]?.title || effectiveResolvedSteps[0]?.key || "";
         const okCount = resultsForSummary.filter((r: any) => r && r.completed).length;
         const failedCount = resultsForSummary.filter((r: any) => !r || !r.ok || Number(r.status) < 200 || Number(r.status) >= 300).length;
         const pendingCount = resultsForSummary.filter((r: any) => r && r.ok && !r.completed).length;
+        const shouldReuseStepAssistantText =
+          effectiveResolvedSteps.length > 0 &&
+          failedCount === 0 &&
+          pendingCount === 0 &&
+          effectiveResolvedSteps.every((step) => isReadOnlyPortalAgentAction(String(step?.key || "") as PortalAgentActionKey));
+        const lastStepAssistantText = shouldReuseStepAssistantText
+          ? String((effectiveAllResults[effectiveAllResults.length - 1] as any)?.assistantMessage?.text || "").trim().slice(0, 12_000)
+          : "";
 
         const directMessage = finalDirectMessage ? String(finalDirectMessage).trim().slice(0, 800) : "";
-        assistantTextFinal = stripEmptyAssistantBullets(
-          String(
-            await generateText({
-              system: [
-                "You are Pura, an AI assistant inside a SaaS portal.",
-                "Write a normal chat reply (not a report).",
-                "Hard constraint: NEVER claim an action succeeded unless ALL steps are completed=true.",
-                "If ANY step has ok=false or a non-2xx status, you must clearly say it failed and what happens next.",
-                "If ANY step returned a question or proposalOnly=true, you must clearly say the work is not finished yet.",
-                "Do not ask the user to do the portal work themselves unless you truly need missing info.",
-                "Formatting rules:",
-                "- 1-3 short paragraphs.",
-                "- NO headings, NO bullet lists, NO tables.",
-                "- Do NOT print raw JSON or field dumps.",
-                "- Do NOT use labels like 'Action:', 'Status:', 'Result:'.",
-                "Content rules:",
-                "- Say what you did and the outcome in plain language.",
-                "- If something failed, say what failed and the next step.",
-                "- If something is pending because the tool asked a question or only produced a proposal, say that directly and do not pretend the edit happened.",
-                "- If you need the user to choose something, ask ONE specific question.",
-              ].join("\n"),
-              user: `Action execution results (JSON):\n${JSON.stringify(
-                {
-                  workTitle,
-                  steps: allResolvedSteps,
-                  results: resultsForSummary,
-                  summary: { total: allResolvedSteps.length, okCount, failedCount, pendingCount },
-                  modelDirectMessage: directMessage || null,
-                  canvasUrl,
-                  userPrompt: String(promptMessage || "").slice(0, 2000),
-                },
-                null,
-                2,
-              )}`,
-            }),
-          ),
-        );
+        assistantTextFinal = lastStepAssistantText
+          ? stripEmptyAssistantBullets(lastStepAssistantText)
+          : stripEmptyAssistantBullets(
+              String(
+                await generateText({
+                  system: [
+                    "You are Pura, an AI assistant inside a SaaS portal.",
+                    "Write a normal chat reply (not a report).",
+                    "Hard constraint: NEVER claim an action succeeded unless ALL steps are completed=true.",
+                    "If ANY step has ok=false or a non-2xx status, you must clearly say it failed and what happens next.",
+                    "If ANY step returned a question or proposalOnly=true, you must clearly say the work is not finished yet.",
+                    "Do not ask the user to do the portal work themselves unless you truly need missing info.",
+                    "Formatting rules:",
+                    "- 1-3 short paragraphs.",
+                    "- NO headings, NO bullet lists, NO tables.",
+                    "- Do NOT print raw JSON or field dumps.",
+                    "- Do NOT use labels like 'Action:', 'Status:', 'Result:'.",
+                    "- Never invent URLs, domains, or links. Only mention a link when linkUrl or canvasUrl is explicitly provided, and use that exact path/value.",
+                    "Content rules:",
+                    "- Say what you did and the outcome in plain language.",
+                    "- If something failed, say what failed and the next step.",
+                    "- If something is pending because the tool asked a question or only produced a proposal, say that directly and do not pretend the edit happened.",
+                    "- If you need the user to choose something, ask ONE specific question.",
+                  ].join("\n"),
+                  user: `Action execution results (JSON):\n${JSON.stringify(
+                    {
+                      workTitle,
+                      steps: effectiveResolvedSteps,
+                      results: resultsForSummary,
+                      summary: { total: effectiveResolvedSteps.length, okCount, failedCount, pendingCount },
+                      modelDirectMessage: directMessage || null,
+                      canvasUrl,
+                      userPrompt: String(promptMessage || "").slice(0, 2000),
+                    },
+                    null,
+                    2,
+                  )}`,
+                }),
+              ),
+            );
       } catch {
         assistantTextFinal = finalDirectMessage || "";
       }
@@ -5573,15 +6883,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const prevRuns = Array.isArray((prevCtx as any).runs) ? ((prevCtx as any).runs as unknown[]) : [];
       const runTrace = {
         at: now.toISOString(),
-        workTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
+        workTitle: effectiveResolvedSteps[0]?.title || effectiveResolvedSteps[0]?.key || null,
         assistantMessageId: assistantMsg?.id ?? null,
-        steps: allResolvedSteps.map((s, idx) => ({ key: s.key, title: s.title, ok: Boolean(allResults[idx]?.ok), linkUrl: allResults[idx]?.linkUrl ?? null })),
+        steps: effectiveResolvedSteps.map((s, idx) => ({ key: s.key, title: s.title, ok: Boolean(effectiveAllResults[idx]?.ok), linkUrl: effectiveAllResults[idx]?.linkUrl ?? null })),
         canvasUrl,
       };
       const runs = [...prevRuns.slice(-19), runTrace];
-      const finalPendingCount = allResults.filter((r: any) => Boolean(r.ok) && (r?.result?.question || (Array.isArray(r?.result?.actions) && r.result.actions.length))).length;
-      const finalFailedCount = allResults.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length;
-      const finalOkCount = allResults.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length;
+      const finalPendingCount = effectiveAllResults.filter((r: any) => Boolean(r.ok) && (r?.result?.question || (Array.isArray(r?.result?.actions) && r.result.actions.length))).length;
+      const finalFailedCount = effectiveAllResults.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length;
+      const finalOkCount = effectiveAllResults.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length;
 
       const completedRunId = activeRunId;
       const completedRunStartedAt = activeRunStartedAt;
@@ -5591,7 +6901,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           ? clearNextStepContext(clearUnresolvedRun({
               ...prevCtx,
               ...mergedPatch,
-              lastWorkTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
+              lastWorkTitle: effectiveResolvedSteps[0]?.title || effectiveResolvedSteps[0]?.key || null,
               lastCanvasUrl: canvasUrl,
               pendingAction: null,
               pendingActionClarify: null,
@@ -5603,7 +6913,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               clearNextStepContext({
                 ...prevCtx,
                 ...mergedPatch,
-                lastWorkTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
+                lastWorkTitle: effectiveResolvedSteps[0]?.title || effectiveResolvedSteps[0]?.key || null,
                 lastCanvasUrl: canvasUrl,
                 pendingAction: null,
                 pendingActionClarify: null,
@@ -5615,10 +6925,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 status: finalRunStatus as UnresolvedRunStatus,
                 runId: completedRunId,
                 updatedAt: now.toISOString(),
-                workTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
+                workTitle: effectiveResolvedSteps[0]?.title || effectiveResolvedSteps[0]?.key || null,
                 summaryText: assistantMsg?.text ?? null,
                 userRequest: promptMessage,
-                lastCompletedTitle: allResolvedSteps[allResolvedSteps.length - 1]?.title || null,
+                lastCompletedTitle: effectiveResolvedSteps[effectiveResolvedSteps.length - 1]?.title || null,
                 canvasUrl,
               },
             ),
@@ -5627,9 +6937,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
       if (assistantTextFinal) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: assistantTextFinal });
 
-      const openScheduledTasks = allResolvedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
+      const openScheduledTasks = effectiveResolvedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
       const followUpSuggestions = buildProactiveFollowUpSuggestions({
-        actionKeys: allResolvedSteps.map((s) => String(s.key || "")).filter(Boolean),
+        actionKeys: effectiveResolvedSteps.map((s) => String(s.key || "")).filter(Boolean),
         canvasUrl,
         promptText: promptMessage,
         completedCount: finalOkCount,
@@ -5641,7 +6951,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           ? withNextStepContext(nextCtx, {
               updatedAt: now.toISOString(),
               objective: promptMessage,
-              workTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
+              workTitle: effectiveResolvedSteps[0]?.title || effectiveResolvedSteps[0]?.key || null,
               summaryText: assistantMsg?.text ?? null,
               suggestedPrompt: followUpSuggestions[0] ?? null,
               suggestions: followUpSuggestions,
@@ -5670,6 +6980,228 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       // If planning fails, fall through to existing behavior.
     }
 
+    const promptForFallback = String(promptMessage || "").trim();
+    const smsThreadMatch = promptForFallback.match(/\b(?:text|sms)\s+thread\s+with\s+(.+?)\s*\??$/i);
+    const shouldRunInboxSummaryFallback = /\bsummarize\s+my\s+inbox\b|\bwhat\s+needs\s+attention\b/i.test(promptForFallback);
+    const shouldRunReceptionistFallback = /\brecent\s+ai\s+receptionist\s+calls\b|\bai\s+receptionist\s+calls\b/i.test(promptForFallback);
+    const shouldRunOpenTasksFallback = /\bwhat\s+open\s+tasks\s+do\s+i\s+have\b|\bopen\s+tasks\b/i.test(promptForFallback);
+    const mikeTaskMatch = promptForFallback.match(/\btask\b.*\babout\s+(.+?)\s*\??$/i);
+    const supportFallbackNoDataPattern = /there (?:is|are|were) no recent (?:messages|calls)|couldn't retrieve any information|tool didn't find any data|nothing to report at this time/i;
+
+    const heuristicFallbackAction = smsThreadMatch
+      ? {
+          action: "inbox.threads.list" as PortalAgentActionKey,
+          title: "Find SMS Thread",
+          args: { channel: "SMS", q: smsThreadMatch[1]?.trim() || promptForFallback, take: 10 },
+        }
+      : shouldRunInboxSummaryFallback
+        ? {
+            action: "inbox.threads.list" as PortalAgentActionKey,
+            title: "Summarize Inbox",
+            args: { channel: "ALL", take: 20, allChannels: true, needsReply: true },
+          }
+        : mikeTaskMatch
+          ? {
+              action: "tasks.list" as PortalAgentActionKey,
+              title: "Find Matching Task",
+              args: { status: "ALL", q: mikeTaskMatch[1]?.trim() || promptForFallback, limit: 20 },
+            }
+          : shouldRunOpenTasksFallback
+            ? {
+                action: "tasks.list" as PortalAgentActionKey,
+                title: "List Open Tasks",
+                args: { status: "OPEN", limit: 20 },
+              }
+            : shouldRunReceptionistFallback
+              ? {
+                  action: "ai_receptionist.highlights.get" as PortalAgentActionKey,
+                  title: "Summarize AI Receptionist Calls",
+                  args: { lookbackHours: 24 * 7, limit: 20 },
+                }
+              : null;
+
+    const buildHeuristicAssistantText = (traceKey: string, result: any, linkUrl?: string | null) => {
+      const cta = formatAssistantMarkdownLink(
+        traceKey === "inbox.thread.messages.list"
+          ? "Open Conversation"
+          : traceKey === "ai_receptionist.highlights.get"
+            ? "Open Receptionist"
+            : "Open Inbox",
+        typeof linkUrl === "string" ? linkUrl.trim() : null,
+      );
+      if (traceKey === "inbox.threads.list") {
+        const threads = Array.isArray(result?.threads) ? (result.threads as any[]) : [];
+        if (!threads.length) return "I couldn't find any inbox threads that need attention right now.";
+        const highlights = threads.slice(0, 4).map((thread) => {
+          const contactName = typeof thread?.contact?.name === "string" && thread.contact.name.trim()
+            ? String(thread.contact.name).trim()
+            : String(thread?.peerAddress || "Conversation").trim() || "Conversation";
+          const channel = String(thread?.channel || "").trim().toUpperCase();
+          const preview = typeof thread?.lastMessagePreview === "string" ? String(thread.lastMessagePreview).trim().replace(/\s+/g, " ").slice(0, 140) : "";
+          const needsReply = thread?.needsReply === true ? "needs a reply" : "is active";
+          return `${contactName}${channel ? ` on ${channel}` : ""} ${needsReply}${preview ? ` - ${preview}` : ""}`;
+        });
+        return `I pulled the inbox conversations that matter most right now. ${highlights.join("; ")}.${cta ? `\n\n${cta}` : ""}`;
+      }
+
+      if (traceKey === "inbox.thread.messages.list") {
+        const messages = Array.isArray(result?.messages) ? (result.messages as any[]) : [];
+        if (!messages.length) return "I found that conversation, but there are no messages in it yet.";
+        const lines = messages.slice(-4).map((message) => {
+          const direction = String(message?.direction || "").trim().toUpperCase() === "OUT" ? "You" : "Contact";
+          const body = typeof message?.bodyText === "string" ? String(message.bodyText).trim().replace(/\s+/g, " ").slice(0, 160) : "";
+          return `${direction}: ${body || "(no text)"}`;
+        });
+        return `Here’s the recent flow from that SMS conversation: ${lines.join(" | ")}.${cta ? `\n\n${cta}` : ""}`;
+      }
+
+      if (traceKey === "ai_receptionist.highlights.get") {
+        const stats = result?.stats && typeof result.stats === "object" ? result.stats : null;
+        if (!stats) return "I couldn't find any recent AI receptionist call data to summarize.";
+        const lines = [
+          `${Number(stats.total || 0)} recent calls total`,
+          `${Number(stats.completed || 0)} completed`,
+          `${Number(stats.failed || 0)} failed`,
+          `${Number(stats.inProgress || 0)} still in progress`,
+        ];
+        const warnings = Array.isArray(result?.warnings) ? (result.warnings as string[]) : [];
+        const issues = Array.isArray(result?.issues) ? (result.issues as any[]) : [];
+        const extras = [
+          warnings.length ? `Warning: ${String(warnings[0] || "").trim()}` : "",
+          issues.length ? `Top issue: ${String(issues[0]?.summary || "").trim()}` : "",
+        ].filter(Boolean);
+        return `Here’s the recent AI receptionist snapshot: ${lines.join(", ")}.${extras.length ? ` ${extras.join(". ")}.` : ""}${cta ? `\n\n${cta}` : ""}`;
+      }
+
+      return null;
+    };
+
+    const tryHeuristicFallbackResponse = async () => {
+      if (!heuristicFallbackAction) return null;
+
+      try {
+        let exec = await executePortalAgentAction({
+          ownerId,
+          actorUserId: memberId,
+          action: heuristicFallbackAction.action,
+          args: heuristicFallbackAction.args as Record<string, unknown>,
+        });
+        let traceKey = heuristicFallbackAction.action;
+        let traceTitle = heuristicFallbackAction.title;
+
+        if (smsThreadMatch && Boolean((exec as any)?.ok)) {
+          const threads = Array.isArray((exec as any)?.result?.threads) ? ((exec as any).result.threads as any[]) : [];
+          const firstThreadId = typeof threads[0]?.id === "string" ? String(threads[0].id).trim() : "";
+          if (firstThreadId) {
+            const secondExec = await executePortalAgentAction({
+              ownerId,
+              actorUserId: memberId,
+              action: "inbox.thread.messages.list",
+              args: { threadId: firstThreadId, take: 20, channel: "SMS" },
+            });
+            if ((secondExec as any)?.ok || typeof (secondExec as any)?.assistantText === "string" || Array.isArray((secondExec as any)?.result?.messages)) {
+              exec = secondExec as any;
+              traceKey = "inbox.thread.messages.list";
+              traceTitle = "Summarize SMS Thread";
+            }
+          }
+        }
+
+        const canvasUrl = typeof (exec as any)?.linkUrl === "string" ? String((exec as any).linkUrl).trim().slice(0, 1200) : null;
+        let assistantMsg = null;
+        const assistantText = typeof (exec as any)?.assistantText === "string" ? String((exec as any).assistantText).trim() : "";
+        const fallbackText = assistantText || buildHeuristicAssistantText(traceKey, (exec as any)?.result, canvasUrl);
+        if (fallbackText) {
+          assistantMsg = await (prisma as any).portalAiChatMessage.create({
+            data: {
+              ownerId,
+              threadId,
+              role: "assistant",
+              text: fallbackText,
+              attachmentsJson: null,
+              createdByUserId: null,
+              sendAt: null,
+              sentAt: now,
+            },
+            select: {
+              id: true,
+              role: true,
+              text: true,
+              attachmentsJson: true,
+              createdAt: true,
+              sendAt: true,
+              sentAt: true,
+            },
+          });
+        }
+        if (!assistantMsg) return null;
+
+        const runTrace = {
+          at: now.toISOString(),
+          workTitle: traceTitle,
+          assistantMessageId: assistantMsg?.id ?? null,
+          steps: [{ key: traceKey, title: traceTitle, ok: Boolean((exec as any)?.ok), linkUrl: canvasUrl }],
+          canvasUrl,
+        };
+        const prevCtx = persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext) ? (persistedThreadContext as any) : {};
+        const prevRuns = Array.isArray(prevCtx.runs) ? (prevCtx.runs as unknown[]) : [];
+        const followUpSuggestions = buildProactiveFollowUpSuggestions({
+          actionKeys: [traceKey],
+          canvasUrl,
+          promptText: promptMessage,
+          completedCount: Boolean((exec as any)?.ok) ? 1 : 0,
+          failedCount: Boolean((exec as any)?.ok) ? 0 : 1,
+          pendingCount: 0,
+        });
+        const nextCtx = withPersistedFollowUpSuggestions(
+          {
+            ...prevCtx,
+            lastWorkTitle: traceTitle,
+            lastCanvasUrl: canvasUrl,
+            runs: [...prevRuns.slice(-19), runTrace],
+          },
+          assistantMsg?.id,
+          followUpSuggestions,
+        );
+
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+        await persistActiveChatRun({
+          status: Boolean((exec as any)?.ok) ? "completed" : "failed",
+          runId: activeRunId,
+          startedAt: activeRunStartedAt,
+          runTrace,
+          summaryText: typeof assistantMsg?.text === "string" ? assistantMsg.text : null,
+          followUpSuggestions,
+          completedAt: now,
+        });
+
+        return NextResponse.json({
+          ok: true,
+          userMessage: responseUserMessage,
+          assistantMessage: assistantMsg,
+          assistantActions: [],
+          autoActionMessage: null,
+          canvasUrl,
+          assistantChoices: (exec as any)?.assistantChoices ?? null,
+          clientUiActions: Array.isArray((exec as any)?.clientUiAction) ? (exec as any).clientUiAction : (exec as any)?.clientUiAction ? [(exec as any).clientUiAction] : [],
+          runTrace,
+          followUpSuggestions,
+        });
+      } catch (error) {
+        console.error("[portal-ai-chat] heuristic fallback failed", {
+          prompt: promptForFallback,
+          action: heuristicFallbackAction.action,
+          error: error instanceof Error ? error.message : String(error ?? ""),
+        });
+        return null;
+      }
+    };
+
+    const heuristicFallbackResponse = await tryHeuristicFallbackResponse();
+    if (heuristicFallbackResponse) {
+      return heuristicFallbackResponse;
+    }
+
     // If agentic planning didn't return a response, fall back to support chat.
     // AI-first: if model generation fails, omit the assistant bubble.
     try {
@@ -5682,6 +7214,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       const replyText = typeof reply === "string" ? reply.trim() : "";
       if (replyText) {
+        if (heuristicFallbackAction && supportFallbackNoDataPattern.test(replyText)) {
+          const heuristicAfterSupport = await tryHeuristicFallbackResponse();
+          if (heuristicAfterSupport) {
+            return heuristicAfterSupport;
+          }
+        }
         await persistLiveStatus({ phase: "summarizing", label: "Writing the reply" });
         const assistantMsg = await (prisma as any).portalAiChatMessage.create({
           data: {
@@ -5732,11 +7270,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           clientUiActions: [],
         });
       }
-    } catch {
+    } catch (error) {
+      const failureSummary =
+        aiConfigErrorMessage ||
+        (error instanceof Error && error.message.trim() ? error.message.trim().slice(0, 400) : "Run ended before Pura could produce a reply.");
       try {
         await persistActiveChatRun({
           status: "failed",
-          summaryText: "Run ended before Pura could produce a reply.",
+          summaryText: failureSummary,
           completedAt: now,
         });
         await persistThreadContext(
@@ -5746,7 +7287,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               runId: activeRunId,
               updatedAt: now.toISOString(),
               workTitle: null,
-              summaryText: "Run ended before Pura could produce a reply.",
+              summaryText: failureSummary,
               userRequest: promptMessage,
               canvasUrl: null,
             }),
@@ -5759,10 +7300,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     }
   }
 
+  const finalFailureSummary = aiConfigErrorMessage || "Run ended without a reply.";
+
   try {
     await persistActiveChatRun({
       status: "failed",
-      summaryText: "Run ended without a reply.",
+      summaryText: finalFailureSummary,
       completedAt: now,
     });
     await persistThreadContext(
@@ -5772,7 +7315,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           runId: activeRunId,
           updatedAt: now.toISOString(),
           workTitle: null,
-          summaryText: "Run ended without a reply.",
+          summaryText: finalFailureSummary,
           userRequest: promptMessage,
           canvasUrl: null,
         }),
@@ -5784,7 +7327,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   // AI-first: no deterministic routing/shortcuts, and no deterministic assistant bubble copy.
   return NextResponse.json({
-    ok: true,
+    ok: false,
+    error: finalFailureSummary,
+    code: aiConfigErrorMessage ? "AI_UNAVAILABLE" : "NO_ASSISTANT_REPLY",
     userMessage: responseUserMessage,
     assistantMessage: null,
     assistantActions: [],
@@ -5792,7 +7337,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     canvasUrl: null,
     assistantChoices: null,
     clientUiActions: [],
-  });
+  }, { status: aiConfigErrorMessage ? 503 : 500 });
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ threadId: string }> }) {

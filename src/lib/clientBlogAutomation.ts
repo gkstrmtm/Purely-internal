@@ -57,6 +57,7 @@ export type ClientBlogGenerationContext = {
   targetCustomer?: string | null;
   brandVoice?: string | null;
   topic?: string;
+  strictTopicOnly?: boolean;
 };
 
 export async function generateClientBlogDraft(ctx: ClientBlogGenerationContext): Promise<ClientBlogDraft> {
@@ -88,27 +89,40 @@ export async function generateClientBlogDraft(ctx: ClientBlogGenerationContext):
     "Schema: { title: string, excerpt: string, content: string, seoKeywords?: string[], coverImageAlt?: string }.",
     "Write content in Markdown.",
     "No code fences, no extra commentary.",
-    "Keep it practical for a small service business.",
+    "Keep it practical, high-signal, and good enough to publish without sounding templated.",
     "SEO: include 20-40 relevant, unique SEO keywords/phrases in seoKeywords (mix of short + long-tail).",
+    "If the requested topic names a specific offer, niche, audience, or business model, keep the title, excerpt, content, and SEO keywords tightly aligned to that exact topic.",
+    "Do not mix in unrelated industries, services, or customer scenarios from the business profile when the topic is more specific.",
+    "SEO keywords must stay on-topic. Never include keywords for a different industry or service than the requested topic.",
     "If you propose a cover image concept, put the descriptive alt text in coverImageAlt (plain text, no Markdown).",
+    "Never use placeholders, fake anecdotes, fake stats, or generic filler sections.",
+    "The post should have a strong hook, concrete subheads, useful examples, and a short closing CTA with a real markdown link to [Purely Automation](https://purelyautomation.com).",
   ].join(" ");
 
+  const business = ctx.strictTopicOnly
+    ? {
+        businessName: ctx.businessName ?? undefined,
+        websiteUrl: ctx.websiteUrl ?? undefined,
+        brandVoice: ctx.brandVoice ?? undefined,
+      }
+    : {
+        businessName: ctx.businessName ?? undefined,
+        websiteUrl: ctx.websiteUrl ?? undefined,
+        industry: ctx.industry ?? undefined,
+        businessModel: ctx.businessModel ?? undefined,
+        primaryGoals: ctx.primaryGoals ?? undefined,
+        targetCustomer: ctx.targetCustomer ?? undefined,
+        brandVoice: ctx.brandVoice ?? undefined,
+      };
+
   const prompt = {
-    business: {
-      businessName: ctx.businessName ?? undefined,
-      websiteUrl: ctx.websiteUrl ?? undefined,
-      industry: ctx.industry ?? undefined,
-      businessModel: ctx.businessModel ?? undefined,
-      primaryGoals: ctx.primaryGoals ?? undefined,
-      targetCustomer: ctx.targetCustomer ?? undefined,
-      brandVoice: ctx.brandVoice ?? undefined,
-    },
+    business,
     topic: ctx.topic ?? "A helpful educational post for our customers",
   };
 
   const text = await generateText({
     system:
-      "You are an expert SEO blog writer. You write clear, non-fluffy posts for service businesses. You avoid clickbait and you never invent false claims.",
+      "You are an expert SEO blog writer. You write clear, high-quality posts for service businesses. You avoid clickbait, filler, and fake proof. Every section stays tightly grounded to the requested topic without blending in unrelated industries.",
     user: `${instructions}\n\nInput: ${JSON.stringify(prompt)}`,
   });
 
