@@ -273,7 +273,7 @@ export default async function PortalDashboardPage() {
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="group flex min-h-[360px] flex-col rounded-3xl border border-zinc-200 bg-white p-6 transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg">
+            <div className="group flex min-h-[360px] flex-col rounded-3xl border border-zinc-200 bg-white p-6 transition-colors duration-100 hover:border-zinc-300 hover:shadow-lg">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Build a real brand</div>
               <div className="mt-2 text-lg font-semibold text-brand-ink">The Brand Builder</div>
               <div className="mt-2 text-sm text-zinc-600">Look established, stay visible, and build trust without posting every day.</div>
@@ -292,14 +292,14 @@ export default async function PortalDashboardPage() {
               <div className="mt-auto pt-6">
                 <Link
                   href={getStartedPackageHref("brand-builder")}
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:opacity-95 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(29,78,216,0.45)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white transition-all duration-100 hover:opacity-95 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.45)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
                 </Link>
               </div>
             </div>
 
-            <div className="group relative flex min-h-[360px] flex-col rounded-3xl border-2 border-[color:rgba(29,78,216,0.45)] bg-[color:rgba(29,78,216,0.05)] p-6 transition hover:-translate-y-0.5 hover:border-[color:rgba(29,78,216,0.65)] hover:shadow-xl">
+            <div className="group relative flex min-h-[360px] flex-col rounded-3xl border-2 border-[color:rgba(29,78,216,0.45)] bg-[color:rgba(29,78,216,0.05)] p-6 transition-colors duration-100 hover:border-[rgba(29,78,216,0.65)] hover:shadow-xl">
               <div className="absolute right-5 top-5 inline-flex items-center rounded-full bg-[color:rgba(29,78,216,0.12)] px-3 py-1 text-xs font-semibold text-[color:var(--color-brand-blue)]">
                 Most popular
               </div>
@@ -322,14 +322,14 @@ export default async function PortalDashboardPage() {
               <div className="mt-auto pt-6">
                 <Link
                   href={getStartedPackageHref("sales-loop")}
-                  className="inline-flex w-full items-center justify-center rounded-2xl border border-[color:rgba(51,65,85,0.55)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition hover:-translate-y-px hover:border-[color:rgba(51,65,85,0.85)] hover:bg-[color:rgba(51,65,85,0.04)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(29,78,216,0.55)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                  className="inline-flex w-full items-center justify-center rounded-2xl border border-[color:rgba(51,65,85,0.55)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-100 hover:border-[rgba(51,65,85,0.85)] hover:bg-[rgba(51,65,85,0.04)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.55)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
                 </Link>
               </div>
             </div>
 
-            <div className="group flex min-h-[360px] flex-col rounded-3xl border border-zinc-200 bg-white p-6 transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg">
+            <div className="group flex min-h-[360px] flex-col rounded-3xl border border-zinc-200 bg-white p-6 transition-colors duration-100 hover:border-zinc-300 hover:shadow-lg">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Get established fast</div>
               <div className="mt-2 text-lg font-semibold text-brand-ink">The Launch Kit</div>
               <div className="mt-2 text-sm text-zinc-600">Get out there fast with a clean funnel, a strong foundation, and a simple path to bookings.</div>
@@ -349,7 +349,7 @@ export default async function PortalDashboardPage() {
               <div className="mt-auto pt-6">
                 <Link
                   href={getStartedPackageHref("launch-kit")}
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:opacity-95 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(251,113,133,0.40)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-4 py-3 text-sm font-semibold text-white transition-all duration-100 hover:opacity-95 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(251,113,133,0.40)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
                 </Link>
@@ -405,13 +405,13 @@ export default async function PortalDashboardPage() {
             <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
               <Link
                 href={getStartedHref}
-                className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-6 py-3 text-sm font-semibold text-white shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-90 sm:w-auto"
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-6 py-3 text-sm font-semibold text-white shadow-sm transition-opacity duration-100 hover:opacity-90 sm:w-auto"
               >
                 Start free
               </Link>
               <Link
                 href={signInHref}
-                className="inline-flex w-full items-center justify-center rounded-2xl border border-white/35 bg-white/10 px-6 py-3 text-sm font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/15 sm:w-auto"
+                className="inline-flex w-full items-center justify-center rounded-2xl border border-white/35 bg-white/10 px-6 py-3 text-sm font-semibold text-white transition-colors duration-100 hover:bg-white/15 sm:w-auto"
               >
                 Sign in
               </Link>

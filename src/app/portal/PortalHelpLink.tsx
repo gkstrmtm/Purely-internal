@@ -69,13 +69,13 @@ export function PortalHelpLink({ glass = false }: { glass?: boolean }) {
       title="Help"
       className={glass
         ? "group relative inline-flex h-9 w-9 items-center justify-center text-zinc-700 transition-colors duration-150 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"
-        : "group relative inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-110 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"}
+        : "group relative inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-all duration-100 hover:scale-105 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"}
     >
       <IconHelpCircle size={18} />
 
       <span className="sr-only">Help</span>
 
-      <span className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-700 opacity-0 shadow-sm transition-all duration-150 group-hover:-translate-y-0.5 group-hover:opacity-100">
+      <span className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-700 opacity-0 shadow-sm transition-opacity duration-100 group-hover:opacity-100">
         Help
       </span>
     </Link>

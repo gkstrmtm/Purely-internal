@@ -258,7 +258,7 @@ type FormEditorDialog =
   | { type: "delete-form" }
   | null;
 
-const BUTTON_MOTION_CLASS = "transition-all duration-150 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60";
+const BUTTON_MOTION_CLASS = "transition-all duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60";
 const SECONDARY_BUTTON_CLASS = `rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink ${BUTTON_MOTION_CLASS} hover:border-zinc-300 hover:bg-zinc-50`;
 const PRIMARY_BUTTON_CLASS = `rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white ${BUTTON_MOTION_CLASS} hover:bg-blue-700`;
 
@@ -782,7 +782,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 bg-white px-4 py-3 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
-          <Link href={backHref} className="text-sm font-semibold text-(--color-brand-blue) transition-all duration-150 hover:-translate-y-0.5 hover:underline">
+          <Link href={backHref} className="text-sm font-semibold text-(--color-brand-blue) transition-all duration-100 hover:underline">
             ← Back
           </Link>
           {!dirty ? <div className="text-xs font-semibold text-zinc-500">Saved</div> : null}

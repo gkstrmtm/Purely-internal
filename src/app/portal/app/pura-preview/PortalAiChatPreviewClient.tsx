@@ -185,7 +185,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
   const modeSummaryLabel = `${effectiveChatModeLabel} ${effectiveResponseProfile}`;
 
   const composerControlButtonClass =
-    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50";
+    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-all duration-100 hover:border-zinc-300 hover:bg-zinc-50";
   const composerTextareaClass =
     "min-h-11 flex-1 resize-none rounded-3xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[rgba(29,78,216,0.25)]";
 
@@ -293,7 +293,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-all duration-150 hover:scale-110 hover:bg-zinc-50"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-all duration-100 hover:scale-105 hover:bg-zinc-50"
                 aria-label="Scheduled tasks"
                 title="Scheduled tasks"
               >
@@ -301,7 +301,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
               </button>
               <button
                 type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-blue text-white transition-transform duration-150 hover:scale-110 hover:opacity-95"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-blue text-white transition-all duration-100 hover:scale-105 hover:opacity-95"
                 onClick={createThread}
                 aria-label="New chat"
                 title="New chat"
@@ -340,7 +340,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
                       type="button"
                       className={classNames(
                         "absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-xl text-zinc-500",
-                        "opacity-0 transition-all group-hover:opacity-100 hover:scale-110 hover:text-zinc-700",
+                        "opacity-0 transition-all duration-100 group-hover:opacity-100 hover:scale-105 hover:text-zinc-700",
                         active && "opacity-100",
                       )}
                       aria-label="Chat options"
@@ -388,7 +388,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
       <button
         type="button"
         className={classNames(
-          "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95",
+          "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white transition-opacity duration-100 hover:opacity-95",
           showWelcomeComposer ? "shadow-none" : "",
           !input.trim() ? "opacity-60" : "",
         )}
@@ -428,7 +428,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
                         <button
                           type="button"
                           className={classNames(
-                            "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100",
+                            "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-100 hover:scale-105 hover:bg-zinc-100",
                             !isLastAssistant && "opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100",
                           )}
                           aria-label="Dictate assistant message"
@@ -439,7 +439,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
                         <button
                           type="button"
                           className={classNames(
-                            "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100",
+                            "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-100 hover:scale-105 hover:bg-zinc-100",
                             !isLastAssistant && "opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100",
                           )}
                           onClick={handleRedo}
@@ -455,7 +455,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
                         {isLastUser ? (
                           <button
                             type="button"
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-600 opacity-0 transition-all duration-150 group-hover/message:opacity-100 group-focus-within/message:opacity-100 hover:scale-110 hover:bg-zinc-100"
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-600 opacity-0 transition-all duration-100 group-hover/message:opacity-100 group-focus-within/message:opacity-100 hover:scale-105 hover:bg-zinc-100"
                             onClick={() => setInput(message.text)}
                             aria-label="Edit last user message"
                             title="Edit"
@@ -466,7 +466,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
                         {isLastAssistant ? (
                           <button
                             type="button"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-100 hover:scale-105 hover:bg-zinc-100"
                             onClick={() => void handleCopy(message.text)}
                             aria-label="Copy message"
                             title="Copy"
@@ -491,7 +491,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
                       <button
                         key={prompt}
                         type="button"
-                        className="flex min-h-28 items-start rounded-3xl border border-zinc-200 bg-white p-4 text-left text-sm font-semibold text-zinc-800 shadow-[0_10px_30px_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-1 hover:border-zinc-300 hover:bg-zinc-50"
+                        className="flex min-h-28 items-start rounded-3xl border border-zinc-200 bg-white p-4 text-left text-sm font-semibold text-zinc-800 shadow-[0_10px_30px_rgba(0,0,0,0.04)] transition-all duration-100 hover:border-zinc-300 hover:bg-zinc-50 hover:shadow-[0_14px_30px_rgba(0,0,0,0.06)]"
                         onClick={() => setInput(prompt)}
                       >
                         <span className="block leading-relaxed">{prompt}</span>

@@ -96,7 +96,7 @@ function sidebarIconToneClassForSlug(slug: string) {
 
 function sidebarIconButtonClass(active: boolean, extra?: string) {
   return classNames(
-    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-150 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20",
+    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-100 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20",
     active ? "bg-zinc-100 text-brand-blue ring-2 ring-brand-blue/20" : "bg-transparent hover:bg-zinc-50 hover:text-zinc-900",
     extra,
   );
@@ -104,19 +104,19 @@ function sidebarIconButtonClass(active: boolean, extra?: string) {
 
 function sidebarIconChipClass(active: boolean) {
   return classNames(
-    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-all duration-150",
-    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100 group-hover:scale-110",
+    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-all duration-100",
+    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100 group-hover:scale-105",
   );
 }
 
 const portalPrimaryActionClass =
-  "transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95";
+  "transition-opacity duration-100 hover:opacity-95";
 
 const portalSecondaryActionClass =
-  "transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50";
+  "transition-colors duration-100 hover:border-zinc-300 hover:bg-zinc-50";
 
 const portalIconActionClass =
-  "transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900";
+  "transition-all duration-100 hover:bg-zinc-50 hover:text-zinc-900";
 
 const portalGlassIconSurfaceProps = {
   width: 40,
@@ -1076,7 +1076,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   const activeTopKey = sidebarModeOverride ?? derivedTopKey;
-  const showSidebarOverrideInServices = activeTopKey === "services" && Boolean(sidebarOverride?.desktopSidebarContent || sidebarOverride?.mobileSidebarContent);
+  const showSidebarOverrideInServices =
+    derivedTopKey === "services" &&
+    sidebarModeOverride !== "services" &&
+    Boolean(sidebarOverride?.desktopSidebarContent || sidebarOverride?.mobileSidebarContent);
   const showSidebarOverridePanel = activeTopKey === "pura" || showSidebarOverrideInServices;
 
   const [dashboardEditMode, setDashboardEditMode] = useState(false);

@@ -29,10 +29,10 @@ function activeDashboardBreakpoint(width: number): DashboardBreakpointKey {
 }
 
 const dashboardPrimaryButtonClass =
-  "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95";
+  "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95";
 
 const dashboardSecondaryButtonClass =
-  "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50";
+  "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink transition-colors duration-100 hover:border-zinc-300 hover:bg-zinc-50";
 
 type ModuleKey = "blog" | "booking" | "crm" | "leadOutbound";
 
@@ -952,7 +952,7 @@ export function PortalDashboardClient() {
                 {me.billing.configured ? "Manage your plan and payment method." : "View billing, credits, and top-ups."}
               </div>
               <button
-                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
                 onClick={manageBilling}
               >
                 {me.billing.configured ? "Manage" : "Billing"}
@@ -1054,7 +1054,7 @@ export function PortalDashboardClient() {
                     </div>
                     {!m.enabled ? (
                       <button
-                        className="shrink-0 rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+                        className="shrink-0 rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
                         onClick={() => upgrade(m.key)}
                       >
                         Upgrade
@@ -1477,7 +1477,7 @@ export function PortalDashboardClient() {
               <>
                 <button
                   type="button"
-                  className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700 disabled:opacity-60"
+                  className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors duration-100 hover:bg-red-700 disabled:opacity-60"
                   onClick={() => void resetDashboard()}
                   disabled={savingLayout}
                 >
@@ -1485,7 +1485,7 @@ export function PortalDashboardClient() {
                 </button>
                 <button
                   type="button"
-                  className="rounded-2xl bg-zinc-700 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-800 disabled:opacity-60"
+                  className="rounded-2xl bg-zinc-700 px-4 py-2 text-sm font-semibold text-white transition-colors duration-100 hover:bg-zinc-800 disabled:opacity-60"
                   onClick={cancelEdit}
                   disabled={savingLayout}
                 >
@@ -1493,7 +1493,7 @@ export function PortalDashboardClient() {
                 </button>
                 <button
                   type="button"
-                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
                   onClick={() => void doneEdit()}
                   disabled={savingLayout}
                 >
@@ -1503,7 +1503,7 @@ export function PortalDashboardClient() {
             ) : (
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95"
                 onClick={beginEdit}
                 aria-label="Edit"
                 title="Edit"

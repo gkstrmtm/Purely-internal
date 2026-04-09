@@ -1219,7 +1219,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               <Link
                                 href={`${basePath}/app/services/funnel-builder/funnels/${encodeURIComponent(f.id)}/edit`}
                                 target="_blank"
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
                                 onClick={() => setOpenFunnelMenuId(null)}
                                 aria-label="Edit"
                                 title="Edit"
@@ -1233,7 +1233,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               <Link
                                 href={toPurelyHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`)}
                                 target="_blank"
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-zinc-50"
                                 onClick={() => setOpenFunnelMenuId(null)}
                               >
                                 Preview
@@ -1243,7 +1243,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 <Link
                                   href={liveHref}
                                   target="_blank"
-                                  className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                                  className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-zinc-50"
                                   onClick={() => setOpenFunnelMenuId(null)}
                                 >
                                   Live
@@ -1277,7 +1277,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                     })();
                                   }}
                                   className={classNames(
-                                    "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
+                                    "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors duration-100 hover:bg-zinc-50",
                                     f.status === "ACTIVE" ? "text-zinc-700" : "text-green-700",
                                     funnelStatusBusy[f.id] ? "opacity-60" : "",
                                   )}
@@ -1301,7 +1301,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                   setOpenFunnelMenuId(null);
                                 }}
                                 className={classNames(
-                                  "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
+                                  "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-colors duration-100 hover:bg-zinc-50",
                                   funnelDeleteBusy[f.id] ? "opacity-60" : "",
                                 )}
                               >

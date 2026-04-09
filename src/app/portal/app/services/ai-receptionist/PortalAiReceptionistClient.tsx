@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
-import { IconMissedCallTextBack, IconReceptionistActivity, IconReceptionistTesting, IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
+import { IconCalls, IconMessages, IconMissedCallTextBack, IconReceptionistActivity, IconReceptionistTesting, IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
 import { InlineSpinner } from "@/components/InlineSpinner";
@@ -1211,8 +1211,8 @@ export function PortalAiReceptionistClient() {
         label={label}
         icon={icon}
         className={classNames(
-          "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
-          tab === key ? tone : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+          "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+          tab === key ? tone : "text-zinc-700 hover:bg-zinc-50",
         )}
       >
         {label}
@@ -1224,52 +1224,56 @@ export function PortalAiReceptionistClient() {
         <div>
           <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">AI Receptionist</div>
           <div className="mt-2 space-y-2">
-            {sectionButton("activity", "Activity", "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40", <IconReceptionistActivity />)}
-            {sectionButton("testing", "Testing", "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40", <IconReceptionistTesting />)}
+            {sectionButton("activity", "Activity", "bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40", <IconReceptionistActivity />)}
+            {sectionButton("testing", "Testing", "bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40", <IconReceptionistTesting />)}
             {sectionButton(
               "missed-call-textback",
               "Missed Calls + Text Back",
-              "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40",
+              "bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40",
               <IconMissedCallTextBack />,
             )}
-            {sectionButton("settings", "Settings", "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40", <IconSidebarSettings />)}
+            {sectionButton("settings", "Settings", "bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40", <IconSidebarSettings />)}
           </div>
         </div>
 
         {tab === "settings" ? (
-          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+          <div>
             <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Settings</div>
             <div className="mt-2 space-y-2">
-              <button
+              <PortalSidebarNavButton
                 type="button"
                 onClick={() => setSettingsSubTab("voice")}
+                label="Voice"
+                icon={<IconCalls />}
                 className={classNames(
-                  "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+                  "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
                   settingsSubTab === "voice"
-                    ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-                    : "border-zinc-200 bg-white text-zinc-700",
+                    ? "bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
+                    : "text-zinc-700",
                 )}
               >
                 Voice
-              </button>
-              <button
+              </PortalSidebarNavButton>
+              <PortalSidebarNavButton
                 type="button"
                 onClick={() => setSettingsSubTab("sms")}
+                label="SMS"
+                icon={<IconMessages />}
                 className={classNames(
-                  "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+                  "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
                   settingsSubTab === "sms"
-                    ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-                    : "border-zinc-200 bg-white text-zinc-700",
+                    ? "bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
+                    : "text-zinc-700",
                 )}
               >
                 SMS
-              </button>
+              </PortalSidebarNavButton>
             </div>
           </div>
         ) : null}
 
         {(tab === "activity" || tab === "missed-call-textback") && events.length ? (
-          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+          <div>
             <div className="flex items-center justify-between gap-3 px-1">
               <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Recent calls</div>
               <div className="text-[11px] text-zinc-400">{events.length}</div>
@@ -1498,7 +1502,7 @@ export function PortalAiReceptionistClient() {
                 type="button"
                 onClick={() => setSettingsSubTab("voice")}
                 className={classNames(
-                  "rounded-2xl px-4 py-2 text-xs font-semibold transition-transform duration-150 hover:-translate-y-0.5",
+                  "rounded-2xl px-4 py-2 text-xs font-semibold transition-colors duration-100",
                   settingsSubTab === "voice"
                     ? "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-95"
                     : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
@@ -1510,7 +1514,7 @@ export function PortalAiReceptionistClient() {
                 type="button"
                 onClick={() => setSettingsSubTab("sms")}
                 className={classNames(
-                  "rounded-2xl px-4 py-2 text-xs font-semibold transition-transform duration-150 hover:-translate-y-0.5",
+                  "rounded-2xl px-4 py-2 text-xs font-semibold transition-colors duration-100",
                   settingsSubTab === "sms"
                     ? "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-95"
                     : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
@@ -2436,7 +2440,7 @@ export function PortalAiReceptionistClient() {
             <div className="mt-6 flex items-center justify-end gap-2">
               <button
                 type="button"
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 disabled:opacity-60"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50 disabled:opacity-60"
                 disabled={saving}
                 onClick={() => void load()}
               >
@@ -2444,7 +2448,7 @@ export function PortalAiReceptionistClient() {
               </button>
               <button
                 type="button"
-                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
                 disabled={saving || !settings || !canSave || !isDirty}
                 onClick={() => settings && void (settingsSubTab === "sms" ? saveSms(settings) : save(settings))}
               >

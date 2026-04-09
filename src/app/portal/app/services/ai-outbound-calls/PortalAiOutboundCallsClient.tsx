@@ -722,7 +722,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
   const outboundSidebar = useMemo(() => {
     return (
       <div className="space-y-4">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+        <div>
           <div className="flex items-center justify-between gap-3 px-1">
             <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Campaigns</div>
             <button
@@ -787,12 +787,12 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                 label={tabKey === "calls" ? "Calls" : tabKey === "messages" ? "Messages" : "Settings"}
                 icon={tabKey === "calls" ? <IconCalls /> : tabKey === "messages" ? <IconMessages /> : tabKey === "settings" ? <IconSidebarSettings /> : undefined}
                 className={classNames(
-                  "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+                  "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
                   !selected
-                    ? "border-zinc-200 bg-zinc-100 text-zinc-400"
+                    ? "bg-zinc-100 text-zinc-400"
                     : tab === tabKey
-                      ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                      ? "bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
+                      : "text-zinc-700 hover:bg-zinc-50",
                 )}
               >
                 {tabKey === "calls" ? "Calls" : tabKey === "messages" ? "Messages" : "Settings"}

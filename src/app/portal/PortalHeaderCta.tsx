@@ -21,7 +21,7 @@ export function PortalHeaderCta({ canOpenPortalApp, glass = false }: { canOpenPo
         rel="noreferrer"
         className={glass
           ? "group inline-flex items-center gap-2 px-0.5 py-1 text-sm font-medium text-zinc-700 transition-colors duration-150 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"
-          : "group inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-zinc-700 transition-transform duration-150 hover:scale-110 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"}
+          : "group inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-zinc-700 transition-all duration-100 hover:scale-105 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"}
       >
         <span className="text-zinc-600 transition-colors group-hover:text-zinc-900" aria-hidden="true">
           <IconCalendar size={18} />
@@ -32,7 +32,7 @@ export function PortalHeaderCta({ canOpenPortalApp, glass = false }: { canOpenPo
   }
 
   return (
-    <Link href={appHref} className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95">
+    <Link href={appHref} className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95">
       Open portal
     </Link>
   );

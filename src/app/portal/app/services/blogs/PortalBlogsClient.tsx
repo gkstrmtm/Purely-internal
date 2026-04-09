@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import { IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
@@ -14,7 +15,7 @@ import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingL
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
-import { IconEdit } from "@/app/portal/PortalIcons";
+import { IconEdit, IconServiceGlyph } from "@/app/portal/PortalIcons";
 
 export type BlogsTab = "posts" | "automation" | "settings";
 function currentAppBase(pathname: string | null | undefined) {
@@ -261,23 +262,25 @@ export function PortalBlogsClient({
               { key: "automation", label: "Blog Automation", tone: "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm" },
               { key: "settings", label: "Settings", tone: "border-brand-ink bg-brand-ink text-white shadow-sm" },
             ] as const).map((item) => (
-              <button
+              <PortalSidebarNavButton
                 key={item.key}
                 type="button"
                 onClick={() => onTabChange(item.key)}
                 aria-current={routeTab === item.key ? "page" : undefined}
+                label={item.label}
+                icon={item.key === "posts" ? <IconServiceGlyph slug="blogs" /> : item.key === "automation" ? <IconEdit size={18} /> : <IconSidebarSettings />}
                 className={
-                  "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                  (routeTab === item.key ? item.tone : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                  (routeTab === item.key ? item.tone.replace(/^border-[^ ]+\s*/, "") : "text-zinc-700 hover:bg-zinc-50")
                 }
               >
                 {item.label}
-              </button>
+              </PortalSidebarNavButton>
             ))}
           </div>
         </div>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+        <div>
           <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Links</div>
           <div className="mt-2 space-y-2">
             <a

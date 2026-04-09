@@ -17,7 +17,7 @@ import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
-import { IconEdit } from "@/app/portal/PortalIcons";
+import { IconEdit, IconServiceGlyph } from "@/app/portal/PortalIcons";
 
 type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
 
@@ -1083,11 +1083,12 @@ export default function PortalReviewsClient() {
             onClick={() => setTabWithUrl("reviews")}
             aria-current={tab === "reviews" ? "page" : undefined}
             label="Reviews"
+            icon={<IconServiceGlyph slug="reviews" />}
             className={
-              "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
               (tab === "reviews"
-                ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
-                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                ? "bg-(--color-brand-blue) text-white shadow-sm"
+                : "text-zinc-700 hover:bg-zinc-50")
             }
           >
             Reviews
@@ -1099,10 +1100,10 @@ export default function PortalReviewsClient() {
             label="Requests"
             icon={<IconReviewRequests />}
             className={
-              "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
               (tab === "settings"
-                ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
-                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                ? "bg-(--color-brand-pink) text-white shadow-sm"
+                : "text-zinc-700 hover:bg-zinc-50")
             }
           >
             Requests
@@ -1112,7 +1113,7 @@ export default function PortalReviewsClient() {
 
       {tab === "reviews" ? (
         <>
-          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+          <div>
             <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Manual sends</div>
             <div className="mt-2">
               <input
@@ -1127,7 +1128,7 @@ export default function PortalReviewsClient() {
             {sendResult ? <div className="mt-2 text-xs text-emerald-700">{sendResult}</div> : null}
           </div>
 
-          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+          <div>
             <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Recent bookings</div>
             <div className="mt-2 space-y-2">
               {filteredRecent.length === 0 ? (
@@ -1157,7 +1158,7 @@ export default function PortalReviewsClient() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+          <div>
             <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Contacts</div>
             <div className="mt-2 space-y-2">
               {!contactsLoading && contacts.length === 0 ? (
@@ -1634,7 +1635,7 @@ export default function PortalReviewsClient() {
                     onChange={(e) => setNewDestUrl(e.target.value)}
                   />
                   <button
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95"
                     onClick={addDestination}
                     type="button"
                   >
@@ -1649,7 +1650,7 @@ export default function PortalReviewsClient() {
                 <div className="mt-2 flex items-center justify-end">
                   <button
                     type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
                     onClick={() => {
                       setVarPickerTarget({ kind: "default" });
                       setVarPickerOpen(true);
@@ -1687,7 +1688,7 @@ export default function PortalReviewsClient() {
                       href={liveHostedReviewsUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
                     >
                       View live page
                     </a>
@@ -1755,7 +1756,7 @@ export default function PortalReviewsClient() {
                   <div className="mt-3 flex items-center justify-end">
                     <button
                       type="button"
-                      className="rounded-xl bg-(--color-brand-blue) px-4 py-2 text-xs font-semibold text-white shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+                      className="rounded-xl bg-(--color-brand-blue) px-4 py-2 text-xs font-semibold text-white shadow-sm transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
                       disabled={siteDomainBusy}
                       onClick={saveHostedSiteDomain}
                     >

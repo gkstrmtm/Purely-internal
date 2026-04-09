@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { IconNewsletterExternal, IconNewsletterInternal, IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
+import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
@@ -509,10 +510,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               label="External"
               icon={<IconNewsletterExternal />}
               className={
-                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                 (audience === "external"
-                  ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
-                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  ? "bg-(--color-brand-blue) text-white shadow-sm"
+                  : "text-zinc-700 hover:bg-zinc-50")
               }
             >
               External
@@ -524,10 +525,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               label="Internal"
               icon={<IconNewsletterInternal />}
               className={
-                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                 (audience === "internal"
-                  ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
-                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  ? "bg-(--color-brand-pink) text-white shadow-sm"
+                  : "text-zinc-700 hover:bg-zinc-50")
               }
             >
               Internal
@@ -543,11 +544,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               onClick={() => setTab("newsletters")}
               aria-current={tab === "newsletters" ? "page" : undefined}
               label="Newsletters"
+              icon={<IconServiceGlyph slug="newsletter" />}
               className={
-                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                 (tab === "newsletters"
-                  ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
-                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  ? "bg-(--color-brand-blue) text-white shadow-sm"
+                  : "text-zinc-700 hover:bg-zinc-50")
               }
             >
               Newsletters
@@ -559,10 +561,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               label="Settings"
               icon={<IconSidebarSettings />}
               className={
-                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                 (tab === "settings"
-                  ? "border-brand-ink bg-brand-ink text-white shadow-sm"
-                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  ? "bg-brand-ink text-white shadow-sm"
+                  : "text-zinc-700 hover:bg-zinc-50")
               }
             >
               Settings
@@ -1173,7 +1175,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               {!isPaMobileApp ? (
                 <button
                   type="button"
-                  className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-90"
+                  className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-opacity duration-100 hover:opacity-90"
                   onClick={() => {
                     setComposerOpen(true);
                     setMode("ai");
@@ -1241,7 +1243,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                                   <Link
                                     href={publicPath}
                                     target="_blank"
-                                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors duration-100 hover:bg-zinc-50"
                                   >
                                     Preview
                                   </Link>
@@ -1253,7 +1255,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                                     }
                                     target="_blank"
                                     rel="noreferrer noopener"
-                                    className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                                    className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95"
                                   >
                                     Live
                                   </a>
@@ -1263,7 +1265,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                               <button
                                 type="button"
                                 onClick={() => void openDraft(n.id)}
-                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors duration-100 hover:bg-zinc-50"
                               >
                                 {n.status === "SENT" ? "Edit hosted" : "Edit / preview"}
                               </button>
@@ -1272,7 +1274,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                                 <button
                                   type="button"
                                   onClick={() => void sendReady(n.id)}
-                                  className="rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                                  className="rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95"
                                 >
                                   Send now
                                 </button>
@@ -1373,7 +1375,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     type="button"
                     onClick={() => setComposerOpen(false)}
                     aria-label="Close composer"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-100 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
                   >
                     ×
                   </button>
@@ -2716,7 +2718,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <button
                 type="button"
                 aria-label="Close draft editor"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-100 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
                 onClick={() => setDraftOpen(false)}
                 disabled={draftSaving}
               >

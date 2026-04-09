@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -1592,8 +1592,10 @@ export function PortalAiChatClient({
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const forceScrollToBottomRef = useRef(false);
+  const shouldStickToBottomRef = useRef(true);
   const sendInFlightRef = useRef<Set<string>>(new Set());
   const activeThreadIdRef = useRef<string | null>(null);
+  const pendingThreadIdsRef = useRef<Set<string>>(new Set());
   const pendingChatModeByThreadRef = useRef<Record<string, ChatMode | undefined>>({});
   const pendingResponseProfileByThreadRef = useRef<Record<string, PuraAiProfile | undefined>>({});
   const threadDraftsRef = useRef<Record<string, ThreadDraftState>>({ [DRAFT_THREAD_KEY]: createEmptyThreadDraftState() });
@@ -1709,31 +1711,31 @@ export function PortalAiChatClient({
     return null;
   }, [effectiveChatMode, hasThinkingMessage, inferredWorkStatusLabel, liveWorkStatusLabel, regenerating, regeneratingTarget?.messageId, runningActionKey, sending]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     activeThreadIdRef.current = activeThreadId;
   }, [activeThreadId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     threadsRef.current = threads;
   }, [threads]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     messagesByThreadRef.current = messagesByThread;
   }, [messagesByThread]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     messageDisplayModesByIdRef.current = messageDisplayModesById;
   }, [messageDisplayModesById]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     threadLiveStatusByIdRef.current = threadLiveStatusById;
   }, [threadLiveStatusById]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     threadDraftsRef.current = threadDraftsById;
   }, [threadDraftsById]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     editingMessageIdByThreadRef.current = editingMessageIdByThread;
   }, [editingMessageIdByThread]);
 
@@ -1889,10 +1891,14 @@ export function PortalAiChatClient({
 
   const updateThreadMessages = useCallback(
     (threadKey: string, updater: (prev: Message[]) => Message[]) => {
-      setMessagesByThread((prev) => ({
-        ...prev,
-        [threadKey]: updater(prev[threadKey] ?? []),
-      }));
+      setMessagesByThread((prev) => {
+        const next = {
+          ...prev,
+          [threadKey]: updater(prev[threadKey] ?? []),
+        };
+        messagesByThreadRef.current = next;
+        return next;
+      });
     },
     [],
   );
@@ -1923,17 +1929,30 @@ export function PortalAiChatClient({
     };
   }, []);
 
+  const syncShouldStickToBottom = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el) {
+      shouldStickToBottomRef.current = true;
+      return true;
+    }
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const shouldStick = distanceFromBottom <= 140;
+    shouldStickToBottomRef.current = shouldStick;
+    return shouldStick;
+  }, []);
+
   const scrollToBottom = useCallback((force = false) => {
     const el = scrollerRef.current;
-    if (!force && el) {
-      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-      if (distanceFromBottom > 200) return;
-    }
+    if (!force && !syncShouldStickToBottom()) return;
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
     endRef.current?.scrollIntoView({ block: "end" });
-  }, []);
+  }, [syncShouldStickToBottom]);
+
+  const handleChatScroll = useCallback(() => {
+    syncShouldStickToBottom();
+  }, [syncShouldStickToBottom]);
 
   useEffect(() => {
     scrollToBottom();
@@ -1955,7 +1974,9 @@ export function PortalAiChatClient({
             responseProfile: resolveThreadResponseProfile(String(thread.id), thread?.responseProfile),
           })).sort(compareThreadsForSidebar)
         : [];
+      for (const thread of next) pendingThreadIdsRef.current.delete(thread.id);
       setThreads(next);
+      threadsRef.current = next;
       setThreadLiveStatusById((prev) => {
         const nextStatuses: Record<string, LiveStatus | null> = {};
         for (const thread of next) {
@@ -1988,8 +2009,9 @@ export function PortalAiChatClient({
         // exists locally but isn't in the server list yet.
         const hasLocalMessages = (messagesByThreadRef.current[activeThreadId] ?? []).length > 0;
         const hasLocalThread = (threadsRef.current ?? []).some((t) => t.id === activeThreadId);
+        const hasPendingThread = pendingThreadIdsRef.current.has(activeThreadId);
         const isSending = sendInFlightRef.current.has(activeThreadId);
-        if (!isSending && !hasLocalMessages && !hasLocalThread) {
+        if (!isSending && !hasLocalMessages && !hasLocalThread && !hasPendingThread) {
           activeThreadIdRef.current = null;
           setActiveThreadId(null);
           navigateToThread(null, "replace");
@@ -2028,20 +2050,22 @@ export function PortalAiChatClient({
         });
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Failed to load messages");
-        setMessagesByThread((prev) => ({
-          ...prev,
-          [threadId]: Array.isArray(json.messages)
-            ? applyRunTracesToMessages(
-                (json.messages as Message[]).map((message) => applyAssistantDisplayMode(message, messageDisplayModesByIdRef.current[message.id])),
-                json?.threadContext?.runs,
-              )
-            : [],
-        }));
+        setMessagesByThread((prev) => {
+          const next = {
+            ...prev,
+            [threadId]: Array.isArray(json.messages)
+              ? applyRunTracesToMessages(
+                  (json.messages as Message[]).map((message) => applyAssistantDisplayMode(message, messageDisplayModesByIdRef.current[message.id])),
+                  json?.threadContext?.runs,
+                )
+              : [],
+          };
+          messagesByThreadRef.current = next;
+          return next;
+        });
+        pendingThreadIdsRef.current.delete(threadId);
         applyThreadContextSnapshot(threadId, json?.threadContext);
-        // Ensure we scroll after the new messages have actually rendered.
-        requestAnimationFrame(() => scrollToBottom(true));
-        setTimeout(() => scrollToBottom(true), 0);
-        setTimeout(() => scrollToBottom(true), 120);
+        requestAnimationFrame(() => scrollToBottom(forceScrollToBottomRef.current));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         toast.error(msg);
@@ -2156,10 +2180,13 @@ export function PortalAiChatClient({
         }))
       : [];
 
+    for (const thread of next) pendingThreadIdsRef.current.delete(thread.id);
     setThreads((prev) => {
       const prevById = new Map(prev.map((thread) => [thread.id, thread]));
       const merged = next.map((thread) => ({ ...prevById.get(thread.id), ...thread }));
-      return merged.sort(compareThreadsForSidebar);
+      const sorted = merged.sort(compareThreadsForSidebar);
+      threadsRef.current = sorted;
+      return sorted;
     });
 
     setThreadLiveStatusById((prev) => {
@@ -2260,7 +2287,8 @@ export function PortalAiChatClient({
     if (sendInFlightRef.current.has(activeThreadId)) return;
     const threadExists = threads.some((thread) => thread.id === activeThreadId);
     const hasLocalMessages = (messagesByThreadRef.current[activeThreadId] ?? []).length > 0;
-    if (!threadsLoading && !threadExists && !hasLocalMessages) {
+    const hasPendingThread = pendingThreadIdsRef.current.has(activeThreadId);
+    if (!threadsLoading && !threadExists && !hasLocalMessages && !hasPendingThread) {
       activeThreadIdRef.current = null;
       setActiveThreadId(null);
       navigateToThread(null, "replace");
@@ -2669,6 +2697,7 @@ export function PortalAiChatClient({
             responseProfile: normalizeThreadResponseProfile((created.thread as Thread)?.responseProfile ?? profileAtSend),
           };
           threadIdForSend = String(createdThread.id);
+          pendingThreadIdsRef.current.add(threadIdForSend);
 
           // Switch the UI to the newly created thread immediately so the user sees
           // their optimistic message + the thinking indicator right away.
@@ -2676,7 +2705,9 @@ export function PortalAiChatClient({
           setActiveThreadId(threadIdForSend);
           setThreads((prev) => {
             const without = prev.filter((t) => t.id !== threadIdForSend);
-            return [createdThread as Thread, ...without];
+            const next = [createdThread as Thread, ...without];
+            threadsRef.current = next;
+            return next;
           });
           navigateToThread(createdThread as Thread, "replace");
           setMobileThreadsOpen(false);
@@ -3059,12 +3090,17 @@ export function PortalAiChatClient({
         // If the first send failed right after creating a brand new thread,
         // proactively delete it so empty chats are never persisted.
         if (createdThread?.id) {
+          pendingThreadIdsRef.current.delete(String(createdThread.id));
           void fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(String(createdThread.id))}/actions`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ action: "delete" }),
           }).catch(() => null);
-          setThreads((prev) => prev.filter((t) => t.id !== String(createdThread?.id)));
+          setThreads((prev) => {
+            const next = prev.filter((t) => t.id !== String(createdThread?.id));
+            threadsRef.current = next;
+            return next;
+          });
 
           // Roll back UI state to the draft composer immediately.
           // This avoids a transient "missing thread" state that can bounce later.
@@ -3074,6 +3110,7 @@ export function PortalAiChatClient({
           setMessagesByThread((prev) => {
             const next = { ...prev };
             delete (next as any)[String(createdThread?.id)];
+            messagesByThreadRef.current = next;
             return next;
           });
         }
@@ -3494,7 +3531,7 @@ export function PortalAiChatClient({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-all duration-150 hover:scale-110 hover:bg-zinc-50"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-all duration-100 hover:scale-105 hover:bg-zinc-50"
               onClick={() => {
                 setScheduledOpen(true);
               }}
@@ -3505,7 +3542,7 @@ export function PortalAiChatClient({
             </button>
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-blue text-white transition-transform duration-150 hover:scale-110 hover:opacity-95"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-blue text-white transition-all duration-100 hover:scale-105 hover:opacity-95"
               onClick={createThread}
               aria-label="New chat"
               title="New chat"
@@ -3583,7 +3620,7 @@ export function PortalAiChatClient({
                     type="button"
                     className={classNames(
                       "absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-xl text-zinc-500",
-                      "opacity-0 transition-all group-hover:opacity-100 hover:scale-110 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                      "opacity-0 transition-all duration-100 group-hover:opacity-100 hover:scale-105 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                       active && "opacity-100",
                     )}
                     aria-label="Chat options"
@@ -3689,7 +3726,7 @@ export function PortalAiChatClient({
                       type="button"
                       className={classNames(
                         "absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-xl text-zinc-500",
-                        "opacity-100 transition-all hover:scale-110 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                        "opacity-100 transition-all duration-100 hover:scale-105 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                       )}
                       aria-label="Chat options"
                       title="Chat options"
@@ -4026,7 +4063,7 @@ export function PortalAiChatClient({
   }, [serviceUsageCounts, threads, welcomePromptSeed]);
 
   const composerControlButtonClass =
-    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50";
+    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-all duration-100 hover:border-zinc-300 hover:bg-zinc-50";
 
   const composerTextareaClass =
     "min-h-11 flex-1 resize-none rounded-3xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[rgba(29,78,216,0.25)]";
@@ -4145,7 +4182,7 @@ export function PortalAiChatClient({
         <button
           type="button"
           className={classNames(
-            "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95",
+            "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white transition-all duration-100 hover:opacity-95",
             showWelcomeComposer ? "shadow-none" : "",
             (!input.trim() && !pendingAttachments.length) || sending ? "opacity-60" : "",
           )}
@@ -4179,7 +4216,7 @@ export function PortalAiChatClient({
         </button>
         <button
           type="button"
-          className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-blue text-white shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+          className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-blue text-white shadow-sm transition-all duration-100 hover:opacity-95"
           onClick={createThread}
           aria-label="New chat"
           title="New chat"
@@ -4479,7 +4516,7 @@ export function PortalAiChatClient({
             </div>
           </div>
 
-          <div ref={scrollerRef} className={chatScrollerClassName}>
+          <div ref={scrollerRef} className={chatScrollerClassName} onScroll={handleChatScroll}>
 
           <div className="relative z-10 mx-auto w-full max-w-5xl space-y-3 px-3 pb-16 pt-24 sm:px-4 sm:pb-18 sm:pt-24">
             {messagesLoading && !messages.length ? (
@@ -4550,7 +4587,7 @@ export function PortalAiChatClient({
                                 <button
                                   type="button"
                                   className={classNames(
-                                    "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                    "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-100 hover:scale-105 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                                     assistantActionVisibilityClass,
                                     (!canDictate || dictating || regenerating || sending) && "opacity-60",
                                   )}
@@ -4579,7 +4616,7 @@ export function PortalAiChatClient({
                                 <button
                                   type="button"
                                   className={classNames(
-                                    "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                    "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-100 hover:scale-105 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                                     assistantActionVisibilityClass,
                                     (!canRedo || dictating || regenerating || sending) && "opacity-60",
                                   )}
@@ -4599,7 +4636,7 @@ export function PortalAiChatClient({
                                 <button
                                   type="button"
                                   className={classNames(
-                                    "inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-600 opacity-0 transition-all duration-150 group-hover/message:opacity-100 group-focus-within/message:opacity-100 hover:scale-110 hover:bg-zinc-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                    "inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-600 opacity-0 transition-all duration-100 group-hover/message:opacity-100 group-focus-within/message:opacity-100 hover:scale-105 hover:bg-zinc-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                                     (dictating || regenerating || sending) && "opacity-60",
                                   )}
                                   onClick={() => editUserMessage(m.id, m.text)}
@@ -4614,7 +4651,7 @@ export function PortalAiChatClient({
                                 <button
                                   type="button"
                                   className={classNames(
-                                    "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                    "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-100 hover:scale-105 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                                     assistantActionVisibilityClass,
                                     !canCopy && "opacity-40",
                                   )}

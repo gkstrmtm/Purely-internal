@@ -411,13 +411,13 @@ const defaultWidgetWelcomeMessage = (): SupportChatMessage => ({
 });
 
 const floatingToolsSecondaryButtonClass =
-  "rounded-2xl border border-transparent bg-white px-3 py-2 text-xs font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]";
+  "rounded-2xl border border-transparent bg-white px-3 py-2 text-xs font-semibold text-zinc-500 transition-colors duration-100 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]";
 
 const floatingToolsPrimaryButtonClass =
-  "rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60";
+  "rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60";
 
 const floatingToolsGradientButtonClass =
-  "rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60";
+  "rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60";
 
 export function PortalFloatingTools() {
   const pathname = usePathname() || "";
@@ -1103,12 +1103,12 @@ export function PortalFloatingTools() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  className="group inline-flex items-center rounded-2xl bg-transparent text-sm font-semibold text-zinc-700 transition-transform duration-150 hover:-translate-y-0.5 hover:text-zinc-900"
+                  className="group inline-flex items-center rounded-2xl bg-transparent text-sm font-semibold text-zinc-700 transition-colors duration-100 hover:text-zinc-900"
                   onClick={continueWithPura}
                   aria-label="Continue with Pura"
                   title="Continue with Pura"
                 >
-                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-150 group-hover:scale-110 group-hover:bg-zinc-50 group-hover:text-zinc-900">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-100 group-hover:scale-105 group-hover:bg-zinc-50 group-hover:text-zinc-900">
                     <IconContinueWithPura />
                   </span>
                   <span className="ml-2 max-w-0 overflow-hidden whitespace-nowrap text-sm font-semibold opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-40 group-hover:opacity-100">
@@ -1166,7 +1166,7 @@ export function PortalFloatingTools() {
                               ? "bg-emerald-600"
                               : m.suggestedSetup.status === "applying"
                                 ? "bg-zinc-400"
-                                : "bg-brand-blue hover:-translate-y-0.5 hover:opacity-95",
+                                : "bg-brand-blue hover:opacity-95",
                           )}
                           onClick={() => void applySuggestedSetupFromMessage(m.suggestedSetup!.actionIds, m.suggestedSetup!.key)}
                           disabled={m.suggestedSetup.status === "applying" || m.suggestedSetup.status === "applied"}
@@ -1237,7 +1237,7 @@ export function PortalFloatingTools() {
               </button>
               <button
                 type="button"
-                className="relative grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50"
+                className="relative grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-100 hover:scale-105 hover:bg-zinc-50"
                 onClick={() => persistMinimized(false)}
                 aria-label="Open chat and report tools"
               >
@@ -1266,7 +1266,7 @@ export function PortalFloatingTools() {
               </button>
               <button
                 type="button"
-                className="relative flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                className="relative flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-colors duration-100 hover:bg-zinc-50"
                 onClick={() => persistMinimized(false)}
                 aria-label="Open tools"
               >
@@ -1298,7 +1298,7 @@ export function PortalFloatingTools() {
               </div>
               <button
                 type="button"
-                className="rounded-full border border-transparent bg-white px-2 py-1 text-xs font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
+                className="rounded-full border border-transparent bg-white px-2 py-1 text-xs font-semibold text-zinc-500 transition-colors duration-100 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
                 onClick={() => persistMinimized(true)}
                 aria-label="Minimize"
               >
@@ -1312,7 +1312,7 @@ export function PortalFloatingTools() {
                 type="button"
                 className={classNames(
                   "rounded-2xl px-3 py-2 text-sm font-semibold",
-                  "bg-(--color-brand-blue) text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95",
+                  "bg-(--color-brand-blue) text-white transition-opacity duration-100 hover:opacity-95",
                 )}
                 onClick={() => setReportOpen(true)}
               >
@@ -1323,7 +1323,7 @@ export function PortalFloatingTools() {
                 type="button"
                 className={classNames(
                   "relative rounded-2xl px-3 py-2 text-sm font-semibold",
-                  "bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95",
+                  "bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white transition-opacity duration-100 hover:opacity-95",
                 )}
                 onClick={openChatPanel}
               >

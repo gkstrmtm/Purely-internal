@@ -1763,21 +1763,21 @@ export function PortalBookingClient() {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-colors duration-100 hover:bg-zinc-50"
                       onClick={() => setCalSelectedYmd(toYmd(addDays(focusDate, -7)))}
                     >
                       Prev
                     </button>
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-colors duration-100 hover:bg-zinc-50"
                       onClick={() => setCalSelectedYmd(toYmd(new Date()))}
                     >
                       Today
                     </button>
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-colors duration-100 hover:bg-zinc-50"
                       onClick={() => setCalSelectedYmd(toYmd(addDays(focusDate, 7)))}
                     >
                       Next
@@ -1787,21 +1787,21 @@ export function PortalBookingClient() {
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-colors duration-100 hover:bg-zinc-50"
                       onClick={() => setCalMonth((m) => addMonths(m, -1))}
                     >
                       Prev
                     </button>
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-colors duration-100 hover:bg-zinc-50"
                       onClick={() => setCalMonth(startOfMonth(new Date()))}
                     >
                       Today
                     </button>
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-colors duration-100 hover:bg-zinc-50"
                       onClick={() => setCalMonth((m) => addMonths(m, 1))}
                     >
                       Next
@@ -1811,7 +1811,7 @@ export function PortalBookingClient() {
 
                 <button
                   type="button"
-                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
                   onClick={openAvailability}
                 >
                   Edit availability
@@ -1832,7 +1832,7 @@ export function PortalBookingClient() {
                     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 
                   const cardBase =
-                    "flex h-[420px] w-[240px] flex-col rounded-3xl border p-4 text-left transition-all duration-150 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-blue-200";
+                    "flex h-[420px] w-[240px] flex-col rounded-3xl border p-4 text-left transition-all duration-100 focus:outline-none focus:ring-2 focus:ring-blue-200";
                   const cardCls = selected
                     ? `${cardBase} border-blue-300 bg-blue-50 shadow-[0_18px_40px_rgba(37,99,235,0.14)]`
                     : `${cardBase} border-zinc-200 bg-white hover:bg-zinc-50`;
@@ -2233,7 +2233,7 @@ export function PortalBookingClient() {
                         <button
                           type="button"
                           aria-label="Close template picker"
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-100 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
                           onClick={() => setReminderTemplateOpen(false)}
                           disabled={reminderSaving}
                         >
@@ -3956,7 +3956,7 @@ export function PortalBookingClient() {
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:justify-end">
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
                 disabled={contactBusy}
                 onClick={() => {
                   setContactOpen(false);
@@ -4033,7 +4033,7 @@ export function PortalBookingClient() {
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:justify-end">
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
                 disabled={reschedBusy}
                 onClick={() => {
                   setReschedOpen(false);
@@ -4066,7 +4066,7 @@ export function PortalBookingClient() {
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-colors duration-100 hover:bg-zinc-50"
               onClick={closeAvailability}
             >
               Done
