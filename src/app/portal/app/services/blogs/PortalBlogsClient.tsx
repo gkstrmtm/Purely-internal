@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+
+import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
@@ -246,6 +248,78 @@ export function PortalBlogsClient({
     if (site?.primaryDomain && savedDomainStatus === "VERIFIED") return `https://${site.primaryDomain}/blogs`;
     return hostedBlogPath ? toPurelyHostedUrl(hostedBlogPath) : null;
   }, [hostedBlogPath, savedDomainStatus, site?.primaryDomain]);
+
+  const setSidebarOverride = useSetPortalSidebarOverride();
+  const blogsSidebar = useMemo(() => {
+    return (
+      <div className="space-y-4">
+        <div>
+          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Blogs</div>
+          <div className="mt-2 space-y-2">
+            {([
+              { key: "posts", label: "Posts", tone: "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm" },
+              { key: "automation", label: "Blog Automation", tone: "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm" },
+              { key: "settings", label: "Settings", tone: "border-brand-ink bg-brand-ink text-white shadow-sm" },
+            ] as const).map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => onTabChange(item.key)}
+                aria-current={routeTab === item.key ? "page" : undefined}
+                className={
+                  "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                  (routeTab === item.key ? item.tone : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                }
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Links</div>
+          <div className="mt-2 space-y-2">
+            <a
+              href={previewBlogsHref ?? undefined}
+              target="_blank"
+              rel="noreferrer"
+              className={
+                "block rounded-2xl border px-3 py-2.5 text-sm font-semibold transition " +
+                (previewBlogsHref
+                  ? "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  : "pointer-events-none border-zinc-200 bg-zinc-100 text-zinc-400")
+              }
+            >
+              Preview
+            </a>
+            <a
+              href={liveBlogsHref ?? undefined}
+              target="_blank"
+              rel="noreferrer"
+              className={
+                "block rounded-2xl border px-3 py-2.5 text-sm font-semibold transition " +
+                (liveBlogsHref
+                  ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white hover:opacity-95"
+                  : "pointer-events-none border-zinc-200 bg-zinc-100 text-zinc-400")
+              }
+            >
+              Live
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }, [liveBlogsHref, onTabChange, previewBlogsHref, routeTab]);
+
+  useEffect(() => {
+    if (!entitled) return;
+    setSidebarOverride({
+      desktopSidebarContent: blogsSidebar,
+      mobileSidebarContent: blogsSidebar,
+    });
+    return () => setSidebarOverride(null);
+  }, [blogsSidebar, entitled, setSidebarOverride]);
 
   const openPostMenuPost = useMemo(() => {
     if (!openPostMenu) return null;
@@ -782,94 +856,17 @@ export function PortalBlogsClient({
             </div>
           ) : null}
         </div>
-        <div
-          className={
-            isPaMobileApp
-              ? "flex w-full items-center gap-2 overflow-x-auto sm:w-auto"
-              : "flex w-full flex-col gap-3 sm:w-auto sm:flex-row"
-          }
-        >
-          <a
-            href={previewBlogsHref ?? undefined}
-            target="_blank"
-            rel="noreferrer"
-            className={
-              "inline-flex shrink-0 items-center justify-center border border-zinc-200 bg-white font-semibold text-brand-ink hover:bg-zinc-50 " +
-              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs " : "rounded-2xl px-4 py-2 text-sm ") +
-              (!previewBlogsHref ? "pointer-events-none opacity-60" : "")
-            }
+        {!isPaMobileApp ? (
+          <button
+            type="button"
+            onClick={newDraft}
+            aria-label="New blog"
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
           >
-            Preview
-          </a>
-          <a
-            href={liveBlogsHref ?? undefined}
-            target="_blank"
-            rel="noreferrer"
-            className={
-              "inline-flex shrink-0 items-center justify-center bg-(--color-brand-blue) font-semibold text-white hover:opacity-95 " +
-              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs " : "rounded-2xl px-4 py-2 text-sm ") +
-              (!liveBlogsHref ? "pointer-events-none opacity-60" : "")
-            }
-          >
-            Live
-          </a>
-          {!isPaMobileApp ? (
-            <button
-              type="button"
-              onClick={newDraft}
-              aria-label="New blog"
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-            >
-              <span className="text-lg leading-none">+</span>
-              <span>New blog</span>
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      <div className={isPaMobileApp ? "mt-6 flex w-full gap-2 overflow-x-auto" : "mt-6 flex w-full flex-wrap gap-2"}>
-        <button
-          type="button"
-          onClick={() => onTabChange("posts")}
-          aria-current={routeTab === "posts" ? "page" : undefined}
-          className={
-            (isPaMobileApp ? "shrink-0 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold " : "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold ") +
-            "transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (routeTab === "posts"
-              ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Posts
-        </button>
-        <button
-          type="button"
-          onClick={() => onTabChange("automation")}
-          aria-current={routeTab === "automation" ? "page" : undefined}
-          className={
-            (isPaMobileApp ? "shrink-0 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold " : "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold ") +
-            "transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (routeTab === "automation"
-              ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          {isPaMobileApp ? "Automation" : "Blog Automation"}
-        </button>
-        <button
-          type="button"
-          onClick={() => onTabChange("settings")}
-          aria-current={routeTab === "settings" ? "page" : undefined}
-          className={
-            (isPaMobileApp ? "shrink-0 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold " : "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold ") +
-            "transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (routeTab === "settings"
-              ? "border-brand-ink bg-brand-ink text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Settings
-        </button>
+            <span className="text-lg leading-none">+</span>
+            <span>New blog</span>
+          </button>
+        ) : null}
       </div>
 
       {routeTab === "posts" ? (

@@ -354,6 +354,11 @@ function GeneralTab({
     return null;
   }, [credits, reporting]);
 
+  const formattedCreditsRemaining = useMemo(() => {
+    if (typeof creditsRemaining !== "number" || !Number.isFinite(creditsRemaining)) return "N/A";
+    return Math.max(0, Math.round(creditsRemaining)).toLocaleString();
+  }, [creditsRemaining]);
+
   const creditRunwayDays = useMemo(() => {
     if (!reporting || !("ok" in reporting) || !reporting.ok) return null;
     const creditsUsed = Number((reporting as any)?.kpis?.creditsUsed ?? 0) || 0;
@@ -567,8 +572,8 @@ function GeneralTab({
           <div className="relative z-10 flex h-full flex-col p-4">
             <div className="text-sm font-semibold text-zinc-900">Credits</div>
 
-            <div className="mt-1 flex-1 text-8xl font-extrabold leading-none tracking-tight text-brand-ink sm:text-9xl">
-              {typeof creditsRemaining === "number" && Number.isFinite(creditsRemaining) ? creditsRemaining : "N/A"}
+            <div className="mt-2 min-w-0 flex-1 overflow-hidden text-[clamp(3.5rem,10vw,6.5rem)] font-extrabold leading-[0.88] tracking-[-0.06em] text-brand-ink sm:text-[clamp(4rem,8vw,7.5rem)]">
+              <span className="block max-w-full overflow-hidden text-ellipsis break-all sm:break-normal">{formattedCreditsRemaining}</span>
             </div>
 
             <div className="-mt-1 text-sm font-semibold">

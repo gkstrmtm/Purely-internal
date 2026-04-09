@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 
@@ -56,6 +57,7 @@ export function PortalTasksClient() {
   }, [assignees]);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [assignedToUserId, setAssignedToUserId] = useState<string>("");
@@ -76,6 +78,7 @@ export function PortalTasksClient() {
     });
   }, [tasks]);
   const doneTasks = useMemo(() => tasks.filter((t) => String(t.status) === "DONE"), [tasks]);
+  const pendingDeleteTask = useMemo(() => tasks.find((t) => t.id === deleteTaskId) ?? null, [deleteTaskId, tasks]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -137,7 +140,7 @@ export function PortalTasksClient() {
     }
   }
 
-  async function setStatus(taskId: string, status: "OPEN" | "DONE" | "CANCELED") {
+  const setStatus = useCallback(async (taskId: string, status: "OPEN" | "DONE" | "CANCELED") => {
     try {
       const res = await fetch(`/api/portal/tasks/${encodeURIComponent(taskId)}`, {
         method: "PATCH",
@@ -160,7 +163,7 @@ export function PortalTasksClient() {
     } catch (e: any) {
       toast.error(String(e?.message || "Update failed"));
     }
-  }
+  }, [load, toast]);
 
   async function setAssignee(taskId: string, userId: string) {
     try {
@@ -188,6 +191,84 @@ export function PortalTasksClient() {
     }
   }
 
+  async function deleteTask(taskId: string) {
+    try {
+      const res = await fetch(`/api/portal/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Delete failed"));
+      toast.success("Task deleted.");
+      await load();
+    } catch (e: any) {
+      toast.error(String(e?.message || "Delete failed"));
+    }
+  }
+
+  const setSidebarOverride = useSetPortalSidebarOverride();
+  const tasksSidebar = useMemo(() => {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+          <div className="flex items-center justify-between gap-3 px-1">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Tasks</div>
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-(--color-brand-blue) text-base font-semibold text-white hover:brightness-95"
+            >
+              +
+            </button>
+          </div>
+          <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+            Open {openTasks.length}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Done</div>
+          <div className="mt-2 space-y-2">
+            {doneTasks.length ? (
+              doneTasks.slice(0, 20).map((task) => (
+                <div key={task.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2.5">
+                  <div className="text-sm font-semibold text-zinc-900">{task.title}</div>
+                  {task.assignedTo?.email ? <div className="mt-1 text-[11px] text-zinc-500">{task.assignedTo.email}</div> : null}
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setStatus(task.id, "OPEN")}
+                      className="rounded-xl border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-50"
+                    >
+                      Reopen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTaskId(task.id)}
+                      className="rounded-xl border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="px-1 py-2 text-sm text-zinc-500">No done tasks.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }, [doneTasks, openTasks.length, setStatus]);
+
+  useEffect(() => {
+    setSidebarOverride({
+      desktopSidebarContent: tasksSidebar,
+      mobileSidebarContent: tasksSidebar,
+    });
+  }, [setSidebarOverride, tasksSidebar]);
+
+  useEffect(() => {
+    return () => setSidebarOverride(null);
+  }, [setSidebarOverride]);
+
   return (
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
@@ -211,46 +292,44 @@ export function PortalTasksClient() {
       ) : null}
 
       {!loading ? (
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-base font-semibold text-zinc-900">Open ({openTasks.length})</div>
-            <div className="mt-4 space-y-3">
-              {openTasks.length ? (
-                openTasks.map((t) => (
-                  <div key={t.id} className="rounded-2xl border border-zinc-200 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div
-                          className={classNames(
-                            "font-semibold",
-                            !t.assignedToUserId && t.viewerDoneAtIso ? "text-zinc-500 line-through" : "text-zinc-900",
-                          )}
-                        >
-                          {t.title}
-                        </div>
-                        {t.description ? <div className="mt-1 text-sm text-zinc-600">{t.description}</div> : null}
-                        {!t.assignedToUserId ? (
-                          <div className="mt-2 text-xs font-semibold text-zinc-500">Assigned to everyone</div>
-                        ) : null}
-                        <div className="mt-3">
-                          <div className="text-xs font-semibold text-zinc-700">Assigned to</div>
-                          {t.canEditAssignee === false ? (
-                            <div className="mt-1 w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
-                              {t.assignedToUserId
-                                ? (t.assignedTo?.name || t.assignedTo?.email || t.assignedToUserId)
-                                : "Everyone"}
-                            </div>
-                          ) : (
-                            <div className="mt-1">
-                              <PortalListboxDropdown
-                                value={t.assignedToUserId || ""}
-                                options={assigneeOptions}
-                                onChange={(v) => void setAssignee(t.id, v)}
-                              />
-                            </div>
-                          )}
-                        </div>
+        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="text-base font-semibold text-zinc-900">Open ({openTasks.length})</div>
+          <div className="mt-4 space-y-3">
+            {openTasks.length ? (
+              openTasks.map((t) => (
+                <div key={t.id} className="rounded-2xl border border-zinc-200 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div
+                        className={classNames(
+                          "font-semibold",
+                          !t.assignedToUserId && t.viewerDoneAtIso ? "text-zinc-500 line-through" : "text-zinc-900",
+                        )}
+                      >
+                        {t.title}
                       </div>
+                      {t.description ? <div className="mt-1 text-sm text-zinc-600">{t.description}</div> : null}
+                      {!t.assignedToUserId ? (
+                        <div className="mt-2 text-xs font-semibold text-zinc-500">Assigned to everyone</div>
+                      ) : null}
+                      <div className="mt-3">
+                        <div className="text-xs font-semibold text-zinc-700">Assigned to</div>
+                        {t.canEditAssignee === false ? (
+                          <div className="mt-1 w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+                            {t.assignedToUserId ? (t.assignedTo?.name || t.assignedTo?.email || t.assignedToUserId) : "Everyone"}
+                          </div>
+                        ) : (
+                          <div className="mt-1">
+                            <PortalListboxDropdown
+                              value={t.assignedToUserId || ""}
+                              options={assigneeOptions}
+                              onChange={(v) => void setAssignee(t.id, v)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-2">
                       {(!t.assignedToUserId || (viewerUserId && String(t.assignedToUserId) === String(viewerUserId))) ? (
                         <button
                           type="button"
@@ -265,41 +344,20 @@ export function PortalTasksClient() {
                           {!t.assignedToUserId && t.viewerDoneAtIso ? "Undo" : "Mark done"}
                         </button>
                       ) : null}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-sm text-zinc-600">No open tasks.</div>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-base font-semibold text-zinc-900">Done ({doneTasks.length})</div>
-            <div className="mt-4 space-y-3">
-              {doneTasks.length ? (
-                doneTasks.slice(0, 50).map((t) => (
-                  <div key={t.id} className="rounded-2xl border border-zinc-200 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-semibold text-zinc-900">{t.title}</div>
-                        {t.description ? <div className="mt-1 text-sm text-zinc-600">{t.description}</div> : null}
-                        {t.assignedTo?.email ? <div className="mt-2 text-xs text-zinc-500">Assigned to {t.assignedTo.email}</div> : null}
-                      </div>
                       <button
                         type="button"
-                        onClick={() => setStatus(t.id, "OPEN")}
-                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        onClick={() => setDeleteTaskId(t.id)}
+                        className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
                       >
-                        Reopen
+                        Delete
                       </button>
                     </div>
                   </div>
-                ))
-              ) : (
-                <div className="text-sm text-zinc-600">No done tasks.</div>
-              )}
-            </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-sm text-zinc-600">No open tasks.</div>
+            )}
           </div>
         </div>
       ) : null}
@@ -364,6 +422,35 @@ export function PortalTasksClient() {
                 )}
               >
                 {creating ? "Creating…" : "Create"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingDeleteTask ? (
+        <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center" role="dialog" aria-modal="true" data-overlay-root="true">
+          <div className="w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className="text-base font-semibold text-zinc-900">Delete task?</div>
+            <div className="mt-2 text-sm text-zinc-600">This removes “{pendingDeleteTask.title}” permanently.</div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTaskId(null)}
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const taskId = pendingDeleteTask.id;
+                  setDeleteTaskId(null);
+                  await deleteTask(taskId);
+                }}
+                className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+              >
+                Delete
               </button>
             </div>
           </div>

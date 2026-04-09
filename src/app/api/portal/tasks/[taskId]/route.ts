@@ -175,3 +175,37 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ taskId: strin
     return NextResponse.json({ ok: false, error: String(e?.message || "Update failed") }, { status: 500 });
   }
 }
+
+export async function DELETE(_req: Request, ctx: { params: Promise<{ taskId: string }> }) {
+  try {
+    const auth = await requireClientSessionForService("tasks", "edit");
+    if (!auth.ok) {
+      return NextResponse.json(
+        { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+        { status: auth.status },
+      );
+    }
+
+    await ensurePortalTasksSchema();
+
+    const ownerId = auth.session.user.id;
+    const { taskId } = await ctx.params;
+    const trimmedTaskId = String(taskId || "").trim();
+    if (!trimmedTaskId) return NextResponse.json({ ok: false, error: "Invalid task id" }, { status: 400 });
+
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM "PortalTaskMemberCompletion" WHERE "ownerId" = $1 AND "taskId" = $2`,
+      ownerId,
+      trimmedTaskId,
+    );
+    await prisma.$executeRawUnsafe(
+      `DELETE FROM "PortalTask" WHERE "ownerId" = $1 AND "id" = $2`,
+      ownerId,
+      trimmedTaskId,
+    );
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: String(e?.message || "Delete failed") }, { status: 500 });
+  }
+}

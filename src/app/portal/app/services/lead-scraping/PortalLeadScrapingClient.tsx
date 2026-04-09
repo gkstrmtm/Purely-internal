@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { InlineSpinner } from "@/components/InlineSpinner";
@@ -2147,6 +2149,84 @@ export function PortalLeadScrapingClient() {
     );
   }
 
+  const setSidebarOverride = useSetPortalSidebarOverride();
+  const leadScrapingSidebar = useMemo(() => {
+    return (
+      <div className="space-y-4">
+        <div>
+          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Lead Scraping</div>
+          <div className="mt-2 space-y-2">
+            <button
+              type="button"
+              onClick={() => setTab("b2b")}
+              aria-current={tab === "b2b" ? "page" : undefined}
+              className={
+                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                (tab === "b2b"
+                  ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              B2B
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("b2c")}
+              aria-current={tab === "b2c" ? "page" : undefined}
+              className={
+                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                (tab === "b2c"
+                  ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              B2C
+            </button>
+          </div>
+        </div>
+
+        {tab === "b2b" ? (
+          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">B2B View</div>
+            <div className="mt-2 space-y-2">
+              {([
+                { key: "leads", label: "Leads" },
+                { key: "pull", label: "Leads Pull" },
+                { key: "settings", label: "Settings" },
+              ] as const).map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setB2bSubTab(item.key)}
+                  aria-current={b2bSubTab === item.key ? "page" : undefined}
+                  className={
+                    "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                    (b2bSubTab === item.key
+                      ? "border-brand-blue bg-brand-blue text-white shadow-sm"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  }
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }, [b2bSubTab, tab]);
+
+  useEffect(() => {
+    setSidebarOverride({
+      desktopSidebarContent: leadScrapingSidebar,
+      mobileSidebarContent: leadScrapingSidebar,
+    });
+  }, [leadScrapingSidebar, setSidebarOverride]);
+
+  useEffect(() => {
+    return () => setSidebarOverride(null);
+  }, [setSidebarOverride]);
+
   if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="mx-auto w-full max-w-6xl">
@@ -2166,11 +2246,6 @@ export function PortalLeadScrapingClient() {
       </div>
     );
   }
-
-  const subTabButtonClass = (active: boolean) =>
-    active
-      ? "relative rounded-t-2xl border border-zinc-200 border-b-white bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5"
-      : "relative rounded-t-2xl border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-600 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-200";
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
@@ -2192,75 +2267,12 @@ export function PortalLeadScrapingClient() {
         </div>
       </div>
 
-      <div className="mt-6 flex w-full flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setTab("b2b")}
-          aria-current={tab === "b2b" ? "page" : undefined}
-          className={
-            "flex-1 min-w-55 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "b2b"
-              ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          B2B (Business listings)
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("b2c")}
-          aria-current={tab === "b2c" ? "page" : undefined}
-          className={
-            "flex-1 min-w-55 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "b2c"
-              ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          B2C (Consumer)
-        </button>
-      </div>
-
       {status ? (
         <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{status}</div>
       ) : null}
 
       {tab === "b2b" ? (
         <>
-          <div className={isMobileApp ? "mt-4" : "mt-4"}>
-            <div className={isMobileApp ? "flex flex-wrap items-center gap-2" : "flex justify-end pr-2"}>
-              <div className={isMobileApp ? "flex w-full flex-wrap gap-2" : "-mb-px flex items-end gap-1"} role="tablist" aria-label="B2B view">
-                <button
-                  type="button"
-                  onClick={() => setB2bSubTab("leads")}
-                  className={subTabButtonClass(b2bSubTab === "leads")}
-                  role="tab"
-                  aria-selected={b2bSubTab === "leads"}
-                >
-                  Leads
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setB2bSubTab("pull")}
-                  className={subTabButtonClass(b2bSubTab === "pull")}
-                  role="tab"
-                  aria-selected={b2bSubTab === "pull"}
-                >
-                  Pull
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setB2bSubTab("settings")}
-                  className={subTabButtonClass(b2bSubTab === "settings")}
-                  role="tab"
-                  aria-selected={b2bSubTab === "settings"}
-                >
-                  Settings
-                </button>
-              </div>
-            </div>
-          </div>
-
           {b2bSubTab === "pull" ? (
             <div className="mt-0 grid grid-cols-1 gap-4 lg:grid-cols-3">
               <div className="lg:col-span-2">
