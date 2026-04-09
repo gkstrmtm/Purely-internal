@@ -18,26 +18,10 @@ function classNames(...parts: Array<string | false | null | undefined>) {
 }
 
 export function PortalSidebarNavButton({ label, icon, className, children, ...props }: SidebarNavButtonProps) {
-  const isActive = props["aria-current"] === "page" || props["aria-current"] === true;
-  const isDisabled = Boolean(props.disabled);
-
   return (
     <button {...props} className={classNames("group", className)}>
       <span className="flex items-center gap-3">
-        {icon ? (
-          <span
-            className={classNames(
-              "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl transition",
-              isDisabled
-                ? "bg-zinc-100 text-zinc-400"
-                : isActive
-                  ? "bg-white/15 text-white"
-                  : "bg-zinc-100 text-zinc-700 group-hover:bg-zinc-200/80",
-            )}
-          >
-            {icon}
-          </span>
-        ) : null}
+        {icon ? <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center opacity-90">{icon}</span> : null}
         <span className={classNames("min-w-0 truncate", icon ? undefined : "w-full")}>{children ?? label}</span>
       </span>
     </button>

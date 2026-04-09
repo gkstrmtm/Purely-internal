@@ -1945,9 +1945,8 @@ export function PortalAiChatClient({
     const el = scrollerRef.current;
     if (!force && !syncShouldStickToBottom()) return;
     if (el) {
-      el.scrollTop = el.scrollHeight;
+      el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
     }
-    endRef.current?.scrollIntoView({ block: "end" });
   }, [syncShouldStickToBottom]);
 
   const handleChatScroll = useCallback(() => {

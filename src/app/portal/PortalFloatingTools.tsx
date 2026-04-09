@@ -607,7 +607,9 @@ export function PortalFloatingTools() {
     if (!force && !shouldAutoScrollRef.current) return;
     if (chatScrollRafRef.current) window.cancelAnimationFrame(chatScrollRafRef.current);
     chatScrollRafRef.current = window.requestAnimationFrame(() => {
-      chatEndRef.current?.scrollIntoView({ block: "end" });
+      const el = chatScrollRef.current;
+      if (!el) return;
+      el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
     });
   }
 
