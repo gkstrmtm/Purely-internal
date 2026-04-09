@@ -7,6 +7,14 @@ import type { PutBlobResult } from "@vercel/blob";
 import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import {
+  PortalSidebarNavButton,
+  portalSidebarButtonActiveClass,
+  portalSidebarButtonBaseClass,
+  portalSidebarButtonInactiveClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { InlineSpinner } from "@/components/InlineSpinner";
@@ -200,66 +208,61 @@ export function PortalMediaLibraryClient() {
   const mediaSidebar = useMemo(() => {
     return (
       <div className="space-y-4">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Media Library</div>
-          <div className="mt-2 space-y-2">
-            <button
+        <div>
+          <div className={portalSidebarSectionTitleClass}>Media Library</div>
+          <div className={portalSidebarSectionStackClass}>
+            <PortalSidebarNavButton
               type="button"
               onClick={() => {
                 setFolderId(null);
                 setSelected(null);
               }}
-              className={
-                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition " +
-                (!folderId ? "border-brand-blue bg-brand-blue text-white shadow-sm" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-              }
+              label="All media"
+              className={`${portalSidebarButtonBaseClass} ${!folderId ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass}`}
             >
               All media
-            </button>
+            </PortalSidebarNavButton>
             {breadcrumbs.map((crumb) => (
-              <button
+              <PortalSidebarNavButton
                 key={crumb.id}
                 type="button"
                 onClick={() => {
                   setFolderId(crumb.id);
                   setSelected({ kind: "folder", id: crumb.id });
                 }}
-                className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-left text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                label={crumb.name}
+                className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
               >
                 {crumb.name}
-              </button>
+              </PortalSidebarNavButton>
             ))}
           </div>
         </div>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Folders</div>
-          <div className="mt-2 space-y-2">
+        <div>
+          <div className={portalSidebarSectionTitleClass}>Folders</div>
+          <div className={portalSidebarSectionStackClass}>
             <button
               type="button"
               onClick={() => setNewFolderOpen(true)}
-              className="w-full rounded-2xl border border-brand-ink bg-brand-ink px-3 py-2.5 text-left text-sm font-semibold text-white shadow-sm hover:opacity-95"
+              className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
             >
               + New folder
             </button>
             {folders.length ? (
               folders.slice(0, 16).map((folder) => (
-                <button
+                <PortalSidebarNavButton
                   key={folder.id}
                   type="button"
                   onClick={() => {
                     setFolderId(folder.id);
                     setSelected({ kind: "folder", id: folder.id });
                   }}
-                  className={
-                    "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition " +
-                    (selected?.kind === "folder" && selected.id === folder.id
-                      ? "border-brand-ink bg-brand-ink text-white shadow-sm"
-                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                  }
+                  label={folder.name}
+                  className={`${portalSidebarButtonBaseClass} ${selected?.kind === "folder" && selected.id === folder.id ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass}`}
                 >
                   {folder.name}
-                </button>
+                </PortalSidebarNavButton>
               ))
             ) : (
               <div className="px-1 py-2 text-sm text-zinc-500">No folders yet.</div>
@@ -268,13 +271,13 @@ export function PortalMediaLibraryClient() {
         </div>
 
         {selectedItem ? (
-          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
-            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Selected File</div>
+          <div>
+            <div className={portalSidebarSectionTitleClass}>Selected File</div>
             <div className="mt-2 text-sm font-semibold text-zinc-900">{selectedItem.fileName}</div>
             <button
               type="button"
               onClick={() => setPreviewOpen(true)}
-              className="mt-3 w-full rounded-2xl bg-brand-blue px-3 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+              className={`mt-3 ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
             >
               Open preview
             </button>

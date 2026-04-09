@@ -40,7 +40,7 @@ function PortalGetStartedCompleteInner() {
 
     (async () => {
       if (!sessionId && !bypass) {
-        router.replace(`${portalBase}/get-started`);
+        router.replace(`${portalBase}/get-started`, { scroll: false });
         return;
       }
 
@@ -55,7 +55,7 @@ function PortalGetStartedCompleteInner() {
 
       if (!res.ok || !json?.ok) {
         if (res.status === 401 || res.status === 403) {
-          router.replace(`${portalBase}/login`);
+          router.replace(`${portalBase}/login`, { scroll: false });
           return;
         }
         setError(json?.error || "Unable to activate services");
@@ -94,7 +94,7 @@ function PortalGetStartedCompleteInner() {
         description={bonusCredits > 0 ? `We gave you ${bonusCredits} credits to get started.` : "Your services are active."}
         onClose={() => {
           setModalOpen(false);
-          router.replace(`${portalBase}/app/onboarding`);
+          router.replace(`${portalBase}/app/onboarding`, { scroll: false });
           router.refresh();
         }}
         widthClassName="w-[min(520px,calc(100vw-32px))]"
@@ -105,7 +105,7 @@ function PortalGetStartedCompleteInner() {
               className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
               onClick={() => {
                 setModalOpen(false);
-                router.replace(`${portalBase}/app/onboarding`);
+                router.replace(`${portalBase}/app/onboarding`, { scroll: false });
                 router.refresh();
               }}
             >

@@ -123,7 +123,7 @@ export function PortalBillingUpgradeClient({ embedded }: { embedded?: boolean } 
               const next = fromMobileApp
                 ? "/portal/app/billing?pa_mobileapp=1"
                 : "/portal/app/billing";
-              router.push(next);
+              router.push(next, { scroll: false });
             }}
             disabled={busy !== null}
           >

@@ -6,7 +6,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
-import { IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
+import {
+  IconSidebarSettings,
+  PortalSidebarNavButton,
+  portalSidebarButtonActiveClass,
+  portalSidebarButtonBaseClass,
+  portalSidebarButtonInactiveClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
@@ -255,12 +263,12 @@ export function PortalBlogsClient({
     return (
       <div className="space-y-4">
         <div>
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Blogs</div>
-          <div className="mt-2 space-y-2">
+          <div className={portalSidebarSectionTitleClass}>Blogs</div>
+          <div className={portalSidebarSectionStackClass}>
             {([
-              { key: "posts", label: "Posts", tone: "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm" },
-              { key: "automation", label: "Blog Automation", tone: "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm" },
-              { key: "settings", label: "Settings", tone: "border-brand-ink bg-brand-ink text-white shadow-sm" },
+              { key: "posts", label: "Posts" },
+              { key: "automation", label: "Blog Automation" },
+              { key: "settings", label: "Settings" },
             ] as const).map((item) => (
               <PortalSidebarNavButton
                 key={item.key}
@@ -270,8 +278,8 @@ export function PortalBlogsClient({
                 label={item.label}
                 icon={item.key === "posts" ? <IconServiceGlyph slug="blogs" /> : item.key === "automation" ? <IconEdit size={18} /> : <IconSidebarSettings />}
                 className={
-                  "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                  (routeTab === item.key ? item.tone.replace(/^border-[^ ]+\s*/, "") : "text-zinc-700 hover:bg-zinc-50")
+                  `${portalSidebarButtonBaseClass} ` +
+                  (routeTab === item.key ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)
                 }
               >
                 {item.label}
@@ -281,18 +289,13 @@ export function PortalBlogsClient({
         </div>
 
         <div>
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Links</div>
-          <div className="mt-2 space-y-2">
+          <div className={portalSidebarSectionTitleClass}>Links</div>
+          <div className={portalSidebarSectionStackClass}>
             <a
               href={previewBlogsHref ?? undefined}
               target="_blank"
               rel="noreferrer"
-              className={
-                "block rounded-2xl border px-3 py-2.5 text-sm font-semibold transition " +
-                (previewBlogsHref
-                  ? "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                  : "pointer-events-none border-zinc-200 bg-zinc-100 text-zinc-400")
-              }
+              className={`block ${portalSidebarButtonBaseClass} ${previewBlogsHref ? portalSidebarButtonInactiveClass : "pointer-events-none bg-zinc-100 text-zinc-400"}`}
             >
               Preview
             </a>
@@ -300,12 +303,7 @@ export function PortalBlogsClient({
               href={liveBlogsHref ?? undefined}
               target="_blank"
               rel="noreferrer"
-              className={
-                "block rounded-2xl border px-3 py-2.5 text-sm font-semibold transition " +
-                (liveBlogsHref
-                  ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white hover:opacity-95"
-                  : "pointer-events-none border-zinc-200 bg-zinc-100 text-zinc-400")
-              }
+              className={`block ${portalSidebarButtonBaseClass} ${liveBlogsHref ? portalSidebarButtonInactiveClass : "pointer-events-none bg-zinc-100 text-zinc-400"}`}
             >
               Live
             </a>

@@ -31,7 +31,7 @@ export function PortalBlogsShell() {
         const href = hrefForTab(next);
         if (!href) return;
         const qs = searchParams?.toString() || "";
-        router.push(qs ? `${href}?${qs}` : href);
+        router.push(qs ? `${href}?${qs}` : href, { scroll: false });
       }}
     />
   );

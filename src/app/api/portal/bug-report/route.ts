@@ -24,6 +24,7 @@ const bodySchema = z
 type StoredBugReport = {
   id: string;
   createdAtIso: string;
+  title?: string;
   message: string;
   url?: string;
   area?: string;
@@ -54,6 +55,7 @@ function parsePayload(raw: unknown): StoredPayload {
       createdAtIso,
       message: message.slice(0, 4000),
     };
+    if (typeof rr.title === "string" && rr.title.trim()) out.title = rr.title.trim().slice(0, 120);
     if (typeof rr.url === "string" && rr.url.trim()) out.url = rr.url.trim().slice(0, 2000);
     if (typeof rr.area === "string" && rr.area.trim()) out.area = rr.area.trim().slice(0, 200);
     if (typeof rr.reporterEmail === "string" && rr.reporterEmail.trim()) out.reporterEmail = rr.reporterEmail.trim().slice(0, 200);
@@ -69,6 +71,15 @@ function parsePayload(raw: unknown): StoredPayload {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function bugReportTitle(messageRaw: string, areaRaw?: string) {
+  const message = String(messageRaw || "").trim().replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ");
+  const first = message.split(/[.?!]/)[0]?.trim() || message;
+  const short = first.split(" ").filter(Boolean).slice(0, 6).join(" ").trim();
+  const area = String(areaRaw || "").trim();
+  const base = short || "Bug report";
+  return `${area ? `${area} · ` : ""}${base}`.slice(0, 120).trim();
 }
 
 function buildEnvInfo() {
@@ -145,6 +156,7 @@ export async function POST(req: Request) {
   const report: StoredBugReport = {
     id: `bug_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
     createdAtIso: nowIso(),
+    title: bugReportTitle(parsed.data.message, parsed.data.area),
     message: parsed.data.message,
     ...(parsed.data.url ? { url: parsed.data.url } : {}),
     ...(parsed.data.area ? { area: parsed.data.area } : {}),

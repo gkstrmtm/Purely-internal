@@ -10,6 +10,16 @@ import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModa
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import {
+  PortalSidebarNavButton,
+  portalSidebarButtonActiveClass,
+  portalSidebarButtonBaseClass,
+  portalSidebarButtonInactiveClass,
+  portalSidebarIconActionButtonClass,
+  portalSidebarMetaTextClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 import { NURTURE_TEMPLATES, type NurtureTemplate, type StepKind } from "@/lib/portalNurtureTemplates";
@@ -521,11 +531,11 @@ export function PortalNurtureCampaignsClient() {
       <div className="space-y-4">
         <div>
           <div className="flex items-center justify-between gap-3 px-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Nurture Campaigns</div>
+            <div className={portalSidebarSectionTitleClass}>Nurture Campaigns</div>
             <button
               type="button"
               onClick={() => void createCampaign()}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-(--color-brand-blue) text-base font-semibold text-white hover:brightness-95 disabled:opacity-60"
+              className={portalSidebarIconActionButtonClass}
               disabled={loadingList}
               aria-label="New campaign"
             >
@@ -538,31 +548,27 @@ export function PortalNurtureCampaignsClient() {
         </div>
 
         <div>
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Your campaigns</div>
-          <div className="mt-2 space-y-2">
+          <div className={portalSidebarSectionTitleClass}>Your campaigns</div>
+          <div className={portalSidebarSectionStackClass}>
             {loadingList ? (
               <div className="px-1 py-2 text-sm text-zinc-500">Loading…</div>
             ) : campaigns.length ? (
               campaigns.map((campaign) => {
                 const active = campaign.id === selectedId;
                 return (
-                  <button
+                  <PortalSidebarNavButton
                     key={campaign.id}
                     type="button"
                     onClick={() => setSelectedId(campaign.id)}
-                    className={classNames(
-                      "w-full rounded-2xl border px-3 py-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
-                      active
-                        ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
-                        : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-                    )}
+                    label={campaign.name}
+                    className={`${portalSidebarButtonBaseClass} ${active ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass}`}
                     aria-current={active ? "page" : undefined}
                   >
                     <div className="truncate text-sm font-semibold">{campaign.name}</div>
-                    <div className={classNames("mt-1 text-[11px]", active ? "text-white/80" : "text-zinc-500")}>
+                    <div className={portalSidebarMetaTextClass}>
                       {campaign.status} · {campaign.stepsCount} step{campaign.stepsCount === 1 ? "" : "s"}
                     </div>
-                  </button>
+                  </PortalSidebarNavButton>
                 );
               })
             ) : (

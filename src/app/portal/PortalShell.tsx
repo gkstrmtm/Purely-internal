@@ -67,6 +67,10 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function PortalNavLink(props: React.ComponentProps<typeof Link>) {
+  return <Link {...props} scroll={props.scroll ?? false} />;
+}
+
 function dispatchTopbarIntent(hidden: boolean) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("pa.portal.topbar.intent", { detail: { hidden } }));
@@ -1312,7 +1316,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     const active = pathname === `${basePath}/app/services/${s.slug}` || pathname.startsWith(`${basePath}/app/services/${s.slug}/`);
 
     return (
-      <Link
+      <PortalNavLink
         href={`${basePath}/app/services/${s.slug}`}
         className={classNames(
           "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
@@ -1333,14 +1337,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </span>
           ) : null}
         </span>
-      </Link>
+      </PortalNavLink>
     );
   }
 
   function renderPeopleLink() {
     const active = pathname === `${basePath}/app/people` || pathname.startsWith(`${basePath}/app/people/`);
     return (
-      <Link
+      <PortalNavLink
         key="__people"
         href={`${basePath}/app/people`}
         className={classNames(
@@ -1354,7 +1358,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </span>
         </span>
         <span className="min-w-0 flex-1 truncate">People</span>
-      </Link>
+      </PortalNavLink>
     );
   }
 
@@ -1500,7 +1504,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               )}
             >
               <div className="shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white p-3">
-                <Link href={`${basePath}/app`} className="flex items-center gap-3" onClick={() => setMobileOpen(false)}>
+                <PortalNavLink href={`${basePath}/app`} className="flex items-center gap-3" onClick={() => setMobileOpen(false)}>
                   <Image
                     src={sidebarLogoSrc}
                     alt="Purely Automation"
@@ -1508,7 +1512,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     height={34}
                     className="h-6 w-auto max-w-32 object-contain"
                   />
-                </Link>
+                </PortalNavLink>
                 <button
                   type="button"
                   onClick={() => setMobileOpen(false)}
@@ -1530,7 +1534,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           const lockBadge = serviceLockBadge(s.slug);
                           const unlocked = serviceUnlocked(s);
                           return (
-                            <Link
+                            <PortalNavLink
                               key={s.slug}
                               href={`${basePath}/app/services/${s.slug}`}
                               onClick={() => setMobileOpen(false)}
@@ -1551,7 +1555,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                   {lockBadge?.label || "Locked"}
                                 </span>
                               ) : null}
-                            </Link>
+                            </PortalNavLink>
                           );
                         })}
                       </div>
@@ -1574,14 +1578,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       </Link>
                     </GlassSurface>
                     <GlassSurface {...portalGlassIconSurfaceProps} className="rounded-2xl">
-                      <Link
+                      <PortalNavLink
                         href={`${basePath}/tutorials/getting-started?embed=1`}
                         className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform duration-150 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                         aria-label="Help"
                         title="Help"
                       >
                         <IconHelpCircle size={18} />
-                      </Link>
+                      </PortalNavLink>
                     </GlassSurface>
                     <SignOutButton variant="sidebar" collapsed />
                   </div>
@@ -1649,7 +1653,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 }
 
                 return (
-                  <Link
+                  <PortalNavLink
                     key={t.key}
                     href={t.href}
                     className={classNames(
@@ -1661,7 +1665,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       <FooterIcon />
                     </span>
                     <span className="max-w-full truncate">{t.label}</span>
-                  </Link>
+                  </PortalNavLink>
                 );
               })}
             </div>
@@ -1695,14 +1699,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </Link>
           </GlassSurface>
           <GlassSurface {...portalGlassIconSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl">
-            <Link
+            <PortalNavLink
               href={`${basePath}/tutorials/getting-started`}
               className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform hover:scale-110 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none"
               aria-label="Help"
               title="Help"
             >
               <IconHelpCircle size={22} />
-            </Link>
+            </PortalNavLink>
           </GlassSurface>
         </div>
       ) : null}
@@ -1728,7 +1732,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               See how the portal fits together, what to turn on first, and how to configure the core pieces in a couple of minutes.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Link
+              <PortalNavLink
                 href={`${basePath}/tutorials/getting-started`}
                 className={classNames(
                   "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white",
@@ -1737,7 +1741,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 onClick={dismissGettingStartedHint}
               >
                 Open getting started
-              </Link>
+              </PortalNavLink>
               <button
                 type="button"
                 className={classNames(
@@ -1831,7 +1835,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       </span>
                     </button>
                   ) : (
-                    <Link
+                    <PortalNavLink
                       key={item.href}
                       href={item.href}
                       title={item.label}
@@ -1842,7 +1846,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       <span className={iconClass} aria-hidden>
                         {item.iconGlyph}
                       </span>
-                    </Link>
+                    </PortalNavLink>
                   );
                 })}
               </div>
@@ -1972,7 +1976,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               {dashboardQuickAccessEffective.map((slug) => {
                                 if (slug === DASHBOARD_SALES_SHORTCUT_SLUG) {
                                   return (
-                                    <Link
+                                    <PortalNavLink
                                       key="mobile_shortcut_sales_dashboard"
                                       href={`${basePath}/app/services/reporting/sales`}
                                       className={classNames(
@@ -1988,7 +1992,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                         </span>
                                       </span>
                                       <span className="truncate">Sales dashboard</span>
-                                    </Link>
+                                    </PortalNavLink>
                                   );
                                 }
 
@@ -2103,7 +2107,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
                 {activeTopKey === "settings" ? (
                   <div className="space-y-1">
-                    <Link
+                    <PortalNavLink
                       href={`${basePath}/app/settings`}
                       onClick={() => setMobileOpen(false)}
                       className={classNames(
@@ -2115,9 +2119,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         <IconSettingsGlyph />
                       </span>
                       <span className="truncate">General</span>
-                    </Link>
+                    </PortalNavLink>
                     {canViewServiceKey("profile") ? (
-                      <Link
+                      <PortalNavLink
                         href={`${basePath}/app/profile`}
                         onClick={() => setMobileOpen(false)}
                         className={classNames(
@@ -2129,10 +2133,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           <IconProfileGlyph />
                         </span>
                         <span className="truncate">Profile</span>
-                      </Link>
+                      </PortalNavLink>
                     ) : null}
                     {canViewServiceKey("billing") ? (
-                      <Link
+                      <PortalNavLink
                         href={`${basePath}/app/billing`}
                         onClick={() => setMobileOpen(false)}
                         className={classNames(
@@ -2144,9 +2148,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           <IconBillingGlyph />
                         </span>
                         <span className="truncate">Billing</span>
-                      </Link>
+                      </PortalNavLink>
                     ) : null}
-                    <Link
+                    <PortalNavLink
                       href={`${basePath}/app/settings/appearance`}
                       onClick={() => setMobileOpen(false)}
                       className={classNames(
@@ -2158,8 +2162,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         <IconEyeGlyph />
                       </span>
                       <span className="truncate">Appearance</span>
-                    </Link>
-                    <Link
+                    </PortalNavLink>
+                    <PortalNavLink
                       href={`${basePath}/app/settings/integrations`}
                       onClick={() => setMobileOpen(false)}
                       className={classNames(
@@ -2171,8 +2175,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         <IconApiKeysGlyph />
                       </span>
                       <span className="truncate">Integrations</span>
-                    </Link>
-                    <Link
+                    </PortalNavLink>
+                    <PortalNavLink
                       href={`${basePath}/app/settings/business`}
                       onClick={() => setMobileOpen(false)}
                       className={classNames(
@@ -2184,7 +2188,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         <IconBusinessGlyph />
                       </span>
                       <span className="truncate">Business</span>
-                    </Link>
+                    </PortalNavLink>
                   </div>
                 ) : null}
               </div>
@@ -2205,14 +2209,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   </Link>
                 </GlassSurface>
                 <GlassSurface {...portalGlassIconSurfaceProps} className="rounded-2xl">
-                  <Link
+                  <PortalNavLink
                     href={`${basePath}/tutorials/getting-started`}
                     className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform duration-150 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                     aria-label="Help"
                     title="Help"
                   >
                     <IconHelpCircle size={18} />
-                  </Link>
+                  </PortalNavLink>
                 </GlassSurface>
                 <SignOutButton variant="sidebar" collapsed />
               </div>
@@ -2315,7 +2319,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   };
 
                   return (
-                    <Link
+                    <PortalNavLink
                       key={item.href}
                       href={item.href}
                       title={item.label}
@@ -2330,7 +2334,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         {item.iconGlyph}
                       </span>
                       <span className="sr-only">{item.label}</span>
-                    </Link>
+                    </PortalNavLink>
                   );
                 })}
               </div>
@@ -2464,7 +2468,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           {dashboardQuickAccessEffective.map((slug) => {
                             if (slug === DASHBOARD_SALES_SHORTCUT_SLUG) {
                               return (
-                                <Link
+                                  <PortalNavLink
                                   key="shortcut_sales_dashboard"
                                   href={`${basePath}/app/services/reporting/sales`}
                                   className={classNames(
@@ -2480,7 +2484,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                     </span>
                                   </span>
                                   <span className="truncate">Sales dashboard</span>
-                                </Link>
+                                  </PortalNavLink>
                               );
                             }
 
@@ -2575,14 +2579,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             {activeTopKey === "services" && !showSidebarOverrideInServices ? (
               collapsed ? (
                 <div className="flex min-h-0 flex-1 flex-col items-center gap-1 py-1">
-                  <Link
+                  <PortalNavLink
                     href={`${basePath}/app/services`}
                     title="See all"
                     aria-label="See all"
                     className={sidebarIconButtonClass(pathname === `${basePath}/app/services`)}
                   >
                     <IconEyeGlyph />
-                  </Link>
+                  </PortalNavLink>
 
                   <div className="mt-2 flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto overscroll-y-contain px-1 pb-24">
                     {sidebarServiceGroups.flatMap((group) => {
@@ -2591,7 +2595,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
                         if (group.key === "communication" && svc.slug === "inbox") {
                           out.push(
-                            <Link
+                            <PortalNavLink
                               key={`svc_${svc.slug}`}
                               href={`${basePath}/app/services/${svc.slug}`}
                               title={svc.title}
@@ -2601,12 +2605,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               <span className={sidebarIconToneClassForSlug(svc.slug)} aria-hidden>
                                 <IconServiceGlyph slug={svc.slug} />
                               </span>
-                            </Link>,
+                            </PortalNavLink>,
                           );
 
                           if (canViewServiceKey("people")) {
                             out.push(
-                              <Link
+                              <PortalNavLink
                                 key="svc_people"
                                 href={`${basePath}/app/people`}
                                 title="People"
@@ -2616,7 +2620,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 <span className={sidebarIconToneClassForCategory("communication")} aria-hidden>
                                   <IconPeopleGlyph />
                                 </span>
-                              </Link>,
+                              </PortalNavLink>,
                             );
                           }
 
@@ -2624,7 +2628,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         }
 
                         out.push(
-                          <Link
+                          <PortalNavLink
                             key={`svc_${svc.slug}`}
                             href={`${basePath}/app/services/${svc.slug}`}
                             title={svc.title}
@@ -2634,7 +2638,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             <span className={sidebarIconToneClassForSlug(svc.slug)} aria-hidden>
                               <IconServiceGlyph slug={svc.slug} />
                             </span>
-                          </Link>,
+                          </PortalNavLink>,
                         );
                         return out;
                       });
@@ -2644,7 +2648,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               ) : (
               <div>
                 <div className="space-y-1">
-                  <Link
+                  <PortalNavLink
                     href={`${basePath}/app/services`}
                     className={classNames(
                       "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
@@ -2655,7 +2659,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       <IconEyeGlyph />
                     </span>
                     <span className="truncate">See all</span>
-                  </Link>
+                  </PortalNavLink>
                 </div>
 
                 <div className="mt-4">
@@ -2693,69 +2697,69 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             {activeTopKey === "settings" ? (
               collapsed ? (
                 <div className="flex flex-col items-center gap-1 py-1">
-                  <Link
+                  <PortalNavLink
                     href={`${basePath}/app/settings`}
                     title="General"
                     aria-label="General"
                     className={sidebarIconButtonClass(pathname === `${basePath}/app/settings` || pathname.startsWith(`${basePath}/app/settings/appearance`) || pathname.startsWith(`${basePath}/app/settings/integrations`) || pathname.startsWith(`${basePath}/app/settings/business`) ? pathname === `${basePath}/app/settings` : false)}
                   >
                     <IconSettingsGlyph />
-                  </Link>
+                  </PortalNavLink>
 
                   {canViewServiceKey("profile") ? (
-                    <Link
+                    <PortalNavLink
                       href={`${basePath}/app/profile`}
                       title="Profile"
                       aria-label="Profile"
                       className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/profile`))}
                     >
                       <IconProfileGlyph />
-                    </Link>
+                    </PortalNavLink>
                   ) : null}
 
                   {canViewServiceKey("billing") ? (
-                    <Link
+                    <PortalNavLink
                       href={`${basePath}/app/billing`}
                       title="Billing"
                       aria-label="Billing"
                       className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/billing`))}
                     >
                       <IconBillingGlyph />
-                    </Link>
+                    </PortalNavLink>
                   ) : null}
 
-                  <Link
+                  <PortalNavLink
                     href={`${basePath}/app/settings/appearance`}
                     title="Appearance"
                     aria-label="Appearance"
                     className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/settings/appearance`))}
                   >
                     <IconEyeGlyph />
-                  </Link>
+                  </PortalNavLink>
 
-                  <Link
+                  <PortalNavLink
                     href={`${basePath}/app/settings/integrations`}
                     title="Integrations"
                     aria-label="Integrations"
                     className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/settings/integrations`))}
                   >
                     <IconApiKeysGlyph />
-                  </Link>
+                  </PortalNavLink>
 
-                  <Link
+                  <PortalNavLink
                     href={`${basePath}/app/settings/business`}
                     title="Business"
                     aria-label="Business"
                     className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/settings/business`))}
                   >
                     <IconBusinessGlyph />
-                  </Link>
+                  </PortalNavLink>
                 </div>
               ) : (
               <div>
                 <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Settings</div>
                 <div className="mt-2 space-y-1">
-                  <Link
+                  <PortalNavLink
                     href={`${basePath}/app/settings`}
                     className={classNames(
                       "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
@@ -2766,9 +2770,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       <IconSettingsGlyph />
                     </span>
                     <span className="truncate">General</span>
-                  </Link>
+                  </PortalNavLink>
                   {canViewServiceKey("profile") ? (
-                    <Link
+                    <PortalNavLink
                       href={`${basePath}/app/profile`}
                       className={classNames(
                         "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
@@ -2779,10 +2783,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         <IconProfileGlyph />
                       </span>
                       <span className="truncate">Profile</span>
-                    </Link>
+                    </PortalNavLink>
                   ) : null}
                   {canViewServiceKey("billing") ? (
-                    <Link
+                    <PortalNavLink
                       href={`${basePath}/app/billing`}
                       className={classNames(
                         "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
@@ -2793,10 +2797,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         <IconBillingGlyph />
                       </span>
                       <span className="truncate">Billing</span>
-                    </Link>
+                    </PortalNavLink>
                   ) : null}
 
-                  <Link
+                  <PortalNavLink
                     href={`${basePath}/app/settings/appearance`}
                     className={classNames(
                       "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
@@ -2809,9 +2813,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       <IconEyeGlyph />
                     </span>
                     <span className="truncate">Appearance</span>
-                  </Link>
+                  </PortalNavLink>
 
-                  <Link
+                  <PortalNavLink
                     href={`${basePath}/app/settings/integrations`}
                     className={classNames(
                       "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
@@ -2824,9 +2828,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       <IconApiKeysGlyph />
                     </span>
                     <span className="truncate">Integrations</span>
-                  </Link>
+                  </PortalNavLink>
 
-                  <Link
+                  <PortalNavLink
                     href={`${basePath}/app/settings/business`}
                     className={classNames(
                       "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
@@ -2839,7 +2843,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       <IconBusinessGlyph />
                     </span>
                     <span className="truncate">Business</span>
-                  </Link>
+                  </PortalNavLink>
                 </div>
               </div>
               )

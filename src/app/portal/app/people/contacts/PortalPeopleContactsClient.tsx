@@ -1642,7 +1642,7 @@ export function PortalPeopleContactsClient() {
                   duplicateGroupsCount > 0 ? (
                     <button
                       type="button"
-                      onClick={() => router.push(`${portalBase}/app/people/contacts/duplicates`)}
+                      onClick={() => router.push(`${portalBase}/app/people/contacts/duplicates`, { scroll: false })}
                       className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
                       title="Duplicates are grouped by phone number"
                     >
@@ -2045,7 +2045,7 @@ export function PortalPeopleContactsClient() {
                   {duplicateGroupsCount > 0 ? (
                     <button
                       type="button"
-                      onClick={() => router.push(`${portalBase}/app/people/contacts/duplicates`)}
+                      onClick={() => router.push(`${portalBase}/app/people/contacts/duplicates`, { scroll: false })}
                       className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
                       title="Duplicates are grouped by phone number"
                     >

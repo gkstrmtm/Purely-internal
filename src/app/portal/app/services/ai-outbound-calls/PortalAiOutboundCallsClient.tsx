@@ -5,7 +5,19 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
-import { IconCalls, IconMessages, IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
+import {
+  IconCalls,
+  IconMessages,
+  IconSidebarSettings,
+  PortalSidebarNavButton,
+  portalSidebarButtonActiveClass,
+  portalSidebarButtonBaseClass,
+  portalSidebarButtonInactiveClass,
+  portalSidebarIconActionButtonClass,
+  portalSidebarMetaTextClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
@@ -710,7 +722,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     (next: OutboundTabKey) => {
       setTab(next);
       if (typeof window === "undefined") return;
-      router.replace(`${basePath}/${next}${window.location.search || ""}`);
+      router.replace(`${basePath}/${next}${window.location.search || ""}`, { scroll: false });
       requestAnimationFrame(() => {
         scrollNearestScrollerToTop();
       });
@@ -723,60 +735,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     return (
       <div className="space-y-4">
         <div>
-          <div className="flex items-center justify-between gap-3 px-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Campaigns</div>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setCreateName("");
-                setCreateOpen(true);
-              }}
-              className={classNames(
-                "inline-flex h-8 w-8 items-center justify-center rounded-xl text-base font-semibold",
-                busy ? "border border-zinc-200 bg-zinc-100 text-zinc-500" : "bg-(--color-brand-blue) text-white shadow-sm hover:opacity-90",
-              )}
-              title="Create campaign"
-              aria-label="Create campaign"
-            >
-              +
-            </button>
-          </div>
-          <div className="mt-2 space-y-2">
-            {loading ? (
-              <div className="px-1 py-2 text-sm text-zinc-500">Loading…</div>
-            ) : campaigns.length === 0 ? (
-              <div className="px-1 py-2 text-sm text-zinc-500">No campaigns yet.</div>
-            ) : (
-              campaigns.map((campaign) => {
-                const active = campaign.id === selectedId;
-                return (
-                  <button
-                    key={campaign.id}
-                    type="button"
-                    onClick={() => setSelectedId(campaign.id)}
-                    className={classNames(
-                      "w-full rounded-2xl border px-3 py-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
-                      active ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="truncate text-sm font-semibold text-zinc-900">{campaign.name}</div>
-                      <div className="shrink-0 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700">
-                        {campaign.status}
-                      </div>
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-500">Queued: {campaign.enrollQueued} • Completed: {campaign.enrollCompleted}</div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-        <div>
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">View</div>
-          <div className="mt-2 space-y-2">
+          <div className={portalSidebarSectionTitleClass}>View</div>
+          <div className={portalSidebarSectionStackClass}>
             {(["calls", "messages", "settings"] as OutboundTabKey[]).map((tabKey) => (
               <PortalSidebarNavButton
                 key={tabKey}
@@ -787,17 +747,65 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                 label={tabKey === "calls" ? "Calls" : tabKey === "messages" ? "Messages" : "Settings"}
                 icon={tabKey === "calls" ? <IconCalls /> : tabKey === "messages" ? <IconMessages /> : tabKey === "settings" ? <IconSidebarSettings /> : undefined}
                 className={classNames(
-                  "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+                  portalSidebarButtonBaseClass,
                   !selected
                     ? "bg-zinc-100 text-zinc-400"
                     : tab === tabKey
-                      ? "bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-                      : "text-zinc-700 hover:bg-zinc-50",
+                      ? portalSidebarButtonActiveClass
+                      : portalSidebarButtonInactiveClass,
                 )}
               >
                 {tabKey === "calls" ? "Calls" : tabKey === "messages" ? "Messages" : "Settings"}
               </PortalSidebarNavButton>
             ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between gap-3 px-1">
+            <div className={portalSidebarSectionTitleClass}>Campaigns</div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setCreateName("");
+                setCreateOpen(true);
+              }}
+              className={portalSidebarIconActionButtonClass}
+              title="Create campaign"
+              aria-label="Create campaign"
+            >
+              +
+            </button>
+          </div>
+          <div className={portalSidebarSectionStackClass}>
+            {loading ? (
+              <div className="px-1 py-2 text-sm text-zinc-500">Loading…</div>
+            ) : campaigns.length === 0 ? (
+              <div className="px-1 py-2 text-sm text-zinc-500">No campaigns yet.</div>
+            ) : (
+              campaigns.map((campaign) => {
+                const active = campaign.id === selectedId;
+                return (
+                  <PortalSidebarNavButton
+                    key={campaign.id}
+                    type="button"
+                    onClick={() => setSelectedId(campaign.id)}
+                    label={campaign.name}
+                    className={classNames(portalSidebarButtonBaseClass, active ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="truncate text-sm font-semibold text-zinc-900">{campaign.name}</div>
+                      <div className="shrink-0 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700">
+                        {campaign.status}
+                      </div>
+                    </div>
+                    <div className={portalSidebarMetaTextClass}>Queued: {campaign.enrollQueued} • Completed: {campaign.enrollCompleted}</div>
+                  </PortalSidebarNavButton>
+                );
+              })
+            )}
           </div>
         </div>
       </div>
@@ -2415,7 +2423,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       ? "min-w-0 whitespace-nowrap px-3 py-2 text-xs"
                       : "min-w-40 px-4 py-2.5 text-sm",
                     tab === "calls"
-                      ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+                      ? "border-zinc-200 bg-zinc-100 text-zinc-900"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                   )}
                 >
@@ -2431,7 +2439,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       ? "min-w-0 whitespace-nowrap px-3 py-2 text-xs"
                       : "min-w-40 px-4 py-2.5 text-sm",
                     tab === "messages"
-                      ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+                      ? "border-zinc-200 bg-zinc-100 text-zinc-900"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                   )}
                 >
@@ -2447,7 +2455,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       ? "min-w-0 whitespace-nowrap px-3 py-2 text-xs"
                       : "min-w-40 px-4 py-2.5 text-sm",
                     tab === "settings"
-                      ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+                      ? "border-zinc-200 bg-zinc-100 text-zinc-900"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                   )}
                 >

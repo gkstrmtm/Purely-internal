@@ -38,7 +38,7 @@ function PortalBillingUpgradeCompleteInner() {
 
     (async () => {
       if (!sessionId) {
-        router.replace(`${appBase}/billing/upgrade`);
+        router.replace(`${appBase}/billing/upgrade`, { scroll: false });
         return;
       }
 
@@ -53,7 +53,7 @@ function PortalBillingUpgradeCompleteInner() {
 
       if (!res.ok || !json?.ok) {
         if (res.status === 401 || res.status === 403) {
-          router.replace(`${portalBase}/login`);
+          router.replace(`${portalBase}/login`, { scroll: false });
           return;
         }
         setError(json?.error || "Unable to activate subscription");
@@ -88,7 +88,7 @@ function PortalBillingUpgradeCompleteInner() {
         description="Your account is now on a monthly plan."
         onClose={() => {
           setModalOpen(false);
-          router.replace(`${appBase}/billing`);
+          router.replace(`${appBase}/billing`, { scroll: false });
           router.refresh();
         }}
         widthClassName="w-[min(520px,calc(100vw-32px))]"
@@ -99,7 +99,7 @@ function PortalBillingUpgradeCompleteInner() {
               className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
               onClick={() => {
                 setModalOpen(false);
-                router.replace(`${appBase}/billing`);
+                router.replace(`${appBase}/billing`, { scroll: false });
                 router.refresh();
               }}
             >

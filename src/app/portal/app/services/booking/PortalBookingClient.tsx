@@ -5,7 +5,21 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
-import { IconAppointments, IconBookings, IconFollowUp, IconReminders, IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
+import {
+  IconAppointments,
+  IconBookings,
+  IconFollowUp,
+  IconReminders,
+  IconSidebarSettings,
+  PortalSidebarNavButton,
+  portalSidebarBorderButtonActiveClass,
+  portalSidebarBorderButtonBaseClass,
+  portalSidebarBorderButtonInactiveClass,
+  portalSidebarButtonBaseClass,
+  portalSidebarButtonInactiveClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
 import { PortalBookingAvailabilityClient } from "@/app/portal/app/services/booking/availability/PortalBookingAvailabilityClient";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
@@ -928,14 +942,14 @@ export function PortalBookingClient() {
     return (
       <div className="space-y-4">
         <div>
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Booking</div>
-          <div className="mt-2 space-y-2">
+          <div className={portalSidebarSectionTitleClass}>Booking</div>
+          <div className={portalSidebarSectionStackClass}>
             {([
-              { key: "appointments", label: "Appointments", tone: "border-brand-blue bg-brand-blue text-white shadow-sm" },
-              { key: "bookings", label: "Bookings", tone: "border-brand-ink bg-brand-ink text-white shadow-sm" },
-              { key: "reminders", label: "Reminders", tone: "border-brand-pink bg-brand-pink text-white shadow-sm" },
-              { key: "follow-up", label: "Follow-up Settings", tone: "border-brand-blue bg-brand-blue text-white shadow-sm" },
-              { key: "settings", label: "Settings", tone: "border-brand-ink bg-brand-ink text-white shadow-sm" },
+              { key: "appointments", label: "Appointments" },
+              { key: "bookings", label: "Bookings" },
+              { key: "reminders", label: "Reminders" },
+              { key: "follow-up", label: "Follow-up Settings" },
+              { key: "settings", label: "Settings" },
             ] as const).map((item) => (
               <PortalSidebarNavButton
                 key={item.key}
@@ -957,8 +971,8 @@ export function PortalBookingClient() {
                           : undefined
                 }
                 className={
-                  "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                  (topTab === item.key ? item.tone : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  `${portalSidebarBorderButtonBaseClass} ` +
+                  (topTab === item.key ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)
                 }
               >
                 {item.label}
@@ -968,19 +982,14 @@ export function PortalBookingClient() {
         </div>
 
         {liveBookingUrl || previewBookingUrl ? (
-          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
-            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Links</div>
-            <div className="mt-2 space-y-2">
+          <div>
+            <div className={portalSidebarSectionTitleClass}>Links</div>
+            <div className={portalSidebarSectionStackClass}>
               <a
                 href={previewBookingUrl ?? undefined}
                 target="_blank"
                 rel="noreferrer"
-                className={
-                  "block rounded-2xl border px-3 py-2.5 text-sm font-semibold transition " +
-                  (previewBookingUrl
-                    ? "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                    : "pointer-events-none border-zinc-200 bg-zinc-100 text-zinc-400")
-                }
+                className={`block ${portalSidebarButtonBaseClass} ${previewBookingUrl ? portalSidebarButtonInactiveClass : "pointer-events-none bg-zinc-100 text-zinc-400"}`}
               >
                 Preview
               </a>
@@ -988,12 +997,7 @@ export function PortalBookingClient() {
                 href={liveBookingUrl ?? undefined}
                 target="_blank"
                 rel="noreferrer"
-                className={
-                  "block rounded-2xl border px-3 py-2.5 text-sm font-semibold transition " +
-                  (liveBookingUrl
-                    ? "border-brand-blue bg-brand-blue text-white hover:opacity-95"
-                    : "pointer-events-none border-zinc-200 bg-zinc-100 text-zinc-400")
-                }
+                className={`block ${portalSidebarButtonBaseClass} ${liveBookingUrl ? portalSidebarButtonInactiveClass : "pointer-events-none bg-zinc-100 text-zinc-400"}`}
               >
                 Live
               </a>

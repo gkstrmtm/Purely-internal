@@ -1746,8 +1746,8 @@ export function PortalAiChatClient({
         thread: thread ? { id: thread.id, title: thread.title } : null,
       });
       if (currentHref === href) return;
-      if (mode === "replace") router.replace(href);
-      else router.push(href);
+      if (mode === "replace") router.replace(href, { scroll: false });
+      else router.push(href, { scroll: false });
     },
     [basePath, currentHref, router],
   );
@@ -1943,10 +1943,11 @@ export function PortalAiChatClient({
 
   const scrollToBottom = useCallback((force = false) => {
     const el = scrollerRef.current;
+    if (!el) return;
     if (!force && !syncShouldStickToBottom()) return;
-    if (el) {
-      el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
-    }
+    const targetTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    if (!force && Math.abs(targetTop - el.scrollTop) <= 2) return;
+    el.scrollTo({ top: targetTop, behavior: "auto" });
   }, [syncShouldStickToBottom]);
 
   const handleChatScroll = useCallback(() => {
@@ -2064,7 +2065,11 @@ export function PortalAiChatClient({
         });
         pendingThreadIdsRef.current.delete(threadId);
         applyThreadContextSnapshot(threadId, json?.threadContext);
-        requestAnimationFrame(() => scrollToBottom(forceScrollToBottomRef.current));
+        requestAnimationFrame(() => {
+          if (forceScrollToBottomRef.current || shouldStickToBottomRef.current) {
+            scrollToBottom(forceScrollToBottomRef.current);
+          }
+        });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         toast.error(msg);

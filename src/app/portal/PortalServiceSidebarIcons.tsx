@@ -17,11 +17,33 @@ function classNames(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
 
+export const portalSidebarButtonBaseClass =
+  "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60";
+
+export const portalSidebarButtonInactiveClass = "text-zinc-700 hover:bg-zinc-50";
+
+export const portalSidebarButtonActiveClass = "bg-zinc-100 text-zinc-900";
+
+export const portalSidebarSectionTitleClass = "px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500";
+
+export const portalSidebarSectionStackClass = "mt-2 space-y-2";
+
+export const portalSidebarMetaTextClass = "mt-1 text-[11px] text-zinc-500";
+
+export const portalSidebarIconActionButtonClass =
+  "inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-base font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60";
+
+export const portalSidebarBorderButtonBaseClass = portalSidebarButtonBaseClass;
+
+export const portalSidebarBorderButtonInactiveClass = portalSidebarButtonInactiveClass;
+
+export const portalSidebarBorderButtonActiveClass = portalSidebarButtonActiveClass;
+
 export function PortalSidebarNavButton({ label, icon, className, children, ...props }: SidebarNavButtonProps) {
   return (
     <button {...props} className={classNames("group", className)}>
       <span className="flex items-center gap-3">
-        {icon ? <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center opacity-90">{icon}</span> : null}
+        {icon ? <span className="inline-flex h-4.5 w-4.5 shrink-0 items-center justify-center opacity-90">{icon}</span> : null}
         <span className={classNames("min-w-0 truncate", icon ? undefined : "w-full")}>{children ?? label}</span>
       </span>
     </button>

@@ -596,6 +596,18 @@ function heuristicThreadTitleFromUserText(textRaw: string): string {
   return title;
 }
 
+function widgetSuggestionThreadTitle(widgetSuggestion: { title?: string | null; serviceSlug?: string | null }): string {
+  const title = cleanSuggestedTitle(String(widgetSuggestion?.title || "").trim());
+  if (title && title.toLowerCase() !== "new chat") return title;
+  const serviceLabel = String(widgetSuggestion?.serviceSlug || "")
+    .trim()
+    .split("-")
+    .filter(Boolean)
+    .map((part) => (/^(ai|crm|sms)$/i.test(part) ? part.toUpperCase() : `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`))
+    .join(" ");
+  return cleanSuggestedTitle(serviceLabel ? `${serviceLabel} setup` : "Widget chat");
+}
+
 function stableJsonForRunFingerprint(value: unknown): string {
   if (value === null || value === undefined) return "null";
   if (Array.isArray(value)) return `[${value.map((item) => stableJsonForRunFingerprint(item)).join(",")}]`;
@@ -3563,6 +3575,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     persistedThreadContext = nextCtx;
 
     if (isSuggestionOnly) {
+      const currentTitle = String((thread as any)?.title || "").trim().toLowerCase();
+      const isDefaultTitle = !currentTitle || currentTitle === "new chat";
+      if (isDefaultTitle) {
+        await (prisma as any).portalAiChatThread.update({
+          where: { id: threadId },
+          data: { title: widgetSuggestionThreadTitle(widgetSuggestion as any) },
+        });
+      }
+
       if (!suggestionChanged) {
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
         return NextResponse.json({ ok: true, userMessage: null, assistantMessage: null, assistantActions: [], autoActionMessage: null, canvasUrl: null });

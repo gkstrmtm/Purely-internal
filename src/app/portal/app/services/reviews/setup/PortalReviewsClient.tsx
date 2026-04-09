@@ -3,7 +3,16 @@
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
-import { IconReviewRequests, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
+import {
+  IconReviewRequests,
+  PortalSidebarNavButton,
+  portalSidebarButtonActiveClass,
+  portalSidebarButtonBaseClass,
+  portalSidebarButtonInactiveClass,
+  portalSidebarMetaTextClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { Lightbox, type LightboxImage } from "@/components/Lightbox";
@@ -1076,8 +1085,8 @@ export default function PortalReviewsClient() {
   const reviewsSidebar = useMemo(() => (
     <div className="space-y-4">
       <div>
-        <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Reviews</div>
-        <div className="mt-2 space-y-2">
+        <div className={portalSidebarSectionTitleClass}>Reviews</div>
+        <div className={portalSidebarSectionStackClass}>
           <PortalSidebarNavButton
             type="button"
             onClick={() => setTabWithUrl("reviews")}
@@ -1085,10 +1094,8 @@ export default function PortalReviewsClient() {
             label="Reviews"
             icon={<IconServiceGlyph slug="reviews" />}
             className={
-              "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-              (tab === "reviews"
-                ? "bg-(--color-brand-blue) text-white shadow-sm"
-                : "text-zinc-700 hover:bg-zinc-50")
+              `${portalSidebarButtonBaseClass} ` +
+              (tab === "reviews" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)
             }
           >
             Reviews
@@ -1100,10 +1107,8 @@ export default function PortalReviewsClient() {
             label="Requests"
             icon={<IconReviewRequests />}
             className={
-              "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-              (tab === "settings"
-                ? "bg-(--color-brand-pink) text-white shadow-sm"
-                : "text-zinc-700 hover:bg-zinc-50")
+              `${portalSidebarButtonBaseClass} ` +
+              (tab === "settings" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)
             }
           >
             Requests
@@ -1114,7 +1119,7 @@ export default function PortalReviewsClient() {
       {tab === "reviews" ? (
         <>
           <div>
-            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Manual sends</div>
+            <div className={portalSidebarSectionTitleClass}>Manual sends</div>
             <div className="mt-2">
               <input
                 className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm"
@@ -1129,8 +1134,8 @@ export default function PortalReviewsClient() {
           </div>
 
           <div>
-            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Recent bookings</div>
-            <div className="mt-2 space-y-2">
+            <div className={portalSidebarSectionTitleClass}>Recent bookings</div>
+            <div className={portalSidebarSectionStackClass}>
               {filteredRecent.length === 0 ? (
                 <div className="px-1 py-2 text-sm text-zinc-500">No bookings found.</div>
               ) : (
@@ -1139,13 +1144,13 @@ export default function PortalReviewsClient() {
                   const calendarAllowed = isCalendarAllowedForBooking(booking.calendarId);
                   const canSend = settings.automation.manualSend && ended && booking.status === "SCHEDULED" && calendarAllowed && !sending;
                   return (
-                    <div key={booking.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2.5">
+                    <div key={booking.id} className="rounded-2xl px-3 py-2.5 text-zinc-900 hover:bg-zinc-50">
                       <div className="truncate text-sm font-semibold text-zinc-900">{booking.contactName}</div>
-                      <div className="mt-1 text-[11px] text-zinc-500">{new Date(booking.startAt).toLocaleString()}</div>
-                      <div className="mt-1 truncate text-[11px] text-zinc-500">{calendarLabel(booking.calendarId)}</div>
+                      <div className={portalSidebarMetaTextClass}>{new Date(booking.startAt).toLocaleString()}</div>
+                      <div className={`${portalSidebarMetaTextClass} truncate`}>{calendarLabel(booking.calendarId)}</div>
                       <button
                         type="button"
-                        className="mt-2 w-full rounded-xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"
+                        className={`mt-2 ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
                         disabled={!canSend}
                         onClick={() => manualSend(booking.id)}
                       >
@@ -1159,20 +1164,20 @@ export default function PortalReviewsClient() {
           </div>
 
           <div>
-            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Contacts</div>
-            <div className="mt-2 space-y-2">
+            <div className={portalSidebarSectionTitleClass}>Contacts</div>
+            <div className={portalSidebarSectionStackClass}>
               {!contactsLoading && contacts.length === 0 ? (
                 <div className="px-1 py-2 text-sm text-zinc-500">No contacts found.</div>
               ) : (
                 contacts.slice(0, 10).map((contact) => {
                   const canSend = settings.automation.manualSend && Boolean(contact.phone) && !sendingContactId;
                   return (
-                    <div key={contact.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2.5">
+                    <div key={contact.id} className="rounded-2xl px-3 py-2.5 text-zinc-900 hover:bg-zinc-50">
                       <div className="truncate text-sm font-semibold text-zinc-900">{contact.name || "(no name)"}</div>
-                      <div className="mt-1 truncate text-[11px] text-zinc-500">{contact.phone || "(no phone)"}</div>
+                      <div className={`${portalSidebarMetaTextClass} truncate`}>{contact.phone || "(no phone)"}</div>
                       <button
                         type="button"
-                        className="mt-2 w-full rounded-xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"
+                        className={`mt-2 ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
                         disabled={!canSend || sendingContactId === contact.id}
                         onClick={() => manualSendContact(contact.id)}
                       >

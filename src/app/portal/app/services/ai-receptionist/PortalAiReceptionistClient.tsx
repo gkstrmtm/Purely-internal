@@ -5,7 +5,21 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
-import { IconCalls, IconMessages, IconMissedCallTextBack, IconReceptionistActivity, IconReceptionistTesting, IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
+import {
+  IconCalls,
+  IconMessages,
+  IconMissedCallTextBack,
+  IconReceptionistActivity,
+  IconReceptionistTesting,
+  IconSidebarSettings,
+  PortalSidebarNavButton,
+  portalSidebarButtonActiveClass,
+  portalSidebarButtonBaseClass,
+  portalSidebarButtonInactiveClass,
+  portalSidebarMetaTextClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
 import { InlineSpinner } from "@/components/InlineSpinner";
@@ -1200,7 +1214,6 @@ export function PortalAiReceptionistClient() {
     const sectionButton = (
       key: "activity" | "testing" | "missed-call-textback" | "settings",
       label: string,
-      tone: string,
       icon?: React.ReactNode,
     ) => (
       <PortalSidebarNavButton
@@ -1211,8 +1224,8 @@ export function PortalAiReceptionistClient() {
         label={label}
         icon={icon}
         className={classNames(
-          "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
-          tab === key ? tone : "text-zinc-700 hover:bg-zinc-50",
+          portalSidebarButtonBaseClass,
+          tab === key ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass,
         )}
       >
         {label}
@@ -1222,34 +1235,27 @@ export function PortalAiReceptionistClient() {
     return (
       <div className="space-y-4">
         <div>
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">AI Receptionist</div>
-          <div className="mt-2 space-y-2">
-            {sectionButton("activity", "Activity", "bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40", <IconReceptionistActivity />)}
-            {sectionButton("testing", "Testing", "bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40", <IconReceptionistTesting />)}
-            {sectionButton(
-              "missed-call-textback",
-              "Missed Calls + Text Back",
-              "bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40",
-              <IconMissedCallTextBack />,
-            )}
-            {sectionButton("settings", "Settings", "bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40", <IconSidebarSettings />)}
+          <div className={portalSidebarSectionTitleClass}>AI Receptionist</div>
+          <div className={portalSidebarSectionStackClass}>
+            {sectionButton("activity", "Activity", <IconReceptionistActivity />)}
+            {sectionButton("testing", "Testing", <IconReceptionistTesting />)}
+            {sectionButton("missed-call-textback", "Missed Calls + Text Back", <IconMissedCallTextBack />)}
+            {sectionButton("settings", "Settings", <IconSidebarSettings />)}
           </div>
         </div>
 
         {tab === "settings" ? (
           <div>
-            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Settings</div>
-            <div className="mt-2 space-y-2">
+            <div className={portalSidebarSectionTitleClass}>Settings</div>
+            <div className={portalSidebarSectionStackClass}>
               <PortalSidebarNavButton
                 type="button"
                 onClick={() => setSettingsSubTab("voice")}
                 label="Voice"
                 icon={<IconCalls />}
                 className={classNames(
-                  "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
-                  settingsSubTab === "voice"
-                    ? "bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-                    : "text-zinc-700",
+                  portalSidebarButtonBaseClass,
+                  settingsSubTab === "voice" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass,
                 )}
               >
                 Voice
@@ -1260,10 +1266,8 @@ export function PortalAiReceptionistClient() {
                 label="SMS"
                 icon={<IconMessages />}
                 className={classNames(
-                  "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
-                  settingsSubTab === "sms"
-                    ? "bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-                    : "text-zinc-700",
+                  portalSidebarButtonBaseClass,
+                  settingsSubTab === "sms" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass,
                 )}
               >
                 SMS
@@ -1275,28 +1279,27 @@ export function PortalAiReceptionistClient() {
         {(tab === "activity" || tab === "missed-call-textback") && events.length ? (
           <div>
             <div className="flex items-center justify-between gap-3 px-1">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Recent calls</div>
+              <div className={portalSidebarSectionTitleClass}>Recent calls</div>
               <div className="text-[11px] text-zinc-400">{events.length}</div>
             </div>
-            <div className="mt-2 space-y-2">
+            <div className={portalSidebarSectionStackClass}>
               {events.slice(0, 8).map((event) => {
                 const active = callDetailsOpen && event.id === selectedCallId;
                 return (
-                  <button
+                  <PortalSidebarNavButton
                     key={event.id}
                     type="button"
                     onClick={() => openCallDetails(event.id)}
-                    className={classNames(
-                      "w-full rounded-2xl border px-3 py-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
-                      active ? "border-brand-blue bg-brand-blue/8" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100",
-                    )}
+                    label={(event.contactName || "").trim() || event.from}
+                    className={classNames(portalSidebarButtonBaseClass, active ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)}
+                    aria-current={active ? "page" : undefined}
                   >
                     <div className="truncate text-sm font-semibold text-zinc-900">{(event.contactName || "").trim() || event.from}</div>
-                    <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-zinc-500">
+                    <div className={classNames(portalSidebarMetaTextClass, "flex items-center justify-between gap-2")}>
                       <span className="truncate">{formatDate(event.createdAtIso)}</span>
                       <span className="shrink-0">{formatTimeOfDay(event.createdAtIso)}</span>
                     </div>
-                  </button>
+                  </PortalSidebarNavButton>
                 );
               })}
             </div>

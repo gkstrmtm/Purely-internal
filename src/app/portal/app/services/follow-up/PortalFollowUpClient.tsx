@@ -927,7 +927,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           className={
             "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "activity"
-              ? "border-brand-ink bg-brand-ink text-white shadow-sm"
+              ? "border-zinc-200 bg-zinc-100 text-zinc-900"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -940,7 +940,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           className={
             "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "settings"
-              ? "border-brand-ink bg-brand-ink text-white shadow-sm"
+              ? "border-zinc-200 bg-zinc-100 text-zinc-900"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >

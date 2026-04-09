@@ -3112,7 +3112,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
       toast.success("Form created");
       if (created?.id) {
-        router.push(`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(created.id)}/edit`);
+        router.push(`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(created.id)}/edit`, { scroll: false });
       }
     } catch (e) {
       const msg = (e as any)?.message ? String((e as any).message) : "Failed to create form";

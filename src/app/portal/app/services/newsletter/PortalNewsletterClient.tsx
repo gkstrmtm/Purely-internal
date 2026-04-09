@@ -5,7 +5,17 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
-import { IconNewsletterExternal, IconNewsletterInternal, IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
+import {
+  IconNewsletterExternal,
+  IconNewsletterInternal,
+  IconSidebarSettings,
+  PortalSidebarNavButton,
+  portalSidebarButtonActiveClass,
+  portalSidebarButtonBaseClass,
+  portalSidebarButtonInactiveClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
@@ -491,7 +501,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const setAudienceAndRoute = useCallback(
     (next: AudienceTab) => {
       setAudience(next);
-      router.replace(`${basePath}/${next}`);
+      router.replace(`${basePath}/${next}`, { scroll: false });
     },
     [basePath, router],
   );
@@ -501,8 +511,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     return (
       <div className="space-y-4">
         <div>
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Newsletter</div>
-          <div className="mt-2 space-y-2">
+          <div className={portalSidebarSectionTitleClass}>Newsletter</div>
+          <div className={portalSidebarSectionStackClass}>
             <PortalSidebarNavButton
               type="button"
               onClick={() => setAudienceAndRoute("external")}
@@ -510,10 +520,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               label="External"
               icon={<IconNewsletterExternal />}
               className={
-                "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                (audience === "external"
-                  ? "bg-(--color-brand-blue) text-white shadow-sm"
-                  : "text-zinc-700 hover:bg-zinc-50")
+                `${portalSidebarButtonBaseClass} ` +
+                (audience === "external" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)
               }
             >
               External
@@ -525,10 +533,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               label="Internal"
               icon={<IconNewsletterInternal />}
               className={
-                "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                (audience === "internal"
-                  ? "bg-(--color-brand-pink) text-white shadow-sm"
-                  : "text-zinc-700 hover:bg-zinc-50")
+                `${portalSidebarButtonBaseClass} ` +
+                (audience === "internal" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)
               }
             >
               Internal
@@ -537,8 +543,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         </div>
 
         <div>
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">View</div>
-          <div className="mt-2 space-y-2">
+          <div className={portalSidebarSectionTitleClass}>View</div>
+          <div className={portalSidebarSectionStackClass}>
             <PortalSidebarNavButton
               type="button"
               onClick={() => setTab("newsletters")}
@@ -546,10 +552,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               label="Newsletters"
               icon={<IconServiceGlyph slug="newsletter" />}
               className={
-                "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                (tab === "newsletters"
-                  ? "bg-(--color-brand-blue) text-white shadow-sm"
-                  : "text-zinc-700 hover:bg-zinc-50")
+                `${portalSidebarButtonBaseClass} ` +
+                (tab === "newsletters" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)
               }
             >
               Newsletters
@@ -561,10 +565,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               label="Settings"
               icon={<IconSidebarSettings />}
               className={
-                "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                (tab === "settings"
-                  ? "bg-brand-ink text-white shadow-sm"
-                  : "text-zinc-700 hover:bg-zinc-50")
+                `${portalSidebarButtonBaseClass} ` +
+                (tab === "settings" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)
               }
             >
               Settings

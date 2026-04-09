@@ -5,7 +5,17 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
-import { IconActiveFunnels, IconForms, IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
+import {
+  IconActiveFunnels,
+  IconForms,
+  IconSidebarSettings,
+  PortalSidebarNavButton,
+  portalSidebarBorderButtonActiveClass,
+  portalSidebarBorderButtonBaseClass,
+  portalSidebarBorderButtonInactiveClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
@@ -190,28 +200,32 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const setSidebarOverride = useSetPortalSidebarOverride();
   const funnelSidebar = useMemo(() => {
     return (
-      <div className="space-y-2">
-        <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Funnel Builder</div>
-        {([
-          { key: "funnels", label: "Active Funnels", tone: "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40" },
-          { key: "forms", label: "Forms", tone: "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40" },
-          { key: "settings", label: "Settings", tone: "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40" },
-        ] as const).map((item) => (
-          <PortalSidebarNavButton
-            key={item.key}
-            type="button"
-            onClick={() => setTab(item.key)}
-            aria-current={tab === item.key ? "page" : undefined}
-            label={item.label}
-            icon={item.key === "funnels" ? <IconActiveFunnels /> : item.key === "forms" ? <IconForms /> : item.key === "settings" ? <IconSidebarSettings /> : undefined}
-            className={
-              "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-              (tab === item.key ? item.tone : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-            }
-          >
-            {item.label}
-          </PortalSidebarNavButton>
-        ))}
+      <div className="space-y-4">
+        <div>
+          <div className={portalSidebarSectionTitleClass}>Funnel Builder</div>
+          <div className={portalSidebarSectionStackClass}>
+            {([
+              { key: "funnels", label: "Active Funnels" },
+              { key: "forms", label: "Forms" },
+              { key: "settings", label: "Settings" },
+            ] as const).map((item) => (
+              <PortalSidebarNavButton
+                key={item.key}
+                type="button"
+                onClick={() => setTab(item.key)}
+                aria-current={tab === item.key ? "page" : undefined}
+                label={item.label}
+                icon={item.key === "funnels" ? <IconActiveFunnels /> : item.key === "forms" ? <IconForms /> : item.key === "settings" ? <IconSidebarSettings /> : undefined}
+                className={
+                  `${portalSidebarBorderButtonBaseClass} ` +
+                  (tab === item.key ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)
+                }
+              >
+                {item.label}
+              </PortalSidebarNavButton>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }, [tab]);

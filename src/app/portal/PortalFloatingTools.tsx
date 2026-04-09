@@ -309,6 +309,16 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function titleFromWidgetText(textRaw: string, fallback: string) {
+  const text = String(textRaw || "").trim().replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ");
+  if (!text) return fallback;
+  const sentence = text.split(/[.?!]/)[0]?.trim() || text;
+  const cleaned = sentence.replace(/^please\s+/i, "").replace(/^can you\s+/i, "").replace(/^could you\s+/i, "").trim();
+  const words = cleaned.split(" ").filter(Boolean).slice(0, 6);
+  const title = words.join(" ").trim().slice(0, 60);
+  return title || fallback;
+}
+
 function newClientId() {
   try {
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -781,7 +791,7 @@ export function PortalFloatingTools() {
       const created = await fetch("/api/portal/ai-chat/threads", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ title: pageSuggestion ? pageSuggestion.title : "Widget chat" }),
       }).catch(() => null as any);
 
       const createdJson = (created ? ((await created.json().catch(() => null)) as { ok?: boolean; thread?: { id?: string } | null } | null) : null) ?? null;
@@ -876,7 +886,7 @@ export function PortalFloatingTools() {
     });
     window.dispatchEvent(new CustomEvent("pa.portal.topbar.intent", { detail: { hidden: true } }));
     void router.prefetch(target);
-    router.push(target);
+    router.push(target, { scroll: false });
   }
 
   async function submit() {
@@ -949,7 +959,7 @@ export function PortalFloatingTools() {
       const created = await fetch("/api/portal/ai-chat/threads", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ title: titleFromWidgetText(text, "Widget chat") }),
       }).catch(() => null as any);
 
       const createdJson = (created ? ((await created.json().catch(() => null)) as { ok?: boolean; thread?: { id?: string } | null; error?: string } | null) : null) ?? null;

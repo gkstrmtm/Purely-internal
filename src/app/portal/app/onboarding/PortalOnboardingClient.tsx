@@ -188,7 +188,7 @@ export function PortalOnboardingClient() {
         description={`We added ${creditsAdded} credits to help you get started. Welcome!`}
         onClose={() => {
           setCreditsModalOpen(false);
-          router.replace(`${appBase}/onboarding`);
+          router.replace(`${appBase}/onboarding`, { scroll: false });
           router.refresh();
         }}
         widthClassName="w-[min(520px,calc(100vw-32px))]"
@@ -199,7 +199,7 @@ export function PortalOnboardingClient() {
               className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
               onClick={() => {
                 setCreditsModalOpen(false);
-                router.replace(`${appBase}/onboarding`);
+                router.replace(`${appBase}/onboarding`, { scroll: false });
               }}
             >
               Continue

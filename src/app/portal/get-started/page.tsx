@@ -436,7 +436,7 @@ function PortalGetStartedInner() {
       const confirmJson = await confirmRes.json().catch(() => null);
       if (!confirmRes.ok || !confirmJson?.ok) {
         setError(confirmJson?.error || "Unable to activate services");
-        router.push(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`);
+        router.push(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`, { scroll: false });
         return;
       }
 

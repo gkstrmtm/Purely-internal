@@ -158,7 +158,7 @@ export function SettingsTabsClient({ generalOnly = false }: { generalOnly?: bool
         <GeneralTab
           onGoServices={() => {
             const base = typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "/credit" : "/portal";
-            router.push(`${base}/app/services`);
+            router.push(`${base}/app/services`, { scroll: false });
           }}
           toast={toast}
         />
@@ -803,7 +803,26 @@ function BillingTab({ focus }: { focus: string }) {
     if (!id) return;
     const el = document.getElementById(id);
     if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    let parent: HTMLElement | null = el.parentElement;
+    while (parent) {
+      const style = window.getComputedStyle(parent);
+      const overflowY = style.overflowY;
+      const canScrollY =
+        (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+        parent.scrollHeight > parent.clientHeight + 1;
+      if (canScrollY) {
+        const parentRect = parent.getBoundingClientRect();
+        const rect = el.getBoundingClientRect();
+        const top = parent.scrollTop + (rect.top - parentRect.top) - 16;
+        parent.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+        return;
+      }
+      parent = parent.parentElement;
+    }
+
+    const top = window.scrollY + el.getBoundingClientRect().top - 16;
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   }, [focus]);
 
   return (

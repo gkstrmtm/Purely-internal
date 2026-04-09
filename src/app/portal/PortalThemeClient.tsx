@@ -73,26 +73,6 @@ export function PortalThemeClient({
 
   useLayoutEffect(() => {
     if (typeof document === "undefined") return;
-
-    const root = document.documentElement;
-
-    root.setAttribute("data-portal-theme", resolvedTheme);
-    root.setAttribute("data-portal-theme-mode", effectiveMode);
-    root.setAttribute("data-portal-device-theme", deviceTheme);
-    root.setAttribute("data-portal-theme-ready", transitionsReady ? "true" : "false");
-    root.style.colorScheme = resolvedTheme;
-  }, [deviceTheme, effectiveMode, resolvedTheme, transitionsReady]);
-
-  useEffect(() => {
-    return () => {
-      if (typeof document === "undefined") return;
-      const root = document.documentElement;
-      root.removeAttribute("data-portal-theme");
-      root.removeAttribute("data-portal-theme-mode");
-      root.removeAttribute("data-portal-device-theme");
-      root.removeAttribute("data-portal-theme-ready");
-      root.style.colorScheme = "";
-    };
   }, []);
 
   const colorScheme = useMemo(() => resolvedTheme, [resolvedTheme]);

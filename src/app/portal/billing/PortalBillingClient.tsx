@@ -420,7 +420,8 @@ export function PortalBillingClient({
   useEffect(() => {
     if (typeof document === "undefined") return;
 
-    const root = document.documentElement;
+    const root = document.querySelector("[data-portal-theme-scope='root']") as HTMLElement | null;
+    if (!root) return;
     const syncTheme = () => setPortalTheme(root.getAttribute("data-portal-theme") === "dark" ? "dark" : "light");
 
     syncTheme();
@@ -1260,7 +1261,7 @@ export function PortalBillingClient({
                 key={r.s.slug}
                 type="button"
                 disabled={r.disabled}
-                onClick={() => router.push(r.href)}
+                onClick={() => router.push(r.href, { scroll: false })}
                 className="flex w-full items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <div className="min-w-0">
@@ -1414,7 +1415,7 @@ export function PortalBillingClient({
               <button
                 type="button"
                 className="mt-1 text-left text-lg font-bold text-(--color-brand-blue) hover:underline"
-                onClick={() => router.push(upgradeHref)}
+                onClick={() => router.push(upgradeHref, { scroll: false })}
               >
                 Upgrade
               </button>
@@ -2022,7 +2023,7 @@ export function PortalBillingClient({
                                 <button
                                   type="button"
                                   className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                                  onClick={() => router.push(setupHrefForService(s.slug, label))}
+                                  onClick={() => router.push(setupHrefForService(s.slug, label), { scroll: false })}
                                 >
                                   {setupActionLabelForService(s.slug, label)}…
                                 </button>

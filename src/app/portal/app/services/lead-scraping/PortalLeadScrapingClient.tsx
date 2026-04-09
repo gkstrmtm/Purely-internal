@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import {
+  PortalSidebarNavButton,
+  portalSidebarBorderButtonActiveClass,
+  portalSidebarBorderButtonBaseClass,
+  portalSidebarBorderButtonInactiveClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { InlineSpinner } from "@/components/InlineSpinner";
@@ -2154,60 +2162,57 @@ export function PortalLeadScrapingClient() {
     return (
       <div className="space-y-4">
         <div>
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Lead Scraping</div>
-          <div className="mt-2 space-y-2">
-            <button
+          <div className={portalSidebarSectionTitleClass}>Lead Scraping</div>
+          <div className={portalSidebarSectionStackClass}>
+            <PortalSidebarNavButton
               type="button"
               onClick={() => setTab("b2b")}
               aria-current={tab === "b2b" ? "page" : undefined}
+              label="B2B"
               className={
-                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                (tab === "b2b"
-                  ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
-                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                `${portalSidebarBorderButtonBaseClass} ` +
+                (tab === "b2b" ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)
               }
             >
               B2B
-            </button>
-            <button
+            </PortalSidebarNavButton>
+            <PortalSidebarNavButton
               type="button"
               onClick={() => setTab("b2c")}
               aria-current={tab === "b2c" ? "page" : undefined}
+              label="B2C"
               className={
-                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                (tab === "b2c"
-                  ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
-                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                `${portalSidebarBorderButtonBaseClass} ` +
+                (tab === "b2c" ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)
               }
             >
               B2C
-            </button>
+            </PortalSidebarNavButton>
           </div>
         </div>
 
         {tab === "b2b" ? (
-          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
-            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">B2B View</div>
-            <div className="mt-2 space-y-2">
+          <div>
+            <div className={portalSidebarSectionTitleClass}>B2B View</div>
+            <div className={portalSidebarSectionStackClass}>
               {([
                 { key: "leads", label: "Leads" },
                 { key: "pull", label: "Leads Pull" },
                 { key: "settings", label: "Settings" },
               ] as const).map((item) => (
-                <button
+                <PortalSidebarNavButton
                   key={item.key}
                   type="button"
                   onClick={() => setB2bSubTab(item.key)}
                   aria-current={b2bSubTab === item.key ? "page" : undefined}
+                  label={item.label}
                   className={
-                    "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                    (b2bSubTab === item.key
-                      ? "border-brand-blue bg-brand-blue text-white shadow-sm"
-                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                    `${portalSidebarBorderButtonBaseClass} ` +
+                    (b2bSubTab === item.key ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)
                   }
                 >
                   {item.label}
-                </button>
+                </PortalSidebarNavButton>
               ))}
             </div>
           </div>

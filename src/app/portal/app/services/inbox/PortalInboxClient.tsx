@@ -15,7 +15,16 @@ import { useToast } from "@/components/ToastProvider";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { DateTimePicker } from "@/components/DateTimePicker";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
-import { IconMessages, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
+import {
+  IconMessages,
+  PortalSidebarNavButton,
+  portalSidebarButtonActiveClass,
+  portalSidebarButtonBaseClass,
+  portalSidebarButtonInactiveClass,
+  portalSidebarMetaTextClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { IconEyeGlyph, IconFunnel, IconInboxGlyph, IconSchedule, IconSearch, IconSend, IconSendHover, IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { normalizePhoneForStorage } from "@/lib/phone";
 import { normalizePortalContactCustomVarKey, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
@@ -310,7 +319,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setEmailAttachMenu(null);
     if (typeof window === "undefined") return;
     const search = window.location.search || "";
-    router.replace(`${basePath}/${next}${search}`);
+    router.replace(`${basePath}/${next}${search}`, { scroll: false });
   }, [basePath, router]);
 
   const activeThread = useMemo(
@@ -1232,18 +1241,15 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   const inboxSidebar = useMemo(() => {
     const sectionButtonClass = (active: boolean) =>
-      "w-full rounded-2xl px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-      (active
-        ? "bg-(--color-brand-blue) text-white shadow-sm"
-        : "text-zinc-700 hover:bg-zinc-50");
+      `${portalSidebarButtonBaseClass} ${active ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass}`;
 
     const threadHeading = tab === "email" ? (emailBox === "sent" ? "Outbox" : emailBox === "all" ? "All mail" : "Inbox") : "SMS threads";
 
     return (
-      <div className="flex h-full min-h-0 flex-col gap-4 p-2">
+      <div className="flex h-full min-h-0 flex-col gap-4">
         <div>
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Channels</div>
-          <div className="mt-2 space-y-2">
+          <div className={portalSidebarSectionTitleClass}>Channels</div>
+          <div className={portalSidebarSectionStackClass}>
             <PortalSidebarNavButton
               type="button"
               onClick={() => setChannel("email")}
@@ -1269,8 +1275,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
         {tab === "email" ? (
           <div>
-            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Mailbox</div>
-            <div className="mt-2 space-y-2">
+            <div className={portalSidebarSectionTitleClass}>Mailbox</div>
+            <div className={portalSidebarSectionStackClass}>
               <PortalSidebarNavButton type="button" onClick={() => setEmailBox("inbox")} aria-current={emailBox === "inbox" ? "page" : undefined} label="Inbox" icon={<IconInboxGlyph size={18} />} className={sectionButtonClass(emailBox === "inbox")}>Inbox</PortalSidebarNavButton>
               <PortalSidebarNavButton type="button" onClick={() => setEmailBox("sent")} aria-current={emailBox === "sent" ? "page" : undefined} label="Outbox" icon={<IconSend size={18} />} className={sectionButtonClass(emailBox === "sent")}>Outbox</PortalSidebarNavButton>
               <PortalSidebarNavButton type="button" onClick={() => setEmailBox("all")} aria-current={emailBox === "all" ? "page" : undefined} label="All mail" icon={<IconEyeGlyph size={18} />} className={sectionButtonClass(emailBox === "all")}>All mail</PortalSidebarNavButton>
@@ -1278,18 +1284,18 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             <button
               type="button"
               onClick={openEmailComposer}
-              className="mt-3 w-full rounded-2xl bg-[#007aff] px-3 py-2.5 text-left text-sm font-semibold text-white hover:bg-[#006ae6]"
+              className={`mt-3 ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
             >
               + New email
             </button>
           </div>
         ) : (
           <div>
-            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Messages</div>
+            <div className={portalSidebarSectionTitleClass}>Messages</div>
             <button
               type="button"
               onClick={openSmsComposer}
-              className="mt-2 w-full rounded-2xl bg-[#007aff] px-3 py-2.5 text-left text-sm font-semibold text-white hover:bg-[#006ae6]"
+              className={`mt-2 ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
             >
               + New text
             </button>
@@ -1312,7 +1318,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">{threadHeading}</div>
+            <div className={portalSidebarSectionTitleClass}>{threadHeading}</div>
             <div className="text-[11px] text-zinc-400">{filteredThreads.length}</div>
           </div>
 
@@ -1335,7 +1341,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     : `${mailSubjectOrNo(thread.subject)} · ${firstLinePreview(thread.lastMessagePreview)}`;
 
                 return (
-                  <button
+                  <PortalSidebarNavButton
                     key={thread.id}
                     type="button"
                     onClick={() => {
@@ -1347,19 +1353,18 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         setToSuggestionsMenu(null);
                       }
                     }}
-                    className={classNames(
-                      "w-full rounded-2xl border px-3 py-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
-                      active ? "border-brand-blue bg-brand-blue/8" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100",
-                    )}
+                    label={title}
+                    className={sectionButtonClass(active)}
+                    aria-current={active ? "page" : undefined}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-zinc-900">{title}</div>
-                        <div className="mt-1 line-clamp-2 text-xs text-zinc-600">{subtitle || "No messages yet."}</div>
+                        <div className={`${portalSidebarMetaTextClass} line-clamp-2`}>{subtitle || "No messages yet."}</div>
                       </div>
                       <div className="shrink-0 pt-0.5 text-[11px] text-zinc-500">{formatDayOrTime(thread.lastMessageAt)}</div>
                     </div>
-                  </button>
+                  </PortalSidebarNavButton>
                 );
               })}
             </div>
@@ -1463,7 +1468,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           className={
             "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-colors duration-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "email"
-              ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
+              ? "border-zinc-200 bg-zinc-100 text-zinc-900"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -1476,7 +1481,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           className={
             "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-colors duration-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "sms"
-              ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
+              ? "border-zinc-200 bg-zinc-100 text-zinc-900"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >

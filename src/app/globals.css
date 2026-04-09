@@ -122,7 +122,7 @@ pre {
   overflow-x: auto;
 }
 
-:is([data-portal-theme="dark"], html[data-portal-theme="dark"]) {
+[data-portal-theme="dark"] {
   --pa-portal-bg: #090b0f;
   --pa-portal-surface: #111418;
   --pa-portal-surface-2: #171b21;
@@ -147,35 +147,33 @@ pre {
   color: var(--pa-portal-text);
 }
 
-:is([data-portal-theme="dark"], html[data-portal-theme="dark"]) body {
+[data-portal-theme="dark"] {
+  color-scheme: dark;
+}
+
+[data-portal-theme="dark"] body,
+[data-portal-theme="dark"] [data-portal-theme-scope="root"] {
   background: var(--pa-portal-bg);
   color: var(--pa-portal-text);
 }
 
-[data-portal-theme="dark"] *,
-html[data-portal-theme="dark"] * {
+[data-portal-theme="dark"] * {
   scrollbar-color: transparent transparent;
 }
 
 [data-portal-theme="dark"] *:hover,
-[data-portal-theme="dark"] *:focus-within,
-html[data-portal-theme="dark"] *:hover,
-html[data-portal-theme="dark"] *:focus-within {
+[data-portal-theme="dark"] *:focus-within {
   scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
 }
 
 [data-portal-theme="dark"] *:hover::-webkit-scrollbar-thumb,
-[data-portal-theme="dark"] *:focus-within::-webkit-scrollbar-thumb,
-html[data-portal-theme="dark"] *:hover::-webkit-scrollbar-thumb,
-html[data-portal-theme="dark"] *:focus-within::-webkit-scrollbar-thumb {
+[data-portal-theme="dark"] *:focus-within::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.3);
   background-clip: padding-box;
 }
 
 [data-portal-theme="dark"] *:hover::-webkit-scrollbar-thumb:hover,
-[data-portal-theme="dark"] *:focus-within::-webkit-scrollbar-thumb:hover,
-html[data-portal-theme="dark"] *:hover::-webkit-scrollbar-thumb:hover,
-html[data-portal-theme="dark"] *:focus-within::-webkit-scrollbar-thumb:hover {
+[data-portal-theme="dark"] *:focus-within::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.42);
   background-clip: padding-box;
 }
@@ -188,7 +186,7 @@ html[data-portal-theme="dark"] *:focus-within::-webkit-scrollbar-thumb:hover {
   }
 }
 
-:is([data-portal-theme-ready="true"], html[data-portal-theme-ready="true"]) :is(
+[data-portal-theme-ready="true"] :is(
   body,
   main,
   aside,
