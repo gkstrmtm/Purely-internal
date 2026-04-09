@@ -2,6 +2,8 @@
 
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import { IconReviewRequests, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { Lightbox, type LightboxImage } from "@/components/Lightbox";
@@ -257,18 +259,6 @@ export default function PortalReviewsClient() {
   const pathname = usePathname();
   const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
   const toast = useToast();
-
-  const isMobileApp = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      const qs = new URLSearchParams(window.location.search || "");
-      if (String(qs.get("pa_mobileapp") || "").trim() === "1") return true;
-    } catch {
-      // ignore
-    }
-    const host = String(window.location.hostname || "").toLowerCase();
-    return host.includes("purely-mobile");
-  }, []);
 
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
 
@@ -852,7 +842,7 @@ export default function PortalReviewsClient() {
     }
   }
 
-  async function manualSendContact(contactId: string) {
+  const manualSendContact = useCallback(async (contactId: string) => {
     const id = String(contactId || "").trim();
     if (!id) return;
     setSendingContactId(id);
@@ -874,7 +864,7 @@ export default function PortalReviewsClient() {
     } finally {
       setSendingContactId(null);
     }
-  }
+  }, [load]);
 
   useEffect(() => {
     void load();
@@ -1031,7 +1021,7 @@ export default function PortalReviewsClient() {
     setSettings(next);
   }
 
-  async function manualSend(bookingId: string) {
+  const manualSend = useCallback(async (bookingId: string) => {
     setSending(true);
     setSendResult(null);
     setError(null);
@@ -1051,7 +1041,7 @@ export default function PortalReviewsClient() {
     } finally {
       setSending(false);
     }
-  }
+  }, [load]);
 
   const filteredRecent = useMemo(() => {
     const q = bookingQuery.trim().toLowerCase();
@@ -1070,17 +1060,144 @@ export default function PortalReviewsClient() {
 
   const calendarFilterEnabled = settings.automation.calendarIds.length > 0;
 
-  function isCalendarAllowedForBooking(calendarId?: string | null) {
+  const isCalendarAllowedForBooking = useCallback((calendarId?: string | null) => {
     if (!calendarFilterEnabled) return true;
     // If calendarId isn't available (e.g. older DB missing the column), don't block manual sends.
     if (calendarId == null) return true;
     return settings.automation.calendarIds.includes(calendarId);
-  }
+  }, [calendarFilterEnabled, settings.automation.calendarIds]);
 
-  function calendarLabel(calendarId?: string | null) {
+  const calendarLabel = useCallback((calendarId?: string | null) => {
     if (calendarId == null) return "(calendar unknown)";
     return calendarTitleById.get(calendarId) || "(unknown calendar)";
-  }
+  }, [calendarTitleById]);
+
+  const setSidebarOverride = useSetPortalSidebarOverride();
+  const reviewsSidebar = useMemo(() => (
+    <div className="space-y-4">
+      <div>
+        <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Reviews</div>
+        <div className="mt-2 space-y-2">
+          <PortalSidebarNavButton
+            type="button"
+            onClick={() => setTabWithUrl("reviews")}
+            aria-current={tab === "reviews" ? "page" : undefined}
+            label="Reviews"
+            className={
+              "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              (tab === "reviews"
+                ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+            }
+          >
+            Reviews
+          </PortalSidebarNavButton>
+          <PortalSidebarNavButton
+            type="button"
+            onClick={() => setTabWithUrl("settings")}
+            aria-current={tab === "settings" ? "page" : undefined}
+            label="Requests"
+            icon={<IconReviewRequests />}
+            className={
+              "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              (tab === "settings"
+                ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
+                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+            }
+          >
+            Requests
+          </PortalSidebarNavButton>
+        </div>
+      </div>
+
+      {tab === "reviews" ? (
+        <>
+          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Manual sends</div>
+            <div className="mt-2">
+              <input
+                className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm"
+                placeholder="Search bookings or contacts"
+                value={bookingQuery}
+                onChange={(e) => setBookingQuery(e.target.value)}
+                disabled={!settings.automation.manualSend && !bookingsLoadedOnce}
+              />
+            </div>
+            {bookingsLoading || contactsLoading ? <div className="mt-2 text-xs font-semibold text-zinc-500">Loading…</div> : null}
+            {sendResult ? <div className="mt-2 text-xs text-emerald-700">{sendResult}</div> : null}
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Recent bookings</div>
+            <div className="mt-2 space-y-2">
+              {filteredRecent.length === 0 ? (
+                <div className="px-1 py-2 text-sm text-zinc-500">No bookings found.</div>
+              ) : (
+                filteredRecent.slice(0, 10).map((booking) => {
+                  const ended = Date.now() >= new Date(booking.endAt).getTime();
+                  const calendarAllowed = isCalendarAllowedForBooking(booking.calendarId);
+                  const canSend = settings.automation.manualSend && ended && booking.status === "SCHEDULED" && calendarAllowed && !sending;
+                  return (
+                    <div key={booking.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2.5">
+                      <div className="truncate text-sm font-semibold text-zinc-900">{booking.contactName}</div>
+                      <div className="mt-1 text-[11px] text-zinc-500">{new Date(booking.startAt).toLocaleString()}</div>
+                      <div className="mt-1 truncate text-[11px] text-zinc-500">{calendarLabel(booking.calendarId)}</div>
+                      <button
+                        type="button"
+                        className="mt-2 w-full rounded-xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"
+                        disabled={!canSend}
+                        onClick={() => manualSend(booking.id)}
+                      >
+                        {sending ? "Sending…" : "Send"}
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Contacts</div>
+            <div className="mt-2 space-y-2">
+              {!contactsLoading && contacts.length === 0 ? (
+                <div className="px-1 py-2 text-sm text-zinc-500">No contacts found.</div>
+              ) : (
+                contacts.slice(0, 10).map((contact) => {
+                  const canSend = settings.automation.manualSend && Boolean(contact.phone) && !sendingContactId;
+                  return (
+                    <div key={contact.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2.5">
+                      <div className="truncate text-sm font-semibold text-zinc-900">{contact.name || "(no name)"}</div>
+                      <div className="mt-1 truncate text-[11px] text-zinc-500">{contact.phone || "(no phone)"}</div>
+                      <button
+                        type="button"
+                        className="mt-2 w-full rounded-xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"
+                        disabled={!canSend || sendingContactId === contact.id}
+                        onClick={() => manualSendContact(contact.id)}
+                      >
+                        {sendingContactId === contact.id ? "Sending…" : "Send"}
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </>
+      ) : null}
+    </div>
+  ), [bookingQuery, bookingsLoadedOnce, bookingsLoading, calendarLabel, contacts, contactsLoading, filteredRecent, isCalendarAllowedForBooking, manualSend, manualSendContact, sendResult, sending, sendingContactId, settings.automation.manualSend, tab]);
+
+  useEffect(() => {
+    setSidebarOverride({
+      desktopSidebarContent: reviewsSidebar,
+      mobileSidebarContent: reviewsSidebar,
+    });
+  }, [reviewsSidebar, setSidebarOverride]);
+
+  useEffect(() => {
+    return () => setSidebarOverride(null);
+  }, [setSidebarOverride]);
 
   if (loading && !hasLoadedOnceRef.current) {
     return (
@@ -1092,7 +1209,7 @@ export default function PortalReviewsClient() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-8">
+    <div className="mx-auto w-full max-w-7xl px-6 py-8">
       <PortalBackToOnboardingLink />
       <Lightbox
         open={lightboxOpen}
@@ -1117,39 +1234,6 @@ export default function PortalReviewsClient() {
 
       <div className="mt-4">
         <SuggestedSetupModalLauncher serviceSlugs={["reviews"]} buttonLabel="Suggested setup" />
-      </div>
-
-      <div className={isMobileApp ? "mt-6 grid w-full grid-cols-2 gap-2" : "mt-6 flex w-full flex-wrap gap-2"}>
-        <button
-          type="button"
-          onClick={() => setTabWithUrl("reviews")}
-          aria-current={tab === "reviews" ? "page" : undefined}
-          className={
-            (isMobileApp
-              ? "w-full rounded-2xl border px-3 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 "
-              : "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 ") +
-            (tab === "reviews"
-              ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Reviews
-        </button>
-        <button
-          type="button"
-          onClick={() => setTabWithUrl("settings")}
-          aria-current={tab === "settings" ? "page" : undefined}
-          className={
-            (isMobileApp
-              ? "w-full rounded-2xl border px-3 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 "
-              : "flex-1 min-w-50 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 ") +
-            (tab === "settings"
-              ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Requests
-        </button>
       </div>
 
       <div className="mt-4">
@@ -2155,98 +2239,6 @@ export default function PortalReviewsClient() {
               Manual sends are off in Settings.
             </div>
           ) : null}
-
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <input
-              className="h-10 flex-1 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
-              placeholder="Search bookings or contacts by name, email, phone, or ID"
-              value={bookingQuery}
-              onChange={(e) => setBookingQuery(e.target.value)}
-              disabled={!settings.automation.manualSend && !bookingsLoadedOnce}
-            />
-            {bookingsLoading ? <div className="text-xs font-semibold text-zinc-500">Loading bookings…</div> : null}
-          </div>
-          {sendResult ? <div className="mt-2 text-sm text-emerald-700">{sendResult}</div> : null}
-
-          <div className="mt-4">
-            <div className="text-sm font-medium">Recent bookings</div>
-            <div className="mt-2 overflow-hidden rounded-lg border border-zinc-200 bg-white">
-              <div className="grid grid-cols-1 gap-0">
-                {filteredRecent.length === 0 ? (
-                  <div className="p-4 text-sm text-neutral-600">No bookings found.</div>
-                ) : null}
-
-                {filteredRecent.slice(0, 25).map((b) => {
-                  const ended = Date.now() >= new Date(b.endAt).getTime();
-                  const calendarAllowed = isCalendarAllowedForBooking(b.calendarId);
-                  const canSend = settings.automation.manualSend && ended && b.status === "SCHEDULED" && calendarAllowed && !sending;
-                  return (
-                    <div key={b.id} className="flex flex-col gap-2 border-b border-zinc-200 p-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{b.contactName}</div>
-                        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-neutral-600">
-                          <span>{new Date(b.startAt).toLocaleString()}</span>
-                          <span className="truncate">{b.contactPhone || "(no phone)"}</span>
-                          <span className={b.status === "CANCELED" ? "text-red-700" : ""}>{b.status}</span>
-                          <span className="truncate">{calendarLabel(b.calendarId)}</span>
-                          {!ended ? <span className="text-amber-700">Not ended yet</span> : null}
-                          {!calendarAllowed ? <span className="text-amber-700">Calendar is off</span> : null}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          className="h-9 rounded-lg bg-(--color-brand-blue) px-3 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
-                          disabled={!canSend}
-                          onClick={() => manualSend(b.id)}
-                          type="button"
-                        >
-                          {sending ? "Sending…" : "Send"}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6">
-            <div className="text-sm font-medium">Contacts</div>
-            <div className="mt-2 overflow-hidden rounded-lg border border-zinc-200 bg-white">
-              {contactsLoading ? <div className="p-4 text-sm text-zinc-600">Loading…</div> : null}
-              {!contactsLoading && contacts.length === 0 ? (
-                <div className="p-4 text-sm text-zinc-600">No contacts found.</div>
-              ) : null}
-
-              <div className="grid grid-cols-1 gap-0">
-                {contacts.slice(0, 20).map((c) => {
-                  const canSend = settings.automation.manualSend && Boolean(c.phone) && !sendingContactId;
-                  return (
-                    <div key={c.id} className="flex flex-col gap-2 border-b border-zinc-200 p-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{c.name || "(no name)"}</div>
-                        <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-neutral-600">
-                          <span className="truncate">{c.phone || "(no phone)"}</span>
-                          <span className="truncate">{c.email || "(no email)"}</span>
-                          {!settings.automation.manualSend ? <span className="text-amber-700">Manual sends are off</span> : null}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          className="h-9 rounded-lg bg-(--color-brand-blue) px-3 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
-                          disabled={!canSend || sendingContactId === c.id}
-                          onClick={() => manualSendContact(c.id)}
-                          type="button"
-                        >
-                          {sendingContactId === c.id ? "Sending…" : "Send"}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
 
           <div className="mt-6">
             <div className="text-lg font-semibold">Recent activity</div>

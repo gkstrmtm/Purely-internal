@@ -6,10 +6,11 @@ import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } fr
 import type { PutBlobResult } from "@vercel/blob";
 import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 
+import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import { AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { useToast } from "@/components/ToastProvider";
-import { IconCopy, IconExport } from "@/app/portal/PortalIcons";
 import { PORTAL_VARIANT_HEADER, portalVariantFromPathname } from "@/lib/portalVariant";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
@@ -74,12 +75,6 @@ export function PortalMediaLibraryClient() {
     if (typeof window === "undefined") return "portal" as const;
     return portalVariantFromPathname(window.location.pathname);
   }, []);
-  const isMobileApp = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    const sp = new URLSearchParams(window.location.search);
-    if (sp.get("pa_mobileapp") === "1") return true;
-    return (window.location.host || "").includes("purely-mobile");
-  }, []);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -112,6 +107,7 @@ export function PortalMediaLibraryClient() {
 
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
 
   const [uploading, setUploading] = useState(false);
   const uploadRef = useRef<HTMLInputElement | null>(null);
@@ -134,11 +130,6 @@ export function PortalMediaLibraryClient() {
   const [moveDestId, setMoveDestId] = useState<string | null>(null);
   const [moveCreatingName, setMoveCreatingName] = useState("");
   const [moveWorking, setMoveWorking] = useState(false);
-
-  const selectedFolder = useMemo(() => {
-    if (!selected || selected.kind !== "folder") return null;
-    return folders.find((f) => f.id === selected.id) || null;
-  }, [selected, folders]);
 
   const selectedItem = useMemo(() => {
     if (!selected || selected.kind !== "item") return null;
@@ -205,6 +196,105 @@ export function PortalMediaLibraryClient() {
     return items.filter((i) => i.fileName.toLowerCase().includes(q) || i.tag.toLowerCase().includes(q));
   }, [items, search]);
 
+  const setSidebarOverride = useSetPortalSidebarOverride();
+  const mediaSidebar = useMemo(() => {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Media Library</div>
+          <div className="mt-2 space-y-2">
+            <button
+              type="button"
+              onClick={() => {
+                setFolderId(null);
+                setSelected(null);
+              }}
+              className={
+                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition " +
+                (!folderId ? "border-brand-blue bg-brand-blue text-white shadow-sm" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              All media
+            </button>
+            {breadcrumbs.map((crumb) => (
+              <button
+                key={crumb.id}
+                type="button"
+                onClick={() => {
+                  setFolderId(crumb.id);
+                  setSelected({ kind: "folder", id: crumb.id });
+                }}
+                className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-left text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+              >
+                {crumb.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Folders</div>
+          <div className="mt-2 space-y-2">
+            <button
+              type="button"
+              onClick={() => setNewFolderOpen(true)}
+              className="w-full rounded-2xl border border-brand-ink bg-brand-ink px-3 py-2.5 text-left text-sm font-semibold text-white shadow-sm hover:opacity-95"
+            >
+              + New folder
+            </button>
+            {folders.length ? (
+              folders.slice(0, 16).map((folder) => (
+                <button
+                  key={folder.id}
+                  type="button"
+                  onClick={() => {
+                    setFolderId(folder.id);
+                    setSelected({ kind: "folder", id: folder.id });
+                  }}
+                  className={
+                    "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition " +
+                    (selected?.kind === "folder" && selected.id === folder.id
+                      ? "border-brand-ink bg-brand-ink text-white shadow-sm"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                  }
+                >
+                  {folder.name}
+                </button>
+              ))
+            ) : (
+              <div className="px-1 py-2 text-sm text-zinc-500">No folders yet.</div>
+            )}
+          </div>
+        </div>
+
+        {selectedItem ? (
+          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Selected File</div>
+            <div className="mt-2 text-sm font-semibold text-zinc-900">{selectedItem.fileName}</div>
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(true)}
+              className="mt-3 w-full rounded-2xl bg-brand-blue px-3 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+            >
+              Open preview
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }, [breadcrumbs, folderId, folders, selected, selectedItem]);
+
+  useEffect(() => {
+    setSidebarOverride({
+      desktopSidebarContent: mediaSidebar,
+      mobileSidebarContent: mediaSidebar,
+    });
+  }, [mediaSidebar, setSidebarOverride]);
+
+  useEffect(() => {
+    return () => setSidebarOverride(null);
+  }, [setSidebarOverride]);
+
   async function createFolder() {
     const name = newFolderName.trim();
     if (!name) return;
@@ -225,6 +315,7 @@ export function PortalMediaLibraryClient() {
     }
 
     setNewFolderName("");
+    setNewFolderOpen(false);
     setCreatingFolder(false);
     await load(folderId);
   }
@@ -587,6 +678,13 @@ export function PortalMediaLibraryClient() {
             <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/15 text-base leading-none">+</span>
             {uploading ? "Uploading…" : "Upload"}
           </button>
+          <button
+            type="button"
+            onClick={() => setNewFolderOpen(true)}
+            className="inline-flex h-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 shadow-sm hover:bg-zinc-50"
+          >
+            New folder
+          </button>
         </div>
       </div>
 
@@ -616,29 +714,14 @@ export function PortalMediaLibraryClient() {
       ) : null}
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-7">
+        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12">
           <div className="border-b border-zinc-100 p-4">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Folders</div>
                 <div className="mt-1 text-xs text-zinc-500">Each folder gets a tag you can reference later.</div>
               </div>
-              <div className="flex items-center gap-2">
-                <input
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  placeholder="New folder name"
-                  className="h-9 w-55 max-w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => void createFolder()}
-                  disabled={creatingFolder || !newFolderName.trim()}
-                  className="h-9 rounded-2xl bg-brand-ink px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                >
-                  Create
-                </button>
-              </div>
+              <div className="text-xs text-zinc-500">Select any item for preview actions.</div>
             </div>
           </div>
 
@@ -660,7 +743,7 @@ export function PortalMediaLibraryClient() {
                 {filteredFolders.length ? (
                   <div>
                     <div className="text-xs font-semibold text-zinc-500">Folders</div>
-                    <div className="mt-2 space-y-1">
+                    <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
                       {filteredFolders.map((f) => (
                         <button
                           key={f.id}
@@ -668,7 +751,7 @@ export function PortalMediaLibraryClient() {
                           onClick={() => {
                             setFolderId(f.id);
                           }}
-                          className="flex w-full items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left hover:bg-zinc-50"
+                          className="flex aspect-square min-h-32 w-full flex-col items-start justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-left hover:bg-zinc-50"
                         >
                           <div className="flex min-w-0 items-center gap-3">
                             <div className={classNames("flex h-10 w-10 items-center justify-center rounded-2xl", folderColorClass(f.color))}>
@@ -685,7 +768,7 @@ export function PortalMediaLibraryClient() {
                               <div className="mt-1 truncate font-mono text-[11px] text-zinc-500">tag: {f.tag}</div>
                             </div>
                           </div>
-                          <div className="flex shrink-0 items-center gap-2">
+                          <div className="flex w-full shrink-0 items-center justify-between gap-2">
                             <div className="text-xs font-semibold text-zinc-600">Open</div>
                             <button
                               type="button"
@@ -708,7 +791,7 @@ export function PortalMediaLibraryClient() {
                 {filteredItems.length ? (
                   <div>
                     <div className="text-xs font-semibold text-zinc-500">Files</div>
-                    <div className="mt-2 space-y-1">
+                    <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
                       {filteredItems.map((it) => {
                         const isImg = it.mimeType.startsWith("image/");
                         return (
@@ -717,19 +800,19 @@ export function PortalMediaLibraryClient() {
                             type="button"
                             onClick={() => {
                               setSelected({ kind: "item", id: it.id });
-                              if (isMobileApp) setPreviewOpen(true);
+                              setPreviewOpen(true);
                             }}
                             className={classNames(
-                              "flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left hover:bg-zinc-50",
+                              "flex aspect-square min-h-40 w-full flex-col items-start justify-between gap-3 rounded-2xl border px-4 py-4 text-left hover:bg-zinc-50",
                               selected?.kind === "item" && selected.id === it.id ? "border-zinc-900" : "border-zinc-200",
                             )}
                           >
-                            <div className="flex min-w-0 items-center gap-3">
+                            <div className="flex min-w-0 w-full flex-col items-start gap-3">
                               {isImg && it.previewUrl ? (
                                 /* eslint-disable-next-line @next/next/no-img-element */
-                                <img src={it.previewUrl} alt={it.fileName} className="h-10 w-10 rounded-2xl object-cover" />
+                                <img src={it.previewUrl} alt={it.fileName} className="h-28 w-full rounded-2xl object-cover md:h-32" />
                               ) : (
-                                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
+                                <div className="flex h-28 w-full items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700 md:h-32">
                                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <path
                                       d="M7.5 3.75H13.5L16.5 6.75V20.25H7.5V3.75Z"
@@ -749,7 +832,7 @@ export function PortalMediaLibraryClient() {
                                 </div>
                               </div>
                             </div>
-                            <div className="flex shrink-0 items-center gap-2">
+                            <div className="flex w-full shrink-0 items-center justify-between gap-2">
                               <div className="text-xs font-semibold text-zinc-600">Preview</div>
                               <button
                                 type="button"
@@ -774,154 +857,6 @@ export function PortalMediaLibraryClient() {
           </div>
         </div>
 
-        {!isMobileApp ? (
-          <div className="rounded-3xl border border-zinc-200 bg-white lg:col-span-5">
-            <div className="border-b border-zinc-100 p-4">
-              <div className="text-sm font-semibold text-zinc-900">Preview</div>
-              <div className="mt-1 text-xs text-zinc-500">Select a file to view actions.</div>
-            </div>
-
-            <div className="p-4">
-              {selectedItem ? (
-                <div>
-                  <div className="text-base font-semibold text-zinc-900">{selectedItem.fileName}</div>
-                  <div className="mt-1 text-xs text-zinc-500">
-                    {selectedItem.mimeType} • {formatBytes(selectedItem.fileSize)}
-                  </div>
-
-                  {selectedItem.previewUrl && selectedItem.mimeType.startsWith("image/") ? (
-                    <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={selectedItem.previewUrl} alt={selectedItem.fileName} className="w-full object-cover" />
-                    </div>
-                  ) : (
-                    <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
-                      Preview not available for this file type.
-                    </div>
-                  )}
-
-                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={(e) => void copyAbsoluteUrl(selectedItem.shareUrl, e.currentTarget)}
-                      className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                    >
-                      <IconCopy size={18} />
-                      Copy link
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => triggerDownload(selectedItem.downloadUrl, selectedItem.fileName)}
-                      className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                    >
-                      <span className="mr-2 inline-flex items-center">
-                        <IconExport size={18} />
-                      </span>
-                      Download
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openRename("item", selectedItem.id, selectedItem.fileName)}
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void openMove("item", selectedItem.id)}
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                    >
-                      Add to folder
-                    </button>
-                    <a
-                      href={selectedItem.openUrl || selectedItem.previewUrl || selectedItem.downloadUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                    >
-                      Open
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => void removeItemById(selectedItem.id, selectedItem.fileName)}
-                      className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ) : selectedFolder ? (
-                <div>
-                  <div className="text-base font-semibold text-zinc-900">{selectedFolder.name}</div>
-                  <div className="mt-1 font-mono text-xs text-zinc-500">tag: {selectedFolder.tag}</div>
-                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={(e) => void copyAbsoluteUrl(selectedFolder.shareUrl, e.currentTarget)}
-                      className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                    >
-                      <IconCopy size={18} />
-                      Copy folder link
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => triggerDownload(selectedFolder.downloadUrl || selectedFolder.shareUrl, `${selectedFolder.name}.zip`)}
-                      className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                    >
-                      <span className="mr-2 inline-flex items-center">
-                        <IconExport size={18} />
-                      </span>
-                      Download zip
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openRename("folder", selectedFolder.id, selectedFolder.name)}
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void openMove("folder", selectedFolder.id)}
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                    >
-                      Move to folder
-                    </button>
-                  </div>
-
-                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-xs font-semibold text-zinc-700">Folder color</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {[
-                        { k: null, c: "bg-zinc-400", label: "Gray" },
-                        { k: "blue", c: "bg-[color:var(--color-brand-blue)]", label: "Blue" },
-                        { k: "green", c: "bg-emerald-500", label: "Green" },
-                        { k: "amber", c: "bg-amber-500", label: "Amber" },
-                        { k: "purple", c: "bg-violet-500", label: "Purple" },
-                        { k: "pink", c: "bg-pink-500", label: "Pink" },
-                        { k: "red", c: "bg-red-500", label: "Red" },
-                      ].map((x) => (
-                        <button
-                          key={String(x.k)}
-                          type="button"
-                          className={classNames(
-                            "h-8 w-8 rounded-2xl border",
-                            x.c,
-                            (selectedFolder.color ?? null) === x.k ? "border-zinc-900" : "border-white",
-                          )}
-                          title={x.label}
-                          onClick={() => void setFolderColor(selectedFolder.id, x.k)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-sm text-zinc-600">Select a folder or file.</div>
-              )}
-            </div>
-          </div>
-        ) : null}
       </div>
 
       {openMenu && menuTarget && typeof document !== "undefined"
@@ -1200,7 +1135,7 @@ export function PortalMediaLibraryClient() {
           )
         : null}
 
-      {isMobileApp && previewOpen && selectedItem && typeof document !== "undefined"
+      {previewOpen && selectedItem && typeof document !== "undefined"
         ? createPortal(
             <div className="fixed inset-0 z-110 flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
               <div className="absolute inset-0 bg-black/40" onMouseDown={() => setPreviewOpen(false)} />
@@ -1293,6 +1228,49 @@ export function PortalMediaLibraryClient() {
             document.body,
           )
         : null}
+
+      <AppModal
+        open={newFolderOpen}
+        onClose={() => {
+          if (creatingFolder) return;
+          setNewFolderOpen(false);
+        }}
+        title="Create folder"
+      >
+        <div className="space-y-3">
+          <div className="text-sm text-zinc-600">Create a new folder in {folderId ? "the current folder" : "Media Library"}.</div>
+          <input
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            placeholder="Folder name"
+            className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void createFolder();
+              }
+            }}
+          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={() => setNewFolderOpen(false)}
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+              disabled={creatingFolder}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void createFolder()}
+              disabled={creatingFolder || !newFolderName.trim()}
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+            >
+              {creatingFolder ? "Creating…" : "Create folder"}
+            </button>
+          </div>
+        </div>
+      </AppModal>
     </div>
   );
 }

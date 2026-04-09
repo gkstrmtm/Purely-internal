@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import { IconMissedCallTextBack, IconReceptionistActivity, IconReceptionistTesting, IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
 import { InlineSpinner } from "@/components/InlineSpinner";
@@ -391,7 +393,7 @@ export function PortalAiReceptionistClient() {
     return false;
   }, []);
 
-  const [mobileCallDetailsOpen, setMobileCallDetailsOpen] = useState(false);
+  const [callDetailsOpen, setCallDetailsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -824,20 +826,19 @@ export function PortalAiReceptionistClient() {
   const openCallDetails = useCallback(
     (nextId: string) => {
       setSelectedCallWithUrl(nextId);
-      if (isMobileApp) setMobileCallDetailsOpen(true);
+      setCallDetailsOpen(true);
     },
-    [isMobileApp, setSelectedCallWithUrl],
+    [setSelectedCallWithUrl],
   );
 
   const closeCallDetails = useCallback(() => {
-    if (isMobileApp) setMobileCallDetailsOpen(false);
+    setCallDetailsOpen(false);
     setSelectedCallWithUrl(null);
-  }, [isMobileApp, setSelectedCallWithUrl]);
+  }, [setSelectedCallWithUrl]);
 
   useEffect(() => {
-    if (!isMobileApp) return;
-    if (tab !== "activity" && mobileCallDetailsOpen) closeCallDetails();
-  }, [closeCallDetails, isMobileApp, mobileCallDetailsOpen, tab]);
+    if (tab !== "activity" && callDetailsOpen) closeCallDetails();
+  }, [callDetailsOpen, closeCallDetails, tab]);
 
   const loadCredits = useCallback(async () => {
     const res = await fetch("/api/portal/credits", { cache: "no-store" }).catch(() => null as any);
@@ -1047,7 +1048,7 @@ export function PortalAiReceptionistClient() {
     return () => window.clearInterval(id);
   }, [events, selectedCallId, loadEventsOnly, syncCallArtifacts, tab]);
 
-  function setTabWithUrl(nextTab: "settings" | "testing" | "activity" | "missed-call-textback") {
+  const setTabWithUrl = useCallback((nextTab: "settings" | "testing" | "activity" | "missed-call-textback") => {
     setTab(nextTab);
     try {
       const url = new URL(window.location.href);
@@ -1057,7 +1058,7 @@ export function PortalAiReceptionistClient() {
     } catch {
       // ignore
     }
-  }
+  }, []);
 
   useEffect(() => {
     try {
@@ -1070,28 +1071,24 @@ export function PortalAiReceptionistClient() {
       const call = url.searchParams.get("call");
       if (call && call.trim()) {
         setSelectedCallId(call.trim());
-        if (isMobileApp) setMobileCallDetailsOpen(true);
+        setCallDetailsOpen(true);
       }
     } catch {
       // ignore
     }
-  }, [isMobileApp]);
+  }, []);
 
   useEffect(() => {
-    // Default selection: first call in list.
     if (!events.length) {
       if (selectedCallId) setSelectedCallId(null);
-      return;
-    }
-
-    if (isMobileApp) {
-      if (selectedCallId && !events.some((e) => e.id === selectedCallId)) setSelectedCallId(null);
+      if (callDetailsOpen) setCallDetailsOpen(false);
       return;
     }
 
     if (selectedCallId && events.some((e) => e.id === selectedCallId)) return;
-    setSelectedCallId(events[0]?.id ?? null);
-  }, [events, isMobileApp, selectedCallId]);
+    setSelectedCallId(null);
+    if (callDetailsOpen) setCallDetailsOpen(false);
+  }, [callDetailsOpen, events, selectedCallId]);
 
   const selectedCall = useMemo(() => {
     if (!selectedCallId) return null;
@@ -1197,6 +1194,124 @@ export function PortalAiReceptionistClient() {
     const match = events.find((e) => String(e.callSid || "").trim() === sid) || null;
     return { callSid: sid, label: match ? `${String(match.from || "Unknown").trim()} → ${String(match.to || "").trim() || ""}`.trim() : "" };
   }, [confirmDeleteCallSid, events]);
+
+  const setSidebarOverride = useSetPortalSidebarOverride();
+  const receptionistSidebar = useMemo(() => {
+    const sectionButton = (
+      key: "activity" | "testing" | "missed-call-textback" | "settings",
+      label: string,
+      tone: string,
+      icon?: React.ReactNode,
+    ) => (
+      <PortalSidebarNavButton
+        key={key}
+        type="button"
+        onClick={() => setTabWithUrl(key)}
+        aria-current={tab === key ? "page" : undefined}
+        label={label}
+        icon={icon}
+        className={classNames(
+          "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+          tab === key ? tone : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+        )}
+      >
+        {label}
+      </PortalSidebarNavButton>
+    );
+
+    return (
+      <div className="space-y-4">
+        <div>
+          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">AI Receptionist</div>
+          <div className="mt-2 space-y-2">
+            {sectionButton("activity", "Activity", "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40", <IconReceptionistActivity />)}
+            {sectionButton("testing", "Testing", "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40", <IconReceptionistTesting />)}
+            {sectionButton(
+              "missed-call-textback",
+              "Missed Calls + Text Back",
+              "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40",
+              <IconMissedCallTextBack />,
+            )}
+            {sectionButton("settings", "Settings", "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40", <IconSidebarSettings />)}
+          </div>
+        </div>
+
+        {tab === "settings" ? (
+          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+            <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Settings</div>
+            <div className="mt-2 space-y-2">
+              <button
+                type="button"
+                onClick={() => setSettingsSubTab("voice")}
+                className={classNames(
+                  "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+                  settingsSubTab === "voice"
+                    ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
+                    : "border-zinc-200 bg-white text-zinc-700",
+                )}
+              >
+                Voice
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettingsSubTab("sms")}
+                className={classNames(
+                  "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+                  settingsSubTab === "sms"
+                    ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
+                    : "border-zinc-200 bg-white text-zinc-700",
+                )}
+              >
+                SMS
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {(tab === "activity" || tab === "missed-call-textback") && events.length ? (
+          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+            <div className="flex items-center justify-between gap-3 px-1">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Recent calls</div>
+              <div className="text-[11px] text-zinc-400">{events.length}</div>
+            </div>
+            <div className="mt-2 space-y-2">
+              {events.slice(0, 8).map((event) => {
+                const active = callDetailsOpen && event.id === selectedCallId;
+                return (
+                  <button
+                    key={event.id}
+                    type="button"
+                    onClick={() => openCallDetails(event.id)}
+                    className={classNames(
+                      "w-full rounded-2xl border px-3 py-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+                      active ? "border-brand-blue bg-brand-blue/8" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100",
+                    )}
+                  >
+                    <div className="truncate text-sm font-semibold text-zinc-900">{(event.contactName || "").trim() || event.from}</div>
+                    <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-zinc-500">
+                      <span className="truncate">{formatDate(event.createdAtIso)}</span>
+                      <span className="shrink-0">{formatTimeOfDay(event.createdAtIso)}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }, [callDetailsOpen, events, openCallDetails, selectedCallId, setTabWithUrl, settingsSubTab, tab]);
+
+  useEffect(() => {
+    setSidebarOverride({
+      desktopSidebarContent: receptionistSidebar,
+      mobileSidebarContent: receptionistSidebar,
+    });
+  }, [receptionistSidebar, setSidebarOverride]);
+
+  useEffect(() => {
+    return () => setSidebarOverride(null);
+  }, [setSidebarOverride]);
 
   const canSave = useMemo(() => {
     if (!settings) return false;
@@ -1341,63 +1456,6 @@ export function PortalAiReceptionistClient() {
         </div>
       </div>
 
-      {!isMobileApp ? (
-        <div className="mt-6 flex w-full flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setTabWithUrl("activity")}
-            aria-current={tab === "activity" ? "page" : undefined}
-            className={
-              "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-              (tab === "activity"
-                ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-            }
-          >
-            Activity
-          </button>
-          <button
-            type="button"
-            onClick={() => setTabWithUrl("testing")}
-            aria-current={tab === "testing" ? "page" : undefined}
-            className={
-              "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-              (tab === "testing"
-                ? "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40"
-                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-            }
-          >
-            Testing
-          </button>
-          <button
-            type="button"
-            onClick={() => setTabWithUrl("missed-call-textback")}
-            aria-current={tab === "missed-call-textback" ? "page" : undefined}
-            className={
-              "flex-1 min-w-[220px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-              (tab === "missed-call-textback"
-                ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-            }
-          >
-            Missed Call Text Back
-          </button>
-          <button
-            type="button"
-            onClick={() => setTabWithUrl("settings")}
-            aria-current={tab === "settings" ? "page" : undefined}
-            className={
-              "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-              (tab === "settings"
-                ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
-                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-            }
-          >
-            Settings
-          </button>
-        </div>
-      ) : null}
-
       {note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
 
       {!twilioConfigured ? (
@@ -1435,7 +1493,7 @@ export function PortalAiReceptionistClient() {
               </div>
             ) : null}
 
-            <div className="mb-6 flex flex-wrap items-center gap-2">
+            <div className="mb-6 flex flex-wrap items-center gap-2 md:hidden">
               <button
                 type="button"
                 onClick={() => setSettingsSubTab("voice")}
@@ -2641,75 +2699,61 @@ export function PortalAiReceptionistClient() {
                 </div>
               </div>
             ) : (
-              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
-                <div className="lg:col-span-2">
-                  <div className="max-h-[520px] overflow-auto pr-2 sm:max-h-[60vh] lg:max-h-[calc(100vh-320px)]">
-                    <div className="space-y-2">
-                      {events.slice(0, 80).map((e) => {
-                        const isSelected = e.id === selectedCallId;
-                        const nameLine = (e.contactName || "").trim() || e.from;
-                        const hasAudio = Boolean((e.recordingSid && e.recordingSid.trim()) || (e.demoRecordingId && e.demoRecordingId.trim()));
-                        const hasTranscript = Boolean(e.transcript && e.transcript.trim());
-                        return (
-                          <button
-                            key={e.id}
-                            type="button"
-                            onClick={() => setSelectedCallWithUrl(e.id)}
-                            className={
-                              "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                              (isSelected ? "border-brand-blue bg-brand-blue text-white" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
-                            }
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className={"min-w-0 font-medium " + (isSelected ? "text-white" : "text-zinc-800")}>
-                                <div className="truncate">{nameLine}</div>
-                                {e.contactEmail ? (
-                                  <div className={"mt-0.5 truncate text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                                    {e.contactEmail}
-                                  </div>
-                                ) : null}
-                              </div>
-                              <div className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${badgeClass(e.status)}`}>
-                                {e.status.toLowerCase()}
-                              </div>
-                            </div>
-                            <div className={"mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                              <span>{formatWhen(e.createdAtIso)}</span>
-                              <span>•</span>
-                              <span className="truncate">To: {e.to ?? "N/A"}</span>
-                              {hasAudio ? (
-                                <>
-                                  <span>•</span>
-                                  <span className={isSelected ? "text-emerald-200" : "text-emerald-700"}>Audio</span>
-                                </>
-                              ) : null}
-                              {hasTranscript ? (
-                                <>
-                                  <span>•</span>
-                                  <span className={isSelected ? "text-sky-200" : "text-sky-700"}>Transcript</span>
-                                </>
-                              ) : null}
-                            </div>
-                            {deriveClientNotesFromEvent(e) ? (
-                              <div className={"mt-1 line-clamp-2 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                                {deriveClientNotesFromEvent(e)}
+              <div className="mt-4 max-h-[calc(100vh-320px)] overflow-auto pr-1">
+                <div className="space-y-2">
+                  {events.slice(0, 80).map((e) => {
+                    const isSelected = callDetailsOpen && e.id === selectedCallId;
+                    const nameLine = (e.contactName || "").trim() || e.from;
+                    const hasAudio = Boolean((e.recordingSid && e.recordingSid.trim()) || (e.demoRecordingId && e.demoRecordingId.trim()));
+                    const hasTranscript = Boolean(e.transcript && e.transcript.trim());
+                    return (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => openCallDetails(e.id)}
+                        className={
+                          "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                          (isSelected ? "border-brand-blue bg-brand-blue text-white" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
+                        }
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className={"min-w-0 font-medium " + (isSelected ? "text-white" : "text-zinc-800")}>
+                            <div className="truncate">{nameLine}</div>
+                            {e.contactEmail ? (
+                              <div className={"mt-0.5 truncate text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                                {e.contactEmail}
                               </div>
                             ) : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="lg:col-span-3">
-                  <div className="max-h-[520px] overflow-auto pr-1 sm:max-h-[60vh] lg:max-h-[calc(100vh-320px)] rounded-2xl border border-zinc-200 bg-white p-5">
-                    {!selectedCall ? (
-                      <div className="text-sm text-zinc-600">Select a call to view details.</div>
-                    ) : (
-                      <CallDetailsContent call={selectedCall} variant="desktop" />
-                    )}
-                  </div>
+                          </div>
+                          <div className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${badgeClass(e.status)}`}>
+                            {e.status.toLowerCase()}
+                          </div>
+                        </div>
+                        <div className={"mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                          <span>{formatWhen(e.createdAtIso)}</span>
+                          <span>•</span>
+                          <span className="truncate">To: {e.to ?? "N/A"}</span>
+                          {hasAudio ? (
+                            <>
+                              <span>•</span>
+                              <span className={isSelected ? "text-emerald-200" : "text-emerald-700"}>Audio</span>
+                            </>
+                          ) : null}
+                          {hasTranscript ? (
+                            <>
+                              <span>•</span>
+                              <span className={isSelected ? "text-sky-200" : "text-sky-700"}>Transcript</span>
+                            </>
+                          ) : null}
+                        </div>
+                        {deriveClientNotesFromEvent(e) ? (
+                          <div className={"mt-1 line-clamp-2 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                            {deriveClientNotesFromEvent(e)}
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )
@@ -2717,7 +2761,7 @@ export function PortalAiReceptionistClient() {
         </div>
       ) : null}
 
-      {isMobileApp && mobileCallDetailsOpen && selectedCall ? (
+      {callDetailsOpen && selectedCall ? (
         <div
           className="fixed inset-0 z-40 flex items-start justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)]"
           role="dialog"
@@ -2726,7 +2770,7 @@ export function PortalAiReceptionistClient() {
           onClick={() => closeCallDetails()}
         >
           <div
-            className="flex w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-portal-embed-footer-offset,0px)-2rem)] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
+            className="flex w-full max-w-4xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-portal-embed-footer-offset,0px)-2rem)] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
@@ -2748,7 +2792,7 @@ export function PortalAiReceptionistClient() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-5">
-              <CallDetailsContent call={selectedCall} variant="mobile" />
+              <CallDetailsContent call={selectedCall} variant={isMobileApp ? "mobile" : "desktop"} />
             </div>
           </div>
         </div>

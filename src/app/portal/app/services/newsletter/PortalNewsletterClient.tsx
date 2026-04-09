@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import { IconNewsletterExternal, IconNewsletterInternal, IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
@@ -491,6 +494,95 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     },
     [basePath, router],
   );
+
+  const setSidebarOverride = useSetPortalSidebarOverride();
+  const newsletterSidebar = useMemo(() => {
+    return (
+      <div className="space-y-4">
+        <div>
+          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Newsletter</div>
+          <div className="mt-2 space-y-2">
+            <PortalSidebarNavButton
+              type="button"
+              onClick={() => setAudienceAndRoute("external")}
+              aria-current={audience === "external" ? "page" : undefined}
+              label="External"
+              icon={<IconNewsletterExternal />}
+              className={
+                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                (audience === "external"
+                  ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              External
+            </PortalSidebarNavButton>
+            <PortalSidebarNavButton
+              type="button"
+              onClick={() => setAudienceAndRoute("internal")}
+              aria-current={audience === "internal" ? "page" : undefined}
+              label="Internal"
+              icon={<IconNewsletterInternal />}
+              className={
+                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                (audience === "internal"
+                  ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              Internal
+            </PortalSidebarNavButton>
+          </div>
+        </div>
+
+        <div>
+          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">View</div>
+          <div className="mt-2 space-y-2">
+            <PortalSidebarNavButton
+              type="button"
+              onClick={() => setTab("newsletters")}
+              aria-current={tab === "newsletters" ? "page" : undefined}
+              label="Newsletters"
+              className={
+                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                (tab === "newsletters"
+                  ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              Newsletters
+            </PortalSidebarNavButton>
+            <PortalSidebarNavButton
+              type="button"
+              onClick={() => setTab("settings")}
+              aria-current={tab === "settings" ? "page" : undefined}
+              label="Settings"
+              icon={<IconSidebarSettings />}
+              className={
+                "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                (tab === "settings"
+                  ? "border-brand-ink bg-brand-ink text-white shadow-sm"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              Settings
+            </PortalSidebarNavButton>
+          </div>
+        </div>
+      </div>
+    );
+  }, [audience, setAudienceAndRoute, tab]);
+
+  useEffect(() => {
+    setSidebarOverride({
+      desktopSidebarContent: newsletterSidebar,
+      mobileSidebarContent: newsletterSidebar,
+    });
+  }, [newsletterSidebar, setSidebarOverride]);
+
+  useEffect(() => {
+    return () => setSidebarOverride(null);
+  }, [setSidebarOverride]);
 
   useEffect(() => {
     if (aiStep === "styling" && !settings) setAiStep("delivery");
@@ -1043,35 +1135,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         </div>
       </div>
 
-      <div className="mt-6 flex w-full flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setAudienceAndRoute("external")}
-          aria-current={audience === "external" ? "page" : undefined}
-          className={
-            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (audience === "external"
-              ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          External
-        </button>
-        <button
-          type="button"
-          onClick={() => setAudienceAndRoute("internal")}
-          aria-current={audience === "internal" ? "page" : undefined}
-          className={
-            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (audience === "internal"
-              ? "border-[color:var(--color-brand-pink)] bg-[color:var(--color-brand-pink)] text-white shadow-sm"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Internal
-        </button>
-      </div>
-
       {tab === "newsletters" ? (
         <>
           <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
@@ -1079,24 +1142,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Your newsletters</div>
                 <div className="mt-2 text-sm text-zinc-600">Draft, send, and keep your updates organized.</div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1">
-                  <button
-                    type="button"
-                    onClick={() => setTab("newsletters")}
-                    className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white shadow-sm transition-transform duration-150 hover:-translate-y-0.5"
-                  >
-                    Newsletters
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTab("settings")}
-                    className="rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-700 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
-                  >
-                    Settings
-                  </button>
-                </div>
               </div>
             </div>
 
@@ -2140,25 +2185,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             <div>
               <div className="text-sm font-semibold text-zinc-900">Settings</div>
               <div className="mt-2 text-sm text-zinc-600">Audience, hosted pages, and delivery preferences.</div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1">
-                <button
-                  type="button"
-                  onClick={() => setTab("newsletters")}
-                  className="rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-700 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
-                >
-                  Newsletters
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTab("settings")}
-                  className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white shadow-sm transition-transform duration-150 hover:-translate-y-0.5"
-                >
-                  Settings
-                </button>
-              </div>
             </div>
           </div>
 

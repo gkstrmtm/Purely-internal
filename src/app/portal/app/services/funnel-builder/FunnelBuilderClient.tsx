@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import { IconActiveFunnels, IconForms, IconSidebarSettings, PortalSidebarNavButton } from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
@@ -184,6 +186,46 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     if (!initialTab) return;
     setTab(initialTab);
   }, [initialTab]);
+
+  const setSidebarOverride = useSetPortalSidebarOverride();
+  const funnelSidebar = useMemo(() => {
+    return (
+      <div className="space-y-2">
+        <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Funnel Builder</div>
+        {([
+          { key: "funnels", label: "Active Funnels", tone: "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40" },
+          { key: "forms", label: "Forms", tone: "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40" },
+          { key: "settings", label: "Settings", tone: "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40" },
+        ] as const).map((item) => (
+          <PortalSidebarNavButton
+            key={item.key}
+            type="button"
+            onClick={() => setTab(item.key)}
+            aria-current={tab === item.key ? "page" : undefined}
+            label={item.label}
+            icon={item.key === "funnels" ? <IconActiveFunnels /> : item.key === "forms" ? <IconForms /> : item.key === "settings" ? <IconSidebarSettings /> : undefined}
+            className={
+              "w-full rounded-2xl border px-3 py-2.5 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              (tab === item.key ? item.tone : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+            }
+          >
+            {item.label}
+          </PortalSidebarNavButton>
+        ))}
+      </div>
+    );
+  }, [tab]);
+
+  useEffect(() => {
+    setSidebarOverride({
+      desktopSidebarContent: funnelSidebar,
+      mobileSidebarContent: funnelSidebar,
+    });
+  }, [funnelSidebar, setSidebarOverride]);
+
+  useEffect(() => {
+    return () => setSidebarOverride(null);
+  }, [setSidebarOverride]);
 
   const [funnels, setFunnels] = useState<CreditFunnel[] | null>(null);
   const [forms, setForms] = useState<CreditForm[] | null>(null);
@@ -1056,48 +1098,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Funnel Builder</h1>
           <p className="mt-1 text-sm text-zinc-600">Convert more traffic into leads and booked calls.</p>
         </div>
-      </div>
-
-      <div className="mt-6 flex w-full flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setTab("funnels")}
-          aria-current={tab === "funnels" ? "page" : undefined}
-          className={
-            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "funnels"
-              ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Active Funnels
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("forms")}
-          aria-current={tab === "forms" ? "page" : undefined}
-          className={
-            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "forms"
-              ? "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Forms
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("settings")}
-          aria-current={tab === "settings" ? "page" : undefined}
-          className={
-            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "settings"
-              ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Settings
-        </button>
       </div>
 
       {tab === "funnels" ? (

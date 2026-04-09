@@ -9,6 +9,7 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
+import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 import { NURTURE_TEMPLATES, type NurtureTemplate, type StepKind } from "@/lib/portalNurtureTemplates";
@@ -514,6 +515,76 @@ export function PortalNurtureCampaignsClient() {
 
   const selectedTags = useMemo(() => ownerTags.filter((t) => selectedTagIds.has(t.id)), [ownerTags, selectedTagIds]);
 
+  const setSidebarOverride = useSetPortalSidebarOverride();
+  const nurtureSidebar = useMemo(() => {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+          <div className="flex items-center justify-between gap-3 px-1">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Nurture Campaigns</div>
+            <button
+              type="button"
+              onClick={() => void createCampaign()}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-(--color-brand-blue) text-base font-semibold text-white hover:brightness-95 disabled:opacity-60"
+              disabled={loadingList}
+              aria-label="New campaign"
+            >
+              +
+            </button>
+          </div>
+          <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+            {loadingList ? "Loading campaigns…" : `${campaigns.length} campaign${campaigns.length === 1 ? "" : "s"}`}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Your campaigns</div>
+          <div className="mt-2 space-y-2">
+            {loadingList ? (
+              <div className="px-1 py-2 text-sm text-zinc-500">Loading…</div>
+            ) : campaigns.length ? (
+              campaigns.map((campaign) => {
+                const active = campaign.id === selectedId;
+                return (
+                  <button
+                    key={campaign.id}
+                    type="button"
+                    onClick={() => setSelectedId(campaign.id)}
+                    className={classNames(
+                      "w-full rounded-2xl border px-3 py-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+                      active
+                        ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+                        : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                    )}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <div className="truncate text-sm font-semibold">{campaign.name}</div>
+                    <div className={classNames("mt-1 text-[11px]", active ? "text-white/80" : "text-zinc-500")}>
+                      {campaign.status} · {campaign.stepsCount} step{campaign.stepsCount === 1 ? "" : "s"}
+                    </div>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="px-1 py-2 text-sm text-zinc-500">No campaigns yet.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }, [campaigns, createCampaign, loadingList, selectedId]);
+
+  useEffect(() => {
+    setSidebarOverride({
+      desktopSidebarContent: nurtureSidebar,
+      mobileSidebarContent: nurtureSidebar,
+    });
+  }, [nurtureSidebar, setSidebarOverride]);
+
+  useEffect(() => {
+    return () => setSidebarOverride(null);
+  }, [setSidebarOverride]);
+
   const moveStep = useCallback(
     async (step: StepRow, delta: -1 | 1) => {
       if (!detail) return;
@@ -569,50 +640,7 @@ export function PortalNurtureCampaignsClient() {
         </div>
       </div>
 
-      <div className={classNames("mt-6 grid grid-cols-1 gap-4", isMobileApp ? "" : "lg:grid-cols-[320px_1fr]")}>
-        {!isMobileApp ? (
-          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
-            <div className="px-2 pb-2 text-xs font-semibold text-zinc-600">Your campaigns</div>
-            {loadingList ? (
-              <div className="p-2 text-sm text-zinc-600">Loading…</div>
-            ) : campaigns.length ? (
-              <div className="space-y-2">
-                {campaigns.map((c) => {
-                  const active = c.id === selectedId;
-                  return (
-                    <button
-                      key={c.id}
-                      type="button"
-                      className={classNames(
-                        "w-full rounded-2xl border px-3 py-3 text-left transition",
-                        active
-                          ? "border-(--color-brand-blue) bg-brand-blue/5 text-zinc-900 ring-2 ring-brand-blue/15"
-                          : "border-zinc-200 bg-white hover:bg-zinc-50",
-                      )}
-                      onClick={() => setSelectedId(c.id)}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className={classNames("min-w-0", active ? "text-zinc-900" : "text-zinc-900")}>
-                          <div className="truncate text-sm font-semibold">{c.name}</div>
-                          <div className={classNames("mt-1 text-xs", active ? "text-(--color-brand-blue)" : "text-zinc-500")}>
-                            {c.status} · {c.stepsCount} step{c.stepsCount === 1 ? "" : "s"}
-                          </div>
-                        </div>
-                        <div className={classNames("shrink-0 text-right text-xs", active ? "text-zinc-600" : "text-zinc-500")}>
-                          <div title="Active enrollments">{c.enrollments.active} active</div>
-                          <div title="Completed enrollments">{c.enrollments.completed} done</div>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="p-2 text-sm text-zinc-600">No campaigns yet. Create one to get started.</div>
-            )}
-          </div>
-        ) : null}
-
+      <div className="mt-6">
         <div className="rounded-3xl border border-zinc-200 bg-white p-5">
           {isMobileApp ? (
             <div className="mb-4">
