@@ -864,11 +864,11 @@ export default function PortalReviewsClient() {
     } finally {
       setSendingContactId(null);
     }
-  }, [load]);
+  }, [load, readJsonSafe]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, readJsonSafe]);
 
   useEffect(() => {
     if (tab !== "reviews") return;
@@ -1041,7 +1041,7 @@ export default function PortalReviewsClient() {
     } finally {
       setSending(false);
     }
-  }, [load]);
+  }, [load, readJsonSafe]);
 
   const filteredRecent = useMemo(() => {
     const q = bookingQuery.trim().toLowerCase();

@@ -1076,6 +1076,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   const activeTopKey = sidebarModeOverride ?? derivedTopKey;
+  const showSidebarOverrideInServices = activeTopKey === "services" && Boolean(sidebarOverride?.desktopSidebarContent || sidebarOverride?.mobileSidebarContent);
+  const showSidebarOverridePanel = activeTopKey === "pura" || showSidebarOverrideInServices;
 
   const [dashboardEditMode, setDashboardEditMode] = useState(false);
   useEffect(() => {
@@ -1848,7 +1850,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   activeTopKey === "pura" ? "overflow-hidden" : "overflow-y-auto overscroll-y-contain",
                 )}
               >
-                {activeTopKey === "pura" ? (
+                {showSidebarOverridePanel ? (
                   <div className="h-full min-h-0 overflow-hidden rounded-2xl bg-white">
                     {sidebarOverride?.mobileSidebarContent || sidebarOverride?.desktopSidebarContent || (
                       <div className="p-3 text-sm text-zinc-500">Loading chats…</div>
@@ -2075,7 +2077,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   </div>
                 ) : null}
 
-                {activeTopKey === "services" ? (
+                {activeTopKey === "services" && !showSidebarOverrideInServices ? (
                   <div className="space-y-4">
                     {sidebarServiceGroups.map((group) => (
                       <div key={group.key}>
@@ -2338,7 +2340,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               activeTopKey === "pura" ? "overflow-hidden p-0" : "overflow-y-auto p-2",
             )}
           >
-            {activeTopKey === "pura" ? (
+            {showSidebarOverridePanel ? (
               <div className={classNames("h-full", collapsed && "hidden")}>
                 {sidebarOverride?.desktopSidebarContent ? (
                   sidebarOverride.desktopSidebarContent
@@ -2567,7 +2569,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               </div>
             ) : null}
 
-            {activeTopKey === "services" ? (
+            {activeTopKey === "services" && !showSidebarOverrideInServices ? (
               collapsed ? (
                 <div className="flex min-h-0 flex-1 flex-col items-center gap-1 py-1">
                   <Link
