@@ -1144,7 +1144,7 @@ export default function PortalReviewsClient() {
                   const calendarAllowed = isCalendarAllowedForBooking(booking.calendarId);
                   const canSend = settings.automation.manualSend && ended && booking.status === "SCHEDULED" && calendarAllowed && !sending;
                   return (
-                    <div key={booking.id} className="rounded-2xl px-3 py-2.5 text-zinc-900 hover:bg-zinc-50">
+                    <div key={booking.id} className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}>
                       <div className="truncate text-sm font-semibold text-zinc-900">{booking.contactName}</div>
                       <div className={portalSidebarMetaTextClass}>{new Date(booking.startAt).toLocaleString()}</div>
                       <div className={`${portalSidebarMetaTextClass} truncate`}>{calendarLabel(booking.calendarId)}</div>
@@ -1172,7 +1172,7 @@ export default function PortalReviewsClient() {
                 contacts.slice(0, 10).map((contact) => {
                   const canSend = settings.automation.manualSend && Boolean(contact.phone) && !sendingContactId;
                   return (
-                    <div key={contact.id} className="rounded-2xl px-3 py-2.5 text-zinc-900 hover:bg-zinc-50">
+                    <div key={contact.id} className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}>
                       <div className="truncate text-sm font-semibold text-zinc-900">{contact.name || "(no name)"}</div>
                       <div className={`${portalSidebarMetaTextClass} truncate`}>{contact.phone || "(no phone)"}</div>
                       <button

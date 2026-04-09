@@ -832,7 +832,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
               disabled={busy}
               onClick={addQuestion}
               className={classNames(
-                "inline-flex items-center gap-2 rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700",
+                "inline-flex items-center gap-2 rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-blue-700",
                 busy ? "opacity-60" : "",
               )}
             >

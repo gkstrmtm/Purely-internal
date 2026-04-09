@@ -900,13 +900,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   useEffect(() => {
     if (tab !== "sms") {
       if (smsSheetOpen) setSmsSheetOpen(false);
-      return;
+      setSmsMoreMenu(null);
     }
-
-    if (activeThreadId && !smsSheetOpen) {
-      setSmsSheetOpen(true);
-    }
-  }, [activeThreadId, smsSheetOpen, tab]);
+  }, [smsSheetOpen, tab]);
 
   async function uploadAttachments(files: FileList | null) {
     if (!files || !files.length) return;
@@ -1278,7 +1274,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             <div className={portalSidebarSectionTitleClass}>Mailbox</div>
             <div className={portalSidebarSectionStackClass}>
               <PortalSidebarNavButton type="button" onClick={() => setEmailBox("inbox")} aria-current={emailBox === "inbox" ? "page" : undefined} label="Inbox" icon={<IconInboxGlyph size={18} />} className={sectionButtonClass(emailBox === "inbox")}>Inbox</PortalSidebarNavButton>
-              <PortalSidebarNavButton type="button" onClick={() => setEmailBox("sent")} aria-current={emailBox === "sent" ? "page" : undefined} label="Outbox" icon={<IconSend size={18} />} className={sectionButtonClass(emailBox === "sent")}>Outbox</PortalSidebarNavButton>
+              <PortalSidebarNavButton type="button" onClick={() => setEmailBox("sent")} aria-current={emailBox === "sent" ? "page" : undefined} label="Outbox" icon={<IconSend size={18} className="-scale-x-100" />} className={sectionButtonClass(emailBox === "sent")}>Outbox</PortalSidebarNavButton>
               <PortalSidebarNavButton type="button" onClick={() => setEmailBox("all")} aria-current={emailBox === "all" ? "page" : undefined} label="All mail" icon={<IconEyeGlyph size={18} />} className={sectionButtonClass(emailBox === "all")}>All mail</PortalSidebarNavButton>
             </div>
             <button
@@ -1317,9 +1313,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex items-center justify-between gap-3 px-1">
+          <div className="flex items-center justify-between gap-3">
             <div className={portalSidebarSectionTitleClass}>{threadHeading}</div>
-            <div className="text-[11px] text-zinc-400">{filteredThreads.length}</div>
+            <div className="pr-3 text-[11px] text-zinc-400">{filteredThreads.length}</div>
           </div>
 
           {loadingThreads ? (

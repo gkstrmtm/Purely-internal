@@ -3,6 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import {
+  portalSidebarButtonActiveClass,
+  portalSidebarButtonBaseClass,
+  portalSidebarButtonInactiveClass,
+  portalSidebarIconActionButtonClass,
+  portalSidebarMetaTextClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 
@@ -207,30 +216,30 @@ export function PortalTasksClient() {
   const tasksSidebar = useMemo(() => {
     return (
       <div className="space-y-4">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
-          <div className="flex items-center justify-between gap-3 px-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Tasks</div>
+        <div>
+          <div className="flex items-center justify-between gap-3">
+            <div className={portalSidebarSectionTitleClass}>Tasks</div>
             <button
               type="button"
               onClick={() => setCreateOpen(true)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-(--color-brand-blue) text-base font-semibold text-white hover:brightness-95"
+              className={portalSidebarIconActionButtonClass}
             >
               +
             </button>
           </div>
-          <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
-            Open {openTasks.length}
+          <div className={portalSidebarSectionStackClass}>
+            <div className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonActiveClass}`}>Open {openTasks.length}</div>
           </div>
         </div>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
-          <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Done</div>
-          <div className="mt-2 space-y-2">
+        <div>
+          <div className={portalSidebarSectionTitleClass}>Done</div>
+          <div className={portalSidebarSectionStackClass}>
             {doneTasks.length ? (
               doneTasks.slice(0, 20).map((task) => (
-                <div key={task.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2.5">
-                  <div className="text-sm font-semibold text-zinc-900">{task.title}</div>
-                  {task.assignedTo?.email ? <div className="mt-1 text-[11px] text-zinc-500">{task.assignedTo.email}</div> : null}
+                <div key={task.id} className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}>
+                  <div className="truncate text-[13px] font-medium text-zinc-900">{task.title}</div>
+                  {task.assignedTo?.email ? <div className={portalSidebarMetaTextClass}>{task.assignedTo.email}</div> : null}
                   <div className="mt-2 flex gap-2">
                     <button
                       type="button"
@@ -250,7 +259,7 @@ export function PortalTasksClient() {
                 </div>
               ))
             ) : (
-              <div className="px-1 py-2 text-sm text-zinc-500">No done tasks.</div>
+              <div className="px-3 py-2 text-sm text-zinc-500">No done tasks.</div>
             )}
           </div>
         </div>

@@ -272,14 +272,14 @@ export function PortalMediaLibraryClient() {
 
         {selectedItem ? (
           <div>
-            <div className={portalSidebarSectionTitleClass}>Selected File</div>
-            <div className="mt-2 text-sm font-semibold text-zinc-900">{selectedItem.fileName}</div>
+            <div className={portalSidebarSectionTitleClass}>Selected media</div>
+            <div className="mt-1 px-3 text-[13px] font-medium leading-5 text-zinc-900 wrap-break-word">{selectedItem.fileName}</div>
             <button
               type="button"
               onClick={() => setPreviewOpen(true)}
               className={`mt-3 ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
             >
-              Open preview
+              Open file
             </button>
           </div>
         ) : null}
@@ -826,8 +826,8 @@ export function PortalMediaLibraryClient() {
                                   </svg>
                                 </div>
                               )}
-                              <div className="min-w-0">
-                                <div className="truncate text-sm font-semibold text-zinc-900">{it.fileName}</div>
+                              <div className="min-w-0 w-full">
+                                <div className="line-clamp-2 wrap-break-word text-sm font-semibold leading-5 text-zinc-900">{it.fileName}</div>
                                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
                                   <span className="font-mono">tag: {it.tag}</span>
                                   <span>•</span>
@@ -836,7 +836,7 @@ export function PortalMediaLibraryClient() {
                               </div>
                             </div>
                             <div className="flex w-full shrink-0 items-center justify-between gap-2">
-                              <div className="text-xs font-semibold text-zinc-600">Preview</div>
+                              <div className="text-xs font-semibold text-zinc-600">Open</div>
                               <button
                                 type="button"
                                 className="rounded-xl px-2 py-1 text-sm font-semibold text-zinc-600 hover:bg-zinc-100"
@@ -1153,7 +1153,7 @@ export function PortalMediaLibraryClient() {
                   <button
                     type="button"
                     aria-label="Close preview"
-                    className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
+                    className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-800"
                     onClick={() => setPreviewOpen(false)}
                   >
                     ×

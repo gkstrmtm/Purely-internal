@@ -1027,7 +1027,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-colors duration-150 hover:border-zinc-300 hover:bg-zinc-50"
               onClick={() => {
                 setFormSettingsDialog(null);
                 setFormSettingsError(null);
@@ -1037,7 +1037,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             </button>
             <button
               type="button"
-              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700"
+              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-blue-700"
               onClick={() => {
                 const current = formSettingsDialog;
                 if (!current) return;
@@ -1099,7 +1099,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 { value: "ARCHIVED", label: "Archived" },
               ]}
               className="mt-1 w-full"
-              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition-colors duration-150 hover:border-zinc-300 hover:bg-zinc-50"
             />
           </label>
 
@@ -1406,7 +1406,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
                               onClick={() => setOpenFormMenuId(null)}
                               aria-label="Edit"
                               title="Edit"
@@ -1419,7 +1419,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/responses`}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
                               onClick={() => setOpenFormMenuId(null)}
                             >
                               Responses
@@ -1427,7 +1427,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             <Link
                                 href={getFormLiveHref(f.slug, f.id) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-zinc-50"
                               onClick={() => setOpenFormMenuId(null)}
                             >
                               Preview
@@ -1444,7 +1444,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 setOpenFormMenuId(null);
                               }}
                               className={classNames(
-                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-700 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
+                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-700 transition-colors duration-150 hover:bg-zinc-50",
                                 formSaveBusy[f.id] ? "opacity-60" : "",
                               )}
                             >
@@ -1460,7 +1460,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 setOpenFormMenuId(null);
                               }}
                               className={classNames(
-                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
+                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-colors duration-150 hover:bg-zinc-50",
                                 formDeleteBusy[f.id] ? "opacity-60" : "",
                               )}
                             >
@@ -1545,7 +1545,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 disabled={domainBusy || !domainSig || !domainDirty}
                 onClick={saveDomain}
                 className={classNames(
-                  "rounded-2xl px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5",
+                  "rounded-2xl px-4 py-2 text-sm font-semibold text-white transition-opacity duration-150",
                   domainBusy || !domainSig || !domainDirty ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
                 )}
               >
@@ -1574,7 +1574,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             disabled={!!domainVerifyBusy[d.id]}
                             onClick={() => verifyDomain(d)}
                             className={classNames(
-                              "rounded-full border px-3 py-1 text-xs font-semibold transition-transform duration-150 hover:-translate-y-0.5",
+                              "rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150",
                               domainVerifyBusy[d.id]
                                 ? "border-zinc-200 bg-zinc-100 text-zinc-500"
                                 : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
@@ -1616,7 +1616,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                               <button
                                                 type="button"
                                                 onClick={() => copyText(displayHost)}
-                                                className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900"
+                                                className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-900"
                                                 aria-label="Copy host/name"
                                                 title="Copy"
                                               >
@@ -1626,7 +1626,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                                 <button
                                                   type="button"
                                                   onClick={() => copyText(host.full)}
-                                                  className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-[10px] font-semibold text-zinc-600 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900"
+                                                  className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-[10px] font-semibold text-zinc-600 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-900"
                                                   aria-label="Copy full host/name"
                                                   title="Copy full host"
                                                 >
@@ -1643,7 +1643,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                             <button
                                               type="button"
                                               onClick={() => copyText(r.value)}
-                                              className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900"
+                                              className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-900"
                                               aria-label="Copy value"
                                               title="Copy"
                                             >
@@ -1920,7 +1920,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 disabled={busy}
                 aria-label="Close create"
                 title="Close"
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-transparent bg-white text-lg font-semibold text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60"
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-transparent bg-white text-lg font-semibold text-zinc-700 transition-colors duration-150 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60"
               >
                 ×
               </button>
@@ -2040,7 +2040,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               <button
                                 type="button"
                                 onClick={() => setCreateFunnelPreviewOpen(true)}
-                                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:border-zinc-300 hover:bg-zinc-50"
                               >
                                 Open full preview
                               </button>
@@ -2113,7 +2113,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 disabled={busy}
                 className={classNames(
                   "rounded-2xl px-4 py-2 text-sm font-semibold text-white transition-all duration-150",
-                  busy ? "bg-zinc-400" : "bg-(--color-brand-blue) hover:-translate-y-0.5 hover:opacity-95",
+                  busy ? "bg-zinc-400" : "bg-(--color-brand-blue) hover:opacity-95",
                 )}
               >
                 {busy ? "Creating…" : "Create"}

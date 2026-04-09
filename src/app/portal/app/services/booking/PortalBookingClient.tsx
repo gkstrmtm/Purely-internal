@@ -37,7 +37,7 @@ import { useToast } from "@/components/ToastProvider";
 import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderTemplates";
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
-import { IconEdit } from "@/app/portal/PortalIcons";
+import { IconBusinessGlyph, IconEdit, IconEyeGlyph } from "@/app/portal/PortalIcons";
 
 type BookingFormConfig = {
   version: 1;
@@ -991,7 +991,10 @@ export function PortalBookingClient() {
                 rel="noreferrer"
                 className={`block ${portalSidebarButtonBaseClass} ${previewBookingUrl ? portalSidebarButtonInactiveClass : "pointer-events-none bg-zinc-100 text-zinc-400"}`}
               >
-                Preview
+                <span className="flex items-center gap-2">
+                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconEyeGlyph size={18} /></span>
+                  <span>Preview</span>
+                </span>
               </a>
               <a
                 href={liveBookingUrl ?? undefined}
@@ -999,7 +1002,10 @@ export function PortalBookingClient() {
                 rel="noreferrer"
                 className={`block ${portalSidebarButtonBaseClass} ${liveBookingUrl ? portalSidebarButtonInactiveClass : "pointer-events-none bg-zinc-100 text-zinc-400"}`}
               >
-                Live
+                <span className="flex items-center gap-2">
+                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconBusinessGlyph size={18} /></span>
+                  <span>Live</span>
+                </span>
               </a>
             </div>
           </div>
@@ -2237,7 +2243,7 @@ export function PortalBookingClient() {
                         <button
                           type="button"
                           aria-label="Close template picker"
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-100 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-100 hover:bg-zinc-50 hover:text-zinc-800"
                           onClick={() => setReminderTemplateOpen(false)}
                           disabled={reminderSaving}
                         >

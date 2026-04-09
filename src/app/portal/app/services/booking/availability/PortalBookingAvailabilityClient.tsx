@@ -235,7 +235,7 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
           </div>
           <Link
             href={`${portalBase}/app/services/booking`}
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
           >
             Back
           </Link>
@@ -246,21 +246,21 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <button
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-zinc-50"
               type="button"
               onClick={() => setWeekStart((d) => addDays(d, -7))}
             >
               ← Prev
             </button>
             <button
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-zinc-50"
               type="button"
               onClick={() => setWeekStart(startOfWeekMonday(new Date()))}
             >
               This week
             </button>
             <button
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-zinc-50"
               type="button"
               onClick={() => setWeekStart((d) => addDays(d, 7))}
             >
@@ -270,14 +270,14 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
 
           <div className="flex flex-wrap items-center gap-2">
             <button
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-zinc-50"
               type="button"
               onClick={() => clearWeek()}
             >
               Clear week
             </button>
             <button
-              className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+              className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white transition-opacity duration-150 hover:opacity-95 disabled:opacity-60"
               type="button"
               onClick={() => saveWeek()}
               disabled={!dirty || saving}

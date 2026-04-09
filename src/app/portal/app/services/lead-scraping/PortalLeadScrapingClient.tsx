@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { IconBusinessGlyph, IconFunnel, IconPeopleGlyph } from "@/app/portal/PortalIcons";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import {
+  IconSidebarSettings,
   PortalSidebarNavButton,
   portalSidebarBorderButtonActiveClass,
   portalSidebarBorderButtonBaseClass,
@@ -1902,7 +1904,7 @@ export function PortalLeadScrapingClient() {
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   <button
                     type="button"
-                    className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(236,72,153,0.95))] px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                    className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(236,72,153,0.95))] px-4 py-2 text-sm font-semibold text-white transition-opacity duration-150 hover:opacity-95"
                     onClick={() => {
                       if (!settings) return;
                       setOutboundAiDraftError(null);
@@ -2169,6 +2171,7 @@ export function PortalLeadScrapingClient() {
               onClick={() => setTab("b2b")}
               aria-current={tab === "b2b" ? "page" : undefined}
               label="B2B"
+              icon={<IconBusinessGlyph size={18} />}
               className={
                 `${portalSidebarBorderButtonBaseClass} ` +
                 (tab === "b2b" ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)
@@ -2181,6 +2184,7 @@ export function PortalLeadScrapingClient() {
               onClick={() => setTab("b2c")}
               aria-current={tab === "b2c" ? "page" : undefined}
               label="B2C"
+              icon={<IconPeopleGlyph size={18} />}
               className={
                 `${portalSidebarBorderButtonBaseClass} ` +
                 (tab === "b2c" ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)
@@ -2206,6 +2210,7 @@ export function PortalLeadScrapingClient() {
                   onClick={() => setB2bSubTab(item.key)}
                   aria-current={b2bSubTab === item.key ? "page" : undefined}
                   label={item.label}
+                  icon={item.key === "leads" ? <IconPeopleGlyph size={18} /> : item.key === "pull" ? <IconFunnel size={18} /> : <IconSidebarSettings />}
                   className={
                     `${portalSidebarBorderButtonBaseClass} ` +
                     (b2bSubTab === item.key ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)
@@ -3174,7 +3179,7 @@ export function PortalLeadScrapingClient() {
                   type="button"
                   onClick={save}
                   disabled={saving || !isDirty}
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-opacity duration-150 hover:opacity-95 disabled:opacity-60"
                 >
                   {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
                 </button>
@@ -3194,7 +3199,7 @@ export function PortalLeadScrapingClient() {
               href={toPurelyHostedUrl("/book-a-call")}
               target="_blank"
               rel="noreferrer"
-              className="mt-5 inline-flex items-center justify-center rounded-2xl bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+              className="mt-5 inline-flex items-center justify-center rounded-2xl bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm transition-opacity duration-150 hover:opacity-95"
             >
               Book a call
             </a>
@@ -3626,7 +3631,7 @@ export function PortalLeadScrapingClient() {
                     <button
                       type="button"
                       onClick={() => setComposeOpen(false)}
-                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
                     >
                       Cancel
                     </button>

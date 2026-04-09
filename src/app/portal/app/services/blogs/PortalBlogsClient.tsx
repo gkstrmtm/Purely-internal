@@ -23,7 +23,7 @@ import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingL
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
-import { IconEdit, IconServiceGlyph } from "@/app/portal/PortalIcons";
+import { IconBusinessGlyph, IconEdit, IconEyeGlyph, IconServiceGlyph } from "@/app/portal/PortalIcons";
 
 export type BlogsTab = "posts" | "automation" | "settings";
 function currentAppBase(pathname: string | null | undefined) {
@@ -297,7 +297,10 @@ export function PortalBlogsClient({
               rel="noreferrer"
               className={`block ${portalSidebarButtonBaseClass} ${previewBlogsHref ? portalSidebarButtonInactiveClass : "pointer-events-none bg-zinc-100 text-zinc-400"}`}
             >
-              Preview
+              <span className="flex items-center gap-2">
+                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconEyeGlyph size={18} /></span>
+                <span>Preview</span>
+              </span>
             </a>
             <a
               href={liveBlogsHref ?? undefined}
@@ -305,7 +308,10 @@ export function PortalBlogsClient({
               rel="noreferrer"
               className={`block ${portalSidebarButtonBaseClass} ${liveBlogsHref ? portalSidebarButtonInactiveClass : "pointer-events-none bg-zinc-100 text-zinc-400"}`}
             >
-              Live
+              <span className="flex items-center gap-2">
+                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconBusinessGlyph size={18} /></span>
+                <span>Live</span>
+              </span>
             </a>
           </div>
         </div>

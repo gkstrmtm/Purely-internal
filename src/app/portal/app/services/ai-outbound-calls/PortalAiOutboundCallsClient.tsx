@@ -762,7 +762,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         </div>
 
         <div>
-          <div className="flex items-center justify-between gap-3 px-1">
+          <div className="flex items-center justify-between gap-3">
             <div className={portalSidebarSectionTitleClass}>Campaigns</div>
             <button
               type="button"

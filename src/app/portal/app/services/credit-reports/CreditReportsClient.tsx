@@ -149,10 +149,10 @@ function computeFixedMenuStyle(rect: DOMRect, width = 288, estHeight = 320): Fix
   return { left, top, maxHeight: Math.max(180, openUp ? spaceAbove : spaceBelow) };
 }
 
-const BUTTON_MOTION_CLASS = "transition-all duration-150 hover:-translate-y-0.5 focus-visible:outline-none";
+const BUTTON_MOTION_CLASS = "transition-colors duration-150 focus-visible:outline-none";
 const PRIMARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:opacity-60`;
 const SECONDARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60`;
-const ICON_BUTTON_CLASS = "inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60";
+const ICON_BUTTON_CLASS = "inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60";
 
 function reportRoutesFor(pathname: string | null) {
   const current = String(pathname || "");
@@ -598,9 +598,9 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             onClick={() => {
               window.location.href = routeSet.listHref;
             }}
-            className="group inline-flex items-center gap-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+            className="group inline-flex items-center gap-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
           >
-            <span className="inline-flex items-center justify-center text-zinc-700 transition-all duration-150 group-hover:-translate-x-0.5 group-hover:text-zinc-900">
+            <span className="inline-flex items-center justify-center text-zinc-700 transition-colors duration-150 group-hover:text-zinc-900">
               <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12.5 4.5 7 10l5.5 5.5" />
               </svg>
@@ -711,7 +711,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               <button
                 type="button"
                 className={classNames(
-                  "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
+                  "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-colors duration-150 hover:bg-zinc-50",
                   (reportView !== "ALL" || providerFilter !== "ALL") && "border-brand-ink",
                 )}
                 onClick={(event) => {
@@ -843,7 +843,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       onChange={setProvider}
                       disabled={busy}
                       options={providerOptions}
-                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm transition-colors duration-150 hover:border-zinc-300 hover:bg-zinc-50"
                     />
                   </label>
 
@@ -1058,7 +1058,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <button
                   type="button"
                   className={classNames(
-                    "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
+                    "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-colors duration-150 hover:bg-zinc-50",
                     itemFilter !== "ALL" && "border-brand-ink",
                   )}
                   onClick={(event) => {
@@ -1084,7 +1084,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-sm text-zinc-600">No matching items.</div>
               ) : (
                 filteredItems.map((it) => (
-                  <div key={it.id} className="rounded-[26px] border border-zinc-200 bg-white p-4 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300">
+                  <div key={it.id} className="rounded-[26px] border border-zinc-200 bg-white p-4 transition-colors duration-150 hover:border-zinc-300">
                     <div className="flex flex-col gap-4">
                       <button
                         type="button"
@@ -1147,7 +1147,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
             <div className="mt-5 grid gap-4 xl:grid-cols-2">
               {opportunityPlans.map((plan) => (
-                <div key={plan.key} className="rounded-[26px] border border-zinc-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <div key={plan.key} className="rounded-[26px] border border-zinc-200 bg-white p-5 shadow-sm transition-shadow duration-150 hover:shadow-md">
                   <div>
                     <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
                     <div className="mt-1 text-sm leading-6 text-zinc-700">{plan.summary}</div>
