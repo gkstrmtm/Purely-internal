@@ -13,6 +13,8 @@ import {
   portalSidebarButtonActiveClass,
   portalSidebarButtonBaseClass,
   portalSidebarButtonInactiveClass,
+  portalSidebarIconToneNeutralClass,
+  portalSidebarIconTonePinkClass,
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
@@ -551,6 +553,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               aria-current={tab === "newsletters" ? "page" : undefined}
               label="Newsletters"
               icon={<IconServiceGlyph slug="newsletter" />}
+              iconToneClassName={portalSidebarIconTonePinkClass}
               className={
                 `${portalSidebarButtonBaseClass} ` +
                 (tab === "newsletters" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)
@@ -564,6 +567,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               aria-current={tab === "settings" ? "page" : undefined}
               label="Settings"
               icon={<IconSidebarSettings />}
+              iconToneClassName={portalSidebarIconToneNeutralClass}
               className={
                 `${portalSidebarButtonBaseClass} ` +
                 (tab === "settings" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)

@@ -1080,11 +1080,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   const activeTopKey = sidebarModeOverride ?? derivedTopKey;
-  const showSidebarOverrideInServices =
-    derivedTopKey === "services" &&
-    sidebarModeOverride !== "services" &&
-    Boolean(sidebarOverride?.desktopSidebarContent || sidebarOverride?.mobileSidebarContent);
-  const showSidebarOverridePanel = activeTopKey === "pura" || showSidebarOverrideInServices;
+  const hasSidebarOverrideContent = Boolean(sidebarOverride?.desktopSidebarContent || sidebarOverride?.mobileSidebarContent);
+  const showSidebarOverrideInServices = derivedTopKey === "services" && hasSidebarOverrideContent;
+  const sidebarPanelTopKey = showSidebarOverrideInServices ? "services" : activeTopKey;
+  const showSidebarOverridePanel = sidebarPanelTopKey === "pura" || showSidebarOverrideInServices;
 
   const [dashboardEditMode, setDashboardEditMode] = useState(false);
   useEffect(() => {
@@ -1255,16 +1254,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [activeTopKey, refreshDashboardAnalysis]);
 
   const sidebarHeaderLabel = useMemo(() => {
-    if (activeTopKey === "pura") return "pura";
-    if (activeTopKey === "dashboard") return "dashboard";
-    if (activeTopKey === "settings") return "settings";
-    if (activeTopKey === "services") {
+    if (sidebarPanelTopKey === "pura") return "pura";
+    if (sidebarPanelTopKey === "dashboard") return "dashboard";
+    if (sidebarPanelTopKey === "settings") return "settings";
+    if (sidebarPanelTopKey === "services") {
       if (pathname === `${basePath}/app/people` || pathname.startsWith(`${basePath}/app/people/`)) return "people";
       if (activeServiceSlug) return (PORTAL_SERVICE_TITLE_BY_SLUG.get(activeServiceSlug) || "services").toLowerCase();
       return "services";
     }
     return "";
-  }, [activeServiceSlug, activeTopKey, basePath, pathname]);
+  }, [activeServiceSlug, basePath, pathname, sidebarPanelTopKey]);
 
   const mobileHeaderTitle = useMemo(() => {
     if (activeTopKey === "pura") return "Pura";
@@ -1865,7 +1864,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   </div>
                 ) : null}
 
-                {activeTopKey === "dashboard" ? (
+                {sidebarPanelTopKey === "dashboard" ? (
                   <div className="space-y-4">
                     <div>
                       <div className="flex items-center justify-between px-1">
@@ -2084,7 +2083,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   </div>
                 ) : null}
 
-                {activeTopKey === "services" && !showSidebarOverrideInServices ? (
+                {sidebarPanelTopKey === "services" && !showSidebarOverrideInServices ? (
                   <div className="space-y-4">
                     {sidebarServiceGroups.map((group) => (
                       <div key={group.key}>
@@ -2105,7 +2104,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   </div>
                 ) : null}
 
-                {activeTopKey === "settings" ? (
+                {sidebarPanelTopKey === "settings" ? (
                   <div className="space-y-1">
                     <PortalNavLink
                       href={`${basePath}/app/settings`}
@@ -2357,7 +2356,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               </div>
             ) : null}
 
-            {activeTopKey === "dashboard" ? (
+            {sidebarPanelTopKey === "dashboard" ? (
               <div className={classNames(collapsed && "hidden")}>
                 <div className="mt-4">
                   <div className="flex items-center justify-between px-3">
@@ -2576,7 +2575,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               </div>
             ) : null}
 
-            {activeTopKey === "services" && !showSidebarOverrideInServices ? (
+            {sidebarPanelTopKey === "services" && !showSidebarOverrideInServices ? (
               collapsed ? (
                 <div className="flex min-h-0 flex-1 flex-col items-center gap-1 py-1">
                   <PortalNavLink
@@ -2694,7 +2693,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               )
             ) : null}
 
-            {activeTopKey === "settings" ? (
+            {sidebarPanelTopKey === "settings" ? (
               collapsed ? (
                 <div className="flex flex-col items-center gap-1 py-1">
                   <PortalNavLink

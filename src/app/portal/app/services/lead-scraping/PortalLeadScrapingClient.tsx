@@ -10,6 +10,8 @@ import {
   portalSidebarBorderButtonActiveClass,
   portalSidebarBorderButtonBaseClass,
   portalSidebarBorderButtonInactiveClass,
+  portalSidebarIconToneClassForSlug,
+  portalSidebarIconToneNeutralClass,
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
@@ -393,12 +395,6 @@ function ToggleSwitch({
 
 export function PortalLeadScrapingClient() {
   const toast = useToast();
-  const isMobileApp = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    const sp = new URLSearchParams(window.location.search);
-    if (sp.get("pa_mobileapp") === "1") return true;
-    return (window.location.host || "").includes("purely-mobile");
-  }, []);
   const [tab, setTab] = useState<"b2b" | "b2c">("b2b");
   const [b2bSubTab, setB2bSubTab] = useState<"pull" | "leads" | "settings">(() => {
     return "leads";
@@ -1311,12 +1307,12 @@ export function PortalLeadScrapingClient() {
     window.setTimeout(() => setStatus(null), 2000);
   }
 
-  function openLeadAtIndex(nextIndex: number) {
+  const openLeadAtIndex = useCallback((nextIndex: number) => {
     if (!leads.length) return;
     const idx = Math.max(0, Math.min(leads.length - 1, Math.floor(nextIndex)));
     setLeadIndex(idx);
     setLeadOpen(true);
-  }
+  }, [leads]);
 
   function closeLead() {
     setLeadOpen(false);
@@ -2172,6 +2168,7 @@ export function PortalLeadScrapingClient() {
               aria-current={tab === "b2b" ? "page" : undefined}
               label="B2B"
               icon={<IconBusinessGlyph size={18} />}
+              iconToneClassName={portalSidebarIconToneClassForSlug("lead-scraping")}
               className={
                 `${portalSidebarBorderButtonBaseClass} ` +
                 (tab === "b2b" ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)
@@ -2185,6 +2182,7 @@ export function PortalLeadScrapingClient() {
               aria-current={tab === "b2c" ? "page" : undefined}
               label="B2C"
               icon={<IconPeopleGlyph size={18} />}
+              iconToneClassName={portalSidebarIconToneClassForSlug("lead-scraping")}
               className={
                 `${portalSidebarBorderButtonBaseClass} ` +
                 (tab === "b2c" ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)
@@ -2211,6 +2209,7 @@ export function PortalLeadScrapingClient() {
                   aria-current={b2bSubTab === item.key ? "page" : undefined}
                   label={item.label}
                   icon={item.key === "leads" ? <IconPeopleGlyph size={18} /> : item.key === "pull" ? <IconFunnel size={18} /> : <IconSidebarSettings />}
+                  iconToneClassName={item.key === "settings" ? portalSidebarIconToneNeutralClass : portalSidebarIconToneClassForSlug("lead-scraping")}
                   className={
                     `${portalSidebarBorderButtonBaseClass} ` +
                     (b2bSubTab === item.key ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)
@@ -2222,9 +2221,39 @@ export function PortalLeadScrapingClient() {
             </div>
           </div>
         ) : null}
+
+        {tab === "b2b" && b2bSubTab === "pull" ? (
+          <div>
+            <div className={portalSidebarSectionTitleClass}>Pulled leads</div>
+            <div className="space-y-2">
+              {leads.length ? (
+                leads.slice(0, 40).map((lead, idx) => (
+                  <button
+                    key={lead.id}
+                    type="button"
+                    onClick={() => openLeadAtIndex(idx)}
+                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-left transition hover:border-zinc-300 hover:bg-zinc-50"
+                  >
+                    <div className="truncate text-sm font-semibold text-brand-ink">
+                      {lead.starred ? <span className="mr-1 text-amber-500">★</span> : null}
+                      {lead.businessName}
+                    </div>
+                    <div className="mt-1 truncate text-[11px] text-zinc-500">
+                      {[lead.niche, lead.address].filter(Boolean).join(" • ") || lead.website || lead.phone || "No details yet"}
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-dashed border-zinc-200 px-3 py-4 text-sm text-zinc-500">
+                  No pulled leads yet.
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
     );
-  }, [b2bSubTab, tab]);
+  }, [b2bSubTab, leads, openLeadAtIndex, tab]);
 
   useEffect(() => {
     setSidebarOverride({
@@ -2284,11 +2313,9 @@ export function PortalLeadScrapingClient() {
       {tab === "b2b" ? (
         <>
           {b2bSubTab === "pull" ? (
-            <div className="mt-0 grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <div className="lg:col-span-2">
-
-                <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-                  <div className="flex items-start justify-between gap-4">
+            <div className="mt-0">
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+                <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="text-base font-semibold text-brand-ink">B2B pulls</div>
                     <div className="mt-1 text-sm text-zinc-600">Search businesses by niche/keywords + location.</div>
@@ -2624,101 +2651,6 @@ export function PortalLeadScrapingClient() {
                 </div>
               </div>
               </div>
-
-              {!isMobileApp ? (
-              <div className="flex flex-col rounded-3xl border border-zinc-200 bg-white p-6 lg:sticky lg:top-8 lg:h-[calc(100vh-4rem)]">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">Leads</div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      {typeof leadTotalCount === "number" ? (
-                        leadQueryDebounced
-                          ? `Showing ${leads.length} of ${leadMatchedCount ?? leads.length} matched • ${leadTotalCount} total`
-                          : `${leadTotalCount} total`
-                      ) : (
-                        `${leads.length} loaded`
-                      )}
-                      {typeof leadTotalCount === "number" && leadTotalCount > leadsTake ? ` • Loaded first ${leadsTake}` : ""}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <input
-                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                    value={leadQuery}
-                    onChange={(e) => setLeadQuery(e.target.value)}
-                    placeholder="Search leads (name, email, phone, website, address, niche…)"
-                  />
-                </div>
-
-                <div className="mt-3 max-h-[70vh] min-h-60 space-y-3 overflow-y-auto pr-2 lg:max-h-none lg:min-h-0 lg:flex-1">
-                  {leads.length ? (
-                    leads.map((l, idx) => (
-                      <button
-                        key={l.id}
-                        type="button"
-                        onClick={() => openLeadAtIndex(idx)}
-                        className="w-full rounded-2xl border border-zinc-200 p-3 text-left hover:bg-zinc-50"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-brand-ink">
-                              {l.starred ? <span className="mr-1 text-amber-500">★</span> : null}
-                              {l.businessName}
-                            </div>
-                          </div>
-                          {l.tag ? (
-                            <span
-                              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${pickTagTextColor(
-                                isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
-                              )}`}
-                              style={{
-                                backgroundColor: isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
-                              }}
-                            >
-                              {l.tag}
-                            </span>
-                          ) : null}
-                        </div>
-                        {Array.isArray(l.contactTags) && l.contactTags.length ? (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {l.contactTags.slice(0, 2).map((tag) => (
-                              <span
-                                key={tag.id}
-                                className="rounded-full border px-2 py-0.5 text-[10px] font-semibold"
-                                style={{
-                                  backgroundColor: (tag.color || "#0f172a") + "20",
-                                  borderColor: (tag.color || "#0f172a") + "40",
-                                  color: tag.color || "#0f172a",
-                                }}
-                              >
-                                {tag.name}
-                              </span>
-                            ))}
-                            {l.contactTags.length > 2 ? (
-                              <span className="text-[10px] font-semibold text-zinc-500">+{l.contactTags.length - 2}</span>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-600">
-                          {l.phone ? <span className="whitespace-nowrap">{l.phone}</span> : null}
-                          {l.phone && l.website ? <span>•</span> : null}
-                          {l.website ? <span className="min-w-0 max-w-full truncate">{l.website}</span> : null}
-                        </div>
-                        <div className="mt-1 text-xs text-zinc-600">{[l.niche, l.address].filter(Boolean).join(" • ")}</div>
-                        <div className="mt-1 text-[11px] text-zinc-500">{safeFormatDateTime(l.createdAtIso)}</div>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-600">
-                      No leads yet. Run your first pull.
-                    </div>
-                  )}
-                </div>
-              </div>
-              ) : null}
-            </div>
           ) : b2bSubTab === "leads" ? (
             <div className="mt-0">
               <div className="rounded-3xl border border-zinc-200 bg-white p-6">

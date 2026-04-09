@@ -16,6 +16,8 @@ import {
   portalSidebarButtonActiveClass,
   portalSidebarButtonBaseClass,
   portalSidebarButtonInactiveClass,
+  portalSidebarIconToneBlueClass,
+  portalSidebarIconToneNeutralClass,
   portalSidebarMetaTextClass,
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
@@ -154,19 +156,6 @@ function formatTimeOfDay(iso: string) {
     return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   } catch {
     return "";
-  }
-}
-
-function badgeClass(kind: string) {
-  switch (kind) {
-    case "IN_PROGRESS":
-      return "bg-sky-50 text-sky-700 border-sky-200";
-    case "COMPLETED":
-      return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    case "FAILED":
-      return "bg-red-50 text-red-700 border-red-200";
-    default:
-      return "bg-zinc-50 text-zinc-700 border-zinc-200";
   }
 }
 
@@ -407,7 +396,6 @@ export function PortalAiReceptionistClient() {
     return false;
   }, []);
 
-  const [callDetailsOpen, setCallDetailsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -840,19 +828,9 @@ export function PortalAiReceptionistClient() {
   const openCallDetails = useCallback(
     (nextId: string) => {
       setSelectedCallWithUrl(nextId);
-      setCallDetailsOpen(true);
     },
     [setSelectedCallWithUrl],
   );
-
-  const closeCallDetails = useCallback(() => {
-    setCallDetailsOpen(false);
-    setSelectedCallWithUrl(null);
-  }, [setSelectedCallWithUrl]);
-
-  useEffect(() => {
-    if (tab !== "activity" && callDetailsOpen) closeCallDetails();
-  }, [callDetailsOpen, closeCallDetails, tab]);
 
   const loadCredits = useCallback(async () => {
     const res = await fetch("/api/portal/credits", { cache: "no-store" }).catch(() => null as any);
@@ -1085,7 +1063,6 @@ export function PortalAiReceptionistClient() {
       const call = url.searchParams.get("call");
       if (call && call.trim()) {
         setSelectedCallId(call.trim());
-        setCallDetailsOpen(true);
       }
     } catch {
       // ignore
@@ -1095,18 +1072,16 @@ export function PortalAiReceptionistClient() {
   useEffect(() => {
     if (!events.length) {
       if (selectedCallId) setSelectedCallId(null);
-      if (callDetailsOpen) setCallDetailsOpen(false);
       return;
     }
 
     if (selectedCallId && events.some((e) => e.id === selectedCallId)) return;
-    setSelectedCallId(null);
-    if (callDetailsOpen) setCallDetailsOpen(false);
-  }, [callDetailsOpen, events, selectedCallId]);
+    setSelectedCallId(events[0]?.id ?? null);
+  }, [events, selectedCallId]);
 
   const selectedCall = useMemo(() => {
-    if (!selectedCallId) return null;
-    return events.find((e) => e.id === selectedCallId) ?? null;
+    if (selectedCallId) return events.find((e) => e.id === selectedCallId) ?? null;
+    return events[0] ?? null;
   }, [events, selectedCallId]);
 
   function CallDetailsContent({ call, variant }: { call: EventRow; variant: "desktop" | "mobile" }) {
@@ -1223,6 +1198,7 @@ export function PortalAiReceptionistClient() {
         aria-current={tab === key ? "page" : undefined}
         label={label}
         icon={icon}
+        iconToneClassName={key === "settings" ? portalSidebarIconToneNeutralClass : portalSidebarIconToneBlueClass}
         className={classNames(
           portalSidebarButtonBaseClass,
           tab === key ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass,
@@ -1253,6 +1229,7 @@ export function PortalAiReceptionistClient() {
                 onClick={() => setSettingsSubTab("voice")}
                 label="Voice"
                 icon={<IconCalls />}
+                iconToneClassName={portalSidebarIconToneBlueClass}
                 className={classNames(
                   portalSidebarButtonBaseClass,
                   settingsSubTab === "voice" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass,
@@ -1265,6 +1242,7 @@ export function PortalAiReceptionistClient() {
                 onClick={() => setSettingsSubTab("sms")}
                 label="SMS"
                 icon={<IconMessages />}
+                iconToneClassName={portalSidebarIconToneBlueClass}
                 className={classNames(
                   portalSidebarButtonBaseClass,
                   settingsSubTab === "sms" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass,
@@ -1276,7 +1254,7 @@ export function PortalAiReceptionistClient() {
           </div>
         ) : null}
 
-        {(tab === "activity" || tab === "missed-call-textback") && events.length ? (
+        {tab === "activity" && events.length ? (
           <div>
             <div className="flex items-center justify-between gap-3">
               <div className={portalSidebarSectionTitleClass}>Recent calls</div>
@@ -1284,7 +1262,7 @@ export function PortalAiReceptionistClient() {
             </div>
             <div className={portalSidebarSectionStackClass}>
               {events.slice(0, 8).map((event) => {
-                const active = callDetailsOpen && event.id === selectedCallId;
+                const active = event.id === selectedCallId;
                 return (
                   <PortalSidebarNavButton
                     key={event.id}
@@ -1307,7 +1285,7 @@ export function PortalAiReceptionistClient() {
         ) : null}
       </div>
     );
-  }, [callDetailsOpen, events, openCallDetails, selectedCallId, setTabWithUrl, settingsSubTab, tab]);
+  }, [events, openCallDetails, selectedCallId, setTabWithUrl, settingsSubTab, tab]);
 
   useEffect(() => {
     setSidebarOverride({
@@ -1431,20 +1409,16 @@ export function PortalAiReceptionistClient() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">AI Receptionist</h1>
-          <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            Save hours with a dedicated AI receptionist: answer calls, capture details, and follow up automatically.
-          </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-h-9">
           {refreshing ? (
-            <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
+            <div className="flex items-center gap-2 text-xs font-semibold text-zinc-500">
               <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
               Refreshing…
             </div>
           ) : null}
         </div>
-        <div className="flex items-start gap-3">
+        <div className="ml-auto flex items-start gap-3">
           <div className="w-full sm:w-auto">
             <SuggestedSetupModalLauncher serviceSlugs={["ai-receptionist"]} buttonLabel="Suggested setup" />
           </div>
@@ -2482,141 +2456,142 @@ export function PortalAiReceptionistClient() {
             ) : null}
           </div>
 
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="text-xs font-semibold text-zinc-600">Calls agent</div>
-            <div className="mt-3">
-              <InlineElevenLabsAgentTester agentId={settings?.voiceAgentId} />
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Inbound SMS preview</div>
-                <div className="mt-0.5 text-xs text-zinc-600">Simulates what your AI Receptionist would reply to an inbound text.</div>
-              </div>
-              <button
-                type="button"
-                className={classNames(
-                  "rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-xs font-semibold text-white transition-opacity duration-150 hover:opacity-95",
-                  smsTestBusy ? "opacity-60" : "",
-                )}
-                disabled={smsTestBusy || !smsTestInbound.trim()}
-                onClick={async () => {
-                  if (smsTestBusy) return;
-                  const inbound = smsTestInbound.trim();
-                  if (!inbound) return;
-
-                  setSmsTestBusy(true);
-                  setSmsTestWouldReply(null);
-                  setSmsTestReason(null);
-                  setSmsTestReply("");
-
-                  try {
-                    const res = await fetch("/api/portal/ai-receptionist/preview-sms-reply", {
-                      method: "POST",
-                      headers: { "content-type": "application/json" },
-                      body: JSON.stringify({ inbound, contactTagIds: smsTestTagIds }),
-                    }).catch(() => null as any);
-
-                    const json = (await res?.json?.().catch(() => null)) as any;
-                    if (!res || !res.ok || !json || json.ok !== true) {
-                      throw new Error(json?.error || "Unable to preview reply");
-                    }
-
-                    setSmsTestWouldReply(Boolean(json.wouldReply));
-                    setSmsTestReason(typeof json.reason === "string" ? json.reason : null);
-                    setSmsTestReply(typeof json.reply === "string" ? json.reply : "");
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Unable to preview reply");
-                  } finally {
-                    setSmsTestBusy(false);
-                  }
-                }}
-              >
-                {smsTestBusy ? "Generating…" : "Preview reply"}
-              </button>
-            </div>
-
-            <div className="mt-3">
-              <div className="text-xs font-semibold text-zinc-600">Inbound message</div>
-              <textarea
-                className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                value={smsTestInbound}
-                onChange={(e) => setSmsTestInbound(e.target.value)}
-                placeholder="Hey, are you open today?"
-              />
-            </div>
-
-            <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
-              <div className="text-xs font-semibold text-zinc-700">Simulated contact tags (optional)</div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {smsTestTagIds.length ? (
-                  smsTestTagIds.map((id) => {
-                    const t = contactTags.find((x) => x.id === id);
-                    const label = t?.name ? t.name : id;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 transition-colors duration-150 hover:bg-zinc-100"
-                        title="Remove"
-                        onClick={() => setSmsTestTagIds((prev) => prev.filter((x) => x !== id))}
-                      >
-                        {label} <span className="ml-1 text-zinc-500">×</span>
-                      </button>
-                    );
-                  })
-                ) : (
-                  <div className="text-xs text-zinc-500">No tags</div>
-                )}
-              </div>
-
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <input
-                  value={smsTestTagSearch}
-                  onChange={(e) => setSmsTestTagSearch(e.target.value)}
-                  placeholder="Search tags…"
-                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                />
-                <PortalListboxDropdown
-                  value={smsTestAddTagValue}
-                  options={buildAddTagOptionsFromTags(contactTags, smsTestTagIds, smsTestTagSearch) as any}
-                  onChange={(v) => {
-                    const id = String(v || "");
-                    if (!id) {
-                      setSmsTestAddTagValue("");
-                      return;
-                    }
-                    setSmsTestAddTagValue("");
-                    setSmsTestTagIds((prev) => Array.from(new Set([...prev, id])).slice(0, 60));
-                  }}
-                  disabled={!contactTags.length}
-                  className="w-full"
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                />
+          <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-xs font-semibold text-zinc-600">Calls</div>
+              <div className="mt-3">
+                <InlineElevenLabsAgentTester agentId={settings?.voiceAgentId} />
               </div>
             </div>
 
-            {smsTestWouldReply !== null ? (
-              <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
-                <div className="text-xs font-semibold text-zinc-700">Result</div>
-                <div className="mt-1 text-sm text-zinc-800">
-                  Would reply: <span className="font-semibold">{smsTestWouldReply ? "Yes" : "No"}</span>
-                  {smsTestReason ? <span className="text-zinc-500"> · {smsTestReason}</span> : null}
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Messaging</div>
+                  <div className="mt-0.5 text-xs text-zinc-600">Simulates what your AI Receptionist would reply to an inbound text.</div>
                 </div>
-                {smsTestWouldReply ? (
-                  <div className="mt-3">
-                    <div className="text-xs font-semibold text-zinc-600">Reply</div>
-                    <div className="mt-2 whitespace-pre-wrap rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-900">
-                      {smsTestReply || "(empty reply)"}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+                <button
+                  type="button"
+                  className={classNames(
+                    "rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-xs font-semibold text-white transition-opacity duration-150 hover:opacity-95",
+                    smsTestBusy ? "opacity-60" : "",
+                  )}
+                  disabled={smsTestBusy || !smsTestInbound.trim()}
+                  onClick={async () => {
+                    if (smsTestBusy) return;
+                    const inbound = smsTestInbound.trim();
+                    if (!inbound) return;
 
+                    setSmsTestBusy(true);
+                    setSmsTestWouldReply(null);
+                    setSmsTestReason(null);
+                    setSmsTestReply("");
+
+                    try {
+                      const res = await fetch("/api/portal/ai-receptionist/preview-sms-reply", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ inbound, contactTagIds: smsTestTagIds }),
+                      }).catch(() => null as any);
+
+                      const json = (await res?.json?.().catch(() => null)) as any;
+                      if (!res || !res.ok || !json || json.ok !== true) {
+                        throw new Error(json?.error || "Unable to preview reply");
+                      }
+
+                      setSmsTestWouldReply(Boolean(json.wouldReply));
+                      setSmsTestReason(typeof json.reason === "string" ? json.reason : null);
+                      setSmsTestReply(typeof json.reply === "string" ? json.reply : "");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Unable to preview reply");
+                    } finally {
+                      setSmsTestBusy(false);
+                    }
+                  }}
+                >
+                  {smsTestBusy ? "Generating…" : "Preview reply"}
+                </button>
+              </div>
+
+              <div className="mt-3">
+                <div className="text-xs font-semibold text-zinc-600">Inbound message</div>
+                <textarea
+                  className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  value={smsTestInbound}
+                  onChange={(e) => setSmsTestInbound(e.target.value)}
+                  placeholder="Hey, are you open today?"
+                />
+              </div>
+
+              <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                <div className="text-xs font-semibold text-zinc-700">Simulated contact tags (optional)</div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {smsTestTagIds.length ? (
+                    smsTestTagIds.map((id) => {
+                      const t = contactTags.find((x) => x.id === id);
+                      const label = t?.name ? t.name : id;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 transition-colors duration-150 hover:bg-zinc-100"
+                          title="Remove"
+                          onClick={() => setSmsTestTagIds((prev) => prev.filter((x) => x !== id))}
+                        >
+                          {label} <span className="ml-1 text-zinc-500">×</span>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="text-xs text-zinc-500">No tags</div>
+                  )}
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <input
+                    value={smsTestTagSearch}
+                    onChange={(e) => setSmsTestTagSearch(e.target.value)}
+                    placeholder="Search tags…"
+                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  />
+                  <PortalListboxDropdown
+                    value={smsTestAddTagValue}
+                    options={buildAddTagOptionsFromTags(contactTags, smsTestTagIds, smsTestTagSearch) as any}
+                    onChange={(v) => {
+                      const id = String(v || "");
+                      if (!id) {
+                        setSmsTestAddTagValue("");
+                        return;
+                      }
+                      setSmsTestAddTagValue("");
+                      setSmsTestTagIds((prev) => Array.from(new Set([...prev, id])).slice(0, 60));
+                    }}
+                    disabled={!contactTags.length}
+                    className="w-full"
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                  />
+                </div>
+              </div>
+
+              {smsTestWouldReply !== null ? (
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                  <div className="text-xs font-semibold text-zinc-700">Result</div>
+                  <div className="mt-1 text-sm text-zinc-800">
+                    Would reply: <span className="font-semibold">{smsTestWouldReply ? "Yes" : "No"}</span>
+                    {smsTestReason ? <span className="text-zinc-500"> · {smsTestReason}</span> : null}
+                  </div>
+                  {smsTestWouldReply ? (
+                    <div className="mt-3">
+                      <div className="text-xs font-semibold text-zinc-600">Reply</div>
+                      <div className="mt-2 whitespace-pre-wrap rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-900">
+                        {smsTestReply || "(empty reply)"}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -2647,8 +2622,8 @@ export function PortalAiReceptionistClient() {
         <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-zinc-900">Recent calls</div>
-              <div className="mt-1 text-sm text-zinc-600">Inbound calls will show here as they come in.</div>
+              <div className="text-sm font-semibold text-zinc-900">Call activity</div>
+              <div className="mt-1 text-sm text-zinc-600">The sidebar picks which call you’re inspecting here.</div>
             </div>
             {isMobileApp ? (
               <PortalSelectDropdown
@@ -2666,142 +2641,15 @@ export function PortalAiReceptionistClient() {
             ) : null}
           </div>
 
-          {events.length === 0 ? (
+          {!selectedCall ? (
             <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
               No calls yet.
             </div>
           ) : (
-            isMobileApp ? (
-              <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
-                <div className="grid grid-cols-[minmax(0,1fr)_12ch_8ch] gap-4 bg-zinc-50 px-4 py-2 text-xs font-semibold text-zinc-600">
-                  <div>Name</div>
-                  <div className="pl-0.5 text-left tabular-nums">Date</div>
-                  <div className="text-right tabular-nums">Time</div>
-                </div>
-                <div className="divide-y divide-zinc-100 bg-white">
-                  {events.slice(0, 80).map((e) => {
-                    const isSelected = e.id === selectedCallId;
-                    const nameLine = (e.contactName || "").trim() || e.from;
-                    return (
-                      <button
-                        key={e.id}
-                        type="button"
-                        onClick={() => openCallDetails(e.id)}
-                        className={
-                          "w-full px-4 py-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                          (isSelected ? "bg-brand-blue/5" : "hover:bg-zinc-50")
-                        }
-                      >
-                        <div className="grid grid-cols-[minmax(0,1fr)_12ch_8ch] items-start gap-4 text-xs">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-zinc-900">{nameLine}</div>
-                            {e.contactEmail ? <div className="mt-0.5 truncate text-xs text-zinc-600">{e.contactEmail}</div> : null}
-                          </div>
-                          <div className="whitespace-nowrap pl-0.5 text-left text-xs font-medium tabular-nums text-zinc-700">{formatDate(e.createdAtIso)}</div>
-                          <div className="whitespace-nowrap text-right text-xs font-medium tabular-nums text-zinc-700">{formatTimeOfDay(e.createdAtIso)}</div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 max-h-[calc(100vh-320px)] overflow-auto pr-1">
-                <div className="space-y-2">
-                  {events.slice(0, 80).map((e) => {
-                    const isSelected = callDetailsOpen && e.id === selectedCallId;
-                    const nameLine = (e.contactName || "").trim() || e.from;
-                    const hasAudio = Boolean((e.recordingSid && e.recordingSid.trim()) || (e.demoRecordingId && e.demoRecordingId.trim()));
-                    const hasTranscript = Boolean(e.transcript && e.transcript.trim());
-                    return (
-                      <button
-                        key={e.id}
-                        type="button"
-                        onClick={() => openCallDetails(e.id)}
-                        className={
-                          "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                          (isSelected ? "border-brand-blue bg-brand-blue text-white" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
-                        }
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className={"min-w-0 font-medium " + (isSelected ? "text-white" : "text-zinc-800")}>
-                            <div className="truncate">{nameLine}</div>
-                            {e.contactEmail ? (
-                              <div className={"mt-0.5 truncate text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                                {e.contactEmail}
-                              </div>
-                            ) : null}
-                          </div>
-                          <div className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${badgeClass(e.status)}`}>
-                            {e.status.toLowerCase()}
-                          </div>
-                        </div>
-                        <div className={"mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                          <span>{formatWhen(e.createdAtIso)}</span>
-                          <span>•</span>
-                          <span className="truncate">To: {e.to ?? "N/A"}</span>
-                          {hasAudio ? (
-                            <>
-                              <span>•</span>
-                              <span className={isSelected ? "text-emerald-200" : "text-emerald-700"}>Audio</span>
-                            </>
-                          ) : null}
-                          {hasTranscript ? (
-                            <>
-                              <span>•</span>
-                              <span className={isSelected ? "text-sky-200" : "text-sky-700"}>Transcript</span>
-                            </>
-                          ) : null}
-                        </div>
-                        {deriveClientNotesFromEvent(e) ? (
-                          <div className={"mt-1 line-clamp-2 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                            {deriveClientNotesFromEvent(e)}
-                          </div>
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )
-          )}
-        </div>
-      ) : null}
-
-      {callDetailsOpen && selectedCall ? (
-        <div
-          className="fixed inset-0 z-40 flex items-start justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)]"
-          role="dialog"
-          aria-modal="true"
-          onMouseDown={() => closeCallDetails()}
-          onClick={() => closeCallDetails()}
-        >
-          <div
-            className="flex w-full max-w-4xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-portal-embed-footer-offset,0px)-2rem)] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3 border-b border-zinc-100 px-5 py-4">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-zinc-900">{(selectedCall.contactName || "").trim() || selectedCall.from}</div>
-                <div className="mt-0.5 truncate text-xs text-zinc-600">{(selectedCall.contactPhone || "").trim() || selectedCall.from}</div>
-                <div className="mt-0.5 truncate text-[11px] text-zinc-500">
-                  {formatDate(selectedCall.createdAtIso)} {formatTimeOfDay(selectedCall.createdAtIso)} · {selectedCall.status.toLowerCase()}
-                </div>
-              </div>
-              <button
-                type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-transparent bg-white text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
-                onClick={() => closeCallDetails()}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-5">
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:p-5">
               <CallDetailsContent call={selectedCall} variant={isMobileApp ? "mobile" : "desktop"} />
             </div>
-          </div>
+          )}
         </div>
       ) : null}
 

@@ -9,6 +9,7 @@ import {
   portalSidebarButtonActiveClass,
   portalSidebarButtonBaseClass,
   portalSidebarButtonInactiveClass,
+  portalSidebarIconToneClassForSlug,
   portalSidebarMetaTextClass,
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
@@ -1106,6 +1107,7 @@ export default function PortalReviewsClient() {
             aria-current={tab === "settings" ? "page" : undefined}
             label="Requests"
             icon={<IconReviewRequests />}
+            iconToneClassName={portalSidebarIconToneClassForSlug("reviews")}
             className={
               `${portalSidebarButtonBaseClass} ` +
               (tab === "settings" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)
@@ -1225,20 +1227,14 @@ export default function PortalReviewsClient() {
         onClose={() => setLightboxOpen(false)}
       />
 
-      <div className="flex flex-col gap-1">
-        <div className="text-2xl font-semibold">Reviews</div>
-        <div className="text-sm text-neutral-600">
-          Send a review link after an appointment, and optionally host a public Reviews page.
+      {refreshing ? (
+        <div className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
+          <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
+          <span>Refreshing…</span>
         </div>
-        {refreshing ? (
-          <div className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
-            <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
-            <span>Refreshing…</span>
-          </div>
-        ) : null}
-      </div>
+      ) : null}
 
-      <div className="mt-4">
+      <div className="mt-4 flex justify-end">
         <SuggestedSetupModalLauncher serviceSlugs={["reviews"]} buttonLabel="Suggested setup" />
       </div>
 

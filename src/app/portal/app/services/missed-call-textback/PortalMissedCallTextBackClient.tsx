@@ -4,12 +4,31 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import {
+  IconMessages,
+  IconReceptionistActivity,
+  IconSidebarSettings,
+  PortalSidebarNavButton,
+  portalSidebarButtonActiveClass,
+  portalSidebarButtonBaseClass,
+  portalSidebarButtonInactiveClass,
+  portalSidebarIconToneBlueClass,
+  portalSidebarIconToneNeutralClass,
+  portalSidebarMetaTextClass,
+  portalSidebarSectionStackClass,
+  portalSidebarSectionTitleClass,
+} from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { PORTAL_MISSED_CALL_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
 
 type Settings = {
   version: 1;
@@ -169,6 +188,8 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   const [settings, setSettings] = useState<Settings | null>(null);
   const lastSavedSettingsJsonRef = useRef<string>("{}");
   const [events, setEvents] = useState<EventRow[]>([]);
+  const [tab, setTab] = useState<"activity" | "settings">("settings");
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [profilePhone, setProfilePhone] = useState<string | null>(null);
   const [twilioConfigured, setTwilioConfigured] = useState<boolean>(false);
   const [twilioReason, setTwilioReason] = useState<string | undefined>(undefined);
@@ -237,6 +258,143 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     () => events.filter((e) => e.finalStatus === "MISSED"),
     [events],
   );
+
+  const selectedEvent = useMemo(() => {
+    if (selectedEventId) return events.find((e) => e.id === selectedEventId) ?? null;
+    return events[0] ?? null;
+  }, [events, selectedEventId]);
+
+  useEffect(() => {
+    if (!events.length) {
+      if (selectedEventId) setSelectedEventId(null);
+      return;
+    }
+    if (selectedEventId && events.some((e) => e.id === selectedEventId)) return;
+    setSelectedEventId(events[0]?.id ?? null);
+  }, [events, selectedEventId]);
+
+  useEffect(() => {
+    if (embedded) return;
+    try {
+      const url = new URL(window.location.href);
+      const nextTab = url.searchParams.get("tab");
+      if (nextTab === "activity" || nextTab === "settings") setTab(nextTab);
+      const eventId = url.searchParams.get("event");
+      if (eventId && eventId.trim()) setSelectedEventId(eventId.trim());
+    } catch {
+      // ignore
+    }
+  }, [embedded]);
+
+  const setTabWithUrl = useCallback((nextTab: "activity" | "settings") => {
+    setTab(nextTab);
+    if (embedded) return;
+    try {
+      const url = new URL(window.location.href);
+      if (nextTab === "settings") url.searchParams.delete("tab");
+      else url.searchParams.set("tab", nextTab);
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }, [embedded]);
+
+  const setSelectedEventWithUrl = useCallback((nextId: string) => {
+    setSelectedEventId(nextId);
+    if (embedded) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("event", nextId);
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }, [embedded]);
+
+  const setSidebarOverride = useSetPortalSidebarOverride();
+  const textBackSidebar = useMemo(() => {
+    return (
+      <div className="space-y-4">
+        <div>
+          <div className={portalSidebarSectionTitleClass}>Missed-Call Text Back</div>
+          <div className={portalSidebarSectionStackClass}>
+            <PortalSidebarNavButton
+              type="button"
+              onClick={() => setTabWithUrl("activity")}
+              aria-current={tab === "activity" ? "page" : undefined}
+              label="Activity"
+              icon={<IconReceptionistActivity />}
+              iconToneClassName={portalSidebarIconToneBlueClass}
+              className={classNames(portalSidebarButtonBaseClass, tab === "activity" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)}
+            >
+              Activity
+            </PortalSidebarNavButton>
+            <PortalSidebarNavButton
+              type="button"
+              onClick={() => setTabWithUrl("settings")}
+              aria-current={tab === "settings" ? "page" : undefined}
+              label="Settings"
+              icon={<IconSidebarSettings />}
+              iconToneClassName={portalSidebarIconToneNeutralClass}
+              className={classNames(portalSidebarButtonBaseClass, tab === "settings" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)}
+            >
+              Settings
+            </PortalSidebarNavButton>
+          </div>
+        </div>
+
+        {events.length ? (
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <div className={portalSidebarSectionTitleClass}>Activity</div>
+              <div className="pr-3 text-[11px] text-zinc-400">{events.length}</div>
+            </div>
+            <div className={portalSidebarSectionStackClass}>
+              {events.slice(0, 10).map((event) => {
+                const active = event.id === selectedEventId;
+                return (
+                  <PortalSidebarNavButton
+                    key={event.id}
+                    type="button"
+                    onClick={() => {
+                      setTabWithUrl("activity");
+                      setSelectedEventWithUrl(event.id);
+                    }}
+                    aria-current={active ? "page" : undefined}
+                    label={event.from}
+                    icon={<IconMessages />}
+                    iconToneClassName={portalSidebarIconToneBlueClass}
+                    className={classNames(portalSidebarButtonBaseClass, active ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)}
+                  >
+                    <div className="truncate text-sm font-semibold text-zinc-900">{event.from}</div>
+                    <div className={classNames(portalSidebarMetaTextClass, "flex items-center justify-between gap-2")}>
+                      <span className="truncate">{formatWhen(event.createdAtIso)}</span>
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] ${badgeClass(event.smsStatus)}`}>
+                        {event.smsStatus}
+                      </span>
+                    </div>
+                  </PortalSidebarNavButton>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }, [events, selectedEventId, setSelectedEventWithUrl, setTabWithUrl, tab]);
+
+  useEffect(() => {
+    if (embedded) return;
+    setSidebarOverride({
+      desktopSidebarContent: textBackSidebar,
+      mobileSidebarContent: textBackSidebar,
+    });
+  }, [embedded, setSidebarOverride, textBackSidebar]);
+
+  useEffect(() => {
+    if (embedded) return;
+    return () => setSidebarOverride(null);
+  }, [embedded, setSidebarOverride]);
 
   useEffect(() => {
     if (!settings) return;
@@ -380,13 +538,9 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     <div className={embedded ? "w-full" : "mx-auto w-full max-w-6xl"}>
       {!embedded ? (
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Missed-Call Text Back</h1>
-            <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-              A simple missed-call list + a simple auto-text.
-            </p>
+          <div className="min-h-9">
             {refreshing ? (
-              <div className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
+              <div className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
                 <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
                 <span>Refreshing…</span>
               </div>
@@ -422,8 +576,9 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
         </div>
       ) : null}
 
-      <div className="mt-6 grid grid-cols-1 gap-4">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+      {tab === "settings" ? (
+        <div className="mt-6 grid grid-cols-1 gap-4">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-sm font-semibold text-zinc-900">Automation</div>
@@ -605,7 +760,8 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
             });
           }}
         />
-      </div>
+        </div>
+      ) : null}
 
       <PortalMediaPickerModal
         open={pickerOpen}
@@ -624,95 +780,92 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
         }}
       />
 
-      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Missed calls</div>
-          <div className="mt-1 text-xs text-zinc-500">Latest missed calls + what happened.</div>
+      {tab === "activity" ? (
+        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="text-sm font-semibold text-zinc-900">Selected activity</div>
+          <div className="mt-1 text-xs text-zinc-500">The sidebar controls which missed-call event is shown here.</div>
 
-          {missedCalls.length ? (
-            <div className="mt-4 overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-200 text-xs text-zinc-500">
-                    <th className="py-2 pr-3">When</th>
-                    <th className="py-2 pr-3">From</th>
-                    <th className="py-2 pr-3">Text</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {missedCalls.slice(0, 25).map((e) => (
-                    <tr key={e.id} className="border-b border-zinc-100">
-                      <td className="py-2 pr-3 whitespace-nowrap">{formatWhen(e.createdAtIso)}</td>
-                      <td className="py-2 pr-3 font-mono">{e.from}</td>
-                      <td className="py-2 pr-3">
-                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${badgeClass(e.smsStatus)}`}>
-                          {e.smsStatus}
-                        </span>
-                        {e.smsError ? (
-                          <div className="mt-1 text-xs text-zinc-500">{e.smsError}</div>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="mt-4 text-sm text-zinc-600">No missed calls yet.</div>
-          )}
-        </div>
+          {selectedEvent ? (
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${badgeClass(selectedEvent.finalStatus)}`}>
+                  {selectedEvent.finalStatus}
+                </span>
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${badgeClass(selectedEvent.smsStatus)}`}>
+                  SMS: {selectedEvent.smsStatus}
+                </span>
+                <span className="text-xs text-zinc-500">{formatWhen(selectedEvent.createdAtIso)}</span>
+              </div>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Activity</div>
-          <div className="mt-1 text-xs text-zinc-500">All recent call attempts (answered + missed).</div>
-
-          {events.length ? (
-            <div className="mt-4 space-y-3">
-              {events.slice(0, 30).map((e) => (
-                <div key={e.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${badgeClass(e.finalStatus)}`}>
-                      {e.finalStatus}
-                    </span>
-                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${badgeClass(e.smsStatus)}`}>
-                      SMS: {e.smsStatus}
-                    </span>
-                    <span className="text-xs text-zinc-500">{formatWhen(e.createdAtIso)}</span>
-                  </div>
-
-                  <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-zinc-700 sm:grid-cols-2">
-                    <div>
-                      <span className="text-zinc-500">From:</span> <span className="font-mono">{e.from}</span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500">To:</span> <span className="font-mono">{e.to ?? ""}</span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500">Dial:</span> <span className="font-mono">{e.dialCallStatus ?? ""}</span>
-                    </div>
-                    <div>
-                      <span className="text-zinc-500">CallSid:</span> <span className="font-mono">{e.callSid.slice(0, 12)}…</span>
-                    </div>
-                  </div>
-
-                  {e.smsBody ? (
-                    <div className="mt-2 text-xs text-zinc-600">
-                      <div className="text-zinc-500">Text:</div>
-                      <div className="mt-1 whitespace-pre-wrap">{e.smsBody}</div>
-                    </div>
-                  ) : null}
-
-                  {e.smsError ? (
-                    <div className="mt-2 text-xs text-red-700">{e.smsError}</div>
-                  ) : null}
+              <div className="mt-3 grid grid-cols-1 gap-3 text-sm text-zinc-700 sm:grid-cols-2">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">From</div>
+                  <div className="mt-1 font-mono">{selectedEvent.from}</div>
                 </div>
-              ))}
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">To</div>
+                  <div className="mt-1 font-mono">{selectedEvent.to ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Dial status</div>
+                  <div className="mt-1 font-mono">{selectedEvent.dialCallStatus ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">CallSid</div>
+                  <div className="mt-1 font-mono break-all">{selectedEvent.callSid}</div>
+                </div>
+              </div>
+
+              {selectedEvent.smsBody ? (
+                <div className="mt-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Text message</div>
+                  <div className="mt-2 whitespace-pre-wrap rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-800">
+                    {selectedEvent.smsBody}
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedEvent.smsError ? (
+                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  {selectedEvent.smsError}
+                </div>
+              ) : null}
+
+              {missedCalls.length ? (
+                <div className="mt-5 border-t border-zinc-200 pt-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Recent missed calls</div>
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-200 text-xs text-zinc-500">
+                          <th className="py-2 pr-3">When</th>
+                          <th className="py-2 pr-3">From</th>
+                          <th className="py-2 pr-3">Text</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {missedCalls.slice(0, 12).map((e) => (
+                          <tr key={e.id} className="border-b border-zinc-100">
+                            <td className="py-2 pr-3 whitespace-nowrap">{formatWhen(e.createdAtIso)}</td>
+                            <td className="py-2 pr-3 font-mono">{e.from}</td>
+                            <td className="py-2 pr-3">
+                              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${badgeClass(e.smsStatus)}`}>
+                                {e.smsStatus}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="mt-4 text-sm text-zinc-600">No activity yet.</div>
           )}
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }

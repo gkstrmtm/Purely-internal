@@ -17,6 +17,8 @@ import {
   portalSidebarBorderButtonInactiveClass,
   portalSidebarButtonBaseClass,
   portalSidebarButtonInactiveClass,
+  portalSidebarIconToneClassForSlug,
+  portalSidebarIconToneNeutralClass,
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
@@ -37,7 +39,7 @@ import { useToast } from "@/components/ToastProvider";
 import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderTemplates";
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
-import { IconBusinessGlyph, IconEdit, IconEyeGlyph } from "@/app/portal/PortalIcons";
+import { IconEdit, IconEyeGlyph, IconGlobeGlyph } from "@/app/portal/PortalIcons";
 
 type BookingFormConfig = {
   version: 1;
@@ -970,6 +972,7 @@ export function PortalBookingClient() {
                             ? <IconSidebarSettings />
                           : undefined
                 }
+                iconToneClassName={item.key === "settings" ? portalSidebarIconToneNeutralClass : portalSidebarIconToneClassForSlug("booking")}
                 className={
                   `${portalSidebarBorderButtonBaseClass} ` +
                   (topTab === item.key ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)
@@ -1003,7 +1006,7 @@ export function PortalBookingClient() {
                 className={`block ${portalSidebarButtonBaseClass} ${liveBookingUrl ? portalSidebarButtonInactiveClass : "pointer-events-none bg-zinc-100 text-zinc-400"}`}
               >
                 <span className="flex items-center gap-2">
-                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconBusinessGlyph size={18} /></span>
+                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconGlobeGlyph size={18} /></span>
                   <span>Live</span>
                 </span>
               </a>
@@ -2947,7 +2950,10 @@ export function PortalBookingClient() {
                 target="_blank"
                 rel="noreferrer"
               >
-                Preview
+                <span className="inline-flex items-center gap-2">
+                  <IconEyeGlyph size={16} />
+                  <span>Preview</span>
+                </span>
               </a>
             </div>
 
@@ -3656,39 +3662,39 @@ export function PortalBookingClient() {
           defaultOpen={false}
         >
           {!form ? (
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-            Loading form settings…
-          </div>
-        ) : (
-          <div className="mt-4 space-y-4">
-            <label className="block rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-              <div className="font-medium text-zinc-800">Thank-you message</div>
-              <textarea
-                className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                placeholder="Thanks! You're booked. We'll see you soon."
-                value={form.thankYouMessage ?? ""}
-                disabled={formSaving}
-                onChange={(e) => setForm({ ...form, thankYouMessage: e.target.value })}
-                onBlur={() => void saveForm(form)}
-              />
-              <div className="mt-2 text-xs text-zinc-500">Shown after a successful booking.</div>
-            </label>
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                <span className="font-medium text-zinc-800">Ask for phone</span>
-                <ToggleSwitch
-                  checked={form.phone.enabled}
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+              Loading form settings…
+            </div>
+          ) : (
+            <div className="mt-4 space-y-4">
+              <label className="block rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                <div className="font-medium text-zinc-800">Thank-you message</div>
+                <textarea
+                  className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  placeholder="Thanks! You're booked. We'll see you soon."
+                  value={form.thankYouMessage ?? ""}
                   disabled={formSaving}
-                  accent="ink"
-                  onChange={(checked) =>
-                    void saveForm({
-                      ...form,
-                      phone: { enabled: checked, required: checked ? form.phone.required : false },
-                    })
-                  }
+                  onChange={(e) => setForm({ ...form, thankYouMessage: e.target.value })}
+                  onBlur={() => void saveForm(form)}
                 />
+                <div className="mt-2 text-xs text-zinc-500">Shown after a successful booking.</div>
               </label>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                  <span className="font-medium text-zinc-800">Ask for phone</span>
+                  <ToggleSwitch
+                    checked={form.phone.enabled}
+                    disabled={formSaving}
+                    accent="ink"
+                    onChange={(checked) =>
+                      void saveForm({
+                        ...form,
+                        phone: { enabled: checked, required: checked ? form.phone.required : false },
+                      })
+                    }
+                  />
+                </label>
               <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <span className="font-medium text-zinc-800">Phone required</span>
                 <ToggleSwitch
@@ -3722,17 +3728,17 @@ export function PortalBookingClient() {
                   onChange={(checked) => void saveForm({ ...form, notes: { ...form.notes, required: checked } })}
                 />
               </label>
-            </div>
+              </div>
 
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-              <div className="text-sm font-semibold text-zinc-900">Custom questions</div>
-              <div className="mt-1 text-xs text-zinc-600">Add extra questions to your booking form.</div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">Custom questions</div>
+                <div className="mt-1 text-xs text-zinc-600">Add extra questions to your booking form.</div>
 
-              <div className="mt-3 space-y-2">
-                {form.questions.length === 0 ? (
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
-                    No custom questions yet.
-                  </div>
+                <div className="mt-3 space-y-2">
+                  {form.questions.length === 0 ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
+                      No custom questions yet.
+                    </div>
                 ) : null}
 
                 {form.questions.map((q, idx) => (

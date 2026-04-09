@@ -12,6 +12,8 @@ import {
   portalSidebarButtonActiveClass,
   portalSidebarButtonBaseClass,
   portalSidebarButtonInactiveClass,
+  portalSidebarIconToneNeutralClass,
+  portalSidebarIconTonePinkClass,
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
@@ -23,7 +25,7 @@ import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingL
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
-import { IconBusinessGlyph, IconEdit, IconEyeGlyph, IconServiceGlyph } from "@/app/portal/PortalIcons";
+import { IconEdit, IconEyeGlyph, IconGlobeGlyph, IconServiceGlyph } from "@/app/portal/PortalIcons";
 
 export type BlogsTab = "posts" | "automation" | "settings";
 function currentAppBase(pathname: string | null | undefined) {
@@ -276,7 +278,8 @@ export function PortalBlogsClient({
                 onClick={() => onTabChange(item.key)}
                 aria-current={routeTab === item.key ? "page" : undefined}
                 label={item.label}
-                icon={item.key === "posts" ? <IconServiceGlyph slug="blogs" /> : item.key === "automation" ? <IconEdit size={18} /> : <IconSidebarSettings />}
+                icon={item.key === "posts" ? <IconServiceGlyph slug="blogs" /> : item.key === "automation" ? <IconServiceGlyph slug="automations" /> : <IconSidebarSettings />}
+                iconToneClassName={item.key === "settings" ? portalSidebarIconToneNeutralClass : portalSidebarIconTonePinkClass}
                 className={
                   `${portalSidebarButtonBaseClass} ` +
                   (routeTab === item.key ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)
@@ -309,7 +312,7 @@ export function PortalBlogsClient({
               className={`block ${portalSidebarButtonBaseClass} ${liveBlogsHref ? portalSidebarButtonInactiveClass : "pointer-events-none bg-zinc-100 text-zinc-400"}`}
             >
               <span className="flex items-center gap-2">
-                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconBusinessGlyph size={18} /></span>
+                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconGlobeGlyph size={18} /></span>
                 <span>Live</span>
               </span>
             </a>
@@ -1260,7 +1263,10 @@ export function PortalBlogsClient({
                       (!publicBlogUrlPreview ? "pointer-events-none opacity-60" : "")
                     }
                   >
-                    Preview
+                    <span className="inline-flex items-center gap-2">
+                      <IconEyeGlyph size={16} />
+                      <span>Preview</span>
+                    </span>
                   </a>
                 </div>
 
@@ -1290,7 +1296,10 @@ export function PortalBlogsClient({
                       (!liveBlogUrlPreview ? "pointer-events-none opacity-60" : "")
                     }
                   >
-                    Live
+                    <span className="inline-flex items-center gap-2">
+                      <IconGlobeGlyph size={16} />
+                      <span>Live</span>
+                    </span>
                   </a>
                 </div>
               </div>
@@ -1594,7 +1603,10 @@ export function PortalBlogsClient({
                           window.open(livePath, "_blank", "noopener,noreferrer");
                         }}
                       >
-                        View live
+                        <span className="inline-flex items-center gap-2">
+                          <IconGlobeGlyph size={16} />
+                          <span>View live</span>
+                        </span>
                       </button>
 
                       <button

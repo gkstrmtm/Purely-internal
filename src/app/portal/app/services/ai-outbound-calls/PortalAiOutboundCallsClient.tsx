@@ -14,6 +14,8 @@ import {
   portalSidebarButtonBaseClass,
   portalSidebarButtonInactiveClass,
   portalSidebarIconActionButtonClass,
+  portalSidebarIconToneBlueClass,
+  portalSidebarIconToneNeutralClass,
   portalSidebarMetaTextClass,
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
@@ -746,6 +748,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                 aria-current={tab === tabKey ? "page" : undefined}
                 label={tabKey === "calls" ? "Calls" : tabKey === "messages" ? "Messages" : "Settings"}
                 icon={tabKey === "calls" ? <IconCalls /> : tabKey === "messages" ? <IconMessages /> : tabKey === "settings" ? <IconSidebarSettings /> : undefined}
+                iconToneClassName={tabKey === "settings" ? portalSidebarIconToneNeutralClass : portalSidebarIconToneBlueClass}
                 className={classNames(
                   portalSidebarButtonBaseClass,
                   !selected
@@ -2301,13 +2304,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
           setVariablePickerTarget(null);
         }}
       />
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">AI outbound</h1>
-          <p className="mt-1 text-sm text-zinc-600">
-            Reach out to thousands of leads automatically or on demand, with a curated AI calling assistant.
-          </p>
-        </div>
+      <div className="flex justify-end">
         <div className="w-full sm:w-auto">
           <SuggestedSetupModalLauncher serviceSlugs={["ai-outbound-calls"]} buttonLabel="Suggested setup" />
         </div>

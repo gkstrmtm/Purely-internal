@@ -6,15 +6,6 @@ import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } fr
 import type { PutBlobResult } from "@vercel/blob";
 import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 
-import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
-import {
-  PortalSidebarNavButton,
-  portalSidebarButtonActiveClass,
-  portalSidebarButtonBaseClass,
-  portalSidebarButtonInactiveClass,
-  portalSidebarSectionStackClass,
-  portalSidebarSectionTitleClass,
-} from "@/app/portal/PortalServiceSidebarIcons";
 import { AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { InlineSpinner } from "@/components/InlineSpinner";
@@ -203,100 +194,6 @@ export function PortalMediaLibraryClient() {
     if (!q) return items;
     return items.filter((i) => i.fileName.toLowerCase().includes(q) || i.tag.toLowerCase().includes(q));
   }, [items, search]);
-
-  const setSidebarOverride = useSetPortalSidebarOverride();
-  const mediaSidebar = useMemo(() => {
-    return (
-      <div className="space-y-4">
-        <div>
-          <div className={portalSidebarSectionTitleClass}>Media Library</div>
-          <div className={portalSidebarSectionStackClass}>
-            <PortalSidebarNavButton
-              type="button"
-              onClick={() => {
-                setFolderId(null);
-                setSelected(null);
-              }}
-              label="All media"
-              className={`${portalSidebarButtonBaseClass} ${!folderId ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass}`}
-            >
-              All media
-            </PortalSidebarNavButton>
-            {breadcrumbs.map((crumb) => (
-              <PortalSidebarNavButton
-                key={crumb.id}
-                type="button"
-                onClick={() => {
-                  setFolderId(crumb.id);
-                  setSelected({ kind: "folder", id: crumb.id });
-                }}
-                label={crumb.name}
-                className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
-              >
-                {crumb.name}
-              </PortalSidebarNavButton>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <div className={portalSidebarSectionTitleClass}>Folders</div>
-          <div className={portalSidebarSectionStackClass}>
-            <button
-              type="button"
-              onClick={() => setNewFolderOpen(true)}
-              className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
-            >
-              + New folder
-            </button>
-            {folders.length ? (
-              folders.slice(0, 16).map((folder) => (
-                <PortalSidebarNavButton
-                  key={folder.id}
-                  type="button"
-                  onClick={() => {
-                    setFolderId(folder.id);
-                    setSelected({ kind: "folder", id: folder.id });
-                  }}
-                  label={folder.name}
-                  className={`${portalSidebarButtonBaseClass} ${selected?.kind === "folder" && selected.id === folder.id ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass}`}
-                >
-                  {folder.name}
-                </PortalSidebarNavButton>
-              ))
-            ) : (
-              <div className="px-1 py-2 text-sm text-zinc-500">No folders yet.</div>
-            )}
-          </div>
-        </div>
-
-        {selectedItem ? (
-          <div>
-            <div className={portalSidebarSectionTitleClass}>Selected media</div>
-            <div className="mt-1 px-3 text-[13px] font-medium leading-5 text-zinc-900 wrap-break-word">{selectedItem.fileName}</div>
-            <button
-              type="button"
-              onClick={() => setPreviewOpen(true)}
-              className={`mt-3 ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
-            >
-              Open file
-            </button>
-          </div>
-        ) : null}
-      </div>
-    );
-  }, [breadcrumbs, folderId, folders, selected, selectedItem]);
-
-  useEffect(() => {
-    setSidebarOverride({
-      desktopSidebarContent: mediaSidebar,
-      mobileSidebarContent: mediaSidebar,
-    });
-  }, [mediaSidebar, setSidebarOverride]);
-
-  useEffect(() => {
-    return () => setSidebarOverride(null);
-  }, [setSidebarOverride]);
 
   async function createFolder() {
     const name = newFolderName.trim();
@@ -716,8 +613,8 @@ export function PortalMediaLibraryClient() {
         </div>
       ) : null}
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12">
+      <div className="mt-4">
+        <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white">
           <div className="border-b border-zinc-100 p-4">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -746,7 +643,7 @@ export function PortalMediaLibraryClient() {
                 {filteredFolders.length ? (
                   <div>
                     <div className="text-xs font-semibold text-zinc-500">Folders</div>
-                    <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
+                    <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                       {filteredFolders.map((f) => (
                         <button
                           key={f.id}
@@ -754,28 +651,27 @@ export function PortalMediaLibraryClient() {
                           onClick={() => {
                             setFolderId(f.id);
                           }}
-                          className="flex aspect-square min-h-32 w-full flex-col items-start justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-left hover:bg-zinc-50"
+                          className="flex min-h-40 w-full flex-col rounded-2xl border border-zinc-200 bg-white p-4 text-left transition hover:border-zinc-300 hover:bg-zinc-50"
                         >
-                          <div className="flex min-w-0 items-center gap-3">
-                            <div className={classNames("flex h-10 w-10 items-center justify-center rounded-2xl", folderColorClass(f.color))}>
-                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path
-                                  d="M3.75 7.5C3.75 6.25736 4.75736 5.25 6 5.25H10.05C10.4478 5.25 10.8293 5.40767 11.1107 5.68934L12.1716 6.75H18C19.2426 6.75 20.25 7.75736 20.25 9V16.5C20.25 17.7426 19.2426 18.75 18 18.75H6C4.75736 18.75 3.75 17.7426 3.75 16.5V7.5Z"
-                                  stroke="white"
-                                  strokeWidth="1.8"
-                                />
-                              </svg>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className={classNames("flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl", folderColorClass(f.color))}>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path
+                                    d="M3.75 7.5C3.75 6.25736 4.75736 5.25 6 5.25H10.05C10.4478 5.25 10.8293 5.40767 11.1107 5.68934L12.1716 6.75H18C19.2426 6.75 20.25 7.75736 20.25 9V16.5C20.25 17.7426 19.2426 18.75 18 18.75H6C4.75736 18.75 3.75 17.7426 3.75 16.5V7.5Z"
+                                    stroke="white"
+                                    strokeWidth="1.8"
+                                  />
+                                </svg>
+                              </div>
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold text-zinc-900">{f.name}</div>
+                                <div className="mt-1 truncate font-mono text-[11px] text-zinc-500">tag: {f.tag}</div>
+                              </div>
                             </div>
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-zinc-900">{f.name}</div>
-                              <div className="mt-1 truncate font-mono text-[11px] text-zinc-500">tag: {f.tag}</div>
-                            </div>
-                          </div>
-                          <div className="flex w-full shrink-0 items-center justify-between gap-2">
-                            <div className="text-xs font-semibold text-zinc-600">Open</div>
                             <button
                               type="button"
-                              className="rounded-xl px-2 py-1 text-sm font-semibold text-zinc-600 hover:bg-zinc-100"
+                              className="shrink-0 rounded-xl px-2 py-1 text-sm font-semibold text-zinc-600 hover:bg-zinc-100"
                               aria-label="Folder actions"
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -784,6 +680,9 @@ export function PortalMediaLibraryClient() {
                             >
                               ⋯
                             </button>
+                          </div>
+                          <div className="mt-auto inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
+                            Open folder
                           </div>
                         </button>
                       ))}
@@ -794,7 +693,7 @@ export function PortalMediaLibraryClient() {
                 {filteredItems.length ? (
                   <div>
                     <div className="text-xs font-semibold text-zinc-500">Files</div>
-                    <div className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
+                    <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                       {filteredItems.map((it) => {
                         const isImg = it.mimeType.startsWith("image/");
                         return (
@@ -806,16 +705,37 @@ export function PortalMediaLibraryClient() {
                               setPreviewOpen(true);
                             }}
                             className={classNames(
-                              "flex aspect-square min-h-40 w-full flex-col items-start justify-between gap-3 rounded-2xl border px-4 py-4 text-left hover:bg-zinc-50",
+                              "flex min-h-56 w-full flex-col rounded-2xl border p-4 text-left transition hover:border-zinc-300 hover:bg-zinc-50",
                               selected?.kind === "item" && selected.id === it.id ? "border-zinc-900" : "border-zinc-200",
                             )}
                           >
-                            <div className="flex min-w-0 w-full flex-col items-start gap-3">
+                            <div className="flex w-full items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="line-clamp-2 wrap-break-word text-sm font-semibold leading-5 text-zinc-900">{it.fileName}</div>
+                                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                                  <span className="font-mono">tag: {it.tag}</span>
+                                  <span>•</span>
+                                  <span>{formatBytes(it.fileSize)}</span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                className="shrink-0 rounded-xl px-2 py-1 text-sm font-semibold text-zinc-600 hover:bg-zinc-100"
+                                aria-label="File actions"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openDotsMenu(e, "item", it.id);
+                                }}
+                              >
+                                ⋯
+                              </button>
+                            </div>
+                            <div className="mt-3 flex min-w-0 w-full flex-1 flex-col items-start gap-3">
                               {isImg && it.previewUrl ? (
                                 /* eslint-disable-next-line @next/next/no-img-element */
-                                <img src={it.previewUrl} alt={it.fileName} className="h-28 w-full rounded-2xl object-cover md:h-32" />
+                                <img src={it.previewUrl} alt={it.fileName} className="h-36 w-full rounded-2xl object-cover" />
                               ) : (
-                                <div className="flex h-28 w-full items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700 md:h-32">
+                                <div className="flex h-36 w-full items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
                                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <path
                                       d="M7.5 3.75H13.5L16.5 6.75V20.25H7.5V3.75Z"
@@ -826,28 +746,9 @@ export function PortalMediaLibraryClient() {
                                   </svg>
                                 </div>
                               )}
-                              <div className="min-w-0 w-full">
-                                <div className="line-clamp-2 wrap-break-word text-sm font-semibold leading-5 text-zinc-900">{it.fileName}</div>
-                                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
-                                  <span className="font-mono">tag: {it.tag}</span>
-                                  <span>•</span>
-                                  <span>{formatBytes(it.fileSize)}</span>
-                                </div>
-                              </div>
                             </div>
-                            <div className="flex w-full shrink-0 items-center justify-between gap-2">
-                              <div className="text-xs font-semibold text-zinc-600">Open</div>
-                              <button
-                                type="button"
-                                className="rounded-xl px-2 py-1 text-sm font-semibold text-zinc-600 hover:bg-zinc-100"
-                                aria-label="File actions"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openDotsMenu(e, "item", it.id);
-                                }}
-                              >
-                                ⋯
-                              </button>
+                            <div className="mt-auto inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
+                              Open file
                             </div>
                           </button>
                         );

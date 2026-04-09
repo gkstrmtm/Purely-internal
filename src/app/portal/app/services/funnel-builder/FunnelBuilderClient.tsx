@@ -13,6 +13,8 @@ import {
   portalSidebarBorderButtonActiveClass,
   portalSidebarBorderButtonBaseClass,
   portalSidebarBorderButtonInactiveClass,
+  portalSidebarIconToneClassForSlug,
+  portalSidebarIconToneNeutralClass,
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
@@ -216,6 +218,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 aria-current={tab === item.key ? "page" : undefined}
                 label={item.label}
                 icon={item.key === "funnels" ? <IconActiveFunnels /> : item.key === "forms" ? <IconForms /> : item.key === "settings" ? <IconSidebarSettings /> : undefined}
+                iconToneClassName={item.key === "settings" ? portalSidebarIconToneNeutralClass : portalSidebarIconToneClassForSlug("funnel-builder")}
                 className={
                   `${portalSidebarBorderButtonBaseClass} ` +
                   (tab === item.key ? portalSidebarBorderButtonActiveClass : portalSidebarBorderButtonInactiveClass)

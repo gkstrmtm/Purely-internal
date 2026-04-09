@@ -1,6 +1,7 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { isValidElement, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 import { IconCalendar, IconFunnel, IconPhoneCall, IconSettingsGlyph } from "@/app/portal/PortalIcons";
+import { portalServiceCategoryForSlug, type PortalServiceCategory } from "@/app/portal/services/categories";
 
 type IconProps = {
   className?: string;
@@ -9,6 +10,7 @@ type IconProps = {
 type SidebarNavButtonProps = {
   label: string;
   icon?: ReactNode;
+  iconToneClassName?: string;
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & {
     className: string;
   };
@@ -23,6 +25,14 @@ export const portalSidebarButtonBaseClass =
 export const portalSidebarButtonInactiveClass = "text-zinc-700 hover:bg-zinc-50";
 
 export const portalSidebarButtonActiveClass = "bg-zinc-100 text-zinc-900";
+
+export const portalSidebarIconToneBlueClass = "text-(--color-brand-blue) pa-portal-service-icon-tone pa-portal-service-icon-tone--blue";
+
+export const portalSidebarIconTonePinkClass = "text-(--color-brand-pink) pa-portal-service-icon-tone pa-portal-service-icon-tone--pink";
+
+export const portalSidebarIconToneInkClass = "text-brand-ink pa-portal-service-icon-tone pa-portal-service-icon-tone--ink";
+
+export const portalSidebarIconToneNeutralClass = "text-zinc-700 pa-portal-service-icon-tone pa-portal-service-icon-tone--neutral";
 
 export const portalSidebarSectionTitleClass = "px-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-500";
 
@@ -39,11 +49,52 @@ export const portalSidebarBorderButtonInactiveClass = portalSidebarButtonInactiv
 
 export const portalSidebarBorderButtonActiveClass = portalSidebarButtonActiveClass;
 
-export function PortalSidebarNavButton({ label, icon, className, children, ...props }: SidebarNavButtonProps) {
+export function portalSidebarIconChipClass(active: boolean) {
+  return classNames(
+    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-all duration-100",
+    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100 group-hover:scale-105",
+  );
+}
+
+export function portalSidebarIconToneClassForCategory(category: PortalServiceCategory) {
+  switch (category) {
+    case "communication":
+    case "leads":
+      return portalSidebarIconToneBlueClass;
+    case "marketing":
+    case "operations":
+      return portalSidebarIconTonePinkClass;
+    case "automation":
+    case "analytics":
+      return portalSidebarIconToneInkClass;
+    case "credit":
+    case "other":
+    default:
+      return portalSidebarIconToneNeutralClass;
+  }
+}
+
+export function portalSidebarIconToneClassForSlug(slug: string) {
+  return `${portalSidebarIconToneClassForCategory(portalServiceCategoryForSlug(slug))} pa-portal-service-icon-tone--${slug}`;
+}
+
+export function PortalSidebarNavButton({ label, icon, iconToneClassName, className, children, ...props }: SidebarNavButtonProps) {
+  const active = props["aria-current"] === "page";
+  const maybeIconProps = isValidElement(icon) ? (icon.props as { slug?: unknown }) : null;
+  const inferredToneClassName =
+    iconToneClassName ||
+    (typeof maybeIconProps?.slug === "string"
+      ? portalSidebarIconToneClassForSlug(String(maybeIconProps.slug))
+      : portalSidebarIconToneNeutralClass);
+
   return (
     <button {...props} className={classNames("group", className)}>
       <span className="flex items-center gap-2">
-        {icon ? <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90">{icon}</span> : null}
+        {icon ? (
+          <span className={portalSidebarIconChipClass(active)}>
+            <span className={classNames("inline-flex items-center justify-center [&>svg]:h-4.5 [&>svg]:w-4.5", inferredToneClassName)}>{icon}</span>
+          </span>
+        ) : null}
         <span className={classNames("min-w-0 truncate", icon ? undefined : "w-full")}>{children ?? label}</span>
       </span>
     </button>

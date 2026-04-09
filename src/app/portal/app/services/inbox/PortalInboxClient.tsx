@@ -1,12 +1,12 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import styles from "./PortalInboxClient.module.css";
 import { AppModal } from "@/components/AppModal";
+import GlassSurface from "@/components/GlassSurface";
 import { InlineSpinner } from "@/components/InlineSpinner";
-import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
@@ -21,7 +21,9 @@ import {
   portalSidebarButtonActiveClass,
   portalSidebarButtonBaseClass,
   portalSidebarButtonInactiveClass,
-  portalSidebarMetaTextClass,
+  portalSidebarIconToneBlueClass,
+  portalSidebarIconToneNeutralClass,
+  portalSidebarIconTonePinkClass,
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
@@ -30,8 +32,17 @@ import { normalizePhoneForStorage } from "@/lib/phone";
 import { normalizePortalContactCustomVarKey, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
 type Channel = "email" | "sms";
-type EmailBox = "inbox" | "sent" | "all";
+type EmailBox = "inbox" | "unread" | "sent" | "all";
 type DateFilter = "any" | "7d" | "30d" | "90d";
+type EmailSearchCategory = "current" | "inbox" | "unread" | "outbox" | "attachments";
+type ComposerRect = { left: number; top: number; width: number; height: number };
+type ComposerInteractionMode = "move" | "left" | "right" | "top" | "bottom";
+type ComposerInteraction = {
+  mode: ComposerInteractionMode;
+  pointerX: number;
+  pointerY: number;
+  rect: ComposerRect;
+};
 
 type Thread = {
   id: string;
@@ -200,6 +211,62 @@ function safeEmailFromPeer(raw: string) {
   return m ? m[0] : "";
 }
 
+const portalGlassSurfaceProps = {
+  width: "100%",
+  height: "auto",
+  borderRadius: 28,
+  borderWidth: 0.04,
+  blur: 7,
+  displace: 0.22,
+  distortionScale: -72,
+  redOffset: 0,
+  greenOffset: 2,
+  blueOffset: 6,
+  backgroundOpacity: 0.16,
+  saturation: 1.05,
+  brightness: 46,
+  opacity: 0.985,
+  mixBlendMode: "soft-light" as const,
+  style: { background: "rgba(255,255,255,0.46)", boxShadow: "none" },
+};
+
+const EMAIL_DRAFT_STORAGE_KEY = "pa.portal.inbox.emailDraft.v1";
+const EMAIL_RECENT_SEARCHES_STORAGE_KEY = "pa.portal.inbox.emailRecentSearches.v1";
+const EMAIL_READ_THREAD_IDS_STORAGE_KEY = "pa.portal.inbox.emailReadThreadIds.v1";
+const SMS_LAST_THREAD_STORAGE_KEY = "pa.portal.inbox.smsLastThreadId.v1";
+
+function parseCssLengthToPx(value: string) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return 0;
+  if (trimmed.endsWith("rem")) {
+    const base = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize || "16") || 16;
+    return (Number.parseFloat(trimmed) || 0) * base;
+  }
+  if (trimmed.endsWith("px")) return Number.parseFloat(trimmed) || 0;
+  return Number.parseFloat(trimmed) || 0;
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function threadLooksLikeAttachment(thread: Pick<Thread, "subject" | "lastMessageSubject" | "lastMessagePreview">) {
+  const hay = `${thread.subject ?? ""} ${thread.lastMessageSubject ?? ""} ${thread.lastMessagePreview ?? ""}`.toLowerCase();
+  return (
+    hay.includes("attachment") ||
+    hay.includes("attached") ||
+    hay.includes(".pdf") ||
+    hay.includes(".doc") ||
+    hay.includes(".docx") ||
+    hay.includes(".xls") ||
+    hay.includes(".xlsx") ||
+    hay.includes(".png") ||
+    hay.includes(".jpg") ||
+    hay.includes(".jpeg") ||
+    hay.includes(".gif")
+  );
+}
+
 export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const toast = useToast();
   const router = useRouter();
@@ -233,6 +300,13 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   }, [initialChannel]);
   const [emailBox, setEmailBox] = useState<EmailBox>("inbox");
   const [threadSearch, setThreadSearch] = useState<string>("");
+  const [emailSearchMenu, setEmailSearchMenu] = useState<FixedMenuStyle | null>(null);
+  const [recentEmailSearches, setRecentEmailSearches] = useState<string[]>([]);
+  const [emailSearchWho, setEmailSearchWho] = useState("");
+  const [emailSearchFrom, setEmailSearchFrom] = useState("");
+  const [emailSearchSubject, setEmailSearchSubject] = useState("");
+  const [emailSearchWords, setEmailSearchWords] = useState("");
+  const [emailSearchCategory, setEmailSearchCategory] = useState<EmailSearchCategory>("current");
   const [emailFiltersMenu, setEmailFiltersMenu] = useState<FixedMenuStyle | null>(null);
   const [emailDateFilter, setEmailDateFilter] = useState<DateFilter>("any");
   const [emailHasAttachmentsOnly, setEmailHasAttachmentsOnly] = useState(false);
@@ -252,6 +326,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [emailComposerOpen, setEmailComposerOpen] = useState(false);
   const [emailAttachMenu, setEmailAttachMenu] = useState<FixedMenuStyle | null>(null);
   const [smsSheetOpen, setSmsSheetOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [readThreadIds, setReadThreadIds] = useState<string[]>([]);
+  const [emailComposerRect, setEmailComposerRect] = useState<ComposerRect | null>(null);
 
   const initialDeepLink = useMemo(() => {
     if (typeof window === "undefined") {
@@ -268,6 +345,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const preferredThreadIdRef = useRef<string | null>(initialDeepLink.threadId);
   const preferredToRef = useRef<string | null>(initialDeepLink.to);
   const preferredComposeRef = useRef<boolean>(Boolean(initialDeepLink.compose));
+  const emailSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const composerInteractionRef = useRef<ComposerInteraction | null>(null);
 
   function splitComposeRecipients(raw: string): string[] {
     const s = String(raw || "").trim();
@@ -326,6 +405,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     () => threads.find((t) => t.id === activeThreadId) ?? null,
     [threads, activeThreadId],
   );
+  const readThreadIdSet = useMemo(() => new Set(readThreadIds), [readThreadIds]);
 
   function updateThreadTags(threadId: string, next: ContactTag[]) {
     setThreads((prev) => prev.map((t) => (t.id === threadId ? { ...t, contactTags: next } : t)));
@@ -334,9 +414,15 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const visibleThreads = useMemo(() => {
     if (tab !== "email") return threads;
     if (emailBox === "all") return threads;
+    if (emailBox === "unread") return threads.filter((t) => t.lastMessageDirection === "IN" && !readThreadIdSet.has(t.id));
     const dir = emailBox === "inbox" ? "IN" : "OUT";
     return threads.filter((t) => t.lastMessageDirection === dir);
-  }, [threads, tab, emailBox]);
+  }, [emailBox, readThreadIdSet, tab, threads]);
+
+  const unreadEmailCount = useMemo(
+    () => threads.filter((t) => t.channel === "EMAIL" && t.lastMessageDirection === "IN" && !readThreadIdSet.has(t.id)).length,
+    [readThreadIdSet, threads],
+  );
 
   const visibleThreadsWithFilters = useMemo(() => {
     const now = Date.now();
@@ -353,22 +439,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       }
 
       if (tab === "email" && emailHasAttachmentsOnly) {
-        // Threads API doesn't currently expose attachments, so do best-effort:
-        // treat subjects/previews that mention common attachment hints as a match.
-        const hay = `${t.subject ?? ""} ${t.lastMessageSubject ?? ""} ${t.lastMessagePreview ?? ""}`.toLowerCase();
-        const looksLikeAttachment =
-          hay.includes("attachment") ||
-          hay.includes("attached") ||
-          hay.includes(".pdf") ||
-          hay.includes(".doc") ||
-          hay.includes(".docx") ||
-          hay.includes(".xls") ||
-          hay.includes(".xlsx") ||
-          hay.includes(".png") ||
-          hay.includes(".jpg") ||
-          hay.includes(".jpeg") ||
-          hay.includes(".gif");
-        if (!looksLikeAttachment) return false;
+        if (!threadLooksLikeAttachment(t)) return false;
       }
 
       if (tab === "sms" && smsIncomingOnly) {
@@ -381,8 +452,60 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   const filteredThreads = useMemo(() => {
     const q = threadSearch.trim().toLowerCase();
-    if (!q) return visibleThreadsWithFilters;
     return visibleThreadsWithFilters.filter((t) => {
+      if (tab === "email") {
+        const whoNeedle = emailSearchWho.trim().toLowerCase();
+        const fromNeedle = emailSearchFrom.trim().toLowerCase();
+        const subjectNeedle = emailSearchSubject.trim().toLowerCase();
+        const wordsNeedle = emailSearchWords.trim().toLowerCase();
+        const hay = [
+          t.contact?.name,
+          t.peerAddress,
+          t.subject,
+          t.lastMessageSubject,
+          t.lastMessagePreview,
+          t.lastMessageFrom,
+          t.lastMessageTo,
+        ]
+          .map((x) => String(x ?? "").trim())
+          .filter(Boolean)
+          .join(" \n")
+          .toLowerCase();
+
+        if (whoNeedle) {
+          const whoHay = [t.contact?.name, t.peerAddress, t.lastMessageTo]
+            .map((x) => String(x ?? "").trim())
+            .join(" ")
+            .toLowerCase();
+          if (!whoHay.includes(whoNeedle)) return false;
+        }
+
+        if (fromNeedle) {
+          const fromHay = [t.lastMessageFrom, t.peerAddress]
+            .map((x) => String(x ?? "").trim())
+            .join(" ")
+            .toLowerCase();
+          if (!fromHay.includes(fromNeedle)) return false;
+        }
+
+        if (subjectNeedle) {
+          const subjectHay = [t.subject, t.lastMessageSubject]
+            .map((x) => String(x ?? "").trim())
+            .join(" ")
+            .toLowerCase();
+          if (!subjectHay.includes(subjectNeedle)) return false;
+        }
+
+        if (wordsNeedle && !hay.includes(wordsNeedle)) return false;
+
+        if (emailSearchCategory === "inbox" && t.lastMessageDirection !== "IN") return false;
+        if (emailSearchCategory === "unread" && (t.lastMessageDirection !== "IN" || readThreadIdSet.has(t.id))) return false;
+        if (emailSearchCategory === "outbox" && t.lastMessageDirection !== "OUT") return false;
+        if (emailSearchCategory === "attachments" && !threadLooksLikeAttachment(t)) return false;
+      }
+
+      if (!q) return true;
+
       const hay = [
         t.contact?.name,
         t.peerAddress,
@@ -398,7 +521,32 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [threadSearch, visibleThreadsWithFilters]);
+  }, [emailSearchCategory, emailSearchFrom, emailSearchSubject, emailSearchWho, emailSearchWords, readThreadIdSet, tab, threadSearch, visibleThreadsWithFilters]);
+
+  const emailSearchSuggestions = useMemo(() => {
+    if (tab !== "email") return [] as Array<{ key: string; label: string; meta: string; threadId: string | null; query: string }>;
+
+    const q = threadSearch.trim().toLowerCase();
+    if (!q) {
+      return recentEmailSearches.map((item) => ({ key: `recent:${item}`, label: item, meta: "Recent search", threadId: null, query: item }));
+    }
+
+    return visibleThreadsWithFilters
+      .filter((thread) => {
+        const hay = [thread.contact?.name, thread.peerAddress, thread.subject, thread.lastMessageSubject, thread.lastMessagePreview]
+          .map((value) => String(value ?? "").trim().toLowerCase())
+          .join(" ");
+        return hay.includes(q);
+      })
+      .slice(0, 6)
+      .map((thread) => ({
+        key: thread.id,
+        label: thread.contact?.name?.trim() || safeEmailFromPeer(thread.peerAddress) || displayNameFromAddress(thread.peerAddress),
+        meta: mailSubjectOrNo(thread.subject),
+        threadId: thread.id,
+        query: thread.contact?.name?.trim() || thread.peerAddress || mailSubjectOrNo(thread.subject),
+      }));
+  }, [recentEmailSearches, tab, threadSearch, visibleThreadsWithFilters]);
 
   const [composeTo, setComposeTo] = useState<string>("");
   const [composeSubject, setComposeSubject] = useState<string>("");
@@ -427,11 +575,12 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
 
-  const anyInlineMenuOpen = Boolean(emailFiltersMenu || smsFiltersMenu || toSuggestionsMenu || smsMoreMenu || emailAttachMenu);
+  const anyInlineMenuOpen = Boolean(emailSearchMenu || emailFiltersMenu || smsFiltersMenu || toSuggestionsMenu || smsMoreMenu || emailAttachMenu);
   useEffect(() => {
     if (!anyInlineMenuOpen) return;
 
     const closeAll = () => {
+      setEmailSearchMenu(null);
       setEmailFiltersMenu(null);
       setSmsFiltersMenu(null);
       setToSuggestionsMenu(null);
@@ -453,7 +602,76 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       window.removeEventListener("scroll", onScrollOrResize, true);
       window.removeEventListener("resize", onScrollOrResize);
     };
-  }, [anyInlineMenuOpen, emailAttachMenu, emailFiltersMenu, smsFiltersMenu, smsMoreMenu, toSuggestionsMenu]);
+  }, [anyInlineMenuOpen, emailAttachMenu, emailFiltersMenu, emailSearchMenu, smsFiltersMenu, smsMoreMenu, toSuggestionsMenu]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const syncDesktop = () => setIsDesktop(window.innerWidth >= 1024);
+    syncDesktop();
+    window.addEventListener("resize", syncDesktop);
+    return () => window.removeEventListener("resize", syncDesktop);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(EMAIL_RECENT_SEARCHES_STORAGE_KEY);
+      const next = JSON.parse(raw || "[]");
+      if (Array.isArray(next)) setRecentEmailSearches(next.map((x) => String(x || "").trim()).filter(Boolean).slice(0, 8));
+    } catch {
+      // ignore
+    }
+    try {
+      const raw = window.localStorage.getItem(EMAIL_READ_THREAD_IDS_STORAGE_KEY);
+      const next = JSON.parse(raw || "[]");
+      if (Array.isArray(next)) setReadThreadIds(next.map((x) => String(x || "").trim()).filter(Boolean).slice(-500));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(EMAIL_RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(recentEmailSearches.slice(0, 8)));
+    } catch {
+      // ignore
+    }
+  }, [recentEmailSearches]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(EMAIL_READ_THREAD_IDS_STORAGE_KEY, JSON.stringify(readThreadIds.slice(-500)));
+    } catch {
+      // ignore
+    }
+  }, [readThreadIds]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (tab !== "sms") return;
+    const id = String(activeThreadId || "").trim();
+    if (!id) return;
+    try {
+      window.localStorage.setItem(SMS_LAST_THREAD_STORAGE_KEY, id);
+    } catch {
+      // ignore
+    }
+  }, [activeThreadId, tab]);
+
+  const pushRecentEmailSearch = useCallback((value: string) => {
+    const next = String(value || "").trim();
+    if (!next) return;
+    setRecentEmailSearches((prev) => [next, ...prev.filter((item) => item.toLowerCase() !== next.toLowerCase())].slice(0, 8));
+  }, []);
+
+  const markThreadRead = useCallback((threadId: string | null) => {
+    const id = String(threadId || "").trim();
+    if (!id) return;
+    setReadThreadIds((prev) => (prev.includes(id) ? prev : [...prev, id].slice(-500)));
+  }, []);
 
   useEffect(() => {
     let canceled = false;
@@ -499,19 +717,52 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setLoadingMessages(false);
   }, []);
 
+  const openSearchMenu = useCallback((target: HTMLElement | null) => {
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    setEmailSearchMenu(computeFixedMenuStyle({ rect, width: Math.max(rect.width, 320), estHeight: 320, alignX: "left", minHeight: 180 }));
+  }, []);
+
+  const loadPersistedEmailDraft = useCallback(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const raw = window.localStorage.getItem(EMAIL_DRAFT_STORAGE_KEY);
+      const draft = raw ? JSON.parse(raw) : null;
+      if (!draft || typeof draft !== "object") return false;
+      setComposeTo(String((draft as any).to || ""));
+      setComposeSubject(String((draft as any).subject || ""));
+      setComposeBody(String((draft as any).body || ""));
+      return Boolean((draft as any).to || (draft as any).subject || (draft as any).body);
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const clearPersistedEmailDraft = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.removeItem(EMAIL_DRAFT_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const openEmailComposer = useCallback(() => {
     setEmailComposerOpen(true);
     setEmailAttachMenu(null);
+    setEmailSearchMenu(null);
     setThreadSearch("");
     clearConversationForCompose();
-    setComposeTo("");
-    setComposeSubject("");
-    setComposeBody("");
+    if (!loadPersistedEmailDraft()) {
+      setComposeTo("");
+      setComposeSubject("");
+      setComposeBody("");
+    }
     setComposeAttachments([]);
-  }, [clearConversationForCompose]);
+  }, [clearConversationForCompose, loadPersistedEmailDraft]);
 
   const openSmsComposer = useCallback(() => {
-    setSmsSheetOpen(true);
+    setSmsSheetOpen(!isDesktop);
     setActiveThreadId(null);
     clearConversationForCompose();
     setComposeTo("");
@@ -519,7 +770,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setComposeAttachments([]);
     setSmsMoreMenu(null);
     setToSuggestionsMenu(null);
-  }, [clearConversationForCompose]);
+  }, [clearConversationForCompose, isDesktop]);
 
   async function ensureContactsLoaded() {
     if (contacts || contactsLoading) return;
@@ -783,7 +1034,11 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         }
         if (json.threads.length) {
           if (nextTab === "email") setActiveThreadId(json.threads[0].id);
-          else setActiveThreadId(null);
+          else {
+            const storedSmsThreadId = typeof window !== "undefined" ? window.localStorage.getItem(SMS_LAST_THREAD_STORAGE_KEY) : null;
+            const nextSmsThreadId = storedSmsThreadId && json.threads.some((t) => t.id === storedSmsThreadId) ? storedSmsThreadId : json.threads[0].id;
+            setActiveThreadId(nextSmsThreadId);
+          }
         }
         return;
       }
@@ -817,7 +1072,11 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       preferredToRef.current = null;
     } else if (json.threads.length) {
       if (nextTab === "email") setActiveThreadId(json.threads[0].id);
-      else setActiveThreadId(null);
+      else {
+        const storedSmsThreadId = typeof window !== "undefined" ? window.localStorage.getItem(SMS_LAST_THREAD_STORAGE_KEY) : null;
+        const nextSmsThreadId = storedSmsThreadId && json.threads.some((t) => t.id === storedSmsThreadId) ? storedSmsThreadId : json.threads[0].id;
+        setActiveThreadId(nextSmsThreadId);
+      }
     } else if (preferredTo) {
       setComposeTo(preferredTo);
       preferredToRef.current = null;
@@ -888,6 +1147,115 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     if (tab === "email") setComposeSubject(activeThread.subject ?? "");
     setComposeAttachments([]);
   }, [activeThread, tab]);
+
+  useEffect(() => {
+    if (tab !== "email") return;
+    markThreadRead(activeThreadId);
+  }, [activeThreadId, markThreadRead, tab]);
+
+  useEffect(() => {
+    if (!emailComposerOpen || tab !== "email") return;
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        EMAIL_DRAFT_STORAGE_KEY,
+        JSON.stringify({ to: composeTo, subject: composeSubject, body: composeBody, updatedAt: Date.now() }),
+      );
+    } catch {
+      // ignore
+    }
+  }, [composeBody, composeSubject, composeTo, emailComposerOpen, tab]);
+
+  const clampComposerRectToViewport = useCallback((rect: ComposerRect) => {
+    const sidebarWidth = parseCssLengthToPx(window.getComputedStyle(document.documentElement).getPropertyValue("--pa-portal-sidebar-width"));
+    const topbarHeight = parseCssLengthToPx(window.getComputedStyle(document.documentElement).getPropertyValue("--pa-portal-topbar-height"));
+    const footerOffset = parseCssLengthToPx(window.getComputedStyle(document.documentElement).getPropertyValue("--pa-portal-embed-footer-offset"));
+    const leftBound = sidebarWidth + 16;
+    const topBound = topbarHeight + 16;
+    const rightBound = window.innerWidth - 16;
+    const bottomBound = window.innerHeight - footerOffset - 16;
+    const width = clampNumber(rect.width, 420, Math.max(420, rightBound - leftBound));
+    const height = clampNumber(rect.height, 360, Math.max(360, bottomBound - topBound));
+    const left = clampNumber(rect.left, leftBound, Math.max(leftBound, rightBound - width));
+    const top = clampNumber(rect.top, topBound, Math.max(topBound, bottomBound - height));
+    return { left, top, width, height } satisfies ComposerRect;
+  }, []);
+
+  useEffect(() => {
+    if (!emailComposerOpen || !isDesktop) return;
+    const sidebarWidth = parseCssLengthToPx(window.getComputedStyle(document.documentElement).getPropertyValue("--pa-portal-sidebar-width"));
+    const topbarHeight = parseCssLengthToPx(window.getComputedStyle(document.documentElement).getPropertyValue("--pa-portal-topbar-height"));
+    const footerOffset = parseCssLengthToPx(window.getComputedStyle(document.documentElement).getPropertyValue("--pa-portal-embed-footer-offset"));
+    const defaultRect: ComposerRect = {
+      left: sidebarWidth + 16,
+      top: topbarHeight + 16,
+      width: Math.min(760, Math.max(420, window.innerWidth - sidebarWidth - 40)),
+      height: Math.min(720, Math.max(420, window.innerHeight - topbarHeight - footerOffset - 32)),
+    };
+    setEmailComposerRect((prev) => clampComposerRectToViewport(prev ?? defaultRect));
+  }, [clampComposerRectToViewport, emailComposerOpen, isDesktop]);
+
+  useEffect(() => {
+    if (!emailComposerOpen || !isDesktop) return;
+
+    const onMove = (event: MouseEvent) => {
+      const interaction = composerInteractionRef.current;
+      if (!interaction) return;
+      event.preventDefault();
+      const deltaX = event.clientX - interaction.pointerX;
+      const deltaY = event.clientY - interaction.pointerY;
+      const base = interaction.rect;
+      let next: ComposerRect = base;
+
+      switch (interaction.mode) {
+        case "move":
+          next = { ...base, left: base.left + deltaX, top: base.top + deltaY };
+          break;
+        case "left":
+          next = { ...base, left: base.left + deltaX, width: base.width - deltaX };
+          break;
+        case "right":
+          next = { ...base, width: base.width + deltaX };
+          break;
+        case "top":
+          next = { ...base, top: base.top + deltaY, height: base.height - deltaY };
+          break;
+        case "bottom":
+          next = { ...base, height: base.height + deltaY };
+          break;
+      }
+
+      setEmailComposerRect(clampComposerRectToViewport(next));
+    };
+
+    const onUp = () => {
+      composerInteractionRef.current = null;
+    };
+
+    const onResize = () => {
+      setEmailComposerRect((prev) => (prev ? clampComposerRectToViewport(prev) : prev));
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [clampComposerRectToViewport, emailComposerOpen, isDesktop]);
+
+  const beginComposerInteraction = useCallback((mode: ComposerInteractionMode, event: ReactMouseEvent<HTMLElement>) => {
+    if (!emailComposerRect) return;
+    composerInteractionRef.current = {
+      mode,
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      rect: emailComposerRect,
+    };
+    event.preventDefault();
+  }, [emailComposerRect]);
 
   useEffect(() => {
     if (tab !== "sms") return;
@@ -1239,10 +1607,28 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     const sectionButtonClass = (active: boolean) =>
       `${portalSidebarButtonBaseClass} ${active ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass}`;
 
-    const threadHeading = tab === "email" ? (emailBox === "sent" ? "Outbox" : emailBox === "all" ? "All mail" : "Inbox") : "SMS threads";
-
     return (
       <div className="flex h-full min-h-0 flex-col gap-4">
+        {tab === "email" ? (
+          <button
+            type="button"
+            onClick={openEmailComposer}
+            className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass} inline-flex items-center justify-center gap-2 bg-white`}
+          >
+            <span className={portalSidebarIconTonePinkClass}>+</span>
+            <span>New email</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={openSmsComposer}
+            className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass} inline-flex items-center justify-center gap-2 bg-white`}
+          >
+            <span className={portalSidebarIconToneBlueClass}>+</span>
+            <span>New text</span>
+          </button>
+        )}
+
         <div>
           <div className={portalSidebarSectionTitleClass}>Channels</div>
           <div className={portalSidebarSectionStackClass}>
@@ -1252,6 +1638,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               aria-current={tab === "email" ? "page" : undefined}
               label="Email"
               icon={<IconInboxGlyph size={18} />}
+              iconToneClassName={portalSidebarIconToneNeutralClass}
               className={sectionButtonClass(tab === "email")}
             >
               Email
@@ -1262,6 +1649,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               aria-current={tab === "sms" ? "page" : undefined}
               label="SMS"
               icon={<IconMessages className="h-5 w-5" />}
+              iconToneClassName={portalSidebarIconToneBlueClass}
               className={sectionButtonClass(tab === "sms")}
             >
               SMS
@@ -1273,107 +1661,31 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           <div>
             <div className={portalSidebarSectionTitleClass}>Mailbox</div>
             <div className={portalSidebarSectionStackClass}>
-              <PortalSidebarNavButton type="button" onClick={() => setEmailBox("inbox")} aria-current={emailBox === "inbox" ? "page" : undefined} label="Inbox" icon={<IconInboxGlyph size={18} />} className={sectionButtonClass(emailBox === "inbox")}>Inbox</PortalSidebarNavButton>
-              <PortalSidebarNavButton type="button" onClick={() => setEmailBox("sent")} aria-current={emailBox === "sent" ? "page" : undefined} label="Outbox" icon={<IconSend size={18} className="-scale-x-100" />} className={sectionButtonClass(emailBox === "sent")}>Outbox</PortalSidebarNavButton>
-              <PortalSidebarNavButton type="button" onClick={() => setEmailBox("all")} aria-current={emailBox === "all" ? "page" : undefined} label="All mail" icon={<IconEyeGlyph size={18} />} className={sectionButtonClass(emailBox === "all")}>All mail</PortalSidebarNavButton>
+              <PortalSidebarNavButton type="button" onClick={() => setEmailBox("inbox")} aria-current={emailBox === "inbox" ? "page" : undefined} label="Inbox" icon={<IconInboxGlyph size={18} />} iconToneClassName={portalSidebarIconToneNeutralClass} className={sectionButtonClass(emailBox === "inbox")}>Inbox</PortalSidebarNavButton>
+              <PortalSidebarNavButton type="button" onClick={() => setEmailBox("unread")} aria-current={emailBox === "unread" ? "page" : undefined} label="Unread" icon={<IconEyeGlyph size={18} />} iconToneClassName={portalSidebarIconToneBlueClass} className={sectionButtonClass(emailBox === "unread")}>Unread</PortalSidebarNavButton>
+              <PortalSidebarNavButton type="button" onClick={() => setEmailBox("sent")} aria-current={emailBox === "sent" ? "page" : undefined} label="Outbox" icon={<IconSend size={18} className="-scale-x-100" />} iconToneClassName={portalSidebarIconToneNeutralClass} className={sectionButtonClass(emailBox === "sent")}>Outbox</PortalSidebarNavButton>
+              <PortalSidebarNavButton
+                type="button"
+                onClick={() => setEmailHasAttachmentsOnly((prev) => !prev)}
+                aria-current={emailHasAttachmentsOnly ? "page" : undefined}
+                label="Include attachments"
+                icon={<IconServiceGlyph slug="media-library" />}
+                iconToneClassName={portalSidebarIconTonePinkClass}
+                className={sectionButtonClass(emailHasAttachmentsOnly)}
+              >
+                Include attachments
+              </PortalSidebarNavButton>
             </div>
-            <button
-              type="button"
-              onClick={openEmailComposer}
-              className={`mt-3 ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
-            >
-              + New email
-            </button>
           </div>
         ) : (
           <div>
             <div className={portalSidebarSectionTitleClass}>Messages</div>
-            <button
-              type="button"
-              onClick={openSmsComposer}
-              className={`mt-2 ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
-            >
-              + New text
-            </button>
+            <div className="px-3 text-[11px] text-zinc-500">Threads now stay in the page area on desktop.</div>
           </div>
         )}
-
-        <div>
-          <div className="relative">
-            <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
-              <IconSearch size={18} />
-            </div>
-            <input
-              value={threadSearch}
-              onChange={(e) => setThreadSearch(e.target.value)}
-              placeholder={tab === "email" ? "Search mail" : "Search messages"}
-              className="h-11 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-            />
-          </div>
-        </div>
-
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex items-center justify-between gap-3">
-            <div className={portalSidebarSectionTitleClass}>{threadHeading}</div>
-            <div className="pr-3 text-[11px] text-zinc-400">{filteredThreads.length}</div>
-          </div>
-
-          {loadingThreads ? (
-            <div className="mt-3 px-1 text-sm text-zinc-600">Loading…</div>
-          ) : filteredThreads.length ? (
-            <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-y-contain">
-              {filteredThreads.map((thread) => {
-                const active = thread.id === activeThreadId;
-                const title = thread.contact?.name?.trim()
-                  ? thread.contact.name.trim()
-                  : tab === "sms"
-                    ? displayNameFromAddress(thread.peerAddress)
-                    : thread.lastMessageDirection === "IN"
-                      ? thread.peerAddress
-                      : "You";
-                const subtitle =
-                  tab === "sms"
-                    ? firstLinePreview(thread.lastMessagePreview)
-                    : `${mailSubjectOrNo(thread.subject)} · ${firstLinePreview(thread.lastMessagePreview)}`;
-
-                return (
-                  <PortalSidebarNavButton
-                    key={thread.id}
-                    type="button"
-                    onClick={() => {
-                      setEmailComposerOpen(false);
-                      setActiveThreadId(thread.id);
-                      if (tab === "sms") {
-                        setSmsSheetOpen(true);
-                        setSmsMoreMenu(null);
-                        setToSuggestionsMenu(null);
-                      }
-                    }}
-                    label={title}
-                    className={sectionButtonClass(active)}
-                    aria-current={active ? "page" : undefined}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-zinc-900">{title}</div>
-                        <div className={`${portalSidebarMetaTextClass} line-clamp-2`}>{subtitle || "No messages yet."}</div>
-                      </div>
-                      <div className="shrink-0 pt-0.5 text-[11px] text-zinc-500">{formatDayOrTime(thread.lastMessageAt)}</div>
-                    </div>
-                  </PortalSidebarNavButton>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="mt-3 px-1 text-sm text-zinc-600">
-              No conversations yet.
-              <div className="mt-1 text-xs text-zinc-500">Send something, or enable inbound webhooks.</div>
-            </div>
-          )}
-        </div>
       </div>
     );
-  }, [activeThreadId, emailBox, filteredThreads, loadingThreads, openEmailComposer, openSmsComposer, setChannel, tab, threadSearch]);
+  }, [emailBox, emailHasAttachmentsOnly, openEmailComposer, openSmsComposer, setChannel, tab]);
 
   useEffect(() => {
     setSidebarOverride({
@@ -1427,36 +1739,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         }}
       />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Inbox / Outbox</h1>
-          <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            Email and SMS threads in one place.
-          </p>
-        </div>
-
-        <div className="w-full sm:max-w-110">
-          {settings?.twilio?.configured ? null : (
-            <PortalSettingsSection
-              title="Inbound setup"
-              description="Connect Twilio to enable SMS. Webhooks are configured automatically."
-              accent="blue"
-              dotClassName={
-                settings?.twilio?.configured
-                  ? "bg-[color:var(--color-brand-blue)]"
-                  : "bg-zinc-400"
-              }
-            >
-              <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
-                Add your Twilio Account SID, Auth Token, and From number in Profile → Twilio.
-                After you connect, we configure inbound SMS automatically.
-              </div>
-            </PortalSettingsSection>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-6 flex w-full flex-wrap gap-2 lg:hidden">
+      <div className="mt-3 flex w-full flex-wrap gap-2 lg:hidden">
         <button
           type="button"
           onClick={() => setChannel("email")}
@@ -1484,275 +1767,201 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           SMS
         </button>
       </div>
-
-      {tab === "email" ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 lg:hidden">
-          <button
-            type="button"
-            className="h-11 shrink-0 rounded-full border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 transition-colors duration-100 hover:bg-zinc-50"
-            onClick={() => setEmailBox((prev) => (prev === "sent" ? "inbox" : "sent"))}
-            aria-label={emailBox === "sent" ? "Show inbox" : "Show outbox"}
-          >
-            {emailBox === "sent" ? "Outbox" : "Inbox"}
-          </button>
-
-          <div className="relative min-w-56 flex-1">
-            <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
-              <IconSearch size={18} />
-            </div>
-            <input
-              value={threadSearch}
-              onChange={(e) => setThreadSearch(e.target.value)}
-              placeholder="Search mail"
-              className="h-11 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-            />
-          </div>
-
-          <div className="relative shrink-0">
-            {emailFiltersMenu ? (
-              <>
-                <div
-                  className="fixed inset-0 z-30"
-                  onMouseDown={() => setEmailFiltersMenu(null)}
-                  onTouchStart={() => setEmailFiltersMenu(null)}
-                  aria-hidden
-                />
-                <div
-                  className="fixed z-40 w-72 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
-                  style={{ left: emailFiltersMenu.left, top: emailFiltersMenu.top, maxHeight: emailFiltersMenu.maxHeight }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onTouchStart={(e) => e.stopPropagation()}
-                >
-                  <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
-                  <div className="px-4 py-3">
-                    <div className="text-xs font-semibold text-zinc-700">Date</div>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      {(
-                        [
-                          { key: "any" as const, label: "Any time" },
-                          { key: "7d" as const, label: "Last 7 days" },
-                          { key: "30d" as const, label: "Last 30 days" },
-                          { key: "90d" as const, label: "Last 90 days" },
-                        ] satisfies Array<{ key: DateFilter; label: string }>
-                      ).map((opt) => (
-                        <button
-                          key={opt.key}
-                          type="button"
-                          className={classNames(
-                            "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
-                            emailDateFilter === opt.key
-                              ? "border-brand-ink bg-brand-ink text-white"
-                              : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
-                          )}
-                          onClick={() => setEmailDateFilter(opt.key)}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                      <div>
-                        <div className="text-xs font-semibold text-zinc-900">Has attachments</div>
-                        <div className="text-[11px] text-zinc-500">Best-effort based on subject/preview</div>
-                      </div>
-                      <button
-                        type="button"
-                        className={classNames(
-                          "h-7 w-12 rounded-full border transition",
-                          emailHasAttachmentsOnly
-                            ? "border-brand-ink bg-brand-ink"
-                            : "border-zinc-200 bg-zinc-100",
-                        )}
-                        onClick={() => setEmailHasAttachmentsOnly((v) => !v)}
-                        aria-pressed={emailHasAttachmentsOnly}
-                        aria-label="Toggle attachments filter"
-                      >
-                        <span
-                          className={classNames(
-                            "block h-6 w-6 translate-x-0.5 rounded-full bg-white shadow transition",
-                            emailHasAttachmentsOnly && "translate-x-[1.4rem]",
-                          )}
-                        />
-                      </button>
-                    </div>
-
-                    {(emailDateFilter !== "any" || emailHasAttachmentsOnly) ? (
-                      <button
-                        type="button"
-                        className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        onClick={() => {
-                          setEmailDateFilter("any");
-                          setEmailHasAttachmentsOnly(false);
-                        }}
-                      >
-                        Clear filters
-                      </button>
-                    ) : null}
-                  </div>
+      <div className="mt-4">
+        <GlassSurface {...portalGlassSurfaceProps} className="rounded-[28px]">
+          <div className="rounded-3xl bg-[rgba(255,255,255,0.62)] px-3 py-3 backdrop-blur-[2px] sm:px-4">
+            <div className="flex items-center gap-3">
+              <div className="relative min-w-0 flex-1">
+                <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
+                  <IconSearch size={18} />
                 </div>
-              </>
-            ) : null}
-
-            <button
-              type="button"
-              className={classNames(
-                "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-colors duration-100 hover:bg-zinc-50",
-                (emailDateFilter !== "any" || emailHasAttachmentsOnly) && "border-brand-ink",
-              )}
-              onClick={(e) => {
-                const open = Boolean(emailFiltersMenu);
-                if (open) {
-                  setEmailFiltersMenu(null);
-                  return;
-                }
-                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                setEmailFiltersMenu(
-                  computeFixedMenuStyle({ rect, width: 288, estHeight: 420, alignX: "right", minHeight: 220 }),
-                );
-              }}
-              aria-label="Mail filters"
-              aria-expanded={emailFiltersMenu ? true : undefined}
-            >
-              <IconFunnel size={18} />
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {tab === "sms" ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 lg:hidden">
-          <button
-            type="button"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#007aff] text-white shadow-sm transition-colors duration-100 hover:bg-[#006ae6]"
-            onClick={() => {
-              openSmsComposer();
-            }}
-            aria-label="New message"
-          >
-            <span className="text-xl leading-none">+</span>
-          </button>
-
-          <div className="relative min-w-56 flex-1">
-            <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
-              <IconSearch size={18} />
-            </div>
-            <input
-              value={threadSearch}
-              onChange={(e) => setThreadSearch(e.target.value)}
-              placeholder="Search messages"
-              className="h-11 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-            />
-          </div>
-
-          <div className="relative shrink-0">
-            {smsFiltersMenu ? (
-              <>
-                <div
-                  className="fixed inset-0 z-12041"
-                  onMouseDown={() => setSmsFiltersMenu(null)}
-                  onTouchStart={() => setSmsFiltersMenu(null)}
-                  aria-hidden
+                <input
+                  ref={emailSearchInputRef}
+                  value={threadSearch}
+                  onFocus={(e) => {
+                    if (tab === "email") openSearchMenu(e.currentTarget);
+                  }}
+                  onChange={(e) => {
+                    setThreadSearch(e.target.value);
+                    if (tab === "email") openSearchMenu(e.currentTarget);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && tab === "email") {
+                      pushRecentEmailSearch(threadSearch);
+                      setEmailSearchMenu(null);
+                    }
+                    if (e.key === "Escape") setEmailSearchMenu(null);
+                  }}
+                  placeholder={tab === "email" ? "Search mail" : "Search messages"}
+                  className="h-12 w-full rounded-full border border-white/70 bg-white/85 pl-11 pr-4 text-sm text-zinc-900 outline-none transition-colors focus:border-zinc-300"
                 />
-                <div
-                  className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
-                  style={{ left: smsFiltersMenu.left, top: smsFiltersMenu.top, width: smsFiltersMenu.width, maxHeight: smsFiltersMenu.maxHeight }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onTouchStart={(e) => e.stopPropagation()}
-                >
-                  <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
-                  <div className="px-4 py-3">
-                    <div className="text-xs font-semibold text-zinc-700">Date</div>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      {(
-                        [
-                          { key: "any" as const, label: "Any time" },
-                          { key: "7d" as const, label: "Last 7 days" },
-                          { key: "30d" as const, label: "Last 30 days" },
-                          { key: "90d" as const, label: "Last 90 days" },
-                        ] satisfies Array<{ key: DateFilter; label: string }>
-                      ).map((opt) => (
-                        <button
-                          key={opt.key}
-                          type="button"
-                          className={classNames(
-                            "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
-                            smsDateFilter === opt.key
-                              ? "border-brand-ink bg-brand-ink text-white"
-                              : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
-                          )}
-                          onClick={() => setSmsDateFilter(opt.key)}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
 
-                    <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                      <div>
-                        <div className="text-xs font-semibold text-zinc-900">Incoming only</div>
-                        <div className="text-[11px] text-zinc-500">Last message from them</div>
+                {tab === "email" && emailSearchMenu ? (
+                  <>
+                    <div className="fixed inset-0 z-30" onMouseDown={() => setEmailSearchMenu(null)} onTouchStart={() => setEmailSearchMenu(null)} aria-hidden />
+                    <div
+                      className="fixed z-40 overflow-auto rounded-3xl border border-zinc-200 bg-white shadow-xl"
+                      style={{ left: emailSearchMenu.left, top: emailSearchMenu.top, width: emailSearchMenu.width, maxHeight: emailSearchMenu.maxHeight }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                    >
+                      <div className="border-b border-zinc-100 px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                        {threadSearch.trim() ? "Matches" : "Recent searches"}
                       </div>
-                      <button
-                        type="button"
-                        className={classNames(
-                          "h-7 w-12 rounded-full border transition",
-                          smsIncomingOnly ? "border-brand-ink bg-brand-ink" : "border-zinc-200 bg-zinc-100",
+                      <div className="py-2">
+                        {emailSearchSuggestions.length ? (
+                          emailSearchSuggestions.map((item) => (
+                            <button
+                              key={item.key}
+                              type="button"
+                              className="w-full px-4 py-3 text-left hover:bg-zinc-50"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setThreadSearch(item.query);
+                                pushRecentEmailSearch(item.query);
+                                if (item.threadId) {
+                                  setActiveThreadId(item.threadId);
+                                  markThreadRead(item.threadId);
+                                }
+                                setEmailSearchMenu(null);
+                              }}
+                            >
+                              <div className="truncate text-sm font-semibold text-zinc-900">{item.label}</div>
+                              <div className="mt-0.5 truncate text-xs text-zinc-500">{item.meta}</div>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="px-4 py-3 text-sm text-zinc-600">No matching conversations.</div>
                         )}
-                        onClick={() => setSmsIncomingOnly((v) => !v)}
-                        aria-pressed={smsIncomingOnly}
-                        aria-label="Toggle incoming-only filter"
-                      >
-                        <span
-                          className={classNames(
-                            "block h-6 w-6 translate-x-0.5 rounded-full bg-white shadow transition",
-                            smsIncomingOnly && "translate-x-[1.4rem]",
-                          )}
-                        />
-                      </button>
+                      </div>
                     </div>
-                    {(smsDateFilter !== "any" || smsIncomingOnly) ? (
-                      <button
-                        type="button"
-                        className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        onClick={() => {
-                          setSmsDateFilter("any");
-                          setSmsIncomingOnly(false);
-                        }}
-                      >
-                        Clear filters
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </>
-            ) : null}
+                  </>
+                ) : null}
+              </div>
 
-            <button
-              type="button"
-              className={classNames(
-                "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
-                (smsDateFilter !== "any" || smsIncomingOnly) && "border-brand-ink",
-              )}
-              onClick={(e) => {
-                const open = Boolean(smsFiltersMenu);
-                if (open) {
-                  setSmsFiltersMenu(null);
-                  return;
-                }
-                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                setSmsFiltersMenu(
-                  computeFixedMenuStyle({ rect, width: 288, estHeight: 420, alignX: "right", minHeight: 220 }),
-                );
-              }}
-              aria-label="Message filters"
-              aria-expanded={smsFiltersMenu ? true : undefined}
-            >
-              <IconFunnel size={18} />
-            </button>
+              <div className="relative shrink-0">
+                {tab === "email" && emailFiltersMenu ? (
+                  <>
+                    <div className="fixed inset-0 z-30" onMouseDown={() => setEmailFiltersMenu(null)} onTouchStart={() => setEmailFiltersMenu(null)} aria-hidden />
+                    <div
+                      className="fixed z-40 w-80 overflow-auto rounded-3xl border border-zinc-200 bg-white shadow-xl"
+                      style={{ left: emailFiltersMenu.left, top: emailFiltersMenu.top, maxHeight: emailFiltersMenu.maxHeight }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                    >
+                      <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                      <div className="space-y-4 px-4 py-4">
+                        <label className="block">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Who</div>
+                          <input value={emailSearchWho} onChange={(e) => setEmailSearchWho(e.target.value)} className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300" placeholder="Contact or recipient" />
+                        </label>
+                        <label className="block">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">From</div>
+                          <input value={emailSearchFrom} onChange={(e) => setEmailSearchFrom(e.target.value)} className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300" placeholder="Sender" />
+                        </label>
+                        <label className="block">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
+                          <input value={emailSearchSubject} onChange={(e) => setEmailSearchSubject(e.target.value)} className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300" placeholder="Subject" />
+                        </label>
+                        <label className="block">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Has words</div>
+                          <input value={emailSearchWords} onChange={(e) => setEmailSearchWords(e.target.value)} className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300" placeholder="Any text in the thread" />
+                        </label>
+
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Date</div>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            {([ { key: "any" as const, label: "Any time" }, { key: "7d" as const, label: "Last 7 days" }, { key: "30d" as const, label: "Last 30 days" }, { key: "90d" as const, label: "Last 90 days" } ] satisfies Array<{ key: DateFilter; label: string }>).map((opt) => (
+                              <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold", emailDateFilter === opt.key ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")} onClick={() => setEmailDateFilter(opt.key)}>{opt.label}</button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Category</div>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            {([ { key: "current" as const, label: "Current" }, { key: "inbox" as const, label: "Inbox" }, { key: "unread" as const, label: "Unread" }, { key: "outbox" as const, label: "Outbox" }, { key: "attachments" as const, label: "Attachments" } ] satisfies Array<{ key: EmailSearchCategory; label: string }>).map((opt) => (
+                              <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold", emailSearchCategory === opt.key ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")} onClick={() => setEmailSearchCategory(opt.key)}>{opt.label}</button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-900">Has attachments</div>
+                            <div className="text-[11px] text-zinc-500">Best-effort based on subject or preview</div>
+                          </div>
+                          <button type="button" className={classNames("h-7 w-12 rounded-full border transition", emailHasAttachmentsOnly ? "border-brand-ink bg-brand-ink" : "border-zinc-200 bg-zinc-100")} onClick={() => setEmailHasAttachmentsOnly((v) => !v)} aria-pressed={emailHasAttachmentsOnly} aria-label="Toggle attachments filter">
+                            <span className={classNames("block h-6 w-6 translate-x-0.5 rounded-full bg-white shadow transition", emailHasAttachmentsOnly && "translate-x-[1.4rem]")} />
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                          onClick={() => {
+                            setEmailSearchWho("");
+                            setEmailSearchFrom("");
+                            setEmailSearchSubject("");
+                            setEmailSearchWords("");
+                            setEmailSearchCategory("current");
+                            setEmailDateFilter("any");
+                            setEmailHasAttachmentsOnly(false);
+                          }}
+                        >
+                          Clear filters
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+
+                {tab === "sms" && smsFiltersMenu ? (
+                  <>
+                    <div className="fixed inset-0 z-30" onMouseDown={() => setSmsFiltersMenu(null)} onTouchStart={() => setSmsFiltersMenu(null)} aria-hidden />
+                    <div className="fixed z-40 overflow-auto rounded-3xl border border-zinc-200 bg-white shadow-xl" style={{ left: smsFiltersMenu.left, top: smsFiltersMenu.top, width: smsFiltersMenu.width, maxHeight: smsFiltersMenu.maxHeight }} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+                      <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                      <div className="px-4 py-4">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Date</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          {([ { key: "any" as const, label: "Any time" }, { key: "7d" as const, label: "Last 7 days" }, { key: "30d" as const, label: "Last 30 days" }, { key: "90d" as const, label: "Last 90 days" } ] satisfies Array<{ key: DateFilter; label: string }>).map((opt) => (
+                            <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold", smsDateFilter === opt.key ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")} onClick={() => setSmsDateFilter(opt.key)}>{opt.label}</button>
+                          ))}
+                        </div>
+                        <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                          <div>
+                            <div className="text-xs font-semibold text-zinc-900">Incoming only</div>
+                            <div className="text-[11px] text-zinc-500">Last message from them</div>
+                          </div>
+                          <button type="button" className={classNames("h-7 w-12 rounded-full border transition", smsIncomingOnly ? "border-brand-ink bg-brand-ink" : "border-zinc-200 bg-zinc-100")} onClick={() => setSmsIncomingOnly((v) => !v)} aria-pressed={smsIncomingOnly} aria-label="Toggle incoming-only filter">
+                            <span className={classNames("block h-6 w-6 translate-x-0.5 rounded-full bg-white shadow transition", smsIncomingOnly && "translate-x-[1.4rem]")} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+
+                <button
+                  type="button"
+                  className={classNames("inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/70 bg-white/85 text-zinc-800 transition-colors duration-100 hover:bg-zinc-50", tab === "email" ? (emailDateFilter !== "any" || emailHasAttachmentsOnly || emailSearchWho || emailSearchFrom || emailSearchSubject || emailSearchWords || emailSearchCategory !== "current") && "border-brand-ink" : (smsDateFilter !== "any" || smsIncomingOnly) && "border-brand-ink")}
+                  onClick={(e) => {
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    if (tab === "email") {
+                      setEmailFiltersMenu((prev) => prev ? null : computeFixedMenuStyle({ rect, width: 320, estHeight: 560, alignX: "right", minHeight: 240 }));
+                    } else {
+                      setSmsFiltersMenu((prev) => prev ? null : computeFixedMenuStyle({ rect, width: 288, estHeight: 320, alignX: "right", minHeight: 220 }));
+                    }
+                  }}
+                  aria-label={tab === "email" ? "Mail filters" : "Message filters"}
+                >
+                  <IconFunnel size={18} />
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      ) : null}
+        </GlassSurface>
+      </div>
 
       <AppModal
         open={Boolean(contactModalOpen && activeThread)}
@@ -1853,14 +2062,14 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         {!emailComposerOpen ? (
           <div
             className={classNames(
-              "flex min-h-0 flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:hidden lg:col-span-4",
-              tab === "email" && activeThreadId ? "hidden lg:flex" : "",
+              "flex min-h-0 flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-4",
+              activeThreadId ? "hidden lg:flex" : "",
             )}
           >
             <div className="border-b border-zinc-100 px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-sm font-semibold text-zinc-900">
-                  {tab === "email" ? (emailBox === "sent" ? "Outbox" : "Inbox") : "Texts"}
+                  {tab === "email" ? (emailBox === "sent" ? "Outbox" : emailBox === "unread" ? `Unread (${unreadEmailCount})` : "Inbox") : "Texts"}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {tab === "email" ? (
@@ -1897,7 +2106,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       type="button"
                       onClick={() => {
                         setActiveThreadId(t.id);
-                        setSmsSheetOpen(true);
+                        if (!isDesktop) setSmsSheetOpen(true);
                         setSmsMoreMenu(null);
                         setToSuggestionsMenu(null);
                       }}
@@ -1926,7 +2135,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => setActiveThreadId(t.id)}
+                    onClick={() => {
+                      setActiveThreadId(t.id);
+                      markThreadRead(t.id);
+                    }}
                     className={classNames(
                       "w-full border-b border-zinc-100 px-4 py-3 text-left transition",
                       active ? "bg-zinc-100" : "hover:bg-zinc-50",
@@ -1986,7 +2198,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         {!emailComposerOpen && tab === "email" ? (
           <div
             className={classNames(
-              "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12",
+              "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-8",
               !activeThreadId ? "hidden lg:block" : "",
             )}
           >
@@ -2216,22 +2428,189 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           </div>
         ) : null}
 
-        {!emailComposerOpen && tab === "sms" && !smsSheetOpen ? (
-          <div className="hidden overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12 lg:block">
-            <div className="flex min-h-[68vh] flex-col items-center justify-center px-6 text-center">
-              <div className="max-w-md">
-                <div className="text-lg font-semibold text-zinc-900">Choose an SMS thread</div>
-                <div className="mt-2 text-sm text-zinc-600">Pick a conversation from the left sidebar, or start a new text.</div>
-                <button
-                  type="button"
-                  onClick={openSmsComposer}
-                  className="mt-4 rounded-2xl bg-[#007aff] px-4 py-2 text-sm font-semibold text-white hover:bg-[#006ae6]"
-                >
-                  New text
-                </button>
+        {!emailComposerOpen && tab === "sms" ? (
+          isDesktop ? (
+            <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-8">
+              <div className="flex h-full min-h-[68vh] flex-col">
+                <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-zinc-900">
+                      {activeThread ? activeThread.contact?.name || displayNameFromAddress(activeThread.peerAddress) : "Messages"}
+                    </div>
+                    <div className="truncate text-xs text-zinc-500">
+                      {activeThread ? activeThread.peerAddress : "Open the last conversation or start a new text."}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                    onClick={openSmsComposer}
+                  >
+                    New text
+                  </button>
+                  {activeThread ? (
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                      onClick={openContactModalForActiveThread}
+                    >
+                      {activeThread.contactId ? "Edit contact" : "Add contact"}
+                    </button>
+                  ) : null}
+                </div>
+
+                {!activeThread ? (
+                  <div className="border-b border-zinc-200 px-4 py-3">
+                    {toSuggestionsMenu ? (
+                      <div className="fixed inset-0 z-12041" onMouseDown={() => setToSuggestionsMenu(null)} onTouchStart={() => setToSuggestionsMenu(null)} aria-hidden />
+                    ) : null}
+
+                    <div className="relative">
+                      <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                        <div className="text-xs font-semibold text-zinc-600">To:</div>
+                        <input
+                          ref={smsToRef}
+                          value={composeTo}
+                          onFocus={() => {
+                            void ensureContactsLoaded();
+                            const rect = smsToRef.current?.getBoundingClientRect();
+                            if (rect) {
+                              setToSuggestionsMenu(computeFixedMenuStyle({ rect, width: rect.width, estHeight: 320, alignX: "left", minHeight: 160 }));
+                            }
+                          }}
+                          onChange={(e) => {
+                            void ensureContactsLoaded();
+                            setComposeTo(e.target.value);
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setToSuggestionsMenu(computeFixedMenuStyle({ rect, width: rect.width, estHeight: 320, alignX: "left", minHeight: 160 }));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") setToSuggestionsMenu(null);
+                          }}
+                          placeholder="Phone number or contact name"
+                          className="w-full bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
+                        />
+                      </div>
+
+                      {toSuggestionsMenu ? (
+                        <div className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg" style={{ left: toSuggestionsMenu.left, top: toSuggestionsMenu.top, width: toSuggestionsMenu.width, maxHeight: toSuggestionsMenu.maxHeight }} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+                          {contactsLoading ? (
+                            <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
+                          ) : (
+                            (() => {
+                              const suggestions = findContactSuggestions(composeTo);
+                              if (!suggestions.length) return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
+                              return (
+                                <div className="py-1">
+                                  {suggestions.map((c) => (
+                                    <button key={c.id} type="button" className="w-full px-3 py-2 text-left hover:bg-zinc-50" onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      applyContactToCompose(c);
+                                    }}>
+                                      <div className="truncate text-sm font-semibold text-zinc-900">{c.name}</div>
+                                      <div className="mt-0.5 truncate text-xs text-zinc-600">{c.phone || "No phone"}</div>
+                                    </button>
+                                  ))}
+                                </div>
+                              );
+                            })()
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div ref={smsScrollRef} className={classNames("min-h-0 flex-1 overflow-y-auto px-4 py-4", styles.smsPane)}>
+                  {!activeThread ? (
+                    <div className="text-sm text-zinc-600">Start a new text by choosing a contact or entering a phone number.</div>
+                  ) : loadingMessages ? (
+                    <div className="text-sm text-zinc-600">Loading…</div>
+                  ) : scheduledMessages.length || messages.length ? (
+                    <div className="space-y-2">
+                      {scheduledMessages.map((m) => (
+                        <div key={m.id} className="flex justify-center">
+                          <div className="w-full max-w-140 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0 truncate text-xs font-semibold text-blue-700">Scheduled · {formatWhen(m.scheduledFor)}</div>
+                              <button type="button" className="inline-flex shrink-0 items-center gap-2 rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50" onClick={() => openReschedule(m)}>
+                                <IconSchedule size={16} />
+                                Reschedule
+                              </button>
+                            </div>
+                            <div className="mt-1 whitespace-pre-wrap wrap-break-word text-sm text-zinc-800">{m.bodyText}</div>
+                          </div>
+                        </div>
+                      ))}
+                      {messages.map((m, idx) => {
+                        const mine = m.direction === "OUT";
+                        const prev = idx > 0 ? messages[idx - 1] : null;
+                        const next = idx + 1 < messages.length ? messages[idx + 1] : null;
+                        const startsGroup = !prev || prev.direction !== m.direction;
+                        const endsGroup = !next || next.direction !== m.direction;
+                        const bubbleCls = classNames(styles.bubble, mine ? styles.bubbleOut : styles.bubbleIn, endsGroup ? (mine ? styles.tailOut : styles.tailIn) : "");
+
+                        return (
+                          <div key={m.id} className={classNames("flex", mine ? "justify-end" : "justify-start", startsGroup ? "mt-2" : "mt-0")}>
+                            <div className={bubbleCls}>
+                              <div className="whitespace-pre-wrap wrap-break-word">{m.bodyText}</div>
+                              {endsGroup ? <div className={classNames("mt-1 text-[11px]", mine ? "text-white/80" : "text-zinc-600")}>{formatTimeOnly(m.createdAt)}</div> : null}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-zinc-600">No messages yet.</div>
+                  )}
+                </div>
+
+                <div className={classNames("shrink-0 border-t border-zinc-200 p-3", styles.inputBar)}>
+                  <div className={classNames("flex items-center gap-2 px-2 py-2", styles.inputPill)}>
+                    <button
+                      type="button"
+                      className={classNames(styles.iconButton, styles.iconButtonMuted)}
+                      onClick={(e) => {
+                        if (smsMoreMenu) {
+                          setSmsMoreMenu(null);
+                          return;
+                        }
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setSmsMoreMenu(computeFixedMenuStyle({ rect, width: 256, estHeight: 200, alignX: "left", minHeight: 160 }));
+                      }}
+                    >
+                      <span className="text-lg leading-none">+</span>
+                    </button>
+                    <input ref={smsComposeRef} value={composeBody} onChange={(e) => setComposeBody(e.target.value)} onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void onSend();
+                      }
+                    }} placeholder="Text message" className="w-full bg-transparent px-1 text-[15px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none" />
+                    <button type="button" className={classNames(styles.iconButton, styles.iconButtonMuted, (sending || uploading) && "opacity-60")} onClick={openSchedule} disabled={sending || uploading} aria-label="Schedule send">
+                      <IconSchedule size={18} />
+                    </button>
+                    <button type="button" onClick={() => void onSend()} disabled={sending} className={classNames("group", styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")} aria-label="Send">
+                      <span className="relative h-4.5 w-4.5">
+                        <span className="absolute inset-0 opacity-100 transition-opacity group-hover:opacity-0" aria-hidden><IconSend size={18} /></span>
+                        <span className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden><IconSendHover size={18} /></span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          ) : !smsSheetOpen ? (
+            <div className="hidden overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12 lg:block">
+              <div className="flex min-h-[68vh] flex-col items-center justify-center px-6 text-center">
+                <div className="max-w-md">
+                  <div className="text-lg font-semibold text-zinc-900">Choose an SMS thread</div>
+                  <div className="mt-2 text-sm text-zinc-600">Pick a conversation from the thread list, or start a new text.</div>
+                  <button type="button" onClick={openSmsComposer} className="mt-4 rounded-2xl bg-[#007aff] px-4 py-2 text-sm font-semibold text-white hover:bg-[#006ae6]">New text</button>
+                </div>
+              </div>
+            </div>
+          ) : null
         ) : null}
       </div>
 
@@ -2773,19 +3152,39 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
       {tab === "email" && emailComposerOpen ? (
         <>
-          <div className="fixed inset-0 z-12040 bg-black/20" aria-hidden />
+          {!isDesktop ? <div className="fixed inset-0 z-12040 bg-black/20" aria-hidden /> : null}
           <div
-            className="fixed left-0 right-0 z-12040 bg-white shadow-2xl"
-            style={{
-              top: "max(var(--pa-portal-topbar-height, 0px), var(--pa-modal-safe-top, 0px))",
-              bottom: "var(--pa-portal-embed-footer-offset, 0px)",
-            }}
+            className={classNames(
+              "fixed z-12040 bg-white shadow-2xl",
+              isDesktop ? "overflow-hidden rounded-[28px] border border-zinc-200" : "left-0 right-0",
+            )}
+            style={
+              isDesktop && emailComposerRect
+                ? {
+                    left: emailComposerRect.left,
+                    top: emailComposerRect.top,
+                    width: emailComposerRect.width,
+                    height: emailComposerRect.height,
+                  }
+                : {
+                    top: "max(var(--pa-portal-topbar-height, 0px), var(--pa-modal-safe-top, 0px))",
+                    bottom: "var(--pa-portal-embed-footer-offset, 0px)",
+                  }
+            }
             role="dialog"
-            aria-modal="true"
+            aria-modal={!isDesktop}
             aria-label="Compose email"
           >
+            {isDesktop ? (
+              <>
+                <button type="button" className="absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize" onMouseDown={(e) => beginComposerInteraction("left", e)} aria-label="Resize composer left edge" />
+                <button type="button" className="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize" onMouseDown={(e) => beginComposerInteraction("right", e)} aria-label="Resize composer right edge" />
+                <button type="button" className="absolute inset-x-0 top-0 z-10 h-2 cursor-ns-resize" onMouseDown={(e) => beginComposerInteraction("top", e)} aria-label="Resize composer top edge" />
+                <button type="button" className="absolute inset-x-0 bottom-0 z-10 h-2 cursor-ns-resize" onMouseDown={(e) => beginComposerInteraction("bottom", e)} aria-label="Resize composer bottom edge" />
+              </>
+            ) : null}
             <div className="flex h-full flex-col">
-              <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3">
+              <div className={classNames("flex items-center gap-3 border-b border-zinc-200 px-4 py-3", isDesktop ? "cursor-move select-none" : "")} onMouseDown={isDesktop ? (e) => beginComposerInteraction("move", e) : undefined}>
                 <button
                   type="button"
                   className="rounded-full p-2 text-zinc-700 hover:bg-zinc-100"
@@ -2798,6 +3197,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <span className="text-lg leading-none">×</span>
                 </button>
                 <div className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900">New email</div>
+                {isDesktop ? <div className="text-[11px] font-medium text-zinc-500">Drag to move • Resize edges</div> : null}
               </div>
 
               {toSuggestionsMenu ? (
@@ -3000,6 +3400,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     onClick={async () => {
                       const result = await onSend();
                       if (result && (result as any).ok) {
+                        clearPersistedEmailDraft();
                         setEmailComposerOpen(false);
                         setEmailAttachMenu(null);
                       }
