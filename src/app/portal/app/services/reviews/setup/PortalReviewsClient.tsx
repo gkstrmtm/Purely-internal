@@ -9,6 +9,7 @@ import {
   portalSidebarButtonActiveClass,
   portalSidebarButtonBaseClass,
   portalSidebarButtonInactiveClass,
+  portalSidebarIconToneBlueClass,
   portalSidebarIconToneClassForSlug,
   portalSidebarMetaTextClass,
   portalSidebarSectionStackClass,
@@ -1094,6 +1095,7 @@ export default function PortalReviewsClient() {
             aria-current={tab === "reviews" ? "page" : undefined}
             label="Reviews"
             icon={<IconServiceGlyph slug="reviews" />}
+            iconToneClassName={portalSidebarIconToneBlueClass}
             className={
               `${portalSidebarButtonBaseClass} ` +
               (tab === "reviews" ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)
@@ -1240,7 +1242,7 @@ export default function PortalReviewsClient() {
 
       <div className="mt-4">
         <div className={tab === "settings" ? "" : "hidden"}>
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div>
             <div className="flex flex-col gap-1">
               <div className="text-lg font-semibold text-zinc-900">Requests</div>
               <div className="text-sm text-zinc-600">Automation, public reviews page, message template, and destinations.</div>
@@ -2230,7 +2232,7 @@ export default function PortalReviewsClient() {
         </div>
 
         <div className={tab === "reviews" ? "" : "hidden"}>
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div>
             <div className="flex flex-col gap-1">
               <div className="text-lg font-semibold text-zinc-900">Reviews</div>
               <div className="text-sm text-zinc-600">Manual sends, recent activity, and received reviews.</div>

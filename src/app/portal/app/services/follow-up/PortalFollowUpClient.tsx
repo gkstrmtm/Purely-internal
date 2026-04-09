@@ -896,8 +896,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       {!isEmbedded ? (
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">{service.title}</h1>
-            <p className="mt-2 max-w-2xl text-sm text-zinc-600">{service.description}</p>
+            <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Follow up</h1>
             {refreshing ? (
               <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
                 <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
@@ -914,8 +913,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         </div>
       ) : (
         <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Follow-up Automation</div>
-          <div className="mt-2 text-sm text-zinc-600">Send follow-ups automatically after a booked appointment ends.</div>
+          <div className="text-sm font-semibold text-zinc-900">Follow up</div>
         </div>
       )}
 

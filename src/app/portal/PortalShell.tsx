@@ -1081,8 +1081,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const activeTopKey = sidebarModeOverride ?? derivedTopKey;
   const hasSidebarOverrideContent = Boolean(sidebarOverride?.desktopSidebarContent || sidebarOverride?.mobileSidebarContent);
-  const showSidebarOverrideInServices = derivedTopKey === "services" && hasSidebarOverrideContent;
-  const sidebarPanelTopKey = showSidebarOverrideInServices ? "services" : activeTopKey;
+  const showSidebarOverrideInServices = activeTopKey === "services" && derivedTopKey === "services" && hasSidebarOverrideContent;
+  const sidebarPanelTopKey = activeTopKey;
   const showSidebarOverridePanel = sidebarPanelTopKey === "pura" || showSidebarOverrideInServices;
 
   const [dashboardEditMode, setDashboardEditMode] = useState(false);
@@ -1400,34 +1400,57 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const sidebarServiceGroups = groupPortalServices(visibleSidebarServices);
 
   const floatingToolsReserve = "6.5rem";
+  const portalLightSurfaceNoOutlineCss = `
+    .pa-portal-ui [class*="bg-zinc-50"][class*="border-zinc-200"],
+    .pa-portal-ui [class*="bg-zinc-100"][class*="border-zinc-200"],
+    .pa-portal-ui [class*="bg-zinc-50/80"][class*="border-zinc-200"],
+    .pa-portal-ui [class*="bg-emerald-50"][class*="border-emerald-200"],
+    .pa-portal-ui [class*="bg-amber-50"][class*="border-amber-200"],
+    .pa-portal-ui [class*="bg-red-50"][class*="border-red-200"],
+    .pa-portal-ui [class*="bg-blue-50"][class*="border-blue-200"],
+    .pa-portal-ui [class*="bg-pink-50"][class*="border-pink-200"],
+    .pa-portal-ui [class*="bg-white/95"][class*="border-zinc-200"],
+    .pa-portal-ui [class*="bg-white/90"][class*="border-zinc-200"],
+    .pa-portal-ui [class*="bg-white/10"][class*="border-white/15"],
+    .pa-portal-ui [class*="bg-white/10"][class*="border-white/35"],
+    .pa-portal-ui [class*="from-brand-blue/10"][class*="border-brand-ink/10"] {
+      border-color: transparent !important;
+    }
+  `;
 
   if (isAutomationsEditor) {
     return (
-      <div
-        className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-250 ease-out"
-        style={{
-          ["--pa-modal-safe-bottom" as any]: isAutomationsEditor
-            ? `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`
-            : "env(safe-area-inset-bottom)",
-        }}
-      >
-        <main className="h-full overflow-y-auto overscroll-y-contain">
-          {children}
-          <div
-            aria-hidden
-            className="h-[calc(env(safe-area-inset-bottom)+5rem)] sm:h-[calc(env(safe-area-inset-bottom)+2rem)]"
-          />
-        </main>
-        {isAutomationsEditor ? <PortalFloatingTools /> : null}
-      </div>
+      <>
+        <style>{portalLightSurfaceNoOutlineCss}</style>
+        <div
+          className="pa-portal-ui h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-250 ease-out"
+          style={{
+            ["--pa-modal-safe-bottom" as any]: isAutomationsEditor
+              ? `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`
+              : "env(safe-area-inset-bottom)",
+          }}
+        >
+          <main className="h-full overflow-y-auto overscroll-y-contain">
+            {children}
+            <div
+              aria-hidden
+              className="h-[calc(env(safe-area-inset-bottom)+5rem)] sm:h-[calc(env(safe-area-inset-bottom)+2rem)]"
+            />
+          </main>
+          {isAutomationsEditor ? <PortalFloatingTools /> : null}
+        </div>
+      </>
     );
   }
 
   if (isFunnelBuilderFormEditor || isFunnelBuilderFunnelEditor) {
     return (
-      <div className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-250 ease-out">
-        <main className="h-full overflow-y-auto overscroll-y-contain">{children}</main>
-      </div>
+      <>
+        <style>{portalLightSurfaceNoOutlineCss}</style>
+        <div className="pa-portal-ui h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-250 ease-out">
+          <main className="h-full overflow-y-auto overscroll-y-contain">{children}</main>
+        </div>
+      </>
     );
   }
 
@@ -1455,10 +1478,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           /* Embedded portal mode owns its own chrome; hide the /portal layout topbar. */
           .pa-portal-topbar { display: none !important; }
           :root { --pa-portal-topbar-height: 0px !important; }
+          ${portalLightSurfaceNoOutlineCss}
         `}</style>
 
         <div
-          className="flex h-dvh flex-col overflow-hidden bg-brand-mist text-brand-ink"
+          className="pa-portal-ui flex h-dvh flex-col overflow-hidden bg-brand-mist text-brand-ink"
           style={{
             ["--pa-portal-embed-footer-offset" as any]: "calc(env(safe-area-inset-bottom) + 5.5rem)",
             ["--pa-modal-safe-top" as any]: "calc(env(safe-area-inset-top) + 4rem)",
@@ -1677,13 +1701,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div
-      className="h-dvh overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)]"
-      style={{
-        ["--pa-modal-safe-bottom" as any]: `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`,
-      }}
-    >
-      {isAiChat && !puraCanvasOpen ? (
+    <>
+      <style>{portalLightSurfaceNoOutlineCss}</style>
+      <div
+        className="pa-portal-ui h-dvh overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)]"
+        style={{
+          ["--pa-modal-safe-bottom" as any]: `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`,
+        }}
+      >
+        {isAiChat && !puraCanvasOpen ? (
         <div className="pointer-events-none fixed right-4 top-4 z-30 hidden lg:flex flex-col gap-2">
           <GlassSurface {...portalGlassIconSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl">
             <Link
@@ -1708,9 +1734,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </PortalNavLink>
           </GlassSurface>
         </div>
-      ) : null}
+        ) : null}
 
-      {showGettingStartedHint ? (
+        {showGettingStartedHint ? (
         <div
           className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center px-4 py-6"
           style={{
@@ -1754,9 +1780,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
-      ) : null}
+        ) : null}
 
-  <div className="flex h-full min-h-0">
+        <div className="flex h-full min-h-0">
         {/* Mobile drawer */}
         <div
           className={classNames(
@@ -2914,9 +2940,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               <SignOutButton variant="sidebar" collapsed={collapsed} />
             </div>
           </div>
-        </aside>
+          </aside>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain">
           <div className="pointer-events-none fixed inset-x-0 top-0 z-90 flex items-start justify-between px-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:hidden">
             <button
               type="button"
@@ -3463,7 +3489,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           <PortalFloatingTools />
         </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

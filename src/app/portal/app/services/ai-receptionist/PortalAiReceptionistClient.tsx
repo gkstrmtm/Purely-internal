@@ -445,8 +445,6 @@ export function PortalAiReceptionistClient() {
     if (error) toast.error(error);
   }, [error, toast]);
 
-  const [credits, setCredits] = useState<number | null>(null);
-  const [billingPath, setBillingPath] = useState<string>(`${portalBase}/app/billing`);
 
   const [tab, setTab] = useState<"settings" | "testing" | "activity" | "missed-call-textback">("activity");
   const [settingsSubTab, setSettingsSubTab] = useState<"voice" | "sms">("voice");
@@ -832,19 +830,6 @@ export function PortalAiReceptionistClient() {
     [setSelectedCallWithUrl],
   );
 
-  const loadCredits = useCallback(async () => {
-    const res = await fetch("/api/portal/credits", { cache: "no-store" }).catch(() => null as any);
-    if (!res?.ok) {
-      setCredits(0);
-      setBillingPath(`${portalBase}/app/billing`);
-      return;
-    }
-
-    const data = (await res.json().catch(() => ({}))) as { credits?: number; billingPath?: string };
-    setCredits(typeof data.credits === "number" && Number.isFinite(data.credits) ? data.credits : 0);
-    setBillingPath(typeof data.billingPath === "string" && data.billingPath.trim() ? data.billingPath : `${portalBase}/app/billing`);
-  }, [portalBase]);
-
   const loadContactTags = useCallback(async () => {
     const res = await fetch("/api/portal/contact-tags", { cache: "no-store" }).catch(() => null as any);
     const json = (await res?.json?.().catch(() => null)) as any;
@@ -996,9 +981,8 @@ export function PortalAiReceptionistClient() {
 
   useEffect(() => {
     void load();
-    void loadCredits();
     void loadContactTags();
-  }, [load, loadContactTags, loadCredits]);
+  }, [load, loadContactTags]);
 
   useEffect(() => {
     // Auto-refresh activity while calls are in-progress or the selected call lacks a transcript,
@@ -1421,18 +1405,6 @@ export function PortalAiReceptionistClient() {
         <div className="ml-auto flex items-start gap-3">
           <div className="w-full sm:w-auto">
             <SuggestedSetupModalLauncher serviceSlugs={["ai-receptionist"]} buttonLabel="Suggested setup" />
-          </div>
-          <div className="hidden rounded-2xl border border-zinc-200 bg-white px-4 py-2 sm:block">
-            <div className="text-[11px] font-semibold text-zinc-500">Credits remaining</div>
-            <div className="mt-1 flex items-end justify-between gap-3">
-              <div className="text-lg font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
-              <Link href={billingPath} className="text-xs font-semibold text-brand-ink hover:underline">
-                Billing
-              </Link>
-            </div>
-            <div className="mt-1 text-[11px] text-zinc-500">
-              AI calls are 5 credits / started minute.
-            </div>
           </div>
         </div>
       </div>
@@ -2437,9 +2409,8 @@ export function PortalAiReceptionistClient() {
       ) : null}
 
       {tab === "testing" ? (
-        <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold text-zinc-900">Testing</div>
+        <div className="mt-4">
+          <div className="flex items-center justify-end gap-3">
             {isMobileApp ? (
               <PortalSelectDropdown
                 value={tab}
@@ -2457,14 +2428,14 @@ export function PortalAiReceptionistClient() {
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="rounded-[32px] border border-zinc-200 bg-white p-5 shadow-sm">
               <div className="text-xs font-semibold text-zinc-600">Calls</div>
-              <div className="mt-3">
+              <div className="mt-3 min-h-[28rem]">
                 <InlineElevenLabsAgentTester agentId={settings?.voiceAgentId} />
               </div>
             </div>
 
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Messaging</div>

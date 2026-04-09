@@ -12,6 +12,7 @@ import {
   portalSidebarButtonActiveClass,
   portalSidebarButtonBaseClass,
   portalSidebarButtonInactiveClass,
+  portalSidebarIconToneBlueClass,
   portalSidebarIconToneNeutralClass,
   portalSidebarIconTonePinkClass,
   portalSidebarSectionStackClass,
@@ -279,7 +280,7 @@ export function PortalBlogsClient({
                 aria-current={routeTab === item.key ? "page" : undefined}
                 label={item.label}
                 icon={item.key === "posts" ? <IconServiceGlyph slug="blogs" /> : item.key === "automation" ? <IconServiceGlyph slug="automations" /> : <IconSidebarSettings />}
-                iconToneClassName={item.key === "settings" ? portalSidebarIconToneNeutralClass : portalSidebarIconTonePinkClass}
+                iconToneClassName={item.key === "settings" ? portalSidebarIconToneNeutralClass : item.key === "posts" ? portalSidebarIconToneBlueClass : portalSidebarIconTonePinkClass}
                 className={
                   `${portalSidebarButtonBaseClass} ` +
                   (routeTab === item.key ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass)
@@ -853,30 +854,13 @@ export function PortalBlogsClient({
   return (
     <div className="mx-auto w-full max-w-6xl">
       <PortalBackToOnboardingLink />
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Blogs</h1>
-          <p className="mt-1 text-sm text-zinc-600">
-            Stay searchable without writing every week. Generate SEO-friendly drafts, edit them, and publish to your hosted blog (or your custom domain).
-          </p>
-          {refreshing ? (
-            <div className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
-              <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
-              <span>Refreshing…</span>
-            </div>
-          ) : null}
-        </div>
-        {!isPaMobileApp ? (
-          <button
-            type="button"
-            onClick={newDraft}
-            aria-label="New blog"
-            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-          >
-            <span className="text-lg leading-none">+</span>
-            <span>New blog</span>
-          </button>
-        ) : null}
+      <div className="flex justify-between gap-3">
+        {refreshing ? (
+          <div className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
+            <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
+            <span>Refreshing…</span>
+          </div>
+        ) : <div />}
       </div>
 
       {routeTab === "posts" ? (
@@ -884,7 +868,7 @@ export function PortalBlogsClient({
           <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Your posts</div>
+                <div className="text-sm font-semibold text-zinc-900">Posts</div>
                 <div className="mt-2 text-sm text-zinc-600">Edit drafts, export Markdown, and keep everything organized.</div>
               </div>
             </div>
@@ -893,6 +877,17 @@ export function PortalBlogsClient({
               <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Total credits</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
+                {!isPaMobileApp ? (
+                  <button
+                    type="button"
+                    onClick={newDraft}
+                    aria-label="New blog"
+                    className="mt-3 inline-flex items-center justify-center gap-2 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                  >
+                    <span className="text-lg leading-none">+</span>
+                    <span>New blog</span>
+                  </button>
+                ) : null}
               </div>
               <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Blog credits used</div>

@@ -2318,7 +2318,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       ) : null}
 
       <div className="mt-6">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+        <div>
           {isMobileApp ? (
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0 flex-1">
@@ -2462,7 +2462,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
               ) : null}
 
               {tab === "messages" ? (
-                <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
+                <div className="mt-4">
                   <div className="text-sm font-semibold text-zinc-900">Messages</div>
                   <div className="mt-1 text-sm text-zinc-600">Send SMS/email and continue the thread in Inbox.</div>
 
@@ -2721,7 +2721,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
               ) : null}
 
               {tab === "calls" ? (
-                <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
+                <div className="mt-4">
                   <div className="text-sm font-semibold text-zinc-900">Calls</div>
                   <div className="mt-1 text-sm text-zinc-600">Queue automated calls via tags, or place manual calls for testing.</div>
 
@@ -3084,7 +3084,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
               {tab === "settings" ? (
                 <>
-                  <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="mt-5">
                     <div className="text-sm font-semibold text-zinc-900">Agents</div>
                     <div className="mt-1 text-xs text-zinc-600">
                       Configure the script/behavior for voice calls vs SMS/email messaging.

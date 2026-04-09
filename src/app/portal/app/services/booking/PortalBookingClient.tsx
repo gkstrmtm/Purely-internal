@@ -1720,18 +1720,13 @@ export function PortalBookingClient() {
         </div>
       </AppModal>
 
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Booking Automation</h1>
-          <p className="mt-1 text-sm text-zinc-600">Publish a booking link, set availability, and capture appointments.</p>
-          {refreshing ? (
-            <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
-              <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
-              Refreshing…
-            </div>
-          ) : null}
-        </div>
-
+      <div className="flex items-start justify-between gap-3">
+        {refreshing ? (
+          <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
+            <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+            Refreshing…
+          </div>
+        ) : <div />}
         <div className="w-full sm:w-auto">
           <SuggestedSetupModalLauncher serviceSlugs={["booking"]} buttonLabel="Suggested setup" />
         </div>
@@ -3311,49 +3306,24 @@ export function PortalBookingClient() {
 
         <div className="lg:col-span-2">
           <PortalSettingsSection
-            title="Customization & notifications"
-            description="Add an optional header photo, meeting info, and who gets notified when someone books."
+            title="Page & notifications"
+            description="Manage the booking page, meeting defaults, and who gets notified when someone books."
             accent="slate"
             collapsible={false}
             dotClassName="hidden"
           >
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-xs font-semibold text-zinc-600">Calendar settings</div>
-                {selectedCalendar ? (
-                  <>
-                    <div className="mt-2 text-sm font-semibold text-zinc-900">{selectedCalendar.title}</div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      {(selectedCalendar.durationMinutes ?? site?.durationMinutes ?? 30)} minutes · {site?.meetingPlatform === "PURELY_CONNECT" ? "Purely Connect" : (selectedCalendar.meetingLocation || "Custom location")}
-                    </div>
-                  </>
-                ) : (
-                  <div className="mt-2 text-sm text-zinc-600">Create or select a calendar to edit its details.</div>
-                )}
+                <div className="text-xs font-semibold text-zinc-600">Calendar editing</div>
+                <div className="mt-2 text-sm text-zinc-600">Choose or create calendars above, then use the popup editor from that section.</div>
               </div>
-
-              <div className="flex flex-col gap-2 sm:items-end">
-                <div className="w-full sm:w-72">
-                  <PortalListboxDropdown
-                    value={selectedCalendarId as any}
-                    disabled={calSaving || calendars.length === 0}
-                    options={calendars.map((c) => ({ value: c.id, label: c.title || c.id })) as any}
-                    onChange={(v) => setSelectedCalendarId(String(v || "") || null)}
-                    placeholder="Choose a calendar"
-                  />
+              {selectedCalendar ? (
+                <div className="text-xs text-zinc-500">
+                  Editing defaults for page notifications while <span className="font-semibold text-zinc-700">{selectedCalendar.title}</span> remains selected.
                 </div>
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                  disabled={!selectedCalendarId || calSaving}
-                  onClick={() => openCalendarEditor()}
-                >
-                  <IconEdit size={16} />
-                  Edit selected calendar
-                </button>
-              </div>
+              ) : null}
             </div>
           </div>
 

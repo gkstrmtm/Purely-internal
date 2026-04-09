@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 
 import styles from "./PortalInboxClient.module.css";
 import { AppModal } from "@/components/AppModal";
-import GlassSurface from "@/components/GlassSurface";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
@@ -210,25 +209,6 @@ function safeEmailFromPeer(raw: string) {
   const m = s.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
   return m ? m[0] : "";
 }
-
-const portalGlassSurfaceProps = {
-  width: "100%",
-  height: "auto",
-  borderRadius: 28,
-  borderWidth: 0.04,
-  blur: 7,
-  displace: 0.22,
-  distortionScale: -72,
-  redOffset: 0,
-  greenOffset: 2,
-  blueOffset: 6,
-  backgroundOpacity: 0.16,
-  saturation: 1.05,
-  brightness: 46,
-  opacity: 0.985,
-  mixBlendMode: "soft-light" as const,
-  style: { background: "rgba(255,255,255,0.46)", boxShadow: "none" },
-};
 
 const EMAIL_DRAFT_STORAGE_KEY = "pa.portal.inbox.emailDraft.v1";
 const EMAIL_RECENT_SEARCHES_STORAGE_KEY = "pa.portal.inbox.emailRecentSearches.v1";
@@ -1606,9 +1586,23 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const inboxSidebar = useMemo(() => {
     const sectionButtonClass = (active: boolean) =>
       `${portalSidebarButtonBaseClass} ${active ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass}`;
+    const threadButtonClass = (active: boolean) =>
+      classNames(
+        "w-full rounded-2xl border px-3 py-2 text-left transition-colors duration-100",
+        active ? "border-zinc-200 bg-zinc-100 text-zinc-900" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+      );
+
+    const conversationTitle =
+      tab === "email"
+        ? emailBox === "sent"
+          ? "Outbox"
+          : emailBox === "unread"
+            ? `Unread (${unreadEmailCount})`
+            : "Inbox"
+        : "Texts";
 
     return (
-      <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
         {tab === "email" ? (
           <button
             type="button"
@@ -1631,7 +1625,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
         <div>
           <div className={portalSidebarSectionTitleClass}>Channels</div>
-          <div className={portalSidebarSectionStackClass}>
+          <div className="mt-2 grid grid-cols-2 gap-2">
             <PortalSidebarNavButton
               type="button"
               onClick={() => setChannel("email")}
@@ -1677,15 +1671,86 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               </PortalSidebarNavButton>
             </div>
           </div>
-        ) : (
-          <div>
-            <div className={portalSidebarSectionTitleClass}>Messages</div>
-            <div className="px-3 text-[11px] text-zinc-500">Threads now stay in the page area on desktop.</div>
+        ) : null}
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className={portalSidebarSectionTitleClass}>{conversationTitle}</div>
+          <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
+            {loadingThreads ? (
+              <div className="px-3 py-3 text-xs text-zinc-500">Loading conversations…</div>
+            ) : filteredThreads.length ? (
+              <div className="space-y-2">
+                {filteredThreads.map((t) => {
+                  const active = t.id === activeThreadId;
+
+                  if (tab === "sms") {
+                    const title = t.contact?.name?.trim() ? t.contact.name.trim() : displayNameFromAddress(t.peerAddress);
+                    const subtitle = firstLinePreview(t.lastMessagePreview);
+
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveThreadId(t.id);
+                          if (!isDesktop) setSmsSheetOpen(true);
+                          setSmsMoreMenu(null);
+                          setToSuggestionsMenu(null);
+                        }}
+                        className={threadButtonClass(active)}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-zinc-900">{title}</div>
+                            <div className="mt-0.5 truncate text-xs text-zinc-600">{subtitle || " "}</div>
+                          </div>
+                          <div className="shrink-0 text-[11px] text-zinc-500">{formatDayOrTime(t.lastMessageAt)}</div>
+                        </div>
+                      </button>
+                    );
+                  }
+
+                  const sender = t.lastMessageDirection === "IN" ? t.peerAddress : "You";
+                  const subject = mailSubjectOrNo(t.subject);
+                  const snippet = firstLinePreview(t.lastMessagePreview);
+
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => {
+                        setActiveThreadId(t.id);
+                        markThreadRead(t.id);
+                      }}
+                      className={threadButtonClass(active)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className={classNames("truncate text-sm text-zinc-900", t.lastMessageDirection === "IN" ? "font-semibold" : "font-medium")}>
+                            {sender}
+                          </div>
+                          <div className={classNames("mt-0.5 truncate text-sm", t.lastMessageDirection === "IN" ? "font-semibold text-zinc-900" : "font-medium text-zinc-800")}>
+                            {subject}
+                          </div>
+                          <div className="mt-0.5 truncate text-xs text-zinc-600">{snippet || " "}</div>
+                        </div>
+                        <div className="shrink-0 text-[11px] text-zinc-500">{formatDayOrTime(t.lastMessageAt)}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="px-3 py-3 text-xs text-zinc-500">
+                No conversations yet.
+                <div className="mt-1 text-[11px] text-zinc-400">Send something, or enable inbound webhooks.</div>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     );
-  }, [emailBox, emailHasAttachmentsOnly, openEmailComposer, openSmsComposer, setChannel, tab]);
+  }, [activeThreadId, emailBox, emailHasAttachmentsOnly, filteredThreads, isDesktop, loadingThreads, markThreadRead, openEmailComposer, openSmsComposer, setChannel, tab, unreadEmailCount]);
 
   useEffect(() => {
     setSidebarOverride({
@@ -1768,10 +1833,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         </button>
       </div>
       <div className="mt-4">
-        <GlassSurface {...portalGlassSurfaceProps} className="rounded-[28px]">
-          <div className="rounded-3xl bg-[rgba(255,255,255,0.62)] px-3 py-3 backdrop-blur-[2px] sm:px-4">
-            <div className="flex items-center gap-3">
-              <div className="relative min-w-0 flex-1">
+        <div className="rounded-[28px] border border-zinc-200 bg-white px-3 py-3 shadow-[0_10px_30px_rgba(15,23,42,0.05)] sm:px-4">
+          <div className="flex items-center gap-3">
+            <div className="relative min-w-0 flex-1">
                 <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
                   <IconSearch size={18} />
                 </div>
@@ -1793,7 +1857,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     if (e.key === "Escape") setEmailSearchMenu(null);
                   }}
                   placeholder={tab === "email" ? "Search mail" : "Search messages"}
-                  className="h-12 w-full rounded-full border border-white/70 bg-white/85 pl-11 pr-4 text-sm text-zinc-900 outline-none transition-colors focus:border-zinc-300"
+                  className="h-12 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none transition-colors focus:border-zinc-300"
                 />
 
                 {tab === "email" && emailSearchMenu ? (
@@ -1837,9 +1901,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     </div>
                   </>
                 ) : null}
-              </div>
+            </div>
 
-              <div className="relative shrink-0">
+            <div className="relative shrink-0">
                 {tab === "email" && emailFiltersMenu ? (
                   <>
                     <div className="fixed inset-0 z-30" onMouseDown={() => setEmailFiltersMenu(null)} onTouchStart={() => setEmailFiltersMenu(null)} aria-hidden />
@@ -1942,9 +2006,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   </>
                 ) : null}
 
-                <button
+              <button
                   type="button"
-                  className={classNames("inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/70 bg-white/85 text-zinc-800 transition-colors duration-100 hover:bg-zinc-50", tab === "email" ? (emailDateFilter !== "any" || emailHasAttachmentsOnly || emailSearchWho || emailSearchFrom || emailSearchSubject || emailSearchWords || emailSearchCategory !== "current") && "border-brand-ink" : (smsDateFilter !== "any" || smsIncomingOnly) && "border-brand-ink")}
+                  className={classNames("inline-flex h-12 w-12 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-colors duration-100 hover:bg-zinc-50", tab === "email" ? (emailDateFilter !== "any" || emailHasAttachmentsOnly || emailSearchWho || emailSearchFrom || emailSearchSubject || emailSearchWords || emailSearchCategory !== "current") && "border-brand-ink" : (smsDateFilter !== "any" || smsIncomingOnly) && "border-brand-ink")}
                   onClick={(e) => {
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     if (tab === "email") {
@@ -1957,10 +2021,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 >
                   <IconFunnel size={18} />
                 </button>
-              </div>
             </div>
           </div>
-        </GlassSurface>
+        </div>
       </div>
 
       <AppModal
@@ -2062,7 +2125,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         {!emailComposerOpen ? (
           <div
             className={classNames(
-              "flex min-h-0 flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-4",
+              "flex min-h-0 flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12 lg:hidden",
               activeThreadId ? "hidden lg:flex" : "",
             )}
           >
@@ -2198,7 +2261,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         {!emailComposerOpen && tab === "email" ? (
           <div
             className={classNames(
-              "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-8",
+              "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12",
               !activeThreadId ? "hidden lg:block" : "",
             )}
           >
@@ -2430,7 +2493,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
         {!emailComposerOpen && tab === "sms" ? (
           isDesktop ? (
-            <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-8">
+            <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12">
               <div className="flex h-full min-h-[68vh] flex-col">
                 <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3">
                   <div className="min-w-0 flex-1">

@@ -1130,14 +1130,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           Refreshing…
         </div>
       ) : null}
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Your newsletters</h1>
-          <p className="mt-1 max-w-2xl text-sm text-zinc-600">
-            Capture leads and reach thousands with curated newsletters from your AI assistant.
-          </p>
-        </div>
-
+      <div className="flex justify-end">
         <div className="w-full sm:w-auto">
           <SuggestedSetupModalLauncher serviceSlugs={["newsletter"]} buttonLabel="Suggested setup" />
         </div>
@@ -1148,7 +1141,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Your newsletters</div>
+                <div className="text-sm font-semibold text-zinc-900">Newsletters</div>
                 <div className="mt-2 text-sm text-zinc-600">Draft, send, and keep your updates organized.</div>
               </div>
             </div>
