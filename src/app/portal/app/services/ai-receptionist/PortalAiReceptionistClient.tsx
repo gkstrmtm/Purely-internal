@@ -320,7 +320,10 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-100 disabled:opacity-60"
+          className={classNames(
+            "rounded-xl px-3 py-2 text-sm font-semibold text-white disabled:opacity-60",
+            playing ? "bg-zinc-900 hover:bg-zinc-800" : "bg-(--color-brand-blue) hover:opacity-95",
+          )}
           disabled={!props.src}
           onClick={async () => {
             const el = audioRef.current;
@@ -339,7 +342,7 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
           {playing ? "Pause" : "Play"}
         </button>
 
-        <div className="min-w-[220px] flex-1">
+        <div className="min-w-55 flex-1">
           <input
             type="range"
             min={0}
@@ -369,7 +372,7 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
             value={rate}
             onChange={(v) => setRate(v)}
             options={[0.75, 1, 1.25, 1.5, 2].map((v) => ({ value: v, label: `${v}x` }))}
-            className="min-w-[84px]"
+            className="min-w-21"
             buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
           />
         </div>
@@ -1098,10 +1101,10 @@ export function PortalAiReceptionistClient() {
               disabled={saving || callSyncBusy}
               onClick={() => void deleteCallEvent(call.callSid)}
               className={
-                "mt-2 inline-flex items-center justify-center rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold " +
+                "mt-2 inline-flex items-center justify-center rounded-xl px-2.5 py-1.5 text-[11px] font-semibold " +
                 (saving || callSyncBusy
-                  ? "border-zinc-200 bg-zinc-100 text-zinc-500"
-                  : "border-red-200 bg-red-50 text-red-800 hover:bg-red-100")
+                  ? "bg-zinc-100 text-zinc-500"
+                  : "bg-red-50 text-red-800 hover:bg-red-100")
               }
               title="Remove this call from the Activity list"
             >
@@ -1150,7 +1153,7 @@ export function PortalAiReceptionistClient() {
         <div className="mt-5">
           <div className="text-xs font-semibold text-zinc-600">Transcript</div>
           {call.transcript && call.transcript.trim() ? (
-            <div className="mt-2 max-h-[520px] overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="mt-2 max-h-130 overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="whitespace-pre-wrap text-sm text-zinc-800">{call.transcript}</div>
             </div>
           ) : (
@@ -1199,7 +1202,7 @@ export function PortalAiReceptionistClient() {
           <div className={portalSidebarSectionStackClass}>
             {sectionButton("activity", "Activity", <IconReceptionistActivity />)}
             {sectionButton("testing", "Testing", <IconReceptionistTesting />)}
-            {sectionButton("missed-call-textback", "Missed Calls + Text Back", <IconMissedCallTextBack />)}
+            {sectionButton("missed-call-textback", "Missed call, text back", <IconMissedCallTextBack />)}
             {sectionButton("settings", "Settings", <IconSidebarSettings />)}
           </div>
         </div>
@@ -1438,9 +1441,9 @@ export function PortalAiReceptionistClient() {
                     { value: "activity", label: "Activity" },
                     { value: "settings", label: "Settings" },
                     { value: "testing", label: "Testing" },
-                    { value: "missed-call-textback", label: "Missed Call Text Back" },
+                    { value: "missed-call-textback", label: "Missed call, text back" },
                   ]}
-                  className="w-[230px] max-w-[60vw]"
+                  className="w-57.5 max-w-[60vw]"
                   buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                 />
               </div>
@@ -1515,7 +1518,7 @@ export function PortalAiReceptionistClient() {
                     <div className="mt-3">
                       <div className="text-xs font-semibold text-zinc-600">Additional context (optional)</div>
                       <textarea
-                        className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         value={generateContext}
                         onChange={(e) => setGenerateContext(e.target.value)}
                         placeholder="Example: We answer calls for a boutique dental practice. If it's a new patient, ask what they're looking for and offer to book a consultation. Office hours are Mon-Fri 9-5."
@@ -1544,7 +1547,7 @@ export function PortalAiReceptionistClient() {
                       void saveEnabled(nextEnabled);
                     }}
                   />
-                  <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
+                  <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
                   <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
                 </span>
               </label>
@@ -1605,7 +1608,7 @@ export function PortalAiReceptionistClient() {
                   </button>
                 </div>
                 <textarea
-                  className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                   value={settings?.greeting ?? ""}
                   onChange={(e) => settings && setSettings({ ...settings, greeting: e.target.value })}
                 />
@@ -1642,7 +1645,7 @@ export function PortalAiReceptionistClient() {
                   </button>
                 </div>
                 <textarea
-                  className="mt-2 min-h-[160px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  className="mt-2 min-h-40 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                   value={settings?.systemPrompt ?? ""}
                   onChange={(e) => settings && setSettings({ ...settings, systemPrompt: e.target.value })}
                 />
@@ -1692,8 +1695,8 @@ export function PortalAiReceptionistClient() {
                             aria-label={isBusy ? "Generating preview" : "Play preview"}
                             title={isBusy ? "Generating…" : "Play preview"}
                             className={classNames(
-                              "inline-flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold",
-                              canClick ? "bg-white/15 hover:bg-white/25" : "opacity-60",
+                              "inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm",
+                              canClick ? "bg-(--color-brand-blue) hover:opacity-95" : "bg-zinc-300 opacity-60",
                             )}
                             onMouseDown={(e) => {
                               e.preventDefault();
@@ -1764,7 +1767,7 @@ export function PortalAiReceptionistClient() {
                       "rounded-xl px-3 py-2 text-xs font-semibold",
                       saving || savingEnabled || !settings || voiceKnowledgeBaseSyncBusy
                         ? "bg-zinc-200 text-zinc-600"
-                        : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                        : "bg-(--color-brand-blue) text-white hover:opacity-95",
                     )}
                   >
                     {voiceKnowledgeBaseSyncBusy ? "Syncing…" : "Sync knowledge base"}
@@ -1919,7 +1922,7 @@ export function PortalAiReceptionistClient() {
                       disabled={saving || savingEnabled || !settings}
                       onChange={(e) => settings && setSettings({ ...settings, aiCanTransferToHuman: e.target.checked })}
                     />
-                    <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
+                    <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
                     <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
                   </span>
                 </label>
@@ -2008,7 +2011,7 @@ export function PortalAiReceptionistClient() {
                   <div className="mt-3">
                     <div className="text-xs font-semibold text-zinc-600">Additional context (optional)</div>
                     <textarea
-                      className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                       value={smsGenerateContext}
                       onChange={(e) => setSmsGenerateContext(e.target.value)}
                       placeholder="Example: Keep replies under 320 chars. Ask 1 question at a time. If it's pricing, offer a link + ask for a good time to call."
@@ -2034,7 +2037,7 @@ export function PortalAiReceptionistClient() {
                         disabled={saving || savingEnabled || !settings}
                         onChange={(e) => settings && setSettings({ ...settings, smsEnabled: e.target.checked })}
                       />
-                      <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
+                      <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
                       <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
                     </span>
                   </label>
@@ -2076,7 +2079,7 @@ export function PortalAiReceptionistClient() {
                     </div>
 
                     <textarea
-                      className="mt-3 min-h-[150px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      className="mt-3 min-h-37.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                       value={settings?.smsSystemPrompt ?? ""}
                       onChange={(e) => settings && setSettings({ ...settings, smsSystemPrompt: e.target.value })}
                       placeholder="Write how the AI should respond via SMS…"
@@ -2104,7 +2107,7 @@ export function PortalAiReceptionistClient() {
                           "rounded-xl px-3 py-2 text-xs font-semibold",
                           saving || savingEnabled || !settings || smsKnowledgeBaseSyncBusy
                             ? "bg-zinc-200 text-zinc-600"
-                            : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                            : "bg-(--color-brand-blue) text-white hover:opacity-95",
                         )}
                       >
                         {smsKnowledgeBaseSyncBusy ? "Syncing…" : "Sync knowledge base"}
@@ -2397,7 +2400,7 @@ export function PortalAiReceptionistClient() {
               </button>
               <button
                 type="button"
-                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
+                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
                 disabled={saving || !settings || !canSave || !isDirty}
                 onClick={() => settings && void (settingsSubTab === "sms" ? saveSms(settings) : save(settings))}
               >
@@ -2419,19 +2422,21 @@ export function PortalAiReceptionistClient() {
                   { value: "activity", label: "Activity" },
                   { value: "settings", label: "Settings" },
                   { value: "testing", label: "Testing" },
-                  { value: "missed-call-textback", label: "Missed Call Text Back" },
+                  { value: "missed-call-textback", label: "Missed call, text back" },
                 ]}
-                className="w-[230px] max-w-[60vw]"
+                className="w-57.5 max-w-[60vw]"
                 buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
               />
             ) : null}
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <div className="rounded-[32px] border border-zinc-200 bg-white p-5 shadow-sm">
-              <div className="text-xs font-semibold text-zinc-600">Calls</div>
-              <div className="mt-3 min-h-[28rem]">
-                <InlineElevenLabsAgentTester agentId={settings?.voiceAgentId} />
+          <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
+            <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+              <div className="flex min-h-168 flex-col">
+                <div className="text-sm font-semibold text-zinc-900">Test calls</div>
+                <div className="mt-3 min-h-0 flex-1 overflow-hidden">
+                  <InlineElevenLabsAgentTester agentId={settings?.voiceAgentId} />
+                </div>
               </div>
             </div>
 
@@ -2487,7 +2492,7 @@ export function PortalAiReceptionistClient() {
               <div className="mt-3">
                 <div className="text-xs font-semibold text-zinc-600">Inbound message</div>
                 <textarea
-                  className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                   value={smsTestInbound}
                   onChange={(e) => setSmsTestInbound(e.target.value)}
                   placeholder="Hey, are you open today?"
@@ -2570,7 +2575,7 @@ export function PortalAiReceptionistClient() {
         <div className={isMobileApp ? "mt-4 rounded-3xl border border-zinc-200 bg-white p-6" : "mt-4"}>
           {isMobileApp ? (
             <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-zinc-900">Missed Call Text Back</div>
+              <div className="text-sm font-semibold text-zinc-900">Missed call, text back</div>
               <PortalSelectDropdown
                 value={tab}
                 onChange={(v) => setTabWithUrl(v as any)}
@@ -2578,9 +2583,9 @@ export function PortalAiReceptionistClient() {
                   { value: "activity", label: "Activity" },
                   { value: "settings", label: "Settings" },
                   { value: "testing", label: "Testing" },
-                  { value: "missed-call-textback", label: "Missed Call Text Back" },
+                  { value: "missed-call-textback", label: "Missed call, text back" },
                 ]}
-                className="w-[230px] max-w-[60vw]"
+                className="w-57.5 max-w-[60vw]"
                 buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
               />
             </div>
@@ -2590,12 +2595,8 @@ export function PortalAiReceptionistClient() {
       ) : null}
 
       {tab === "activity" ? (
-        <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Call activity</div>
-              <div className="mt-1 text-sm text-zinc-600">The sidebar picks which call you’re inspecting here.</div>
-            </div>
+        <div className="mt-4">
+          <div className="flex items-center justify-end gap-3">
             {isMobileApp ? (
               <PortalSelectDropdown
                 value={tab}
@@ -2604,9 +2605,9 @@ export function PortalAiReceptionistClient() {
                   { value: "activity", label: "Activity" },
                   { value: "settings", label: "Settings" },
                   { value: "testing", label: "Testing" },
-                  { value: "missed-call-textback", label: "Missed Call Text Back" },
+                  { value: "missed-call-textback", label: "Missed call, text back" },
                 ]}
-                className="w-[230px] max-w-[60vw]"
+                className="w-57.5 max-w-[60vw]"
                 buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
               />
             ) : null}
@@ -2617,7 +2618,7 @@ export function PortalAiReceptionistClient() {
               No calls yet.
             </div>
           ) : (
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:p-5">
+            <div className="mt-4">
               <CallDetailsContent call={selectedCall} variant={isMobileApp ? "mobile" : "desktop"} />
             </div>
           )}

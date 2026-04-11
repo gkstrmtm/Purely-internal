@@ -1,5 +1,11 @@
 import { readSignatureImageDataUrl, readSignatureText } from "@/lib/signature";
 
+export const CONTACT_SIGNATURE_MARKDOWN = "![Contact signature](pa-signature://contact)";
+
+export function hasInlineContactSignature(value: string) {
+  return /!\[[^\]]*signature[^\]]*\]\(pa-signature:\/\/contact\)/i.test(String(value || ""));
+}
+
 export function readContactCustomValue(customVariables: unknown, key: string) {
   if (!customVariables || typeof customVariables !== "object" || Array.isArray(customVariables)) return "";
   const target = String(key || "").trim().toLowerCase();
@@ -54,8 +60,6 @@ export function normalizeDisputeLetterText(
   let text = String(value || "")
     .replace(/\r\n?/g, "\n")
     .replace(/^\s*#{1,6}\s+/gm, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/__(.*?)__/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/^\s*\*\s+/gm, "- ")
     // Remove any prompt metadata leakage.
@@ -97,6 +101,8 @@ export function normalizeDisputeLetterText(
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
+  const hasInlineSignature = hasInlineContactSignature(text);
+
   // If the letter includes a Date line with a placeholder, force it.
   if (date) {
     text = text.replace(
@@ -137,10 +143,10 @@ export function normalizeDisputeLetterText(
   if (!hasClosing) {
     text = `${text}\n\nSincerely,`;
   }
-  if (signature && !hasSignature) {
+  if (signature && !hasSignature && !hasInlineSignature) {
     text = `${text}\n\n${signature}`;
   }
-  if (contactName && !hasContactName) {
+  if (contactName && !hasContactName && !hasInlineSignature) {
     text = `${text}\n${contactName}`;
   }
 

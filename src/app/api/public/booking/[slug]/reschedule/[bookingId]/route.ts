@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { findAvailabilityCoverage } from "@/lib/bookingAvailability";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { getHostedTheme } from "@/lib/hostedTheme";
@@ -201,10 +202,7 @@ export async function POST(
   const safeDurationMs = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : site.durationMinutes * 60_000;
   const endAt = new Date(startAt.getTime() + safeDurationMs);
 
-  const coverage = await prisma.availabilityBlock.findFirst({
-    where: { userId: site.ownerId, startAt: { lte: startAt }, endAt: { gte: endAt } },
-    select: { id: true },
-  });
+  const coverage = await findAvailabilityCoverage({ userId: site.ownerId, startAt, endAt, calendarId: booking.calendarId });
 
   if (!coverage) {
     return NextResponse.json(

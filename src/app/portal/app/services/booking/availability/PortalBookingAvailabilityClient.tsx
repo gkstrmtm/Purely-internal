@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
 
@@ -84,7 +84,17 @@ function buildBlocksFromSlots(slotKeys: string[]) {
   return blocks;
 }
 
-export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?: "page" | "modal" } = {}) {
+export function PortalBookingAvailabilityClient({
+  variant = "page",
+  calendarId = null,
+  calendarTitle,
+  onSaved,
+}: {
+  variant?: "page" | "modal";
+  calendarId?: string | null;
+  calendarTitle?: string | null;
+  onSaved?: () => void | Promise<void>;
+} = {}) {
   const pathname = usePathname() || "";
   const toast = useToast();
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
@@ -113,16 +123,21 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
     return rows;
   }, []);
   const todayYmd = useMemo(() => formatYmd(new Date()), []);
+  const availabilityApiUrl = useMemo(() => {
+    const qs = calendarId ? `?calendarId=${encodeURIComponent(calendarId)}` : "";
+    return `/api/availability${qs}`;
+  }, [calendarId]);
+  const availabilityTitle = calendarTitle?.trim() ? `${calendarTitle} availability` : "Availability";
 
-  async function refresh() {
-    const res = await fetch("/api/availability", { cache: "no-store" });
+  const refresh = useCallback(async () => {
+    const res = await fetch(availabilityApiUrl, { cache: "no-store" });
     const body = await res.json();
     setBlocks(body.blocks ?? []);
-  }
+  }, [availabilityApiUrl]);
 
   useEffect(() => {
     refresh().catch(() => null);
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     const ws = new Date(weekStart);
@@ -195,6 +210,7 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        ...(calendarId ? { calendarId } : {}),
         rangeStart: rangeStart.toISOString(),
         rangeEnd: rangeEnd.toISOString(),
         blocks: blocksToSave,
@@ -213,6 +229,7 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
     setStatus(`Saved availability at ${now.toLocaleTimeString()}`);
     setSaving(false);
     await refresh();
+    await onSaved?.();
   }
 
   useEffect(() => {
@@ -230,7 +247,9 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
           <div>
             <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Availability</h1>
             <p className="mt-2 text-sm text-zinc-600">
-              Select times you’re available for bookings. These slots show up on your public booking page.
+              {calendarTitle?.trim()
+                ? `Select times for ${calendarTitle}. These slots show up on that booking calendar.`
+                : "Select times you’re available for bookings. These slots show up on your public booking page."}
             </p>
           </div>
           <Link
@@ -244,6 +263,15 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
 
       <div className={variant === "modal" ? "rounded-3xl border border-zinc-200 bg-white/95 p-4 shadow-[0_20px_50px_rgba(15,23,42,0.08)]" : "mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]"}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {variant === "page" ? (
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">{availabilityTitle}</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                {calendarTitle?.trim() ? "Changes here only affect this calendar." : "These changes affect your default booking availability."}
+              </div>
+            </div>
+          ) : <div />}
+
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <button
               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-zinc-50"

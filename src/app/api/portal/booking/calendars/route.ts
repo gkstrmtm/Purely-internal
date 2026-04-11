@@ -58,6 +58,9 @@ export async function PUT(req: Request) {
   const ownerId = auth.session.user.id;
 
   const prev = await getBookingCalendarsConfig(ownerId).catch(() => null);
+  const prevById = new Map(
+    Array.isArray(prev?.calendars) ? prev.calendars.map((calendar) => [calendar.id, calendar]) : [],
+  );
   const prevIds = new Set(
     Array.isArray((prev as any)?.calendars)
       ? ((prev as any).calendars as any[])
@@ -79,7 +82,11 @@ export async function PUT(req: Request) {
 
   const saved = await setBookingCalendarsConfig(ownerId, {
     version: 1,
-    calendars: parsed.data.calendars.map((c) => ({ ...c, enabled: c.enabled ?? true })),
+    calendars: parsed.data.calendars.map((c) => ({
+      ...c,
+      enabled: c.enabled ?? true,
+      availabilityBlocks: prevById.get(c.id)?.availabilityBlocks,
+    })),
   });
   return NextResponse.json({ ok: true, config: saved });
 }

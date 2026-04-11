@@ -39,7 +39,7 @@ import { useToast } from "@/components/ToastProvider";
 import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderTemplates";
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
-import { IconEdit, IconEyeGlyph, IconGlobeGlyph } from "@/app/portal/PortalIcons";
+import { IconEyeGlyph, IconGlobeGlyph } from "@/app/portal/PortalIcons";
 
 type BookingFormConfig = {
   version: 1;
@@ -84,6 +84,7 @@ type Booking = {
   startAt: string;
   endAt: string;
   status: string;
+  calendarId?: string | null;
   contactName: string;
   contactEmail: string;
   contactPhone?: string | null;
@@ -119,6 +120,7 @@ type BookingCalendar = {
 
 type AvailabilityBlock = {
   id?: string;
+  calendarId?: string | null;
   startAt: string;
   endAt: string;
 };
@@ -259,6 +261,33 @@ function toYmd(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+function formatAvailabilityDuration(totalMinutes: number): string {
+  const wholeMinutes = Math.max(0, Math.round(totalMinutes));
+  if (wholeMinutes >= 60 && wholeMinutes % 60 === 0) {
+    const hours = wholeMinutes / 60;
+    return `${hours} hour${hours === 1 ? "" : "s"} available`;
+  }
+  return `${wholeMinutes} minute${wholeMinutes === 1 ? "" : "s"} available`;
+}
+
+function availableMinutesForDay(day: Date, blocks: AvailabilityBlock[]): number {
+  const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0);
+  const dayEnd = addDays(dayStart, 1);
+  let total = 0;
+
+  for (const block of blocks) {
+    const blockStart = new Date(block.startAt);
+    const blockEnd = new Date(block.endAt);
+    const overlapStart = Math.max(blockStart.getTime(), dayStart.getTime());
+    const overlapEnd = Math.min(blockEnd.getTime(), dayEnd.getTime());
+    if (overlapEnd > overlapStart) {
+      total += Math.round((overlapEnd - overlapStart) / 60000);
+    }
+  }
+
+  return total;
+}
+
 function makeClientId(prefix: string): string {
   try {
     if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -292,12 +321,6 @@ function monthLabel(d: Date): string {
 function makeMonthGrid(month: Date): Date[] {
   const start = startOfWeek(startOfMonth(month));
   return Array.from({ length: 42 }, (_, i) => addDays(start, i));
-}
-
-function startOfDay(d: Date): Date {
-  const next = new Date(d.getTime());
-  next.setHours(0, 0, 0, 0);
-  return next;
 }
 
 function getPurelyConnectJoinUrl(notes: string | null | undefined): string | null {
@@ -369,7 +392,7 @@ export function PortalBookingClient() {
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -377,8 +400,6 @@ export function PortalBookingClient() {
     if (error) toast.error(error);
   }, [error, toast]);
 
-  const [photoBusy, setPhotoBusy] = useState(false);
-  const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
   const [notificationEmailSuggestions, setNotificationEmailSuggestions] = useState<string[]>([]);
 
   useEffect(() => {
@@ -400,14 +421,11 @@ export function PortalBookingClient() {
     };
   }, []);
 
-  const [form, setForm] = useState<BookingFormConfig | null>(null);
-  const [formSaving, setFormSaving] = useState(false);
+  const [, setForm] = useState<BookingFormConfig | null>(null);
 
   const [funnelDomains, setFunnelDomains] = useState<FunnelDomain[]>([]);
-  const [funnelDomainsBusy, setFunnelDomainsBusy] = useState(false);
+  const [, setFunnelDomainsBusy] = useState(false);
   const [hostedSite, setHostedSite] = useState<HostedSite | null>(null);
-  const [hostedSiteBusy, setHostedSiteBusy] = useState(false);
-  const [hostedDomainDraft, setHostedDomainDraft] = useState("");
 
   const [calendars, setCalendars] = useState<BookingCalendar[]>([]);
   const [calSaving, setCalSaving] = useState(false);
@@ -462,7 +480,7 @@ export function PortalBookingClient() {
   const [blocks, setBlocks] = useState<AvailabilityBlock[]>([]);
 
   const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
-  const [calSelectedYmd, setCalSelectedYmd] = useState<string | null>(null);
+  const [calSelectedYmd, setCalSelectedYmd] = useState<string | null>(() => toYmd(new Date()));
   const [weekDayModalYmd, setWeekDayModalYmd] = useState<string | null>(null);
 
   const [topTab, setTopTab] = useState<"settings" | "appointments" | "bookings" | "reminders" | "follow-up">("appointments");
@@ -470,6 +488,7 @@ export function PortalBookingClient() {
 
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const availabilityReturnHrefRef = useRef<string | null>(null);
+  const selectedWeekDayRef = useRef<HTMLButtonElement | null>(null);
 
   const syncAvailabilityFromUrl = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -950,7 +969,7 @@ export function PortalBookingClient() {
               { key: "appointments", label: "Appointments" },
               { key: "bookings", label: "Bookings" },
               { key: "reminders", label: "Reminders" },
-              { key: "follow-up", label: "Follow-up Settings" },
+              { key: "follow-up", label: "Follow-up" },
               { key: "settings", label: "Settings" },
             ] as const).map((item) => (
               <PortalSidebarNavButton
@@ -1044,6 +1063,7 @@ export function PortalBookingClient() {
     setError(null);
     setFunnelDomainsBusy(true);
     try {
+      const availabilityUrl = selectedCalendarId ? `/api/availability?calendarId=${encodeURIComponent(selectedCalendarId)}` : "/api/availability";
       const [meRes, settingsRes, bookingsRes, formRes, calendarsRes, blocksRes, remindersRes, hostedSiteRes, funnelDomainsRes] = await Promise.all([
         fetch("/api/customer/me", {
           cache: "no-store",
@@ -1056,7 +1076,7 @@ export function PortalBookingClient() {
         fetch("/api/portal/booking/bookings", { cache: "no-store" }),
         fetch("/api/portal/booking/form", { cache: "no-store" }),
         fetch("/api/portal/booking/calendars", { cache: "no-store" }),
-        fetch("/api/availability", { cache: "no-store" }),
+        fetch(availabilityUrl, { cache: "no-store" }),
         fetch(remindersUrl(reminderCalendarIdRef.current), { cache: "no-store" }),
         fetch("/api/portal/booking/site", { cache: "no-store" }).catch(() => null as any),
         fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any),
@@ -1130,7 +1150,7 @@ export function PortalBookingClient() {
     } finally {
       setFunnelDomainsBusy(false);
     }
-  }, [remindersUrl]);
+  }, [remindersUrl, selectedCalendarId]);
 
   async function saveCalendars(next: BookingCalendar[]) {
     setCalSaving(true);
@@ -1194,30 +1214,33 @@ export function PortalBookingClient() {
   }, [topTab]);
 
   useEffect(() => {
-    setHostedDomainDraft(hostedSite?.primaryDomain || "");
-  }, [hostedSite?.primaryDomain]);
+    if (topTab !== "appointments" || appointmentsView !== "week") return;
+    const frame = window.requestAnimationFrame(() => {
+      selectedWeekDayRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [appointmentsView, calSelectedYmd, topTab]);
 
-  async function saveHostedBookingDomain() {
-    setHostedSiteBusy(true);
-    setError(null);
-    setStatus(null);
-    try {
-      const res = await fetch("/api/portal/booking/site", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ primaryDomain: hostedDomainDraft }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || !(body as any)?.ok) {
-        setError(getApiError(body) ?? "Failed to save custom domain");
-        return;
-      }
-      setHostedSite(((body as any)?.site as HostedSite) ?? null);
-      setStatus("Saved custom domain");
-    } finally {
-      setHostedSiteBusy(false);
-    }
-  }
+  const focusYmd = calSelectedYmd ?? toYmd(new Date());
+  const focusDate = new Date(`${focusYmd}T00:00:00`);
+  const weekStart = startOfWeek(focusDate);
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const appointmentsUpcoming = useMemo(
+    () => upcoming.filter((b) => !selectedCalendarId || String(b.calendarId || "") === selectedCalendarId),
+    [selectedCalendarId, upcoming],
+  );
+  const appointmentCalendarOptions = useMemo(
+    () => calendars.map((calendar) => ({ value: calendar.id, label: calendar.title || "Untitled calendar" })),
+    [calendars],
+  );
+  const selectedUpcomingBookings = useMemo(
+    () => upcoming.filter((b) => !selectedCalendarId || String(b.calendarId || "") === selectedCalendarId),
+    [selectedCalendarId, upcoming],
+  );
+  const selectedRecentBookings = useMemo(
+    () => recent.filter((b) => !selectedCalendarId || String(b.calendarId || "") === selectedCalendarId),
+    [recent, selectedCalendarId],
+  );
 
   async function save(partial: Partial<Site>) {
     if (!site) return;
@@ -1576,40 +1599,6 @@ export function PortalBookingClient() {
     setStatus("Rescheduled booking");
   }
 
-  function makeId(label: string) {
-    const base = String(label || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 40);
-    const suffix = Math.random().toString(16).slice(2, 6);
-    return `${base || "q"}-${suffix}`;
-  }
-
-  async function saveForm(next: BookingFormConfig) {
-    setFormSaving(true);
-    setError(null);
-    setStatus(null);
-
-    const res = await fetch("/api/portal/booking/form", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(next),
-    });
-
-    const body = await res.json().catch(() => ({}));
-    setFormSaving(false);
-
-    if (!res.ok) {
-      setError(getApiError(body) ?? "Failed to save booking form");
-      return;
-    }
-
-    setForm((body as { config: BookingFormConfig }).config);
-    setStatus("Saved booking form");
-  }
-
   if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="mx-auto w-full max-w-7xl rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
@@ -1624,7 +1613,7 @@ export function PortalBookingClient() {
     return (
       <div className="mx-auto w-full max-w-7xl">
         <div className="rounded-3xl border border-zinc-200 bg-white p-8">
-          <div className="inline-flex items-center gap-2 rounded-full bg-[color:rgba(251,113,133,0.14)] px-3 py-1 text-xs font-semibold text-[color:var(--color-brand-pink)]">
+          <div className="inline-flex items-center gap-2 rounded-full bg-[rgba(251,113,133,0.14)] px-3 py-1 text-xs font-semibold text-(--color-brand-pink)">
             Locked
           </div>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">Booking Automation</h1>
@@ -1644,7 +1633,7 @@ export function PortalBookingClient() {
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
               href={`${appBase}/billing?buy=booking&autostart=1`}
-              className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Unlock in Billing
             </Link>
@@ -1660,21 +1649,16 @@ export function PortalBookingClient() {
     );
   }
 
-  const focusYmd = calSelectedYmd ?? toYmd(new Date());
-  const focusDate = new Date(`${focusYmd}T00:00:00`);
-  const weekStart = startOfWeek(focusDate);
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-
   const bookingsChronological = (() => {
     const now = new Date();
-    return upcoming
+    return selectedUpcomingBookings
       .filter((b) => new Date(b.startAt) >= now)
       .slice()
       .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
   })();
 
   const weekDayModalBookings: Booking[] = weekDayModalYmd
-    ? upcoming
+    ? appointmentsUpcoming
         .filter((b) => toYmd(new Date(b.startAt)) === weekDayModalYmd)
         .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
     : [];
@@ -1734,21 +1718,27 @@ export function PortalBookingClient() {
 
       {topTab === "appointments" ? (
         <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-12">
+          <div className="lg:col-span-12">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Calendar</div>
-                <div className="mt-1 text-sm text-zinc-600">See bookings in a weekly or monthly view.</div>
+              <div className="w-full max-w-64">
+                <PortalSelectDropdown
+                  value={selectedCalendarId}
+                  onChange={(value) => setSelectedCalendarId(String(value))}
+                  options={appointmentCalendarOptions}
+                  className="w-full"
+                  placeholder="Select calendar"
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                />
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex rounded-2xl border border-zinc-200 bg-white p-1">
+                <div className="inline-flex rounded-full bg-blue-50/80 p-1">
                   <button
                     type="button"
                     className={
                       appointmentsView === "week"
-                        ? "rounded-2xl bg-brand-blue px-3 py-2 text-sm font-semibold text-white"
-                        : "rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                        ? "rounded-full bg-blue-100 px-3 py-2 text-sm font-semibold text-brand-blue"
+                        : "rounded-full px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/70"
                     }
                     onClick={() => setAppointmentsView("week")}
                   >
@@ -1758,8 +1748,8 @@ export function PortalBookingClient() {
                     type="button"
                     className={
                       appointmentsView === "month"
-                        ? "rounded-2xl bg-brand-blue px-3 py-2 text-sm font-semibold text-white"
-                        : "rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                        ? "rounded-full bg-blue-100 px-3 py-2 text-sm font-semibold text-brand-blue"
+                        : "rounded-full px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/70"
                     }
                     onClick={() => setAppointmentsView("month")}
                   >
@@ -1803,7 +1793,11 @@ export function PortalBookingClient() {
                     <button
                       type="button"
                       className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-colors duration-100 hover:bg-zinc-50"
-                      onClick={() => setCalMonth(startOfMonth(new Date()))}
+                      onClick={() => {
+                        setCalMonth(startOfMonth(new Date()));
+                        setCalSelectedYmd(toYmd(new Date()));
+                        setWeekDayModalYmd(null);
+                      }}
                     >
                       Today
                     </button>
@@ -1828,31 +1822,34 @@ export function PortalBookingClient() {
             </div>
 
             {appointmentsView === "week" ? (
-                  <div className="mt-5 -mx-2 h-110 overflow-x-auto overflow-y-hidden px-2">
+                  <div data-testid="booking-week-scroll" className="mt-5 -mx-2 h-110 overflow-x-auto overflow-y-hidden px-2">
                 <div className="grid min-w-max grid-flow-col auto-cols-[minmax(210px,1fr)] gap-3">
                   {weekDays.map((day) => {
                   const ymd = toYmd(day);
                   const selected = focusYmd === ymd;
                   const isToday = toYmd(new Date()) === ymd;
 
-                  const dayBookings = upcoming
+                  const dayBookings = appointmentsUpcoming
                     .filter((b) => toYmd(new Date(b.startAt)) === ymd)
                     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+                  const availableMinutes = availableMinutesForDay(day, blocks);
 
                   const cardBase =
-                    "flex h-[420px] w-[240px] flex-col rounded-3xl border p-4 text-left transition-all duration-100 focus:outline-none focus:ring-2 focus:ring-blue-200";
+                    "flex h-[420px] w-[240px] flex-col rounded-3xl border p-4 text-left transition-all duration-100 focus:outline-none";
                   const cardCls = selected
-                    ? `${cardBase} border-blue-300 bg-blue-50 shadow-[0_18px_40px_rgba(37,99,235,0.14)]`
+                    ? `${cardBase} border-blue-400 bg-blue-50/90 ring-2 ring-blue-200 shadow-[0_18px_40px_rgba(37,99,235,0.14)]`
                     : `${cardBase} border-zinc-200 bg-white hover:bg-zinc-50`;
 
                   return (
                     <button
                       key={ymd}
+                      ref={selected ? selectedWeekDayRef : null}
+                      data-selected={selected ? "true" : "false"}
                       type="button"
                       className={cardCls}
                       onClick={() => {
                         setCalSelectedYmd(ymd);
-                        if (isMobileApp) setWeekDayModalYmd(ymd);
+                        setWeekDayModalYmd(dayBookings.length ? ymd : null);
                       }}
                     >
                       <div className="flex h-10 items-start justify-between gap-2">
@@ -1867,13 +1864,16 @@ export function PortalBookingClient() {
                         </div>
 
                         {isToday ? (
-                          <div className="shrink-0 rounded-full bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white">Today</div>
+                          <div className={selected ? "shrink-0 rounded-full bg-(--color-brand-blue) px-2 py-0.5 text-[10px] font-semibold text-white" : "shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-brand-blue"}>Today</div>
                         ) : null}
                       </div>
 
                       <div className="mt-2">
                         <div className="inline-flex rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-700">
                           {dayBookings.length} booking{dayBookings.length === 1 ? "" : "s"}
+                        </div>
+                        <div className="mt-2 text-[11px] font-medium text-zinc-600">
+                          {availableMinutes > 0 ? formatAvailabilityDuration(availableMinutes) : "No availability"}
                         </div>
                       </div>
 
@@ -1933,20 +1933,18 @@ export function PortalBookingClient() {
                     const today = toYmd(new Date()) === ymd;
                     const selected = focusYmd === ymd;
 
-                    const dayStart = startOfDay(day);
-                    const dayEnd = addDays(dayStart, 1);
-
-                    const bookingCount = upcoming.reduce((acc, b) => (toYmd(new Date(b.startAt)) === ymd ? acc + 1 : acc), 0);
-                    const hasCoverage = blocks.some((b) => new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart);
+                    const bookingCount = appointmentsUpcoming.reduce((acc, b) => (toYmd(new Date(b.startAt)) === ymd ? acc + 1 : acc), 0);
+                    const availableMinutes = availableMinutesForDay(day, blocks);
+                    const hasCoverage = availableMinutes > 0;
 
                     const baseCls = isMobileApp
                       ? "aspect-square rounded-md border p-2 text-left hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300"
                       : "h-24 rounded-lg border px-3 py-3 text-left hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300";
 
                     const borderCls = selected
-                      ? "border-brand-ink bg-zinc-50 shadow-[0_12px_28px_rgba(15,23,42,0.08)]"
+                      ? "border-blue-400 bg-blue-50/90 ring-2 ring-blue-200 shadow-[0_12px_28px_rgba(37,99,235,0.14)]"
                       : today
-                        ? "border-(--color-brand-blue) bg-blue-50/80"
+                        ? "border-blue-300 bg-blue-50/70"
                         : inMonth
                           ? "border-zinc-200 bg-white"
                           : "border-zinc-200 bg-zinc-50";
@@ -1954,11 +1952,12 @@ export function PortalBookingClient() {
                     return (
                       <button
                         key={ymd}
+                        data-selected={selected ? "true" : "false"}
                         type="button"
                         className={`${baseCls} ${borderCls}`}
                         onClick={() => {
                           setCalSelectedYmd(ymd);
-                          setWeekDayModalYmd(ymd);
+                          setWeekDayModalYmd(bookingCount ? ymd : null);
                         }}
                       >
                         <div className="flex items-center justify-between">
@@ -1975,7 +1974,7 @@ export function PortalBookingClient() {
                           >
                             <span
                               className={
-                                today
+                                selected || today
                                   ? "inline-flex min-w-6 items-center justify-center rounded-sm bg-(--color-brand-blue) px-1.5 py-0.5 text-[11px] font-semibold text-white"
                                   : undefined
                               }
@@ -1994,14 +1993,14 @@ export function PortalBookingClient() {
                         {isMobileApp ? (
                           <div className="mt-2 flex items-center justify-between">
                             <div className={hasCoverage ? "text-[11px] font-medium text-emerald-700" : "text-[11px] text-zinc-400"}>
-                              {hasCoverage ? "Avail" : "No"}
+                              {hasCoverage ? formatAvailabilityDuration(availableMinutes) : "No availability"}
                             </div>
                             <div className={hasCoverage ? "h-2 w-2 rounded-sm bg-emerald-500" : "h-2 w-2 rounded-sm bg-zinc-300"} aria-hidden="true" />
                           </div>
                         ) : (
                           <div className="mt-3 flex items-center justify-between">
                             <div className={hasCoverage ? "text-[11px] font-medium text-emerald-700" : "text-[11px] text-zinc-400"}>
-                              {hasCoverage ? "Avail" : "No avail"}
+                              {hasCoverage ? formatAvailabilityDuration(availableMinutes) : "No availability"}
                             </div>
                             {bookingCount ? (
                               <div className="rounded-sm bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white">{bookingCount}</div>
@@ -2022,9 +2021,16 @@ export function PortalBookingClient() {
         <div className="mt-6">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Bookings</div>
-                <div className="mt-1 text-sm text-zinc-600">Upcoming bookings.</div>
+              <div className="w-full max-w-64">
+                <PortalSelectDropdown
+                  value={selectedCalendarId}
+                  onChange={(value) => setSelectedCalendarId(String(value))}
+                  options={appointmentCalendarOptions}
+                  className="w-full"
+                  placeholder="Select calendar"
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                />
+                <div className="mt-1 text-sm text-zinc-600">View bookings for this calendar.</div>
               </div>
               <div className="shrink-0 rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
                 {bookingsChronological.length} upcoming
@@ -2059,7 +2065,7 @@ export function PortalBookingClient() {
                               href={joinUrl}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center justify-center rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
+                              className="inline-flex items-center justify-center rounded-xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
                             >
                               Join meeting
                             </a>
@@ -2122,11 +2128,11 @@ export function PortalBookingClient() {
               )}
             </div>
 
-            {recent.length ? (
+            {selectedRecentBookings.length ? (
               <>
                 <div className="mt-6 text-sm font-semibold text-zinc-900">Recent</div>
                 <div className="mt-3 space-y-2">
-                  {recent.slice(0, 10).map((b) => (
+                  {selectedRecentBookings.slice(0, 10).map((b) => (
                     <div key={b.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                       <div className="font-medium text-zinc-800">
                         {new Date(b.startAt).toLocaleString()} · {b.status.toLowerCase()}
@@ -2544,7 +2550,7 @@ export function PortalBookingClient() {
 
                           {s.kind !== "TAG" ? (
                             <textarea
-                              className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                               value={String(s.messageBody ?? "")}
                               onChange={(e) => updateReminderStep(s.id, { messageBody: e.target.value })}
                               onFocus={(e) => {
@@ -2570,7 +2576,7 @@ export function PortalBookingClient() {
                   </button>
                   <button
                     type="button"
-                    className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                     disabled={
                       reminderSaving ||
                       !reminderDirty ||
@@ -2906,516 +2912,155 @@ export function PortalBookingClient() {
 
       {topTab === "settings" ? (
         <>
-          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
           <PortalSettingsSection
-            title="Booking link"
-            description="Share this link anywhere. Only times you mark as available will show."
-            accent="slate"
-            status={site ? (site.enabled ? "on" : "off") : undefined}
-            collapsible={false}
-            dotClassName="hidden"
-          >
-
-          <div className="mt-4 flex flex-col gap-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-                <div className="truncate">
-                  <span className="font-semibold text-zinc-600">Preview:</span> {previewBookingUrl ?? "…"}
-                </div>
-              </div>
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                disabled={!previewBookingUrl}
-                onClick={async () => {
-                  if (!previewBookingUrl) return;
-                  await navigator.clipboard.writeText(previewBookingUrl);
-                  setStatus("Copied preview booking link");
-                }}
-              >
-                Copy preview
-              </button>
-              <a
-                href={previewBookingUrl ?? "#"}
-                className={
-                  "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 " +
-                  (!previewBookingUrl ? "pointer-events-none opacity-60" : "")
-                }
-                target="_blank"
-                rel="noreferrer"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <IconEyeGlyph size={16} />
-                  <span>Preview</span>
-                </span>
-              </a>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-                <div className="truncate">
-                  <span className="font-semibold text-zinc-600">Live:</span> {liveBookingUrl ?? "…"}
-                </div>
-              </div>
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                disabled={!liveBookingUrl}
-                onClick={async () => {
-                  if (!liveBookingUrl) return;
-                  await navigator.clipboard.writeText(liveBookingUrl);
-                  setStatus("Copied live booking link");
-                }}
-              >
-                Copy live
-              </button>
-              <a
-                href={liveBookingUrl ?? "#"}
-                className={
-                  "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white hover:opacity-95 " +
-                  (!liveBookingUrl ? "pointer-events-none opacity-60" : "")
-                }
-                target="_blank"
-                rel="noreferrer"
-              >
-                Live
-              </a>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-            <div className="text-xs font-semibold text-zinc-600">Custom domain (optional)</div>
-            <div className="mt-1">
-              <PortalListboxDropdown
-                value={hostedDomainDraft as any}
-                disabled={loading || hostedSiteBusy || funnelDomainsBusy}
-                options={
-                  [
-                    { value: "", label: "No custom domain" },
-                    ...funnelDomains.map((d) => ({
-                      value: d.domain,
-                      label: d.domain,
-                      hint: d.status === "PENDING" ? "Pending DNS verification" : undefined,
-                    })),
-                  ] as any
-                }
-                onChange={(v) => setHostedDomainDraft(String(v || ""))}
-                placeholder={
-                  funnelDomainsBusy
-                    ? "Loading domains…"
-                    : funnelDomains.length
-                      ? "Choose a domain"
-                      : "No domains yet"
-                }
-              />
-            </div>
-
-            {hostedDomainDraft.trim() && site?.slug ? (
-              <div className="mt-2 text-xs text-zinc-600">
-                Live link: <span className="font-mono">https://{hostedDomainDraft.trim()}/book/{site.slug}</span>
-                {(() => {
-                  const targetApex = apexDomain(hostedDomainDraft);
-                  const match = funnelDomains.find((d) => apexDomain(d.domain) === targetApex);
-                  const verified = Boolean(hostedSite?.verifiedAt) || match?.status === "VERIFIED";
-                  if (verified) return <span className="ml-1 text-emerald-700">(verified)</span>;
-                  if (match?.status === "PENDING") return <span className="ml-1 text-amber-700">(pending verification)</span>;
-                  return null;
-                })()}
-              </div>
-            ) : null}
-
-            <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
-              <div className="text-xs text-zinc-500">Domains come from Funnel Builder → Settings → Custom domains.</div>
-              <a href={`${appBase}/services/funnel-builder/settings`} className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline">
-                Add / manage domains
-              </a>
-            </div>
-
-            <div className="mt-3 flex items-center justify-end">
-              <button
-                type="button"
-                className="rounded-xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
-                disabled={hostedSiteBusy}
-                onClick={saveHostedBookingDomain}
-              >
-                {hostedSiteBusy ? "Saving…" : "Save custom domain"}
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-              <span className="font-medium text-zinc-800">Booking</span>
-              <ToggleSwitch
-                checked={Boolean(site?.enabled)}
-                disabled={!site}
-                accent="blue"
-                onChange={(checked) => save({ enabled: checked })}
-              />
-            </div>
-
-            <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-              <div className="font-medium text-zinc-800">Meeting length</div>
-              <PortalSelectDropdown
-                value={site?.durationMinutes ?? 30}
-                onChange={(v) => save({ durationMinutes: v })}
-                options={[15, 30, 45, 60].map((m) => ({ value: m, label: `${m} minutes` }))}
-                className="mt-2 w-full"
-                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-              />
-            </label>
-
-            <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
-              <div className="font-medium text-zinc-800">Page title</div>
-              <input
-                className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                value={site?.title ?? ""}
-                onChange={(e) => setSite((prev) => (prev ? { ...prev, title: e.target.value } : prev))}
-                onBlur={() => save({ title: site?.title ?? "" })}
-              />
-            </label>
-
-            <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
-              <div className="font-medium text-zinc-800">Link slug</div>
-              <input
-                className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                value={site?.slug ?? ""}
-                onChange={(e) => setSite((prev) => (prev ? { ...prev, slug: e.target.value } : prev))}
-                onBlur={() => save({ slug: site?.slug ?? "" })}
-              />
-              <div className="mt-2 text-xs text-zinc-500">This becomes the end of your public link: /book/&lt;slug&gt;</div>
-            </label>
-          </div>
-
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              onClick={openAvailability}
-            >
-              Edit availability
-            </button>
-            {site?.enabled ? (
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <a
-                  href={previewBookingUrl ?? "#"}
-                  className={
-                    "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
-                    (!previewBookingUrl ? "pointer-events-none opacity-60" : "")
-                  }
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Preview booking page
-                </a>
-                <a
-                  href={liveBookingUrl ?? "#"}
-                  className={
-                    "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 " +
-                    (!liveBookingUrl ? "pointer-events-none opacity-60" : "")
-                  }
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Live booking page
-                </a>
-              </div>
-            ) : null}
-          </div>
-
-          {saving ? <div className="mt-4 text-sm text-zinc-500">Saving…</div> : null}
-          </PortalSettingsSection>
-        </div>
-
-        <PortalSettingsSection
-          title="Calendars"
-          description="Create multiple booking links (different appointment types) with their own title and duration."
-          accent="slate"
-          collapsible={false}
-          dotClassName="hidden"
-        >
-
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="text-xs font-semibold text-zinc-600">Add a calendar</div>
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <input
-                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm sm:col-span-2"
-                placeholder="e.g. Intro call"
-                value={newCalTitle}
-                onChange={(e) => setNewCalTitle(e.target.value)}
-                disabled={calSaving}
-              />
-              <PortalSelectDropdown
-                value={newCalDuration}
-                onChange={(v) => setNewCalDuration(v)}
-                disabled={calSaving}
-                options={[15, 30, 45, 60].map((m) => ({ value: m, label: `${m} min` }))}
-                className="w-full"
-                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-              />
-            </div>
-            <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                disabled={calSaving || !newCalTitle.trim()}
-                onClick={() => {
-                  const title = newCalTitle.trim();
-                  if (!title) return;
-                  const next: BookingCalendar = {
-                    id: makeClientId("cal_"),
-                    enabled: true,
-                    title,
-                    durationMinutes: newCalDuration,
-                  };
-                  setNewCalTitle("");
-                  void saveCalendars([...(calendars ?? []), next]);
-                }}
-              >
-                {calSaving ? "Saving…" : "Add calendar"}
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            {calendars.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                No extra calendars yet.
-              </div>
-            ) : (
-              calendars.map((c) => (
-                <div key={c.id} className="rounded-2xl border border-zinc-200 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <button
-                        type="button"
-                        className={
-                          "truncate text-left text-sm font-semibold hover:underline " +
-                          (selectedCalendarId === c.id ? "text-[color:var(--color-brand-blue)]" : "text-zinc-900")
-                        }
-                        onClick={() => setSelectedCalendarId(c.id)}
-                      >
-                        {c.title}{" "}
-                        <span className="text-xs font-normal text-zinc-500">({c.durationMinutes ?? site?.durationMinutes ?? 30} min)</span>
-                      </button>
-                      {previewCalendarUrlBase ? (
-                        <div className="mt-1 truncate text-xs text-zinc-500">
-                          Preview: {previewCalendarUrlBase}/{c.id}
-                        </div>
-                      ) : null}
-                      {liveCalendarUrlBase ? (
-                        <div className="mt-1 truncate text-xs text-zinc-500">
-                          Live: {liveCalendarUrlBase}/{c.id}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-xs text-zinc-600">On</span>
-                      <ToggleSwitch
-                        checked={Boolean(c.enabled)}
-                        disabled={calSaving}
-                        accent="ink"
-                        onChange={(checked) => {
-                          const next = calendars.map((x) => (x.id === c.id ? { ...x, enabled: checked } : x));
-                          void saveCalendars(next);
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap justify-end gap-2">
-                    <button
-                      type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                      disabled={!previewCalendarUrlBase}
-                      onClick={async () => {
-                        if (!previewCalendarUrlBase) return;
-                        await navigator.clipboard.writeText(`${previewCalendarUrlBase}/${c.id}`);
-                        setStatus("Copied preview calendar link");
-                      }}
-                    >
-                      Copy preview
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                      disabled={!liveCalendarUrlBase}
-                      onClick={async () => {
-                        if (!liveCalendarUrlBase) return;
-                        await navigator.clipboard.writeText(`${liveCalendarUrlBase}/${c.id}`);
-                        setStatus("Copied live calendar link");
-                      }}
-                    >
-                      Copy live
-                    </button>
-                    <a
-                      href={previewCalendarUrlBase ? `${previewCalendarUrlBase}/${c.id}` : "#"}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={
-                        "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 " +
-                        (!previewCalendarUrlBase ? "pointer-events-none opacity-60" : "")
-                      }
-                    >
-                      Preview
-                    </a>
-                    <a
-                      href={liveCalendarUrlBase ? `${liveCalendarUrlBase}/${c.id}` : "#"}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={
-                        "rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-sm font-semibold text-white hover:opacity-95 " +
-                        (!liveCalendarUrlBase ? "pointer-events-none opacity-60" : "")
-                      }
-                    >
-                      Live
-                    </a>
-                    <button
-                      type="button"
-                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                      disabled={calSaving}
-                      onClick={() => {
-                        setSelectedCalendarId(c.id);
-                        setStatus(`Editing: ${c.title}`);
-                        window.setTimeout(() => setStatus(null), 1200);
-                      }}
-                      aria-label="Edit"
-                      title="Edit"
-                    >
-                      <IconEdit size={16} />
-                      <span className="sr-only">Edit</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                      disabled={calSaving}
-                      onClick={() => {
-                        setCalendarDeleteId(c.id);
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </PortalSettingsSection>
-
-        <div className="lg:col-span-2">
-          <PortalSettingsSection
-            title="Page & notifications"
-            description="Manage the booking page, meeting defaults, and who gets notified when someone books."
+            title="Calendars"
+            description="Edit and manage your calendars."
             accent="slate"
             collapsible={false}
             dotClassName="hidden"
+            variant="plain"
           >
-
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-xs font-semibold text-zinc-600">Calendar editing</div>
-                <div className="mt-2 text-sm text-zinc-600">Choose or create calendars above, then use the popup editor from that section.</div>
-              </div>
-              {selectedCalendar ? (
-                <div className="text-xs text-zinc-500">
-                  Editing defaults for page notifications while <span className="font-semibold text-zinc-700">{selectedCalendar.title}</span> remains selected.
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="text-xs font-semibold text-zinc-600">Header photo (optional)</div>
-            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                <div className="h-12 w-12 overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-                  {site?.photoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={site.photoUrl} alt="" className="h-full w-full object-cover" />
-                  ) : null}
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate text-xs text-zinc-500">{site?.photoUrl ? site.photoUrl : "No photo uploaded"}</div>
-                  <div className="mt-1 text-xs text-zinc-500">Recommended: wide image, under 2MB.</div>
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50">
-                  {photoBusy ? "Uploading…" : "Upload"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    disabled={photoBusy}
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      setPhotoBusy(true);
-                      setError(null);
-                      try {
-                        const fd = new FormData();
-                        fd.set("file", file);
-                        const up = await fetch("/api/uploads", { method: "POST", body: fd });
-                        const upBody = (await up.json().catch(() => ({}))) as { url?: string; error?: string };
-                        if (!up.ok || !upBody.url) {
-                          setError(upBody.error ?? "Upload failed");
-                          return;
-                        }
-                        await save({ photoUrl: upBody.url });
-                      } finally {
-                        setPhotoBusy(false);
-                        if (e.target) e.target.value = "";
-                      }
-                    }}
-                  />
-                </label>
-
+            <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
+              <div className="text-xs font-semibold text-zinc-600">New calendar</div>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_140px_auto]">
+                <input
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  placeholder="e.g. Intro call"
+                  value={newCalTitle}
+                  onChange={(e) => setNewCalTitle(e.target.value)}
+                  disabled={calSaving}
+                />
+                <PortalSelectDropdown
+                  value={newCalDuration}
+                  onChange={(v) => setNewCalDuration(v)}
+                  disabled={calSaving}
+                  options={[15, 30, 45, 60].map((m) => ({ value: m, label: `${m} min` }))}
+                  className="w-full"
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                />
                 <button
                   type="button"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                  onClick={() => setPhotoPickerOpen(true)}
+                  className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  disabled={calSaving || !newCalTitle.trim()}
+                  onClick={() => {
+                    const title = newCalTitle.trim();
+                    if (!title) return;
+                    const next: BookingCalendar = {
+                      id: makeClientId("cal_"),
+                      enabled: true,
+                      title,
+                      durationMinutes: newCalDuration,
+                    };
+                    setNewCalTitle("");
+                    void saveCalendars([...(calendars ?? []), next]);
+                  }}
                 >
-                  Choose from media library
+                  {calSaving ? "Saving…" : "Add calendar"}
                 </button>
-                {site?.photoUrl ? (
-                  <button
-                    type="button"
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                    onClick={() => save({ photoUrl: null })}
-                    disabled={saving}
-                  >
-                    Remove
-                  </button>
-                ) : null}
               </div>
             </div>
-          </div>
 
-          <PortalMediaPickerModal
-            open={photoPickerOpen}
-            title="Choose a header photo"
-            confirmLabel="Use"
-            onClose={() => setPhotoPickerOpen(false)}
-            onPick={async (item) => {
-              if (!String(item.mimeType || "").startsWith("image/")) {
-                setError("Please pick an image file");
-                setPhotoPickerOpen(false);
-                return;
-              }
-              setError(null);
-              setPhotoPickerOpen(false);
-              await save({ photoUrl: item.shareUrl });
-            }}
-          />
+            <div className="mt-4 space-y-3">
+              {calendars.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                  No calendars yet. Add one above to get started.
+                </div>
+              ) : (
+                calendars.map((c) => {
+                  const selected = selectedCalendarId === c.id;
+                  const previewUrl = previewCalendarUrlBase ? `${previewCalendarUrlBase}/${c.id}` : null;
+                  const liveUrl = liveCalendarUrlBase ? `${liveCalendarUrlBase}/${c.id}` : null;
 
-            {saving ? <div className="mt-4 text-sm text-zinc-500">Saving…</div> : null}
+                  return (
+                    <div
+                      key={c.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedCalendarId(c.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedCalendarId(c.id);
+                        }
+                      }}
+                      className={
+                        "w-full cursor-pointer rounded-3xl border p-4 text-left transition-colors duration-100 focus:outline-none " +
+                        (selected ? "border-(--color-brand-blue) bg-blue-50/80 shadow-sm" : "border-zinc-200 bg-white hover:bg-zinc-50")
+                      }
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className={"text-sm font-semibold " + (selected ? "text-(--color-brand-blue)" : "text-zinc-900")}>
+                              {c.title}
+                            </div>
+                            <span className="rounded-full bg-zinc-100/90 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
+                              {c.durationMinutes ?? site?.durationMinutes ?? 30} min
+                            </span>
+                            <span
+                              className={
+                                "rounded-full px-2.5 py-1 text-[11px] font-semibold " +
+                                (c.enabled ? "bg-emerald-100/80 text-emerald-700" : "bg-zinc-100/90 text-zinc-600")
+                              }
+                            >
+                              {c.enabled ? "On" : "Off"}
+                            </span>
+                          </div>
+                          <div className="mt-2 text-xs text-zinc-600">
+                            {c.meetingLocation?.trim() ? c.meetingLocation : "Meeting details are configured in the popup editor."}
+                          </div>
+                          <div className="mt-2 space-y-1 text-xs text-zinc-500">
+                            {previewUrl ? <div className="truncate">Preview: {previewUrl}</div> : null}
+                            {liveUrl ? <div className="truncate">Live: {liveUrl}</div> : null}
+                          </div>
+                        </div>
+
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedCalendarId(c.id);
+                              openCalendarEditor(c.id);
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className={
+                              "rounded-xl px-3 py-2 text-sm font-semibold transition-colors disabled:opacity-60 " +
+                              (c.enabled ? "bg-amber-100 text-amber-800 hover:bg-amber-200" : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200")
+                            }
+                            disabled={calSaving}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const next = calendars.map((x) => (x.id === c.id ? { ...x, enabled: !x.enabled } : x));
+                              void saveCalendars(next);
+                            }}
+                          >
+                            {c.enabled ? "Turn off" : "Turn on"}
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-xl bg-red-100 px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-200 disabled:opacity-60"
+                            disabled={calSaving}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCalendarDeleteId(c.id);
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </PortalSettingsSection>
-        </div>
-      </div>
 
       <AppModal
         open={calendarEditorOpen}
@@ -3624,251 +3269,6 @@ export function PortalBookingClient() {
         )}
       </AppModal>
 
-      <div className="mt-4">
-        <PortalSettingsSection
-          title="Booking form"
-          description="Choose what questions to ask when someone books."
-          accent="slate"
-          defaultOpen={false}
-        >
-          {!form ? (
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-              Loading form settings…
-            </div>
-          ) : (
-            <div className="mt-4 space-y-4">
-              <label className="block rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                <div className="font-medium text-zinc-800">Thank-you message</div>
-                <textarea
-                  className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  placeholder="Thanks! You're booked. We'll see you soon."
-                  value={form.thankYouMessage ?? ""}
-                  disabled={formSaving}
-                  onChange={(e) => setForm({ ...form, thankYouMessage: e.target.value })}
-                  onBlur={() => void saveForm(form)}
-                />
-                <div className="mt-2 text-xs text-zinc-500">Shown after a successful booking.</div>
-              </label>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                  <span className="font-medium text-zinc-800">Ask for phone</span>
-                  <ToggleSwitch
-                    checked={form.phone.enabled}
-                    disabled={formSaving}
-                    accent="ink"
-                    onChange={(checked) =>
-                      void saveForm({
-                        ...form,
-                        phone: { enabled: checked, required: checked ? form.phone.required : false },
-                      })
-                    }
-                  />
-                </label>
-              <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                <span className="font-medium text-zinc-800">Phone required</span>
-                <ToggleSwitch
-                  checked={form.phone.required}
-                  disabled={formSaving || !form.phone.enabled}
-                  accent="ink"
-                  onChange={(checked) => void saveForm({ ...form, phone: { ...form.phone, required: checked } })}
-                />
-              </label>
-
-              <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                <span className="font-medium text-zinc-800">Ask for notes</span>
-                <ToggleSwitch
-                  checked={form.notes.enabled}
-                  disabled={formSaving}
-                  accent="ink"
-                  onChange={(checked) =>
-                    void saveForm({
-                      ...form,
-                      notes: { enabled: checked, required: checked ? form.notes.required : false },
-                    })
-                  }
-                />
-              </label>
-              <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                <span className="font-medium text-zinc-800">Notes required</span>
-                <ToggleSwitch
-                  checked={form.notes.required}
-                  disabled={formSaving || !form.notes.enabled}
-                  accent="ink"
-                  onChange={(checked) => void saveForm({ ...form, notes: { ...form.notes, required: checked } })}
-                />
-              </label>
-              </div>
-
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-sm font-semibold text-zinc-900">Custom questions</div>
-                <div className="mt-1 text-xs text-zinc-600">Add extra questions to your booking form.</div>
-
-                <div className="mt-3 space-y-2">
-                  {form.questions.length === 0 ? (
-                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
-                      No custom questions yet.
-                    </div>
-                ) : null}
-
-                {form.questions.map((q, idx) => (
-                  <div key={q.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center">
-                      <input
-                        className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        value={q.label}
-                        disabled={formSaving}
-                        onChange={(e) => {
-                          const next = [...form.questions];
-                          next[idx] = { ...q, label: e.target.value };
-                          setForm({ ...form, questions: next });
-                        }}
-                        onBlur={() => void saveForm(form)}
-                        placeholder="Question label"
-                      />
-
-                      <PortalListboxDropdown
-                        value={q.kind}
-                        disabled={formSaving}
-                        onChange={(kind) => {
-                          const next = [...form.questions];
-                          const hasOptions = kind === "single_choice" || kind === "multiple_choice";
-                          next[idx] = {
-                            ...q,
-                            kind,
-                            ...(hasOptions
-                              ? { options: Array.isArray(q.options) && q.options.length ? q.options : ["Option 1", "Option 2"] }
-                              : { options: undefined }),
-                          };
-                          setForm({ ...form, questions: next });
-                        }}
-                        options={[
-                          { value: "short", label: "Short answer" },
-                          { value: "long", label: "Long answer" },
-                          { value: "single_choice", label: "Multiple choice (pick one)" },
-                          { value: "multiple_choice", label: "Checkboxes (pick many)" },
-                        ]}
-                        className="w-full"
-                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                      />
-
-                      <label className="flex items-center justify-between gap-2 text-sm text-zinc-700">
-                        <span>Required</span>
-                        <ToggleSwitch
-                          checked={q.required}
-                          disabled={formSaving}
-                          accent="ink"
-                          onChange={(checked) => {
-                            const next = [...form.questions];
-                            next[idx] = { ...q, required: checked };
-                            void saveForm({ ...form, questions: next });
-                          }}
-                        />
-                      </label>
-                    </div>
-
-                    {q.kind === "single_choice" || q.kind === "multiple_choice" ? (
-                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                        <div className="text-xs font-semibold text-zinc-600">Options</div>
-                        <div className="mt-2 space-y-2">
-                          {(Array.isArray(q.options) ? q.options : []).map((opt, optIdx) => (
-                            <div key={optIdx} className="flex items-center gap-2">
-                              <input
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                value={opt}
-                                disabled={formSaving}
-                                onChange={(e) => {
-                                  const next = [...form.questions];
-                                  const options = Array.isArray(q.options) ? [...q.options] : [];
-                                  options[optIdx] = e.target.value;
-                                  next[idx] = { ...q, options };
-                                  setForm({ ...form, questions: next });
-                                }}
-                                onBlur={() => void saveForm(form)}
-                                placeholder={`Option ${optIdx + 1}`}
-                              />
-                              <button
-                                type="button"
-                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                                disabled={formSaving}
-                                onClick={() => {
-                                  const next = [...form.questions];
-                                  const options = (Array.isArray(q.options) ? q.options : []).filter((_, i) => i !== optIdx);
-                                  next[idx] = { ...q, options: options.length ? options : ["Option 1", "Option 2"] };
-                                  setForm({ ...form, questions: next });
-                                  void saveForm({ ...form, questions: next });
-                                }}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ))}
-
-                          <button
-                            type="button"
-                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                            disabled={formSaving}
-                            onClick={() => {
-                              const next = [...form.questions];
-                              const options = Array.isArray(q.options) ? [...q.options] : [];
-                              options.push(`Option ${options.length + 1}`);
-                              next[idx] = { ...q, options: options.slice(0, 12) };
-                              setForm({ ...form, questions: next });
-                              void saveForm({ ...form, questions: next });
-                            }}
-                          >
-                            + Add option
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div className="mt-3 flex items-center justify-between gap-3">
-                      <div className="text-xs text-zinc-500">ID: {q.id}</div>
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                        disabled={formSaving}
-                        onClick={() => {
-                          const next = form.questions.filter((x) => x.id !== q.id);
-                          void saveForm({ ...form, questions: next });
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                  disabled={formSaving}
-                  onClick={() => {
-                    const label = "New question";
-                    const next = {
-                      id: makeId(label),
-                      label,
-                      required: false,
-                      kind: "short" as const,
-                    };
-                    const updated = { ...form, questions: [...form.questions, next].slice(0, 20) };
-                    setForm(updated);
-                    void saveForm(updated);
-                  }}
-                >
-                  + Add question
-                </button>
-              </div>
-            </div>
-
-            <div className="text-xs text-zinc-500">
-              Your public booking link will show these questions immediately.
-            </div>
-          </div>
-        )}
-        </PortalSettingsSection>
-      </div>
         </>
       ) : null}
 
@@ -3931,7 +3331,7 @@ export function PortalBookingClient() {
                 <div className="text-xs font-semibold text-zinc-600">Message</div>
               </div>
               <textarea
-                className="mt-2 min-h-[140px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                className="mt-2 min-h-35 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
                 placeholder="Write a quick follow-up…"
                 value={contactMessage}
                 disabled={contactBusy}
@@ -3954,7 +3354,7 @@ export function PortalBookingClient() {
               </button>
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 disabled={contactBusy}
                 onClick={() => void sendFollowUp()}
               >
@@ -4031,7 +3431,7 @@ export function PortalBookingClient() {
               </button>
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 disabled={reschedBusy}
                 onClick={() => void rescheduleBooking()}
               >
@@ -4045,7 +3445,7 @@ export function PortalBookingClient() {
       <AppModal
         open={availabilityOpen}
         title="Availability"
-        description="Select times you’re available for bookings."
+        description={selectedCalendar?.title ? `Edit availability for ${selectedCalendar.title}.` : "Select times you’re available for bookings."}
         onClose={closeAvailability}
         widthClassName="w-[min(1100px,calc(100vw-32px))]"
         footer={
@@ -4060,7 +3460,12 @@ export function PortalBookingClient() {
           </div>
         }
       >
-        <PortalBookingAvailabilityClient variant="modal" />
+        <PortalBookingAvailabilityClient
+          variant="modal"
+          calendarId={selectedCalendarId}
+          calendarTitle={selectedCalendar?.title ?? null}
+          onSaved={refreshAll}
+        />
       </AppModal>
 
       <AppConfirmModal

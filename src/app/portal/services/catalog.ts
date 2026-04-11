@@ -195,7 +195,7 @@ export const PORTAL_SERVICES: PortalService[] = [
   },
   {
     slug: "missed-call-textback",
-    title: "Missed-Call Text Back",
+    title: "Missed call, text back",
     description: "Turn missed calls into conversations.",
     highlights: [
       "Auto text within seconds",

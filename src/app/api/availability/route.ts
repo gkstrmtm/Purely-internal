@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 
 import { authOptions } from "@/lib/auth";
+import { listAvailabilityBlocksForRange, replaceCalendarAvailabilityRange } from "@/lib/bookingAvailability";
 import { prisma } from "@/lib/db";
 import { getPortalUser } from "@/lib/portalAuth";
 
@@ -20,11 +21,13 @@ async function getAnyUserAuth(): Promise<{ userId: string | null; role: string |
 const createSchema = z.object({
   startAt: z.string().min(1),
   endAt: z.string().min(1),
+  calendarId: z.string().min(1).optional().nullable(),
 });
 
 const replaceRangeSchema = z.object({
   rangeStart: z.string().min(1),
   rangeEnd: z.string().min(1),
+  calendarId: z.string().min(1).optional().nullable(),
   blocks: z
     .array(
       z.object({
@@ -35,16 +38,17 @@ const replaceRangeSchema = z.object({
     .max(500),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   const auth = await getAnyUserAuth();
   const userId = auth.userId;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const blocks = await prisma.availabilityBlock.findMany({
-    where: { userId },
-    orderBy: { startAt: "asc" },
-    take: 200,
-  });
+  const url = new URL(req.url);
+  const calendarId = url.searchParams.get("calendarId")?.trim() || null;
+  const rangeStart = new Date();
+  const rangeEnd = new Date(rangeStart.getTime() + 120 * 24 * 60 * 60_000);
+
+  const blocks = await listAvailabilityBlocksForRange({ userId, rangeStart, rangeEnd, calendarId });
 
   return NextResponse.json({ blocks });
 }
@@ -66,12 +70,13 @@ export async function POST(req: Request) {
 
   const startAt = new Date(parsed.data.startAt);
   const endAt = new Date(parsed.data.endAt);
+  const calendarId = parsed.data.calendarId?.trim() || null;
   if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime()) || endAt <= startAt) {
     return NextResponse.json({ error: "Invalid dates" }, { status: 400 });
   }
 
-  const block = await prisma.availabilityBlock.create({
-    data: { userId, startAt, endAt },
+  const block = await (prisma as any).availabilityBlock.create({
+    data: { userId, calendarId, startAt, endAt },
   });
 
   return NextResponse.json({ block });
@@ -111,6 +116,13 @@ export async function PUT(req: Request) {
       startAt: b.startAt < rangeStart ? rangeStart : b.startAt,
       endAt: b.endAt > rangeEnd ? rangeEnd : b.endAt,
     }));
+
+  const calendarId = parsed.data.calendarId?.trim() || null;
+
+  if (calendarId) {
+    await replaceCalendarAvailabilityRange({ userId, calendarId, rangeStart, rangeEnd, blocks });
+    return NextResponse.json({ ok: true });
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.availabilityBlock.deleteMany({

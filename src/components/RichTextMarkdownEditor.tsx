@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { LinkUrlModal } from "@/components/LinkUrlModal";
+
+const CONTACT_SIGNATURE_MARKDOWN = "![Contact signature](pa-signature://contact)";
+const CONTACT_SIGNATURE_PREVIEW_SRC = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='120' viewBox='0 0 520 120'%3E%3Crect width='520' height='120' rx='18' fill='%23f8fafc' stroke='%23cbd5e1' stroke-width='2' stroke-dasharray='8 8'/%3E%3Cpath d='M88 74c18-19 33-30 47-30 12 0 16 7 16 16 0 18-15 30-15 30s15-6 28-23c6-9 13-20 26-20 10 0 17 6 17 16 0 22-27 31-27 31s21-6 38-24c9-9 18-18 31-18 9 0 16 5 16 14 0 15-18 27-18 27h160' fill='none' stroke='%231e293b' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ctext x='260' y='102' text-anchor='middle' font-family='Arial, sans-serif' font-size='17' font-weight='700' fill='%23475569'%3EContact signature placeholder%3C/text%3E%3C/svg%3E";
 
 function escapeHtml(text: string) {
   return text
@@ -56,6 +59,9 @@ function markdownToHtmlBasic(markdown: string): string {
     t = t.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, url) => {
       const safeAlt = String(alt || "");
       const safeUrl = String(url || "");
+      if (safeUrl === "pa-signature://contact") {
+        return `<img src="${CONTACT_SIGNATURE_PREVIEW_SRC}" alt="${escapeHtml(safeAlt || "Contact signature")}" data-pa-signature="contact" />`;
+      }
       return `<img src=\"${escapeHtml(safeUrl)}\" alt=\"${escapeHtml(safeAlt)}\" />`;
     });
 
@@ -218,6 +224,9 @@ function htmlToMarkdownBasic(html: string): string {
     }
 
     if (tag === "img") {
+      if (node.getAttribute("data-pa-signature") === "contact") {
+        return CONTACT_SIGNATURE_MARKDOWN;
+      }
       const src = node.getAttribute("src") || "";
       const alt = node.getAttribute("alt") || "";
       return src ? `![${alt}](${src})` : "";
@@ -291,17 +300,26 @@ function htmlToMarkdownBasic(html: string): string {
   return lines.join("\n").trim() + "\n";
 }
 
-export function RichTextMarkdownEditor({
-  markdown,
-  onChange,
-  placeholder,
-  disabled,
-}: {
+export type RichTextMarkdownEditorHandle = {
+  focus: () => void;
+  insertMarkdown: (markdown: string, options?: { atPoint?: { x: number; y: number } }) => void;
+};
+
+type RichTextMarkdownEditorProps = {
   markdown: string;
   onChange: (markdown: string) => void;
   placeholder?: string;
   disabled?: boolean;
-}) {
+  onDropMarkdown?: (dataTransfer: DataTransfer) => string | null;
+};
+
+export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, RichTextMarkdownEditorProps>(function RichTextMarkdownEditor({
+  markdown,
+  onChange,
+  placeholder,
+  disabled,
+  onDropMarkdown,
+}, ref) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const lastMarkdownRef = useRef<string>(String(markdown || ""));
   const [focused, setFocused] = useState(false);
@@ -379,6 +397,56 @@ export function RichTextMarkdownEditor({
     // Sync markdown after command.
     syncFromDom();
   };
+
+  const moveSelectionToPoint = (x: number, y: number) => {
+    try {
+      const selection = window.getSelection();
+      if (!selection) return;
+      const doc = document as Document & {
+        caretRangeFromPoint?: (x: number, y: number) => Range | null;
+        caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+      };
+      let nextRange: Range | null = null;
+      if (typeof doc.caretRangeFromPoint === "function") {
+        nextRange = doc.caretRangeFromPoint(x, y);
+      } else if (typeof doc.caretPositionFromPoint === "function") {
+        const pos = doc.caretPositionFromPoint(x, y);
+        if (pos?.offsetNode) {
+          nextRange = document.createRange();
+          nextRange.setStart(pos.offsetNode, pos.offset);
+          nextRange.collapse(true);
+        }
+      }
+      if (!nextRange) return;
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+    } catch {
+      // ignore
+    }
+  };
+
+  const insertMarkdownSnippet = (snippet: string, point?: { x: number; y: number }) => {
+    if (disabled) return;
+    const nextSnippet = String(snippet || "");
+    if (!nextSnippet.trim()) return;
+    editorRef.current?.focus();
+    if (point) moveSelectionToPoint(point.x, point.y);
+    const html = markdownToHtmlBasic(nextSnippet);
+    try {
+      document.execCommand("insertHTML", false, html);
+    } catch {
+      const el = editorRef.current;
+      if (!el) return;
+      el.innerHTML = `${el.innerHTML}${html}`;
+    }
+    syncFromDom();
+    refreshFormats();
+  };
+
+  useImperativeHandle(ref, () => ({
+    focus: () => editorRef.current?.focus(),
+    insertMarkdown: (snippet, options) => insertMarkdownSnippet(snippet, options?.atPoint),
+  }));
 
   const selectImageNode = (img: HTMLImageElement) => {
     try {
@@ -613,13 +681,20 @@ export function RichTextMarkdownEditor({
           // Final sync on blur.
           syncFromDom();
         }}
+        onDrop={(event) => {
+          if (disabled) return;
+          const nextSnippet = onDropMarkdown?.(event.dataTransfer) || "";
+          if (!nextSnippet) return;
+          event.preventDefault();
+          insertMarkdownSnippet(nextSnippet, { x: event.clientX, y: event.clientY });
+        }}
         onInput={() => {
           syncFromDom();
           refreshFormats();
         }}
         onKeyUp={() => refreshFormats()}
         onMouseUp={() => refreshFormats()}
-        className="min-h-[320px] px-4 py-3 text-sm leading-6 outline-none"
+        className="min-h-80 px-4 py-3 text-sm leading-6 outline-none"
         data-placeholder={placeholder || "Write…"}
         style={{
           // Placeholder styling for empty contentEditable.
@@ -702,4 +777,6 @@ export function RichTextMarkdownEditor({
       `}</style>
     </div>
   );
-}
+});
+
+RichTextMarkdownEditor.displayName = "RichTextMarkdownEditor";

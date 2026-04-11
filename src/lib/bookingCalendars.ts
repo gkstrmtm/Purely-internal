@@ -9,6 +9,7 @@ export type BookingCalendar = {
   meetingLocation?: string;
   meetingDetails?: string;
   notificationEmails?: string[];
+  availabilityBlocks?: Array<{ startAt: string; endAt: string }>;
 };
 
 export type BookingCalendarsConfig = {
@@ -53,6 +54,26 @@ function normalizeStringList(v: unknown, max: number): string[] {
   return out;
 }
 
+function normalizeAvailabilityBlocks(v: unknown): Array<{ startAt: string; endAt: string }> | undefined {
+  const list = Array.isArray(v) ? v : [];
+  const out: Array<{ startAt: string; endAt: string }> = [];
+
+  for (const item of list) {
+    const rec = item && typeof item === "object" ? (item as Record<string, unknown>) : null;
+    if (!rec) continue;
+    const startAt = typeof rec.startAt === "string" ? rec.startAt.trim() : "";
+    const endAt = typeof rec.endAt === "string" ? rec.endAt.trim() : "";
+    if (!startAt || !endAt) continue;
+    const start = new Date(startAt);
+    const end = new Date(endAt);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) continue;
+    out.push({ startAt: start.toISOString(), endAt: end.toISOString() });
+    if (out.length >= 1000) break;
+  }
+
+  return out.length ? out : undefined;
+}
+
 export function defaultBookingCalendarsConfig(): BookingCalendarsConfig {
   return { version: 1, calendars: [] };
 }
@@ -87,6 +108,7 @@ export function parseBookingCalendarsConfig(value: unknown): BookingCalendarsCon
       .map((x) => x.toLowerCase())
       .filter((x) => emailLike.test(x))
       .slice(0, 20);
+    const availabilityBlocks = normalizeAvailabilityBlocks(item.availabilityBlocks);
 
     const durationMinutesRaw = item.durationMinutes;
     const durationMinutes =
@@ -103,6 +125,7 @@ export function parseBookingCalendarsConfig(value: unknown): BookingCalendarsCon
       meetingLocation: meetingLocation || undefined,
       meetingDetails: meetingDetails || undefined,
       notificationEmails: notificationEmails.length ? notificationEmails : undefined,
+      availabilityBlocks,
     });
 
     if (calendars.length >= 25) break;

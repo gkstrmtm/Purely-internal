@@ -273,11 +273,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const [itemFiltersMenu, setItemFiltersMenu] = useState<FixedMenuStyle | null>(null);
   const [itemQuery, setItemQuery] = useState("");
   const [rawText, setRawText] = useState<string>("{");
-  const showAdvancedImport = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    const host = window.location.hostname;
-    return host === "localhost" || host === "127.0.0.1";
-  }, []);
+  const showAdvancedImport = false;
 
   const loadReports = useCallback(async () => {
     const json = await fetchJson<{ ok: true; reports: ReportLite[] }>("/api/portal/credit/reports", { cache: "no-store" as any });

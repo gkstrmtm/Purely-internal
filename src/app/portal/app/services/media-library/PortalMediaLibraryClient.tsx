@@ -68,6 +68,31 @@ function formatBytes(n: number) {
   return `${v.toFixed(v >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
 }
 
+function inferFolderAccent(color?: string | null, tag?: string | null, name?: string | null) {
+  const explicit = String(color || "").toLowerCase();
+  if (explicit) return explicit;
+
+  const text = `${String(tag || "")} ${String(name || "")}`.toLowerCase();
+  if (text.includes("b2c")) return "pink";
+  if (text.includes("b2b")) return "blue";
+  return "default";
+}
+
+function itemPreviewKind(item: Item): "image" | "video" | "file" {
+  if (item.mimeType.startsWith("image/")) return "image";
+  if (item.mimeType.startsWith("video/")) return "video";
+  return "file";
+}
+
+function itemTypeLabel(item: Item) {
+  const ext = item.fileName.includes(".") ? item.fileName.split(".").pop() : "";
+  if (ext) return String(ext).toUpperCase();
+  if (item.mimeType.startsWith("audio/")) return "AUDIO";
+  if (item.mimeType.startsWith("video/")) return "VIDEO";
+  if (item.mimeType.startsWith("image/")) return "IMAGE";
+  return "FILE";
+}
+
 export function PortalMediaLibraryClient() {
   const toastNotify = useToast();
   const portalVariant = useMemo(() => {
@@ -327,10 +352,10 @@ export function PortalMediaLibraryClient() {
     a.remove();
   }
 
-  function folderColorClass(color?: string | null) {
-    switch (String(color || "").toLowerCase()) {
+  function folderColorClass(color?: string | null, tag?: string | null, name?: string | null) {
+    switch (inferFolderAccent(color, tag, name)) {
       case "blue":
-        return "bg-[color:var(--color-brand-blue)]";
+        return "bg-(--color-brand-blue)";
       case "green":
         return "bg-emerald-500";
       case "amber":
@@ -655,7 +680,7 @@ export function PortalMediaLibraryClient() {
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex min-w-0 items-center gap-3">
-                              <div className={classNames("flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl", folderColorClass(f.color))}>
+                              <div className={classNames("flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl", folderColorClass(f.color, f.tag, f.name))}>
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                   <path
                                     d="M3.75 7.5C3.75 6.25736 4.75736 5.25 6 5.25H10.05C10.4478 5.25 10.8293 5.40767 11.1107 5.68934L12.1716 6.75H18C19.2426 6.75 20.25 7.75736 20.25 9V16.5C20.25 17.7426 19.2426 18.75 18 18.75H6C4.75736 18.75 3.75 17.7426 3.75 16.5V7.5Z"
@@ -695,7 +720,7 @@ export function PortalMediaLibraryClient() {
                     <div className="text-xs font-semibold text-zinc-500">Files</div>
                     <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                       {filteredItems.map((it) => {
-                        const isImg = it.mimeType.startsWith("image/");
+                        const previewKind = itemPreviewKind(it);
                         return (
                           <button
                             key={it.id}
@@ -731,24 +756,37 @@ export function PortalMediaLibraryClient() {
                               </button>
                             </div>
                             <div className="mt-3 flex min-w-0 w-full flex-1 flex-col items-start gap-3">
-                              {isImg && it.previewUrl ? (
-                                /* eslint-disable-next-line @next/next/no-img-element */
-                                <img src={it.previewUrl} alt={it.fileName} className="h-36 w-full rounded-2xl object-cover" />
-                              ) : (
-                                <div className="flex h-36 w-full items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
-                                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path
-                                      d="M7.5 3.75H13.5L16.5 6.75V20.25H7.5V3.75Z"
-                                      stroke="#3f3f46"
-                                      strokeWidth="1.8"
-                                    />
-                                    <path d="M13.5 3.75V6.75H16.5" stroke="#3f3f46" strokeWidth="1.8" />
-                                  </svg>
-                                </div>
-                              )}
+                              <div className="aspect-square w-full overflow-hidden rounded-2xl bg-zinc-100">
+                                {previewKind === "image" && it.previewUrl ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img src={it.previewUrl} alt={it.fileName} className="h-full w-full object-cover" />
+                                ) : previewKind === "video" && (it.previewUrl || it.openUrl) ? (
+                                  <video
+                                    src={it.previewUrl || it.openUrl}
+                                    className="h-full w-full object-cover"
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-zinc-700">
+                                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                      <path
+                                        d="M7.5 3.75H13.5L16.5 6.75V20.25H7.5V3.75Z"
+                                        stroke="#3f3f46"
+                                        strokeWidth="1.8"
+                                      />
+                                      <path d="M13.5 3.75V6.75H16.5" stroke="#3f3f46" strokeWidth="1.8" />
+                                    </svg>
+                                    <div className="rounded-full bg-white/80 px-3 py-1 text-[10px] font-semibold tracking-wide text-zinc-700">
+                                      {itemTypeLabel(it)}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                             <div className="mt-auto inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
-                              Open file
+                              {previewKind === "video" ? "Preview video" : previewKind === "image" ? "Preview image" : "Open file"}
                             </div>
                           </button>
                         );
@@ -863,7 +901,7 @@ export function PortalMediaLibraryClient() {
                     <div className="flex flex-wrap gap-2 px-4 pb-3">
                       {[
                         { k: null, c: "bg-zinc-400" },
-                        { k: "blue", c: "bg-[color:var(--color-brand-blue)]" },
+                        { k: "blue", c: "bg-(--color-brand-blue)" },
                         { k: "green", c: "bg-emerald-500" },
                         { k: "amber", c: "bg-amber-500" },
                         { k: "purple", c: "bg-violet-500" },
@@ -1061,10 +1099,20 @@ export function PortalMediaLibraryClient() {
                   </button>
                 </div>
 
-                {selectedItem.previewUrl && selectedItem.mimeType.startsWith("image/") ? (
+                {itemPreviewKind(selectedItem) === "image" && selectedItem.previewUrl ? (
                   <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={selectedItem.previewUrl} alt={selectedItem.fileName} className="w-full object-cover" />
+                  </div>
+                ) : itemPreviewKind(selectedItem) === "video" && (selectedItem.previewUrl || selectedItem.openUrl) ? (
+                  <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-black">
+                    <video
+                      src={selectedItem.previewUrl || selectedItem.openUrl}
+                      className="w-full"
+                      controls
+                      playsInline
+                      preload="metadata"
+                    />
                   </div>
                 ) : (
                   <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">

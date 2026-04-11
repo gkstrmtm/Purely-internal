@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { listAvailabilityBlocksForRange } from "@/lib/bookingAvailability";
 import { prisma } from "@/lib/db";
 import { computeAvailableSlots } from "@/lib/bookingSlots";
 
@@ -47,10 +48,7 @@ export async function GET(
   const rangeEnd = new Date(rangeStart.getTime() + parsed.data.days * 24 * 60 * 60_000);
 
   const [blocks, bookings] = await Promise.all([
-    prisma.availabilityBlock.findMany({
-      where: { userId: site.ownerId, startAt: { lt: rangeEnd }, endAt: { gt: rangeStart } },
-      select: { startAt: true, endAt: true },
-    }),
+    listAvailabilityBlocksForRange({ userId: site.ownerId, rangeStart, rangeEnd }),
     (prisma as any).portalBooking.findMany({
       where: { siteId: site.id, status: "SCHEDULED", startAt: { lt: rangeEnd }, endAt: { gt: rangeStart } },
       select: { startAt: true, endAt: true },

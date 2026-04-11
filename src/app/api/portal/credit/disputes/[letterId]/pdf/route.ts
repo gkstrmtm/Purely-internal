@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { parseDisputeLetterPromptMeta, readContactAddress, readContactSignatureImage } from "@/lib/creditDisputeLetters";
+import { parseDisputeLetterPromptMeta, readContactAddress, readContactSignature, readContactSignatureImage } from "@/lib/creditDisputeLetters";
 import { prisma } from "@/lib/db";
 import { renderDisputeLetterPdfBytes } from "@/lib/disputeLetterPdf";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
@@ -68,6 +68,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
       recipientAddress: parsedMeta.recipientAddress || null,
     },
     signatureDataUrl: readContactSignatureImage(letter.contact?.customVariables) || null,
+    signatureText: readContactSignature(letter.contact?.customVariables) || null,
     printedName: letter.contact?.name || "",
   });
 

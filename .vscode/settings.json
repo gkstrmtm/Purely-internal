@@ -1,5 +1,24 @@
 {
   "gitlens.gitkraken.mcp.autoEnabled": false,
   "gitlens.gitkraken.cli.integration.enabled": false,
-  "gitlens.gitkraken.cli.insiders.enabled": false
+  "gitlens.gitkraken.cli.insiders.enabled": false,
+  "files.exclude": {
+    "**/.next": true,
+    "**/tmp/portal-qa/review-shots": true,
+    "**/tmp/portal-qa/review-shots-loaded": true
+  },
+  "files.watcherExclude": {
+    "**/.next/**": true,
+    "**/node_modules/**": true,
+    "**/tmp/portal-qa/review-shots/**": true,
+    "**/tmp/portal-qa/review-shots-loaded/**": true,
+    "**/tmp/portal-qa/*.png": true,
+    "**/.git/objects/**": true
+  },
+  "search.exclude": {
+    "**/.next/**": true,
+    "**/node_modules/**": true,
+    "**/tmp/portal-qa/review-shots/**": true,
+    "**/tmp/portal-qa/review-shots-loaded/**": true
+  }
 }

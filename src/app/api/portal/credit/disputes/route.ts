@@ -204,6 +204,7 @@ export async function POST(req: Request) {
         recipientAddress: recipientAddress,
       },
       signatureDataUrl: signatureImage || null,
+      signatureText: signature || null,
       printedName: contact.name,
     });
     const safeContact = (created.contact?.name || "contact").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");

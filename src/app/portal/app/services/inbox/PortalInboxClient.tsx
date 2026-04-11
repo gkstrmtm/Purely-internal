@@ -22,11 +22,9 @@ import {
   portalSidebarButtonInactiveClass,
   portalSidebarIconToneBlueClass,
   portalSidebarIconToneNeutralClass,
-  portalSidebarIconTonePinkClass,
-  portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
-import { IconEyeGlyph, IconFunnel, IconInboxGlyph, IconSchedule, IconSearch, IconSend, IconSendHover, IconServiceGlyph } from "@/app/portal/PortalIcons";
+import { IconFunnel, IconInboxGlyph, IconSchedule, IconSearch, IconSend, IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { normalizePhoneForStorage } from "@/lib/phone";
 import { normalizePortalContactCustomVarKey, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
@@ -1588,10 +1586,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       `${portalSidebarButtonBaseClass} ${active ? portalSidebarButtonActiveClass : portalSidebarButtonInactiveClass}`;
     const threadButtonClass = (active: boolean) =>
       classNames(
-        "w-full rounded-2xl border px-3 py-2 text-left transition-colors duration-100",
-        active ? "border-zinc-200 bg-zinc-100 text-zinc-900" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+        "w-full rounded-2xl px-3 py-2 text-left transition-colors duration-100",
+        active ? "bg-zinc-100 text-zinc-900" : "bg-transparent text-zinc-800 hover:bg-zinc-50",
       );
-
     const conversationTitle =
       tab === "email"
         ? emailBox === "sent"
@@ -1607,18 +1604,18 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           <button
             type="button"
             onClick={openEmailComposer}
-            className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass} inline-flex items-center justify-center gap-2 bg-white`}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#007aff] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#006ae6]"
           >
-            <span className={portalSidebarIconTonePinkClass}>+</span>
+            <span className="text-white">+</span>
             <span>New email</span>
           </button>
         ) : (
           <button
             type="button"
             onClick={openSmsComposer}
-            className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass} inline-flex items-center justify-center gap-2 bg-white`}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#007aff] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#006ae6]"
           >
-            <span className={portalSidebarIconToneBlueClass}>+</span>
+            <span className="text-white">+</span>
             <span>New text</span>
           </button>
         )}
@@ -1650,28 +1647,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             </PortalSidebarNavButton>
           </div>
         </div>
-
-        {tab === "email" ? (
-          <div>
-            <div className={portalSidebarSectionTitleClass}>Mailbox</div>
-            <div className={portalSidebarSectionStackClass}>
-              <PortalSidebarNavButton type="button" onClick={() => setEmailBox("inbox")} aria-current={emailBox === "inbox" ? "page" : undefined} label="Inbox" icon={<IconInboxGlyph size={18} />} iconToneClassName={portalSidebarIconToneNeutralClass} className={sectionButtonClass(emailBox === "inbox")}>Inbox</PortalSidebarNavButton>
-              <PortalSidebarNavButton type="button" onClick={() => setEmailBox("unread")} aria-current={emailBox === "unread" ? "page" : undefined} label="Unread" icon={<IconEyeGlyph size={18} />} iconToneClassName={portalSidebarIconToneBlueClass} className={sectionButtonClass(emailBox === "unread")}>Unread</PortalSidebarNavButton>
-              <PortalSidebarNavButton type="button" onClick={() => setEmailBox("sent")} aria-current={emailBox === "sent" ? "page" : undefined} label="Outbox" icon={<IconSend size={18} className="-scale-x-100" />} iconToneClassName={portalSidebarIconToneNeutralClass} className={sectionButtonClass(emailBox === "sent")}>Outbox</PortalSidebarNavButton>
-              <PortalSidebarNavButton
-                type="button"
-                onClick={() => setEmailHasAttachmentsOnly((prev) => !prev)}
-                aria-current={emailHasAttachmentsOnly ? "page" : undefined}
-                label="Include attachments"
-                icon={<IconServiceGlyph slug="media-library" />}
-                iconToneClassName={portalSidebarIconTonePinkClass}
-                className={sectionButtonClass(emailHasAttachmentsOnly)}
-              >
-                Include attachments
-              </PortalSidebarNavButton>
-            </div>
-          </div>
-        ) : null}
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className={portalSidebarSectionTitleClass}>{conversationTitle}</div>
@@ -1750,7 +1725,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         </div>
       </div>
     );
-  }, [activeThreadId, emailBox, emailHasAttachmentsOnly, filteredThreads, isDesktop, loadingThreads, markThreadRead, openEmailComposer, openSmsComposer, setChannel, tab, unreadEmailCount]);
+  }, [activeThreadId, emailBox, filteredThreads, isDesktop, loadingThreads, markThreadRead, openEmailComposer, openSmsComposer, setChannel, tab, unreadEmailCount]);
 
   useEffect(() => {
     setSidebarOverride({
@@ -1832,9 +1807,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           SMS
         </button>
       </div>
-      <div className="mt-4">
-        <div className="rounded-[28px] border border-zinc-200 bg-white px-3 py-3 shadow-[0_10px_30px_rgba(15,23,42,0.05)] sm:px-4">
-          <div className="flex items-center gap-3">
+      <div className="mt-4 flex justify-center">
+        <div className="flex w-full items-center gap-3 lg:max-w-xl">
             <div className="relative min-w-0 flex-1">
                 <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
                   <IconSearch size={18} />
@@ -1864,7 +1838,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <>
                     <div className="fixed inset-0 z-30" onMouseDown={() => setEmailSearchMenu(null)} onTouchStart={() => setEmailSearchMenu(null)} aria-hidden />
                     <div
-                      className="fixed z-40 overflow-auto rounded-3xl border border-zinc-200 bg-white shadow-xl"
+                      className="fixed z-40 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
                       style={{ left: emailSearchMenu.left, top: emailSearchMenu.top, width: emailSearchMenu.width, maxHeight: emailSearchMenu.maxHeight }}
                       onMouseDown={(e) => e.stopPropagation()}
                       onTouchStart={(e) => e.stopPropagation()}
@@ -1942,7 +1916,16 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         </div>
 
                         <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Category</div>
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mailbox</div>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            {([ { key: "inbox" as const, label: "Inbox" }, { key: "unread" as const, label: `Unread (${unreadEmailCount})` }, { key: "sent" as const, label: "Outbox" } ] satisfies Array<{ key: EmailBox; label: string }>).map((opt) => (
+                              <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold", emailBox === opt.key ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")} onClick={() => setEmailBox(opt.key)}>{opt.label}</button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Search scope</div>
                           <div className="mt-2 grid grid-cols-2 gap-2">
                             {([ { key: "current" as const, label: "Current" }, { key: "inbox" as const, label: "Inbox" }, { key: "unread" as const, label: "Unread" }, { key: "outbox" as const, label: "Outbox" }, { key: "attachments" as const, label: "Attachments" } ] satisfies Array<{ key: EmailSearchCategory; label: string }>).map((opt) => (
                               <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold", emailSearchCategory === opt.key ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")} onClick={() => setEmailSearchCategory(opt.key)}>{opt.label}</button>
@@ -1968,6 +1951,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                             setEmailSearchFrom("");
                             setEmailSearchSubject("");
                             setEmailSearchWords("");
+                            setEmailBox("inbox");
                             setEmailSearchCategory("current");
                             setEmailDateFilter("any");
                             setEmailHasAttachmentsOnly(false);
@@ -2008,7 +1992,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
               <button
                   type="button"
-                  className={classNames("inline-flex h-12 w-12 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-colors duration-100 hover:bg-zinc-50", tab === "email" ? (emailDateFilter !== "any" || emailHasAttachmentsOnly || emailSearchWho || emailSearchFrom || emailSearchSubject || emailSearchWords || emailSearchCategory !== "current") && "border-brand-ink" : (smsDateFilter !== "any" || smsIncomingOnly) && "border-brand-ink")}
+                  className={classNames("inline-flex h-12 w-12 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-colors duration-100 hover:bg-zinc-50", tab === "email" ? (emailBox !== "inbox" || emailDateFilter !== "any" || emailHasAttachmentsOnly || emailSearchWho || emailSearchFrom || emailSearchSubject || emailSearchWords || emailSearchCategory !== "current") && "border-brand-ink" : (smsDateFilter !== "any" || smsIncomingOnly) && "border-brand-ink")}
                   onClick={(e) => {
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     if (tab === "email") {
@@ -2023,7 +2007,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 </button>
             </div>
           </div>
-        </div>
       </div>
 
       <AppModal
@@ -2120,12 +2103,12 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         </div>
       ) : null}
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:h-[calc(100vh-var(--pa-portal-topbar-height,0px)-11rem)] lg:min-h-[68vh] lg:grid-cols-12">
         {/* Left panel: thread list */}
         {!emailComposerOpen ? (
           <div
             className={classNames(
-              "flex min-h-0 flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12 lg:hidden",
+              "flex min-h-0 flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12 lg:h-full lg:min-h-0 lg:hidden",
               activeThreadId ? "hidden lg:flex" : "",
             )}
           >
@@ -2261,11 +2244,11 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         {!emailComposerOpen && tab === "email" ? (
           <div
             className={classNames(
-              "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12",
+              "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12 lg:h-full lg:min-h-0",
               !activeThreadId ? "hidden lg:block" : "",
             )}
           >
-            <div className="flex h-full min-h-[68vh] flex-col">
+            <div className="flex h-full min-h-[68vh] flex-col lg:min-h-0">
               <div className="border-b border-zinc-100 px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-start gap-2">
@@ -2493,8 +2476,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
         {!emailComposerOpen && tab === "sms" ? (
           isDesktop ? (
-            <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12">
-              <div className="flex h-full min-h-[68vh] flex-col">
+            <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12 lg:h-full lg:min-h-0">
+              <div className="flex h-full min-h-[68vh] flex-col lg:min-h-0">
                 <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold text-zinc-900">
@@ -2584,7 +2567,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   </div>
                 ) : null}
 
-                <div ref={smsScrollRef} className={classNames("min-h-0 flex-1 overflow-y-auto px-4 py-4", styles.smsPane)}>
+                <div ref={smsScrollRef} className={classNames("min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:pr-24 lg:pb-24", styles.smsPane)}>
                   {!activeThread ? (
                     <div className="text-sm text-zinc-600">Start a new text by choosing a contact or entering a phone number.</div>
                   ) : loadingMessages ? (
@@ -2628,7 +2611,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   )}
                 </div>
 
-                <div className={classNames("shrink-0 border-t border-zinc-200 p-3", styles.inputBar)}>
+                <div className={classNames("shrink-0 border-t border-zinc-200 p-3 lg:pr-24", styles.inputBar)}>
                   <div className={classNames("flex items-center gap-2 px-2 py-2", styles.inputPill)}>
                     <button
                       type="button"
@@ -2653,11 +2636,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     <button type="button" className={classNames(styles.iconButton, styles.iconButtonMuted, (sending || uploading) && "opacity-60")} onClick={openSchedule} disabled={sending || uploading} aria-label="Schedule send">
                       <IconSchedule size={18} />
                     </button>
-                    <button type="button" onClick={() => void onSend()} disabled={sending} className={classNames("group", styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")} aria-label="Send">
-                      <span className="relative h-4.5 w-4.5">
-                        <span className="absolute inset-0 opacity-100 transition-opacity group-hover:opacity-0" aria-hidden><IconSend size={18} /></span>
-                        <span className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden><IconSendHover size={18} /></span>
-                      </span>
+                    <button type="button" onClick={() => void onSend()} disabled={sending} className={classNames(styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")} aria-label="Send">
+                      <IconSend size={18} />
                     </button>
                   </div>
                 </div>
@@ -3190,17 +3170,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     type="button"
                     onClick={() => void onSend()}
                     disabled={sending}
-                    className={classNames("group", styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")}
+                    className={classNames(styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")}
                     aria-label="Send"
                   >
-                    <span className="relative h-4.5 w-4.5">
-                      <span className="absolute inset-0 opacity-100 transition-opacity group-hover:opacity-0" aria-hidden>
-                        <IconSend size={18} />
-                      </span>
-                      <span className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>
-                        <IconSendHover size={18} />
-                      </span>
-                    </span>
+                    <IconSend size={18} />
                   </button>
                 </div>
 
@@ -3215,7 +3188,19 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
       {tab === "email" && emailComposerOpen ? (
         <>
-          {!isDesktop ? <div className="fixed inset-0 z-12040 bg-black/20" aria-hidden /> : null}
+          <div
+            data-overlay-root="true"
+            className="fixed inset-0 z-12030 bg-black/20"
+            onMouseDown={() => {
+              setEmailAttachMenu(null);
+              setToSuggestionsMenu(null);
+            }}
+            onTouchStart={() => {
+              setEmailAttachMenu(null);
+              setToSuggestionsMenu(null);
+            }}
+            aria-hidden
+          />
           <div
             className={classNames(
               "fixed z-12040 bg-white shadow-2xl",
@@ -3260,7 +3245,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <span className="text-lg leading-none">×</span>
                 </button>
                 <div className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900">New email</div>
-                {isDesktop ? <div className="text-[11px] font-medium text-zinc-500">Drag to move • Resize edges</div> : null}
               </div>
 
               {toSuggestionsMenu ? (
@@ -3457,7 +3441,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <button
                     type="button"
                     className={classNames(
-                      "group inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#007aff] text-white hover:bg-[#006ae6]",
+                      "inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#007aff] text-white hover:bg-[#006ae6]",
                       sending && "opacity-60",
                     )}
                     onClick={async () => {
@@ -3471,14 +3455,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     disabled={sending}
                     aria-label="Send"
                   >
-                    <span className="relative h-4.5 w-4.5">
-                      <span className="absolute inset-0 opacity-100 transition-opacity group-hover:opacity-0" aria-hidden>
-                        <IconSend size={18} />
-                      </span>
-                      <span className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>
-                        <IconSendHover size={18} />
-                      </span>
-                    </span>
+                    <IconSend size={18} />
                   </button>
                 </div>
               </div>

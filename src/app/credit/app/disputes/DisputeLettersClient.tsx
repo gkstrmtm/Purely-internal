@@ -1,14 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { IconExport, IconFunnel } from "@/app/portal/PortalIcons";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
+import { RichTextMarkdownEditor, type RichTextMarkdownEditorHandle } from "@/components/RichTextMarkdownEditor";
 import { SignatureDisplay } from "@/components/SignatureDisplay";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
-import { normalizeDisputeLetterText, readContactAddress, readContactCustomValue, readContactSignature } from "@/lib/creditDisputeLetters";
+import { CONTACT_SIGNATURE_MARKDOWN, normalizeDisputeLetterText, readContactAddress, readContactCustomValue, readContactSignature, readContactSignatureImage } from "@/lib/creditDisputeLetters";
 import { extractCreditInquiryDate } from "@/lib/creditReports";
 
 type ContactLite = {
@@ -268,6 +269,7 @@ const BUTTON_MOTION_CLASS = "transition-all duration-150 hover:-translate-y-0.5 
 const PRIMARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:opacity-60`;
 const SECONDARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60`;
 const AI_GRADIENT_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white shadow-sm focus-visible:ring-2 focus-visible:ring-brand-blue/30`;
+const CONTACT_SIGNATURE_SNIPPET = `\n\n${CONTACT_SIGNATURE_MARKDOWN}\n`;
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -322,6 +324,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const [reportItemQuery, setReportItemQuery] = useState("");
   const [sourceReportId, setSourceReportId] = useState("");
   const [sourceReportItemId, setSourceReportItemId] = useState("");
+  const editorRef = useRef<RichTextMarkdownEditorHandle | null>(null);
 
   const roundNumber = useMemo(() => Math.max(1, Number.parseInt(round, 10) || 1), [round]);
   const cleanItems = useMemo(() => items.map((item) => item.trim()).filter(Boolean), [items]);
@@ -344,6 +347,8 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   }, [letters, search, statusFilter]);
   const selectedContact = useMemo(() => contacts.find((entry) => entry.id === contactId) || selectedLetter?.contact || null, [contactId, contacts, selectedLetter?.contact]);
   const selectedContactSignature = useMemo(() => readContactCustomValue(selectedContact?.customVariables, "signature"), [selectedContact?.customVariables]);
+  const selectedContactSignatureImage = useMemo(() => readContactSignatureImage(selectedLetter?.contact?.customVariables), [selectedLetter?.contact?.customVariables]);
+  const selectedContactSignatureText = useMemo(() => readContactSignature(selectedLetter?.contact?.customVariables), [selectedLetter?.contact?.customVariables]);
   const recipientSuggestions = useMemo(() => {
     const q = normalize(recipientName);
     if (!q) return RECIPIENT_PRESETS;
@@ -581,6 +586,17 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     });
     setReportItemQuery("");
   }, [composerReportItems]);
+
+  const insertSignatureIntoLetter = useCallback(() => {
+    editorRef.current?.insertMarkdown(CONTACT_SIGNATURE_SNIPPET);
+  }, []);
+
+  const readSignatureDropMarkdown = useCallback((dataTransfer: DataTransfer) => {
+    const direct = dataTransfer.getData("application/x-pa-dispute-signature");
+    if (direct) return direct;
+    const plain = dataTransfer.getData("text/plain");
+    return plain === CONTACT_SIGNATURE_SNIPPET ? plain : null;
+  }, []);
 
   const generateLetter = useCallback(async () => {
     setWorking("generate");
@@ -964,9 +980,15 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
           <section className="rounded-3xl border border-zinc-200 bg-white p-6">
             <label className="block">
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter</div>
-              <textarea value={bodyText} onChange={(event) => setBodyText(normalizeDisputeLetterText(event.target.value, { contactName: selectedLetter?.contact?.name || "", signature: readContactSignature(selectedLetter?.contact?.customVariables) || selectedLetter?.contact?.name || "", email: selectedLetter?.contact?.email || "", phone: selectedLetter?.contact?.phone || "", address: readContactAddress(selectedLetter?.contact?.customVariables) }))} className="min-h-175 w-full rounded-3xl border border-zinc-200 px-4 py-4 text-sm leading-6 text-zinc-800 outline-none focus:border-zinc-300" />
+              <RichTextMarkdownEditor
+                ref={editorRef}
+                markdown={bodyText}
+                onChange={(nextValue) => setBodyText(normalizeDisputeLetterText(nextValue, { contactName: selectedLetter?.contact?.name || "", signature: readContactSignature(selectedLetter?.contact?.customVariables) || selectedLetter?.contact?.name || "", email: selectedLetter?.contact?.email || "", phone: selectedLetter?.contact?.phone || "", address: readContactAddress(selectedLetter?.contact?.customVariables) }))}
+                onDropMarkdown={readSignatureDropMarkdown}
+                placeholder="Write the dispute letter..."
+              />
             </label>
-            <div className="mt-3 text-xs text-zinc-500">The editor stays plain text, and any drawn contact signature is added automatically to the downloaded PDF.</div>
+            <div className="mt-3 text-xs text-zinc-500">Formatting and inserted contact signatures carry into the generated PDF.</div>
           </section>
           <aside className="space-y-4">
             <section className="rounded-3xl border border-zinc-200 bg-white p-5">
@@ -999,6 +1021,26 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                       emptyLabel="No signature stored yet"
                     />
                   </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button type="button" onClick={insertSignatureIntoLetter} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-100">
+                      Add signature to letter
+                    </button>
+                    <div
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData("application/x-pa-dispute-signature", CONTACT_SIGNATURE_SNIPPET);
+                        event.dataTransfer.setData("text/plain", CONTACT_SIGNATURE_SNIPPET);
+                        event.dataTransfer.effectAllowed = "copy";
+                      }}
+                      className="inline-flex cursor-grab items-center rounded-2xl border border-dashed border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-600 active:cursor-grabbing"
+                      title="Drag into the letter editor"
+                    >
+                      Drag signature into letter
+                    </div>
+                  </div>
+                  {selectedContactSignatureImage || selectedContactSignatureText ? (
+                    <div className="mt-2 text-[11px] text-zinc-500">Use the button or drag target to place the contact signature exactly where it should appear in the PDF.</div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">No contact linked.</div>

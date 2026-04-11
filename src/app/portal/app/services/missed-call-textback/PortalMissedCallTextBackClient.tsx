@@ -804,11 +804,11 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
                 </div>
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">To</div>
-                  <div className="mt-1 font-mono">{selectedEvent.to ?? "—"}</div>
+                  <div className="mt-1 font-mono">{selectedEvent.to ?? "-"}</div>
                 </div>
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Dial status</div>
-                  <div className="mt-1 font-mono">{selectedEvent.dialCallStatus ?? "—"}</div>
+                  <div className="mt-1 font-mono">{selectedEvent.dialCallStatus ?? "-"}</div>
                 </div>
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">CallSid</div>

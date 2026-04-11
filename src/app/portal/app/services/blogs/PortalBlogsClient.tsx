@@ -871,23 +871,23 @@ export function PortalBlogsClient({
                 <div className="text-sm font-semibold text-zinc-900">Posts</div>
                 <div className="mt-2 text-sm text-zinc-600">Edit drafts, export Markdown, and keep everything organized.</div>
               </div>
+              {!isPaMobileApp ? (
+                <button
+                  type="button"
+                  onClick={newDraft}
+                  aria-label="New blog"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  <span className="text-lg leading-none">+</span>
+                  <span>New blog</span>
+                </button>
+              ) : null}
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Total credits</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
-                {!isPaMobileApp ? (
-                  <button
-                    type="button"
-                    onClick={newDraft}
-                    aria-label="New blog"
-                    className="mt-3 inline-flex items-center justify-center gap-2 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                  >
-                    <span className="text-lg leading-none">+</span>
-                    <span>New blog</span>
-                  </button>
-                ) : null}
               </div>
               <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Blog credits used</div>

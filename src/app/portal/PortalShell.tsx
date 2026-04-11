@@ -328,7 +328,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
   const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
   const [serviceStatuses, setServiceStatuses] = useState<Record<string, { state: string; label: string }> | null>(null);
-  const [showGettingStartedHint, setShowGettingStartedHint] = useState(false);
+  const [, setShowGettingStartedHint] = useState(false);
   const [sidebarCampaign, setSidebarCampaign] = useState<null | {
     id: string;
     creative?: {
@@ -676,15 +676,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    // One-time "Getting started" helper for first-time visitors to the portal.
-    try {
-      const seen = window.localStorage.getItem("portalGettingStartedSeen");
-      if (!seen) {
-        setShowGettingStartedHint(true);
-      }
-    } catch {
-      // If localStorage is unavailable, silently skip the hint.
-    }
+    setShowGettingStartedHint(false);
   }, []);
 
   useEffect(() => {
@@ -1081,7 +1073,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const activeTopKey = sidebarModeOverride ?? derivedTopKey;
   const hasSidebarOverrideContent = Boolean(sidebarOverride?.desktopSidebarContent || sidebarOverride?.mobileSidebarContent);
-  const showSidebarOverrideInServices = activeTopKey === "services" && derivedTopKey === "services" && hasSidebarOverrideContent;
+  const showSidebarOverrideInServices =
+    activeTopKey === "services" && derivedTopKey === "services" && hasSidebarOverrideContent && sidebarModeOverride !== "services";
   const sidebarPanelTopKey = activeTopKey;
   const showSidebarOverridePanel = sidebarPanelTopKey === "pura" || showSidebarOverrideInServices;
 
@@ -1401,14 +1394,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const floatingToolsReserve = "6.5rem";
   const portalLightSurfaceNoOutlineCss = `
-    .pa-portal-ui [class*="bg-zinc-50"][class*="border-zinc-200"],
-    .pa-portal-ui [class*="bg-zinc-100"][class*="border-zinc-200"],
-    .pa-portal-ui [class*="bg-zinc-50/80"][class*="border-zinc-200"],
-    .pa-portal-ui [class*="bg-emerald-50"][class*="border-emerald-200"],
-    .pa-portal-ui [class*="bg-amber-50"][class*="border-amber-200"],
-    .pa-portal-ui [class*="bg-red-50"][class*="border-red-200"],
-    .pa-portal-ui [class*="bg-blue-50"][class*="border-blue-200"],
-    .pa-portal-ui [class*="bg-pink-50"][class*="border-pink-200"],
     .pa-portal-ui [class*="bg-white/95"][class*="border-zinc-200"],
     .pa-portal-ui [class*="bg-white/90"][class*="border-zinc-200"],
     .pa-portal-ui [class*="bg-white/10"][class*="border-white/15"],
@@ -1736,7 +1721,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         </div>
         ) : null}
 
-        {showGettingStartedHint ? (
+        {false ? (
         <div
           className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center px-4 py-6"
           style={{
@@ -1744,12 +1729,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             paddingBottom: "calc(env(safe-area-inset-bottom) + 1.25rem)",
           }}
         >
-          <button
-            type="button"
-            className="pointer-events-auto absolute inset-0 bg-black/25"
-            aria-label="Dismiss getting started hint"
-            onClick={dismissGettingStartedHint}
-          />
           <div className="pointer-events-auto relative w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl sm:p-6">
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">New here?</div>
             <h2 className="mt-2 text-lg font-semibold text-brand-ink">Watch the getting started tour</h2>

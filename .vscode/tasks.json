@@ -138,6 +138,66 @@
 				"dev"
 			],
 			"isBackground": true
+		},
+		{
+			"label": "Inspect: portal endpoint probe",
+			"type": "shell",
+			"command": "python3",
+			"args": [
+				"tmp/portal-qa/check-portal-endpoints.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: capture ai receptionist review shots",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture-review-shots.mjs",
+				"--service=ai-receptionist",
+				"--timeout-ms=90000"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: capture ai receptionist review shots v2",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture-review-shots.mjs",
+				"--service=ai-receptionist",
+				"--timeout-ms=90000"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: capture ai receptionist review shots v3",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture-review-shots.mjs",
+				"--service=ai-receptionist",
+				"--timeout-ms=90000"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: booking settings direct",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture-booking-settings-direct.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: booking capture states",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_capture.mjs"
+			],
+			"isBackground": false
 		}
 	]
 }

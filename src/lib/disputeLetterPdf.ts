@@ -1,5 +1,7 @@
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
+const CONTACT_SIGNATURE_MARKDOWN_REGEX = /!\[[^\]]*signature[^\]]*\]\(pa-signature:\/\/contact\)/i;
+
 type DisputeLetterPdfMeta = {
   dateIso?: string | null;
   senderName?: string | null;
@@ -7,39 +9,6 @@ type DisputeLetterPdfMeta = {
   recipientName?: string | null;
   recipientAddress?: string | null;
 };
-
-function wrapLines(text: string, maxChars: number): string[] {
-  const lines: string[] = [];
-  const rawLines = String(text || "").replace(/\r\n/g, "\n").split("\n");
-
-  for (const raw of rawLines) {
-    const line = raw.replace(/\t/g, "    ");
-    if (line.length <= maxChars) {
-      lines.push(line);
-      continue;
-    }
-
-    const words = line.split(/(\s+)/);
-    let buffer = "";
-    for (const part of words) {
-      if (buffer.length + part.length <= maxChars) {
-        buffer += part;
-        continue;
-      }
-      if (buffer.trim().length) lines.push(buffer.trimEnd());
-      buffer = part.trimStart();
-      if (buffer.length > maxChars) {
-        while (buffer.length > maxChars) {
-          lines.push(buffer.slice(0, maxChars));
-          buffer = buffer.slice(maxChars);
-        }
-      }
-    }
-    if (buffer.trim().length) lines.push(buffer.trimEnd());
-  }
-
-  return lines;
-}
 
 function sanitizePdfText(text: string) {
   // Keep tabs/newlines/carriage returns and printable ASCII.
@@ -74,7 +43,7 @@ function equalsLoose(a: string, b: string) {
       .toLowerCase();
 }
 
-function stripHeaderFooterForPdf(text: string, meta: DisputeLetterPdfMeta) {
+function stripHeaderFooterForPdf(text: string, meta: DisputeLetterPdfMeta, options?: { preserveClosing?: boolean }) {
   const value = String(text || "").replace(/\r\n?/g, "\n").trim();
   if (!value) return "";
 
@@ -82,10 +51,12 @@ function stripHeaderFooterForPdf(text: string, meta: DisputeLetterPdfMeta) {
   const rawLines = value.split("\n");
   const closingRegex = /^\s*(sincerely|regards|respectfully|thank you)\s*[,]*\s*$/i;
   let end = rawLines.length;
-  for (let i = rawLines.length - 1; i >= 0; i -= 1) {
-    if (closingRegex.test(rawLines[i] || "")) {
-      end = i;
-      break;
+  if (!options?.preserveClosing) {
+    for (let i = rawLines.length - 1; i >= 0; i -= 1) {
+      if (closingRegex.test(rawLines[i] || "")) {
+        end = i;
+        break;
+      }
     }
   }
   const lines = rawLines.slice(0, end);
@@ -156,16 +127,74 @@ async function tryEmbedSignatureImage(pdf: PDFDocument, signatureDataUrl: string
   }
 }
 
+type InlineSegment = {
+  text?: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  signature?: boolean;
+};
+
+function parseInlineMarkdownSegments(line: string): InlineSegment[] {
+  const value = String(line || "");
+  const segments: InlineSegment[] = [];
+  let cursor = 0;
+
+  const pushText = (text: string, style?: Omit<InlineSegment, "text" | "signature">) => {
+    if (!text) return;
+    segments.push({ text, ...style });
+  };
+
+  while (cursor < value.length) {
+    const rest = value.slice(cursor);
+    const signatureMatch = rest.match(/^!\[[^\]]*signature[^\]]*\]\(pa-signature:\/\/contact\)/i);
+    if (signatureMatch?.[0]) {
+      segments.push({ signature: true });
+      cursor += signatureMatch[0].length;
+      continue;
+    }
+
+    const boldMatch = rest.match(/^\*\*([^*]+)\*\*/);
+    if (boldMatch?.[1]) {
+      pushText(boldMatch[1], { bold: true });
+      cursor += boldMatch[0].length;
+      continue;
+    }
+
+    const underlineMatch = rest.match(/^__([^_]+)__/);
+    if (underlineMatch?.[1]) {
+      pushText(underlineMatch[1], { underline: true });
+      cursor += underlineMatch[0].length;
+      continue;
+    }
+
+    const italicMatch = rest.match(/^\*([^*]+)\*/);
+    if (italicMatch?.[1]) {
+      pushText(italicMatch[1], { italic: true });
+      cursor += italicMatch[0].length;
+      continue;
+    }
+
+    pushText(rest[0] || "");
+    cursor += 1;
+  }
+
+  return segments;
+}
+
 export async function renderDisputeLetterPdfBytes(opts: {
   text: string;
   meta?: DisputeLetterPdfMeta;
   signatureDataUrl?: string | null;
+  signatureText?: string | null;
   printedName?: string | null;
 }): Promise<Buffer> {
   const pdf = await PDFDocument.create();
   let page = pdf.addPage([612, 792]);
   const bodyFont = await pdf.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const italicFont = await pdf.embedFont(StandardFonts.HelveticaOblique);
+  const boldItalicFont = await pdf.embedFont(StandardFonts.HelveticaBoldOblique);
 
   const margin = 54;
   const pageWidth = page.getWidth();
@@ -176,6 +205,7 @@ export async function renderDisputeLetterPdfBytes(opts: {
   const bodyFontSize = 11;
 
   const printedName = String(opts.printedName || "").trim();
+  const signatureText = String(opts.signatureText || "").trim();
   const signatureImage = await tryEmbedSignatureImage(pdf, String(opts.signatureDataUrl || ""));
 
   const meta = opts.meta || {};
@@ -232,16 +262,133 @@ export async function renderDisputeLetterPdfBytes(opts: {
 
   cursorY -= lineHeight;
 
+  const hasInlineSignature = CONTACT_SIGNATURE_MARKDOWN_REGEX.test(String(opts.text || ""));
   const bodyText = stripHeaderFooterForPdf(String(opts.text || ""), {
     dateIso: meta.dateIso,
     senderName: senderName,
     senderAddress: meta.senderAddress,
     recipientName: recipientName,
     recipientAddress: meta.recipientAddress,
-  });
+  }, { preserveClosing: hasInlineSignature });
 
   // Draw body with basic paging.
-  const wrappedBodyLines = wrapLines(bodyText, 100);
+  const selectFont = (segment: InlineSegment) => {
+    if (segment.bold && segment.italic) return boldItalicFont;
+    if (segment.bold) return boldFont;
+    if (segment.italic) return italicFont;
+    return bodyFont;
+  };
+
+  const ensureSpace = (height: number) => {
+    if (cursorY >= margin + height) return;
+    page = pdf.addPage([612, 792]);
+    cursorY = page.getHeight() - margin;
+  };
+
+  const drawInlineSignature = () => {
+    const blockHeight = signatureImage
+      ? signatureImage.height + (printedName ? lineHeight * 2 : lineHeight)
+      : lineHeight * (signatureText || printedName ? 2 : 1);
+    ensureSpace(blockHeight + lineHeight);
+    if (signatureImage) {
+      const signatureY = Math.max(margin + 24, cursorY - signatureImage.height);
+      page.drawImage(signatureImage.image, {
+        x: margin,
+        y: signatureY,
+        width: signatureImage.width,
+        height: signatureImage.height,
+      });
+      cursorY = signatureY - lineHeight;
+      if (printedName) {
+        page.drawText(sanitizePdfText(printedName), {
+          x: margin,
+          y: cursorY,
+          size: bodyFontSize,
+          font: bodyFont,
+          maxWidth: bodyWidth,
+        });
+        cursorY -= lineHeight;
+      }
+      return;
+    }
+    const textValue = signatureText || printedName;
+    if (textValue) {
+      page.drawText(sanitizePdfText(textValue), {
+        x: margin,
+        y: cursorY,
+        size: bodyFontSize,
+        font: italicFont,
+        maxWidth: bodyWidth,
+      });
+      cursorY -= lineHeight;
+    }
+  };
+
+  const drawWrappedSegments = (segments: InlineSegment[]) => {
+    const flushLine = (lineSegments: InlineSegment[]) => {
+      ensureSpace(lineHeight * 2);
+      let x = margin;
+      for (const segment of lineSegments) {
+        const textValue = String(segment.text || "");
+        if (!textValue) continue;
+        const font = selectFont(segment);
+        page.drawText(sanitizePdfText(textValue), {
+          x,
+          y: cursorY,
+          size: bodyFontSize,
+          font,
+        });
+        const width = font.widthOfTextAtSize(textValue, bodyFontSize);
+        if (segment.underline && textValue.trim()) {
+          page.drawLine({
+            start: { x, y: cursorY - 1.5 },
+            end: { x: x + width, y: cursorY - 1.5 },
+            thickness: 0.75,
+          });
+        }
+        x += width;
+      }
+      cursorY -= lineHeight;
+    };
+
+    let currentLine: InlineSegment[] = [];
+    let currentWidth = 0;
+
+    const pushText = (textValue: string, style: InlineSegment) => {
+      const parts = textValue.split(/(\s+)/);
+      for (const part of parts) {
+        if (!part) continue;
+        const font = selectFont(style);
+        const tokenWidth = font.widthOfTextAtSize(part, bodyFontSize);
+        if (!part.trim() && currentWidth === 0) continue;
+        if (currentWidth > 0 && currentWidth + tokenWidth > bodyWidth) {
+          flushLine(currentLine);
+          currentLine = [];
+          currentWidth = 0;
+          if (!part.trim()) continue;
+        }
+        currentLine.push({ ...style, text: part });
+        currentWidth += tokenWidth;
+      }
+    };
+
+    for (const segment of segments) {
+      if (segment.signature) {
+        if (currentLine.length) {
+          flushLine(currentLine);
+          currentLine = [];
+          currentWidth = 0;
+        }
+        drawInlineSignature();
+        continue;
+      }
+      pushText(String(segment.text || ""), segment);
+    }
+
+    if (currentLine.length) flushLine(currentLine);
+  };
+
+  const wrappedBodyLines = String(bodyText || "").replace(/\r\n?/g, "\n").split("\n");
   const drawLine = (line: string, font = bodyFont) => {
     if (cursorY < margin + lineHeight) {
       page = pdf.addPage([612, 792]);
@@ -262,10 +409,14 @@ export async function renderDisputeLetterPdfBytes(opts: {
       cursorY -= lineHeight;
       continue;
     }
-    drawLine(line);
+    drawWrappedSegments(parseInlineMarkdownSegments(line));
   }
 
   // Closing + signature block. Keep them together.
+  if (hasInlineSignature) {
+    return Buffer.from(await pdf.save());
+  }
+
   const signatureBlockHeight =
     lineHeight * 2 +
     (signatureImage ? signatureImage.height + lineHeight * (printedName ? 2 : 1) : printedName ? lineHeight * 2 : 0);

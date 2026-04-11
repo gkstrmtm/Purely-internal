@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { listAvailabilityBlocksForRange } from "@/lib/bookingAvailability";
 import { prisma } from "@/lib/db";
 import { computeAvailableSlots } from "@/lib/bookingSlots";
 
@@ -33,6 +34,7 @@ export async function GET(req: Request) {
     durationMinutes: url.searchParams.get("durationMinutes") ?? undefined,
     limit: url.searchParams.get("limit") ?? undefined,
   });
+  const calendarId = url.searchParams.get("calendarId")?.trim() || null;
 
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid query" }, { status: 400 });
@@ -52,10 +54,7 @@ export async function GET(req: Request) {
   const rangeEnd = new Date(rangeStart.getTime() + parsed.data.days * 24 * 60 * 60_000);
 
   const [blocks, bookings] = await Promise.all([
-    prisma.availabilityBlock.findMany({
-      where: { userId: site.ownerId, startAt: { lt: rangeEnd }, endAt: { gt: rangeStart } },
-      select: { startAt: true, endAt: true },
-    }),
+    listAvailabilityBlocksForRange({ userId: site.ownerId, rangeStart, rangeEnd, calendarId }),
     (prisma as any).portalBooking.findMany({
       where: { siteId: site.id, status: "SCHEDULED", startAt: { lt: rangeEnd }, endAt: { gt: rangeStart } },
       select: { startAt: true, endAt: true },

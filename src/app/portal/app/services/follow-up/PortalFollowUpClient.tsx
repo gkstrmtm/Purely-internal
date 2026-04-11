@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { AppModal } from "@/components/AppModal";
@@ -494,20 +494,20 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     let didLoad = false;
 
     try {
-      const [meRes, settingsRes] = await Promise.all([
-        fetch("/api/customer/me", {
-          cache: "no-store",
-          headers: {
-            "x-pa-app": "portal",
-            "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
-          },
-        }),
-        fetch("/api/portal/follow-up/settings", { cache: "no-store" }),
-      ]);
+      const settingsRes = await fetch("/api/portal/follow-up/settings", { cache: "no-store" });
+      const meRes = isEmbedded
+        ? null
+        : await fetch("/api/customer/me", {
+            cache: "no-store",
+            headers: {
+              "x-pa-app": "portal",
+              "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
+            },
+          }).catch(() => null);
 
       if (!mountedRef.current) return;
 
-      if (meRes.ok) setMe((await meRes.json()) as Me);
+      if (meRes?.ok) setMe((await meRes.json()) as Me);
       if (settingsRes.ok) {
         const json = (await settingsRes.json().catch(() => ({}))) as {
           ok?: boolean;
@@ -540,17 +540,18 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         setRefreshing(false);
       }
     }
-  }, []);
+  }, [isEmbedded]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const unlocked = useMemo(() => {
+    if (isEmbedded) return true;
     const email = (me?.user.email ?? "").toLowerCase().trim();
     if (email === DEFAULT_FULL_DEMO_EMAIL) return true;
     return Boolean(me?.entitlements?.booking);
-  }, [me]);
+  }, [isEmbedded, me]);
 
   const refreshTags = useCallback(async () => {
     setTagsLoading(true);
@@ -911,35 +912,33 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
             All services
           </Link>
         </div>
-      ) : (
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Follow up</div>
-        </div>
-      )}
+      ) : null}
 
-      <div className="mt-6 flex w-full flex-wrap gap-2">
+      <div className={(isEmbedded ? "mt-0" : "mt-6") + " inline-flex w-full flex-wrap rounded-full bg-blue-50/80 p-1 gap-1"}>
         <button
+          data-testid="follow-up-tab-activity"
           type="button"
           onClick={() => setTab("activity")}
           aria-current={tab === "activity" ? "page" : undefined}
           className={
-            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-40 rounded-full px-4 py-2.5 text-sm font-semibold transition focus:outline-none " +
             (tab === "activity"
-              ? "border-zinc-200 bg-zinc-100 text-zinc-900"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              ? "bg-blue-100 text-brand-blue"
+              : "text-zinc-700 hover:bg-white/70")
           }
         >
           Activity
         </button>
         <button
+          data-testid="follow-up-tab-settings"
           type="button"
           onClick={() => setTab("settings")}
           aria-current={tab === "settings" ? "page" : undefined}
           className={
-            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-40 rounded-full px-4 py-2.5 text-sm font-semibold transition focus:outline-none " +
             (tab === "settings"
-              ? "border-zinc-200 bg-zinc-100 text-zinc-900"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              ? "bg-blue-100 text-brand-blue"
+              : "text-zinc-700 hover:bg-white/70")
           }
         >
           Settings
@@ -947,7 +946,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       </div>
 
       {tab === "settings" ? (
-        <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div data-testid="follow-up-settings-panel" className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="min-w-0 lg:col-span-2">
             <PortalSettingsSection
               title="Automation"
@@ -1944,84 +1943,68 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           </div>
         </div>
       ) : (
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
-            <div className="text-sm font-semibold text-zinc-900">Queue</div>
-            <div className="mt-2 text-sm text-zinc-600">Upcoming and recent follow-ups.</div>
+        <div data-testid="follow-up-activity-panel" className="mt-4">
+          <div className="text-sm font-semibold text-zinc-900">Queue</div>
+          <div className="mt-2 text-sm text-zinc-600">Upcoming and recent follow-ups.</div>
 
-            <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
-              <div className="grid grid-cols-12 gap-2 bg-zinc-50 px-4 py-2 text-xs font-semibold text-zinc-600">
-                <div className="col-span-2">When</div>
-                <div className="col-span-3">Step</div>
-                <div className="col-span-2">Channel</div>
-                <div className="col-span-3">To</div>
-                <div className="col-span-2">Status</div>
-              </div>
-              <div className="divide-y divide-zinc-200">
-                {queue.length > 0 ? (
-                  queue.map((q) => {
-                    const recipient = q.channel === "TAG" ? q.contactId || "" : q.to || "";
-                    const canLink = q.channel !== "TAG" && Boolean(q.to);
+          <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+            <div className="grid grid-cols-12 gap-2 bg-zinc-50 px-4 py-2 text-xs font-semibold text-zinc-600">
+              <div className="col-span-2">When</div>
+              <div className="col-span-3">Step</div>
+              <div className="col-span-2">Channel</div>
+              <div className="col-span-3">To</div>
+              <div className="col-span-2">Status</div>
+            </div>
+            <div className="divide-y divide-zinc-200">
+              {queue.length > 0 ? (
+                queue.map((q) => {
+                  const recipient = q.channel === "TAG" ? q.contactId || "" : q.to || "";
+                  const canLink = q.channel !== "TAG" && Boolean(q.to);
+                  const rowContent = (
+                    <>
+                      <div className="col-span-2 text-zinc-700">{fmtWhen(q.sendAtIso)}</div>
+                      <div className="col-span-3 truncate text-zinc-700">{q.stepName}</div>
+                      <div className="col-span-2 text-zinc-700">{q.channel}</div>
+                      <div className="col-span-3 truncate font-medium text-brand-ink">
+                        {recipient || (q.channel === "TAG" ? "(missing contact)" : "")}
+                      </div>
+                      <div className="col-span-2 text-zinc-600">
+                        {q.status === "FAILED" ? (
+                          <span className="text-red-700">FAILED</span>
+                        ) : q.status === "SENT" ? (
+                          <span className="text-emerald-700">SENT</span>
+                        ) : q.status === "CANCELED" ? (
+                          <span className="text-zinc-500">CANCELED</span>
+                        ) : (
+                          <span className="text-zinc-700">PENDING</span>
+                        )}
+                        {q.lastError ? <div className="mt-1 text-xs text-red-700">{q.lastError}</div> : null}
+                      </div>
+                    </>
+                  );
 
-                    const Row = ({ children }: { children: ReactNode }) =>
-                      canLink ? (
-                        <a
-                          href={`${portalBase}/app/services/inbox/${q.channel === "SMS" ? "sms" : "email"}?to=${encodeURIComponent(q.to || "")}`}
-                          className="grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-zinc-50"
-                          title="Open thread in Inbox"
-                        >
-                          {children}
-                        </a>
-                      ) : (
-                        <div className="grid grid-cols-12 gap-2 px-4 py-3 text-sm">
-                          {children}
-                        </div>
-                      );
-
+                  if (canLink) {
                     return (
-                      <Row key={q.id}>
-                        <div className="col-span-2 text-zinc-700">{fmtWhen(q.sendAtIso)}</div>
-                        <div className="col-span-3 truncate text-zinc-700">{q.stepName}</div>
-                        <div className="col-span-2 text-zinc-700">{q.channel}</div>
-                        <div className="col-span-3 truncate font-medium text-brand-ink">
-                          {recipient || (q.channel === "TAG" ? "(missing contact)" : "")}
-                        </div>
-                        <div className="col-span-2 text-zinc-600">
-                          {q.status === "FAILED" ? (
-                            <span className="text-red-700">FAILED</span>
-                          ) : q.status === "SENT" ? (
-                            <span className="text-emerald-700">SENT</span>
-                          ) : q.status === "CANCELED" ? (
-                            <span className="text-zinc-500">CANCELED</span>
-                          ) : (
-                            <span className="text-zinc-700">PENDING</span>
-                          )}
-                          {q.lastError ? <div className="mt-1 text-xs text-red-700">{q.lastError}</div> : null}
-                        </div>
-                      </Row>
+                      <a
+                        key={q.id}
+                        href={`${portalBase}/app/services/inbox/${q.channel === "SMS" ? "sms" : "email"}?to=${encodeURIComponent(q.to || "")}`}
+                        className="grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-zinc-50"
+                        title="Open thread in Inbox"
+                      >
+                        {rowContent}
+                      </a>
                     );
-                  })
-                ) : (
-                  <div className="px-4 py-6 text-sm text-zinc-600">No follow-ups queued yet.</div>
-                )}
-              </div>
-            </div>
-          </div>
+                  }
 
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-sm font-semibold text-zinc-900">How it works</div>
-            <div className="mt-2 space-y-2 text-sm text-zinc-600">
-              <div>• When a booking is created, we schedule follow-up messages.</div>
-              <div>• Each step has its own delay after the appointment ends.</div>
-              <div>• Email sender name uses your business name.</div>
-            </div>
-            <div className="mt-5">
-              <Link
-                href={`${portalBase}/app/services/booking/appointments`}
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              >
-                View bookings
-              </Link>
+                  return (
+                    <div key={q.id} className="grid grid-cols-12 gap-2 px-4 py-3 text-sm">
+                      {rowContent}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="px-4 py-6 text-sm text-zinc-600">No follow-ups queued yet.</div>
+              )}
             </div>
           </div>
         </div>

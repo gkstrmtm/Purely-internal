@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { findAvailabilityCoverage } from "@/lib/bookingAvailability";
 import { prisma } from "@/lib/db";
 import { getBookingFormConfig } from "@/lib/bookingForm";
 import { hasPublicColumn } from "@/lib/dbSchema";
@@ -217,10 +218,7 @@ export async function POST(
   const endAt = new Date(startAt.getTime() + durationMinutes * 60_000);
 
   // Ensure host has coverage at this slot.
-  const coverage = await prisma.availabilityBlock.findFirst({
-    where: { userId: site.ownerId, startAt: { lte: startAt }, endAt: { gte: endAt } },
-    select: { id: true },
-  });
+  const coverage = await findAvailabilityCoverage({ userId: site.ownerId, startAt, endAt });
 
   if (!coverage) {
     return NextResponse.json(

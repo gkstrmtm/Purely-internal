@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { findAvailabilityCoverage } from "@/lib/bookingAvailability";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { getRequestOrigin, signBookingRescheduleToken } from "@/lib/bookingReschedule";
@@ -118,10 +119,7 @@ export async function POST(
   }
 
   // Availability coverage.
-  const coverage = await prisma.availabilityBlock.findFirst({
-    where: { userId: ownerId, startAt: { lte: startAt }, endAt: { gte: endAt } },
-    select: { id: true },
-  });
+  const coverage = await findAvailabilityCoverage({ userId: ownerId, startAt, endAt, calendarId: booking.calendarId });
 
   if (!coverage) {
     if (parsed.data.forceAvailability) {
