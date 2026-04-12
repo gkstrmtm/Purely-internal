@@ -176,6 +176,32 @@ function safeImgSrc(src: string) {
   return safeHref(src);
 }
 
+const ASSISTANT_LINK_ORIGIN = "https://purelyautomation.com";
+
+function isInternalAssistantPath(pathname: string) {
+  return (
+    pathname === "/portal" ||
+    pathname.startsWith("/portal/") ||
+    pathname === "/book" ||
+    pathname.startsWith("/book/") ||
+    pathname === "/api/portal" ||
+    pathname.startsWith("/api/portal/")
+  );
+}
+
+function extractInternalAssistantPath(href: string) {
+  const raw = String(href || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("/")) return raw;
+  try {
+    const url = new URL(raw, ASSISTANT_LINK_ORIGIN);
+    const path = `${url.pathname || ""}${url.search || ""}${url.hash || ""}`;
+    return isInternalAssistantPath(url.pathname || "") ? path : null;
+  } catch {
+    return null;
+  }
+}
+
 type AssistantAction = {
   key: string;
   title: string;
@@ -455,24 +481,16 @@ function fmtShortTime(iso: string | null | undefined) {
 function safeHref(href: string) {
   const raw = String(href || "").trim();
   if (!raw) return null;
-  if (raw.startsWith("/")) return raw;
+  const internalPath = extractInternalAssistantPath(raw);
+  if (internalPath) return new URL(internalPath, ASSISTANT_LINK_ORIGIN).toString();
   if (raw.startsWith("www.")) return `https://${raw}`;
   try {
     const u = new URL(raw);
     if (!["http:", "https:", "mailto:", "tel:"].includes(u.protocol)) return null;
 
-    // If the assistant outputs an absolute URL to an internal portal path,
-    // force it to be relative so we never leak/use bogus hosts (e.g. yourportal.com).
     if (u.protocol === "http:" || u.protocol === "https:") {
-      const path = u.pathname || "";
-      const internal =
-        path === "/portal" ||
-        path.startsWith("/portal/") ||
-        path === "/book" ||
-        path.startsWith("/book/") ||
-        path === "/api/portal" ||
-        path.startsWith("/api/portal/");
-      if (internal) return `${path}${u.search}${u.hash}`;
+      const path = `${u.pathname || ""}${u.search || ""}${u.hash || ""}`;
+      if (isInternalAssistantPath(u.pathname || "")) return new URL(path, ASSISTANT_LINK_ORIGIN).toString();
     }
 
     return u.toString();
@@ -556,7 +574,8 @@ function MessageBubble({
               a({ href, children }: { href?: string; children?: ReactNode }) {
                 const safe = safeHref(String(href || ""));
                 if (!safe) return <span>{children}</span>;
-                const external = /^https?:\/\//i.test(safe);
+                const internalPath = extractInternalAssistantPath(safe);
+                const external = /^https?:\/\//i.test(safe) && !internalPath;
                 return (
                   <a
                     href={safe}
@@ -569,10 +588,10 @@ function MessageBubble({
                     onClick={(e) => {
                       if (external) return;
                       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                      if (!safe.startsWith("/")) return;
+                      if (!internalPath) return;
                       if (!onOpenLink) return;
                       e.preventDefault();
-                      onOpenLink(safe);
+                      onOpenLink(internalPath);
                     }}
                   >
                     {children}
@@ -868,7 +887,7 @@ function nextStepBadgeMeta(nextStepContext: NextStepContext | null) {
     label: "Ready next",
     title: nextStepContext.workTitle || nextStepContext.objective || "This chat has a ready next step",
     dotClassName: "bg-emerald-500",
-    badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    badgeClassName: "bg-emerald-100 text-emerald-800",
   };
 }
 
@@ -882,6 +901,38 @@ function nextStepPreviewText(nextStepContext: NextStepContext | null): string | 
     "";
   if (!raw) return null;
   return raw.slice(0, 120);
+}
+
+function normalizeAssistantComparableText(raw: string | null | undefined) {
+  return String(raw || "")
+    .replace(/\[[^\]]+\]\(([^)]+)\)/g, "$1")
+    .replace(/https?:\/\/purelyautomation\.com/gi, "")
+    .replace(/[`*_>#-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function textsLookEquivalent(a: string | null | undefined, b: string | null | undefined) {
+  const left = normalizeAssistantComparableText(a);
+  const right = normalizeAssistantComparableText(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const shorter = left.length <= right.length ? left : right;
+  const longer = left.length > right.length ? left : right;
+  return shorter.length >= 48 && longer.includes(shorter);
+}
+
+function isDuplicateNextStepCard(nextStepContext: NextStepContext | null, lastAssistantMessage: Message | null) {
+  if (!nextStepContext || !lastAssistantMessage) return false;
+  const assistantText = lastAssistantMessage.text;
+  if (!String(assistantText || "").trim()) return false;
+  if (textsLookEquivalent(nextStepContext.summaryText, assistantText)) return true;
+
+  const title = normalizeAssistantComparableText(nextStepContext.workTitle || nextStepContext.objective || null);
+  const prompt = normalizeAssistantComparableText(nextStepContext.suggestedPrompt || nextStepContext.suggestions[0] || null);
+  const assistantComparable = normalizeAssistantComparableText(assistantText);
+  return Boolean(title && prompt && assistantComparable.includes(title) && assistantComparable.includes(prompt));
 }
 
 function formatRunStatusLabel(statusRaw: string | null | undefined): string {
@@ -1161,7 +1212,7 @@ function NextStepCard({ nextStepContext, onContinue, onOpenCanvas, sending }: { 
           <ThinkingDots />
           <span>Ready next step</span>
         </div>
-        <div className="rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
+        <div className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
           Continue
         </div>
       </div>
@@ -1295,6 +1346,7 @@ export function PortalAiChatClient({
     if (fromRoute) return fromRoute;
     return (searchParams?.get("thread") || "").trim() || null;
   }, [initialThreadRef, searchParams]);
+  const [requestedThreadIdState, setRequestedThreadIdState] = useState<string | null>(initialRequestedThreadId);
   // Threads sidebar is resize-only (no close control).
   const [canvasOpen, setCanvasOpen] = useState(() => {
     if (typeof window !== "undefined") {
@@ -1626,7 +1678,7 @@ export function PortalAiChatClient({
   const pendingAttachments = activeThreadDraft.pendingAttachments;
   const editingMessageId = editingMessageIdByThread[activeThreadKey] ?? null;
   const isEditing = Boolean(editingMessageId);
-  const requestedThreadId = initialRequestedThreadId;
+  const requestedThreadId = requestedThreadIdState;
   const currentHref = useMemo(() => {
     const query = searchParams?.toString();
     return `${pathname || ""}${query ? `?${query}` : ""}`;
@@ -1711,9 +1763,29 @@ export function PortalAiChatClient({
     return null;
   }, [effectiveChatMode, hasThinkingMessage, inferredWorkStatusLabel, liveWorkStatusLabel, regenerating, regeneratingTarget?.messageId, runningActionKey, sending]);
 
+  const latestAssistantMessage = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (!message || message.role !== "assistant") continue;
+      if (String(message.id || "").startsWith("optimistic-assistant-")) continue;
+      if (!String(message.text || "").trim()) continue;
+      return message;
+    }
+    return null;
+  }, [messages]);
+
+  const showNextStepCard = useMemo(() => {
+    if (showActiveLiveProgressCard || activeUnresolvedRun || !activeNextStepContext) return false;
+    return !isDuplicateNextStepCard(activeNextStepContext, latestAssistantMessage);
+  }, [activeNextStepContext, activeUnresolvedRun, latestAssistantMessage, showActiveLiveProgressCard]);
+
   useLayoutEffect(() => {
     activeThreadIdRef.current = activeThreadId;
   }, [activeThreadId]);
+
+  useEffect(() => {
+    setRequestedThreadIdState(initialRequestedThreadId);
+  }, [initialRequestedThreadId]);
 
   useLayoutEffect(() => {
     threadsRef.current = threads;
@@ -1745,6 +1817,7 @@ export function PortalAiChatClient({
         basePath,
         thread: thread ? { id: thread.id, title: thread.title } : null,
       });
+      setRequestedThreadIdState(thread?.id ?? null);
       if (currentHref === href) return;
       if (mode === "replace") router.replace(href, { scroll: false });
       else router.push(href, { scroll: false });
@@ -1955,8 +2028,13 @@ export function PortalAiChatClient({
   }, [syncShouldStickToBottom]);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages.length, scrollToBottom]);
+    if (!messages.length) return;
+    requestAnimationFrame(() => {
+      if (forceScrollToBottomRef.current || shouldStickToBottomRef.current) {
+        scrollToBottom(forceScrollToBottomRef.current);
+      }
+    });
+  }, [activeThreadKey, messages, scrollToBottom]);
 
   const loadThreads = useCallback(async () => {
     setThreadsLoading(true);
@@ -3604,7 +3682,7 @@ export function PortalAiChatClient({
                         {!isWorking && !threadBadge && continuityBadge ? (
                           <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
                             <span className={classNames("inline-flex h-2 w-2 rounded-full", continuityBadge.dotClassName)} />
-                            <span className={classNames("rounded-full border px-2 py-0.5", continuityBadge.badgeClassName)} title={continuityBadge.title}>{continuityBadge.label}</span>
+                            <span className={classNames("rounded-full px-2 py-0.5", continuityBadge.badgeClassName)} title={continuityBadge.title}>{continuityBadge.label}</span>
                           </div>
                         ) : null}
                         {isWorking ? (
@@ -3710,7 +3788,7 @@ export function PortalAiChatClient({
                           {!isWorking && !threadBadge && continuityBadge ? (
                             <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
                               <span className={classNames("inline-flex h-2 w-2 rounded-full", continuityBadge.dotClassName)} />
-                              <span className={classNames("rounded-full border px-2 py-0.5", continuityBadge.badgeClassName)} title={continuityBadge.title}>{continuityBadge.label}</span>
+                              <span className={classNames("rounded-full px-2 py-0.5", continuityBadge.badgeClassName)} title={continuityBadge.title}>{continuityBadge.label}</span>
                             </div>
                           ) : null}
                           {isWorking ? (
@@ -4769,7 +4847,7 @@ export function PortalAiChatClient({
                     />
                   </div>
                 ) : null}
-                {!showActiveLiveProgressCard && !activeUnresolvedRun && activeNextStepContext ? (
+                {showNextStepCard && activeNextStepContext ? (
                   <div className="mt-3">
                     <NextStepCard
                       nextStepContext={activeNextStepContext}

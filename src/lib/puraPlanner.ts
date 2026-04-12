@@ -283,6 +283,7 @@ export async function planPuraActions(opts: {
     "  - For 'create a landing page in that funnel ...', use funnel_builder.pages.create with the funnel resolved from thread context or a funnel $ref.",
     "  - For 'create a media folder called ...', use media.folder.ensure. Do NOT noop or ask for more detail unless the folder name itself is unclear.",
     "  - For 'import this image into ...', use media.import_remote_image and resolve the destination folder if named.",
+    "  - For booking settings requests that ask for both the settings editor view and the live booking link, include booking.settings.update (if needed), then booking.settings.get, and then booking.site.get in the same execute plan.",
     "- Review and nurture rules:",
     "  - For 'reviews without a business reply', use reviews.inbox.list with hasBusinessReply=false.",
     "  - For 'reply to Jamie Carter\'s review', use reviews.reply with reviewId resolved from {$ref:'review', hint:'Jamie Carter'}.",

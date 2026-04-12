@@ -289,7 +289,7 @@ Set these env vars in Vercel (Project → Settings → Environment Variables):
 
 - `VERCEL_API_TOKEN` (or `VERCEL_TOKEN`): Vercel personal access token with access to manage project domains
 - `VERCEL_PROJECT_ID_OR_NAME` (or `VERCEL_PROJECT_ID` / `VERCEL_PROJECT_NAME`): the target Vercel project
-- Optional: `VERCEL_TEAM_ID` if the project lives under a team scope
+- Optional: `VERCEL_TEAM_ID` or `VERCEL_TEAM_SLUG` if the project lives under a team scope
 
 Notes:
 

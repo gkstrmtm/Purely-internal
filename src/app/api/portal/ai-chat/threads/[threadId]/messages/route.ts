@@ -471,6 +471,188 @@ function clearNextStepContext(threadContextValue: unknown) {
   return withNextStepContext(threadContextValue, null);
 }
 
+function parseRelativePortalUrl(raw: string | null | undefined) {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+  try {
+    return new URL(value, "http://portal.local");
+  } catch {
+    return null;
+  }
+}
+
+function extractFunnelBuilderEditorContextFromUrl(raw: string | null | undefined) {
+  const url = parseRelativePortalUrl(raw);
+  if (!url) return null;
+  const match = /\/portal\/app\/services\/funnel-builder\/funnels\/([^/?#]+)\/edit(?:\/|$)/.exec(url.pathname || "");
+  const funnelId = match?.[1] ? decodeURIComponent(String(match[1]).trim()).slice(0, 120) : "";
+  const pageId = String(url.searchParams.get("pageId") || "").trim().slice(0, 120);
+  if (!funnelId || !pageId) return null;
+  return {
+    funnelId,
+    pageId,
+    canvasUrl: `${url.pathname}${url.search}`.slice(0, 1200),
+  };
+}
+
+function looksLikeFunnelBuilderContextAnchorPrompt(promptRaw: string) {
+  const prompt = String(promptRaw || "").trim();
+  if (!prompt) return false;
+  if (!/\bfunnel builder\b/i.test(prompt)) return false;
+  if (!/(?:\bi am already on\b|\bwork on this exact page\b|\bexact funnel builder editor\b)/i.test(prompt)) return false;
+  if (/\b(replace|update|change|rewrite|revise|add|embed|use\s+the\s+existing|create|generate|design|build|delete|publish|set)\b/i.test(prompt)) {
+    return false;
+  }
+  return true;
+}
+
+function isBookingSettingsContextUrl(raw: string | null | undefined) {
+  const url = parseRelativePortalUrl(raw);
+  return Boolean(url?.pathname?.includes("/portal/app/services/booking/settings"));
+}
+
+function extractRequestedBookingDurationMinutes(promptRaw: string): number | null {
+  const prompt = String(promptRaw || "").trim();
+  if (!prompt) return null;
+  const digitsMatch = prompt.match(/\b(\d{2,3})\s*(?:min|mins|minutes)\b/i) || prompt.match(/\bduration\s+(?:is\s+|to\s+)?(\d{2,3})\b/i);
+  const raw = digitsMatch?.[1] ? Number(digitsMatch[1]) : NaN;
+  if (!Number.isFinite(raw)) return null;
+  return Math.max(10, Math.min(180, Math.floor(raw)));
+}
+
+function looksLikeConditionalBookingDurationPrompt(promptRaw: string) {
+  const prompt = String(promptRaw || "").trim();
+  if (!prompt) return false;
+  if (!/\bduration\b/i.test(prompt)) return false;
+  if (!/\b(keep everything else the same|change just the duration|if the duration is still not)\b/i.test(prompt)) return false;
+  return /\b(update|change|set|keep)\b/i.test(prompt);
+}
+
+function extractBookingSettingsSurfaceUpdate(promptRaw: string): { title?: string; description?: string; durationMinutes?: number } | null {
+  const prompt = String(promptRaw || "").trim();
+  if (!prompt) return null;
+  const titleMatch = prompt.match(/\bupdate\s+the\s+booking\s+title\s+to\s+(.+?)(?:,\s*update\s+the\s+description\s+to|,\s*set\s+the\s+duration|\.\s|$)/i);
+  const descriptionMatch = prompt.match(/\bupdate\s+the\s+description\s+to\s+(.+?)(?:,\s*set\s+the\s+duration|,\s*and\s+then\s+give\s+me|\.\s|$)/i);
+  const durationMinutes = extractRequestedBookingDurationMinutes(prompt);
+  const title = typeof titleMatch?.[1] === "string" ? String(titleMatch[1]).trim().replace(/[.]+$/g, "") : "";
+  const description = typeof descriptionMatch?.[1] === "string" ? String(descriptionMatch[1]).trim().replace(/[.]+$/g, "") : "";
+  if (!title && !description && !durationMinutes) return null;
+  return {
+    ...(title ? { title: title.slice(0, 80) } : {}),
+    ...(description ? { description: description.slice(0, 400) } : {}),
+    ...(durationMinutes ? { durationMinutes } : {}),
+  };
+}
+
+type NewsletterDraftSurfaceRewriteRequest = {
+  titleHint: string;
+  excerpt: string;
+  audienceHint: string | null;
+  rewriteGoal: string | null;
+};
+
+function extractNewsletterDraftSurfaceRewrite(promptRaw: string): NewsletterDraftSurfaceRewriteRequest | null {
+  const prompt = String(promptRaw || "").trim();
+  if (!prompt) return null;
+  if (!/\bnewsletter\b/i.test(prompt)) return null;
+  if (!/\bcurrent draft titled\b/i.test(prompt)) return null;
+  if (!/\bkeep the existing title unchanged\b/i.test(prompt)) return null;
+  if (!/\bkeep the newsletter in draft status\b/i.test(prompt)) return null;
+  if (!/\bdo not create a new newsletter\b/i.test(prompt)) return null;
+
+  const titleMatch = prompt.match(/\bcurrent draft titled\s+(.+?)(?:\.\s+Keep the existing title unchanged\b|$)/i);
+  const excerptMatch = prompt.match(/\bMake the excerpt exactly these two sentences:\s*([\s\S]+?)\s+Rewrite only the opening section\b/i);
+  const audienceMatch = prompt.match(/\bUpdate that same draft for\s+(.+?)(?:\.\s+Make the excerpt exactly|\.\s+Rewrite only|$)/i);
+  const goalMatch = prompt.match(/\bRewrite only the opening section so it\s+(.+?)(?:,\s*keep the newsletter in draft status|\.\s+keep the newsletter in draft status|$)/i);
+
+  const titleHint = typeof titleMatch?.[1] === "string" ? String(titleMatch[1]).trim().replace(/[.]+$/g, "") : "";
+  const excerpt = typeof excerptMatch?.[1] === "string" ? String(excerptMatch[1]).trim().replace(/\s+/g, " ") : "";
+  const audienceHint = typeof audienceMatch?.[1] === "string" ? String(audienceMatch[1]).trim().replace(/[.]+$/g, "") : "";
+  const rewriteGoal = typeof goalMatch?.[1] === "string" ? String(goalMatch[1]).trim().replace(/[.]+$/g, "") : "";
+
+  if (!titleHint || !excerpt) return null;
+  return {
+    titleHint: titleHint.slice(0, 180),
+    excerpt: excerpt.slice(0, 600),
+    audienceHint: audienceHint ? audienceHint.slice(0, 180) : null,
+    rewriteGoal: rewriteGoal ? rewriteGoal.slice(0, 400) : null,
+  };
+}
+
+function replaceNewsletterOpeningSection(contentRaw: string, newOpeningRaw: string) {
+  const content = String(contentRaw || "").replace(/\r\n/g, "\n").trim();
+  const newOpening = String(newOpeningRaw || "").replace(/\r\n/g, "\n").trim();
+  if (!newOpening) return content;
+  if (!content) return newOpening;
+
+  const headingMatch = content.match(/^(#\s.+?\n+)([\s\S]*)$/);
+  if (headingMatch) {
+    const headingBlock = String(headingMatch[1] || "").trimEnd();
+    const rest = String(headingMatch[2] || "").trimStart();
+    const nextHeadingIndex = rest.search(/^#{2,6}\s/m);
+    const tail = nextHeadingIndex >= 0 ? rest.slice(nextHeadingIndex).trimStart() : "";
+    return tail ? `${headingBlock}\n\n${newOpening}\n\n${tail}`.trim() : `${headingBlock}\n\n${newOpening}`.trim();
+  }
+
+  const nextHeadingIndex = content.search(/^#{1,6}\s/m);
+  if (nextHeadingIndex >= 0) {
+    const tail = content.slice(nextHeadingIndex).trimStart();
+    return `${newOpening}\n\n${tail}`.trim();
+  }
+
+  return newOpening;
+}
+
+function buildFallbackNewsletterOpening(opts: { audienceHint?: string | null; rewriteGoal?: string | null }) {
+  const audience = String(opts.audienceHint || "business owners").trim() || "business owners";
+  const goal = String(opts.rewriteGoal || "speaks directly to readers who want more revenue from existing demand").trim();
+  return [
+    `${audience} do not need more generic marketing ideas—they need a clearer way to turn the demand they already have into higher-value revenue opportunities. This newsletter opens with a direct promise about using educational follow-up to move existing interest toward stronger conversations and better outcomes.`,
+    `The focus here is practical and revenue-minded: ${goal.charAt(0).toLowerCase()}${goal.slice(1)}. Instead of chasing only net-new demand, the message centers on helping owners get more value from the leads, tune-ups, and buying signals already in motion.`,
+  ].join("\n\n");
+}
+
+async function rewriteNewsletterOpeningSection(opts: {
+  title: string;
+  currentExcerpt: string;
+  currentContent: string;
+  excerpt: string;
+  audienceHint?: string | null;
+  rewriteGoal?: string | null;
+}) {
+  const fallback = buildFallbackNewsletterOpening({ audienceHint: opts.audienceHint, rewriteGoal: opts.rewriteGoal });
+  try {
+    const generated = await generateText({
+      system: [
+        "You are rewriting only the opening section of an existing newsletter draft.",
+        "Return only the replacement opening section in markdown body text.",
+        "Do not return the title, headings, notes, bullets, or explanations.",
+        "Write 2 short paragraphs max.",
+        "Keep the tone practical, specific, and business-owner focused.",
+        "Do not mention that this is a draft.",
+      ].join("\n"),
+      user: [
+        `Newsletter title: ${opts.title}`,
+        opts.audienceHint ? `Target audience: ${opts.audienceHint}` : null,
+        opts.rewriteGoal ? `Rewrite goal: ${opts.rewriteGoal}` : null,
+        `Exact excerpt to align with: ${opts.excerpt}`,
+        `Current excerpt: ${opts.currentExcerpt || "(empty)"}`,
+        `Current content excerpt:\n${String(opts.currentContent || "").slice(0, 6000) || "(empty)"}`,
+      ].filter(Boolean).join("\n\n"),
+    });
+    const cleaned = String(generated || "").trim().replace(/\r\n/g, "\n");
+    return cleaned || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function wantsBookingEditorAndLiveLink(promptRaw: string) {
+  const prompt = String(promptRaw || "").trim();
+  if (!prompt) return false;
+  return /\b(live booking link|booking settings editor view|editor view)\b/i.test(prompt);
+}
+
 function looksLikeContinuationRequest(textRaw: string): boolean {
   const text = String(textRaw || "").trim().toLowerCase();
   if (!text) return false;
@@ -4540,6 +4722,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           promptText: string;
           contextActionKey?: PortalAgentActionKey | null;
           suggestionActionKeys?: PortalAgentActionKey[];
+          contextPatch?: Record<string, unknown> | null;
         }) => {
           const canvasUrl = typeof opts.exec?.linkUrl === "string" ? String(opts.exec.linkUrl).trim().slice(0, 1200) : null;
           const preflightAssistantText = typeof opts.exec?.assistantText === "string" ? String(opts.exec.assistantText).trim() : "";
@@ -4592,6 +4775,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           const nextCtx = withPersistedFollowUpSuggestions(
             {
               ...prevCtx,
+              ...(opts.contextPatch && typeof opts.contextPatch === "object" && !Array.isArray(opts.contextPatch) ? opts.contextPatch : {}),
               ...(derivedPatch && typeof derivedPatch === "object" && !Array.isArray(derivedPatch) ? (derivedPatch as any) : {}),
               lastWorkTitle: opts.traceTitle,
               lastCanvasUrl: canvasUrl,
@@ -4652,6 +4836,279 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           shouldSetWeekdayAvailability ||
           shouldAssessCrossSurfaceReadiness
         );
+
+        const funnelEditorAnchor = looksLikeFunnelBuilderContextAnchorPrompt(preflightPrompt)
+          ? extractFunnelBuilderEditorContextFromUrl(contextUrl)
+          : null;
+        if (funnelEditorAnchor) {
+          const [funnelRecord, pageRecord] = await Promise.all([
+            prisma.creditFunnel.findUnique({
+              where: { id: funnelEditorAnchor.funnelId },
+              select: { id: true, name: true, slug: true },
+            }).catch(() => null),
+            prisma.creditFunnelPage.findUnique({
+              where: { id: funnelEditorAnchor.pageId },
+              select: { id: true, title: true, slug: true, funnelId: true },
+            }).catch(() => null),
+          ]);
+          const funnelLabel = String(funnelRecord?.name || funnelRecord?.slug || "this funnel").trim() || "this funnel";
+          const pageLabel = String(pageRecord?.title || pageRecord?.slug || "this page").trim() || "this page";
+          const anchorAssistantText = `Got it — I’ll stay on the Funnel Builder editor for “${funnelLabel}” and use the exact page “${pageLabel}” for the next changes.\n\n${formatAssistantMarkdownLink("Open Funnel Builder", funnelEditorAnchor.canvasUrl)}`;
+          const anchorResponse = await finalizePreflightResponse({
+            exec: {
+              ok: true,
+              assistantText: anchorAssistantText,
+              linkUrl: funnelEditorAnchor.canvasUrl,
+              result: { ok: true, funnel: funnelRecord, page: pageRecord },
+            },
+            traceKey: "direct.context.anchor",
+            traceTitle: "Anchor Funnel Builder Context",
+            traceArgs: { funnelId: funnelEditorAnchor.funnelId, pageId: funnelEditorAnchor.pageId },
+            promptText: preflightPrompt,
+            contextActionKey: null,
+            suggestionActionKeys: [],
+            contextPatch: {
+              liveStatus: null,
+              lastCanvasUrl: funnelEditorAnchor.canvasUrl,
+              lastFunnel: funnelRecord
+                ? { id: funnelRecord.id, label: String(funnelRecord.name || funnelRecord.slug || "").trim() || funnelRecord.id }
+                : { id: funnelEditorAnchor.funnelId, label: funnelEditorAnchor.funnelId },
+              lastFunnelPage: pageRecord
+                ? {
+                    id: pageRecord.id,
+                    label: String(pageRecord.title || pageRecord.slug || "").trim() || pageRecord.id,
+                    funnelId: String(pageRecord.funnelId || funnelEditorAnchor.funnelId).trim() || funnelEditorAnchor.funnelId,
+                  }
+                : { id: funnelEditorAnchor.pageId, label: funnelEditorAnchor.pageId, funnelId: funnelEditorAnchor.funnelId },
+            },
+          });
+          if (anchorResponse) return anchorResponse;
+        }
+
+        const currentFunnelPageTarget = signals.shouldUpdateCurrentFunnelPage
+          ? extractFunnelBuilderEditorContextFromUrl(contextUrl)
+          : null;
+        if (currentFunnelPageTarget) {
+          const currentPageEditResponse = await runDirectActionPlan({
+            action: "funnel_builder.pages.generate_html",
+            traceTitle: "Update Funnel Page",
+            args: {
+              funnelId: currentFunnelPageTarget.funnelId,
+              pageId: currentFunnelPageTarget.pageId,
+              prompt: preflightPrompt,
+            },
+          });
+          if (currentPageEditResponse) return currentPageEditResponse;
+        }
+
+        const bookingSettingsSurfaceUpdate = isBookingSettingsContextUrl(contextUrl)
+          ? extractBookingSettingsSurfaceUpdate(preflightPrompt)
+          : null;
+        if (bookingSettingsSurfaceUpdate && wantsBookingEditorAndLiveLink(preflightPrompt) && !looksLikeConditionalBookingDurationPrompt(preflightPrompt)) {
+          const bookingUpdateExec = await executePortalAgentAction({
+            ownerId,
+            actorUserId: createdByUserId,
+            action: "booking.settings.update",
+            args: bookingSettingsSurfaceUpdate,
+          });
+          const bookingSettingsExec = await executePortalAgentAction({
+            ownerId,
+            actorUserId: createdByUserId,
+            action: "booking.settings.get",
+            args: {},
+          });
+          const bookingSiteExec = await executePortalAgentAction({
+            ownerId,
+            actorUserId: createdByUserId,
+            action: "booking.site.get",
+            args: {},
+          });
+          const bookingSettingsUrl = typeof (bookingSettingsExec as any)?.linkUrl === "string"
+            ? String((bookingSettingsExec as any).linkUrl).trim()
+            : "/portal/app/services/booking/settings";
+          const liveBookingUrl = typeof (bookingSiteExec as any)?.linkUrl === "string"
+            ? String((bookingSiteExec as any).linkUrl).trim()
+            : typeof (bookingSiteExec as any)?.result?.site?.publicUrl === "string"
+              ? String((bookingSiteExec as any).result.site.publicUrl).trim()
+              : null;
+          const updatedTitle = typeof (bookingSettingsExec as any)?.result?.site?.title === "string"
+            ? String((bookingSettingsExec as any).result.site.title).trim()
+            : bookingSettingsSurfaceUpdate.title || "Booking settings";
+          const updatedDuration = Number((bookingSettingsExec as any)?.result?.site?.durationMinutes || bookingSettingsSurfaceUpdate.durationMinutes || 0);
+          const assistantText = [
+            `I updated the booking settings for “${updatedTitle}.”${Number.isFinite(updatedDuration) && updatedDuration > 0 ? ` The duration is set to ${updatedDuration} minutes.` : ""}`,
+            formatAssistantMarkdownLink("Open Booking Settings", bookingSettingsUrl),
+            liveBookingUrl ? formatAssistantMarkdownLink("Open Live Booking", liveBookingUrl) : null,
+          ].filter(Boolean).join("\n\n");
+          const bookingSurfaceResponse = await finalizePreflightResponse({
+            exec: {
+              ...(bookingUpdateExec as any),
+              ok: Boolean((bookingUpdateExec as any)?.ok) && Boolean((bookingSettingsExec as any)?.ok),
+              linkUrl: bookingSettingsUrl,
+              result: {
+                update: (bookingUpdateExec as any)?.result ?? null,
+                settings: (bookingSettingsExec as any)?.result ?? null,
+                site: (bookingSiteExec as any)?.result ?? null,
+              },
+              assistantText,
+            },
+            traceKey: "booking.settings.update",
+            traceTitle: "Update Booking Settings",
+            traceArgs: bookingSettingsSurfaceUpdate,
+            promptText: preflightPrompt,
+            suggestionActionKeys: ["booking.settings.update", "booking.settings.get", "booking.site.get"],
+          });
+          if (bookingSurfaceResponse) return bookingSurfaceResponse;
+        }
+
+        const requestedBookingDuration = looksLikeConditionalBookingDurationPrompt(preflightPrompt) && isBookingSettingsContextUrl(contextUrl)
+          ? extractRequestedBookingDurationMinutes(preflightPrompt)
+          : null;
+        if (requestedBookingDuration) {
+          const bookingSettingsExec = await executePortalAgentAction({
+            ownerId,
+            actorUserId: createdByUserId,
+            action: "booking.settings.get",
+            args: {},
+          });
+          const currentDuration = Number((bookingSettingsExec as any)?.result?.site?.durationMinutes || 0);
+          const bookingSettingsUrl = typeof (bookingSettingsExec as any)?.linkUrl === "string"
+            ? String((bookingSettingsExec as any).linkUrl).trim()
+            : "/portal/app/services/booking/settings";
+
+          if (Number.isFinite(currentDuration) && currentDuration === requestedBookingDuration) {
+            const alreadySetResponse = await finalizePreflightResponse({
+              exec: {
+                ok: true,
+                linkUrl: bookingSettingsUrl,
+                result: (bookingSettingsExec as any)?.result,
+                assistantText: `I checked your booking settings and the duration is already set to ${requestedBookingDuration} minutes, so I left everything else unchanged.\n\n${formatAssistantMarkdownLink("Open Booking Settings", bookingSettingsUrl)}`,
+              },
+              traceKey: "booking.settings.get",
+              traceTitle: "Verify Booking Duration",
+              traceArgs: {},
+              promptText: preflightPrompt,
+              suggestionActionKeys: ["booking.settings.get"],
+            });
+            if (alreadySetResponse) return alreadySetResponse;
+          }
+
+          const bookingUpdateArgs = { durationMinutes: requestedBookingDuration };
+          const bookingUpdateExec = await executePortalAgentAction({
+            ownerId,
+            actorUserId: createdByUserId,
+            action: "booking.settings.update",
+            args: bookingUpdateArgs,
+          });
+          const bookingUpdateUrl = typeof (bookingUpdateExec as any)?.linkUrl === "string"
+            ? String((bookingUpdateExec as any).linkUrl).trim()
+            : bookingSettingsUrl;
+          const bookingUpdateResponse = await finalizePreflightResponse({
+            exec: {
+              ...(bookingUpdateExec as any),
+              linkUrl: bookingUpdateUrl,
+              assistantText: `I updated just the booking duration to ${requestedBookingDuration} minutes and left everything else unchanged.\n\n${formatAssistantMarkdownLink("Open Booking Settings", bookingUpdateUrl)}`,
+            },
+            traceKey: "booking.settings.update",
+            traceTitle: "Update Booking Duration",
+            traceArgs: bookingUpdateArgs,
+            promptText: preflightPrompt,
+            suggestionActionKeys: ["booking.settings.update"],
+          });
+          if (bookingUpdateResponse) return bookingUpdateResponse;
+        }
+
+        const newsletterDraftSurfaceRewrite = extractNewsletterDraftSurfaceRewrite(preflightPrompt);
+        if (newsletterDraftSurfaceRewrite) {
+          const newsletterGetExec = await executePortalAgentAction({
+            ownerId,
+            actorUserId: createdByUserId,
+            action: "newsletter.newsletters.get",
+            args: { newsletterId: newsletterDraftSurfaceRewrite.titleHint },
+          });
+          const existingNewsletter = (newsletterGetExec as any)?.result?.newsletter && typeof (newsletterGetExec as any).result.newsletter === "object"
+            ? (newsletterGetExec as any).result.newsletter
+            : null;
+          const newsletterEditorUrl = typeof (newsletterGetExec as any)?.linkUrl === "string"
+            ? String((newsletterGetExec as any).linkUrl).trim()
+            : "/portal/app/services/newsletter";
+
+          if (!existingNewsletter) {
+            const newsletterMissingResponse = await finalizePreflightResponse({
+              exec: {
+                ok: false,
+                linkUrl: newsletterEditorUrl,
+                assistantText: `I couldn’t find the current newsletter draft titled “${newsletterDraftSurfaceRewrite.titleHint}.”\n\n${formatAssistantMarkdownLink("Open Newsletter", newsletterEditorUrl)}`,
+              },
+              traceKey: "newsletter.newsletters.get",
+              traceTitle: "Find Newsletter Draft",
+              traceArgs: { newsletterId: newsletterDraftSurfaceRewrite.titleHint },
+              promptText: preflightPrompt,
+              suggestionActionKeys: ["newsletter.newsletters.get"],
+            });
+            if (newsletterMissingResponse) return newsletterMissingResponse;
+          }
+
+          if (existingNewsletter) {
+            const currentTitle = String(existingNewsletter.title || newsletterDraftSurfaceRewrite.titleHint).trim().slice(0, 180) || newsletterDraftSurfaceRewrite.titleHint;
+            const rewrittenOpening = await rewriteNewsletterOpeningSection({
+              title: currentTitle,
+              currentExcerpt: String(existingNewsletter.excerpt || "").trim(),
+              currentContent: String(existingNewsletter.content || "").trim(),
+              excerpt: newsletterDraftSurfaceRewrite.excerpt,
+              audienceHint: newsletterDraftSurfaceRewrite.audienceHint,
+              rewriteGoal: newsletterDraftSurfaceRewrite.rewriteGoal,
+            });
+            const nextContent = replaceNewsletterOpeningSection(String(existingNewsletter.content || "").trim(), rewrittenOpening);
+            const updateArgs = {
+              newsletterId: String(existingNewsletter.id || newsletterDraftSurfaceRewrite.titleHint).trim(),
+              excerpt: newsletterDraftSurfaceRewrite.excerpt,
+              content: nextContent,
+            };
+            const newsletterUpdateExec = await executePortalAgentAction({
+              ownerId,
+              actorUserId: createdByUserId,
+              action: "newsletter.newsletters.update",
+              args: updateArgs,
+            });
+            const updateLinkUrl = typeof (newsletterUpdateExec as any)?.linkUrl === "string"
+              ? String((newsletterUpdateExec as any).linkUrl).trim()
+              : newsletterEditorUrl;
+            const assistantText = [
+              `I updated the current draft “${currentTitle}”${newsletterDraftSurfaceRewrite.audienceHint ? ` for ${newsletterDraftSurfaceRewrite.audienceHint}` : ""}. The title stays unchanged, the excerpt is updated, and the newsletter remains in draft status.`,
+              formatAssistantMarkdownLink("Open Newsletter", updateLinkUrl),
+            ].filter(Boolean).join("\n\n");
+            const newsletterSurfaceResponse = await finalizePreflightResponse({
+              exec: {
+                ...(newsletterUpdateExec as any),
+                linkUrl: updateLinkUrl,
+                result: {
+                  ...((newsletterUpdateExec as any)?.result && typeof (newsletterUpdateExec as any).result === "object" ? (newsletterUpdateExec as any).result : {}),
+                  newsletter: {
+                    ...existingNewsletter,
+                    id: String(existingNewsletter.id || "").trim(),
+                    title: currentTitle,
+                    excerpt: newsletterDraftSurfaceRewrite.excerpt,
+                    content: nextContent,
+                    status: typeof existingNewsletter.status === "string" ? String(existingNewsletter.status).trim() : "DRAFT",
+                  },
+                },
+                assistantText,
+              },
+              traceKey: "newsletter.newsletters.update",
+              traceTitle: "Update Newsletter Draft",
+              traceArgs: updateArgs,
+              promptText: preflightPrompt,
+              suggestionActionKeys: ["newsletter.newsletters.get", "newsletter.newsletters.update"],
+              contextPatch: {
+                lastNewsletter: { id: String(existingNewsletter.id || "").trim(), label: currentTitle },
+                lastCanvasUrl: updateLinkUrl,
+              },
+            });
+            if (newsletterSurfaceResponse) return newsletterSurfaceResponse;
+          }
+        }
+
         const simpleDirectPlan = shouldBypassSimpleDirectPlan
           ? null
           : getPuraDirectActionPlan({ prompt: preflightPrompt, signals, threadContext: preflightCtx });

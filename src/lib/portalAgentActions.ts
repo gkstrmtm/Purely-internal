@@ -1254,9 +1254,9 @@ export const PortalAgentActionArgsSchemaByKey = {
   "newsletter.newsletters.update": z
     .object({
       newsletterId: z.string().trim().min(1).max(120),
-      title: z.string().trim().min(1).max(180),
-      excerpt: z.string().trim().max(6000),
-      content: z.string().trim().max(200000),
+      title: z.string().trim().min(1).max(180).optional(),
+      excerpt: z.string().trim().max(6000).optional(),
+      content: z.string().trim().max(200000).optional(),
       smsText: z
         .string()
         .trim()
@@ -2804,27 +2804,62 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "booking.settings.get": z
-    .object({})
+    .object({
+      slug: z.string().min(3).max(80).optional(),
+    })
     .strict(),
 
   "booking.settings.update": z
-    .object({
-      enabled: z.boolean().optional(),
-      title: z.string().min(1).max(80).optional(),
-      description: z.string().max(400).optional().nullable(),
-      durationMinutes: z.number().int().min(10).max(180).optional(),
-      timeZone: z.string().min(1).max(80).optional(),
-      slug: z.string().min(3).max(80).optional(),
+    .preprocess((raw) => {
+      if (!isPlainObject(raw)) return raw;
+      const r = raw as Record<string, any>;
+      const out: Record<string, unknown> = {};
+      const enabled = r.enabled ?? r.active;
+      if (enabled !== undefined) out.enabled = enabled;
+      const title = r.title ?? r.name ?? r.bookingTitle;
+      if (title !== undefined) out.title = title;
+      const description = r.description ?? r.summary ?? r.details;
+      if (description !== undefined) out.description = description;
+      const durationMinutes = r.durationMinutes ?? r.duration ?? r.minutes ?? r.meetingDuration;
+      if (durationMinutes !== undefined) out.durationMinutes = durationMinutes;
+      const timeZone = r.timeZone ?? r.timezone ?? r.tz;
+      if (timeZone !== undefined) out.timeZone = timeZone;
+      const slug = r.slug ?? r.siteSlug ?? r.bookingSlug;
+      if (slug !== undefined) out.slug = slug;
+      const photoUrl = r.photoUrl ?? r.imageUrl ?? r.avatarUrl;
+      if (photoUrl !== undefined) out.photoUrl = photoUrl;
+      const meetingLocation = r.meetingLocation ?? r.location;
+      if (meetingLocation !== undefined) out.meetingLocation = meetingLocation;
+      const meetingDetails = r.meetingDetails ?? r.meetingInstructions ?? r.instructions;
+      if (meetingDetails !== undefined) out.meetingDetails = meetingDetails;
+      const appointmentPurpose = r.appointmentPurpose ?? r.purpose;
+      if (appointmentPurpose !== undefined) out.appointmentPurpose = appointmentPurpose;
+      const toneDirection = r.toneDirection ?? r.tone ?? r.voice;
+      if (toneDirection !== undefined) out.toneDirection = toneDirection;
+      const notificationEmails = r.notificationEmails ?? r.emails ?? r.alertEmails;
+      if (notificationEmails !== undefined) out.notificationEmails = notificationEmails;
+      const meetingPlatform = r.meetingPlatform ?? r.platform;
+      if (meetingPlatform !== undefined) out.meetingPlatform = meetingPlatform;
+      return out;
+    },
+    z
+      .object({
+        enabled: z.boolean().optional(),
+        title: z.string().min(1).max(80).optional(),
+        description: z.string().max(400).optional().nullable(),
+        durationMinutes: z.number().int().min(10).max(180).optional(),
+        timeZone: z.string().min(1).max(80).optional(),
+        slug: z.string().min(3).max(80).optional(),
 
-      photoUrl: z.string().trim().max(500).optional().nullable(),
-      meetingLocation: z.string().trim().max(120).optional().nullable(),
-      meetingDetails: z.string().trim().max(600).optional().nullable(),
-      appointmentPurpose: z.string().trim().max(600).optional().nullable(),
-      toneDirection: z.string().trim().max(600).optional().nullable(),
-      notificationEmails: z.array(z.string().trim().email()).max(20).optional().nullable(),
-      meetingPlatform: z.enum(["PURELY_CONNECT", "ZOOM", "GOOGLE_MEET", "OTHER"]).optional(),
-    })
-    .strict(),
+        photoUrl: z.string().trim().max(500).optional().nullable(),
+        meetingLocation: z.string().trim().max(120).optional().nullable(),
+        meetingDetails: z.string().trim().max(600).optional().nullable(),
+        appointmentPurpose: z.string().trim().max(600).optional().nullable(),
+        toneDirection: z.string().trim().max(600).optional().nullable(),
+        notificationEmails: z.array(z.string().trim().email()).max(20).optional().nullable(),
+        meetingPlatform: z.enum(["PURELY_CONNECT", "ZOOM", "GOOGLE_MEET", "OTHER"]).optional(),
+      })
+      .strict()),
 
   "booking.form.get": z
     .object({})

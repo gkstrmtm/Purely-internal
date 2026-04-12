@@ -144,6 +144,18 @@ export function getPuraDirectActionPlan(opts: {
     };
   }
 
+  if (signals.shouldUpdateCurrentFunnelPage && threadContext.lastFunnel?.id && threadContext.lastFunnelPage?.id) {
+    return {
+      action: "funnel_builder.pages.generate_html",
+      traceTitle: "Update Funnel Page",
+      args: {
+        funnelId: String(threadContext.lastFunnel.id).trim(),
+        pageId: String(threadContext.lastFunnelPage.id).trim(),
+        prompt,
+      },
+    };
+  }
+
   if (signals.mediaFolderCreateTitle) {
     return {
       action: "media.folder.ensure",

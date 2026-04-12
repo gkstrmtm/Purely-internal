@@ -198,6 +198,378 @@
 				"tmp/portal-qa/verify_booking_capture.mjs"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "Inspect: repro funnel direct",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/repro_funnel_direct.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: fetch thread messages",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/fetch_thread_messages.mjs",
+				"cmnvaxcrl01r6v36wt9lhip70"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: fetch thread messages to file",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"node tmp/fetch_thread_messages.mjs cmnvaxcrl01r6v36wt9lhip70 > tmp/thread_cmnvaxcrl01r6v36wt9lhip70.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: fetch thread messages to file via node",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/fetch_thread_messages_to_file.mjs",
+				"cmnvaxcrl01r6v36wt9lhip70",
+				"tmp/thread_cmnvaxcrl01r6v36wt9lhip70.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: repro funnel direct with canvas",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/repro_funnel_direct_with_canvas.mjs",
+				"tmp/repro_funnel_direct_with_canvas.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: fetch failing create-funnel thread",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/fetch_thread_messages_to_file.mjs",
+				"cmnv8mtcz01owv36wc63vsryd",
+				"tmp/thread_cmnv8mtcz01owv36wc63vsryd.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Audit: funnel create targeted",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"PURA_SCENARIO_FILTER=02-create-funnel-from-scratch node tmp/portal-qa/capture_pura_audit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: fetch current create-funnel audit thread",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/fetch_thread_messages_to_file.mjs",
+				"cmnvb1oem01skv36wcr8t23pu",
+				"tmp/thread_cmnvb1oem01skv36wcr8t23pu.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Audit: funnel edit targeted",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"PURA_SCENARIO_FILTER=01-edit-existing-funnel node tmp/portal-qa/capture_pura_audit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: fetch funnel edit audit threads",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/fetch_audit_threads_to_file.mjs",
+				"edit existing funnel",
+				"tmp/funnel_edit_audit_threads.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: recent edit-funnel threads stdout",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"PURA_THREAD_FILTER='edit existing funnel' node tmp/portal-qa/inspect_recent_audit_threads.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: repro edit funnel flow",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/repro_edit_funnel_flow.mjs",
+				"tmp/repro_edit_funnel_flow.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: find edit repro thread",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/find_thread_by_title_to_file.mjs",
+				"tmp repro edit existing funnel",
+				"tmp/repro_edit_funnel_thread_lookup.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: refresh funnel edit audit threads",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/fetch_audit_threads_to_file.mjs",
+				"edit existing funnel",
+				"tmp/funnel_edit_audit_threads.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: refresh edit repro thread",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/find_thread_by_title_to_file.mjs",
+				"tmp repro edit existing funnel",
+				"tmp/repro_edit_funnel_thread_lookup.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Audit: funnel edit targeted after patch",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"PURA_SCENARIO_FILTER=01-edit-existing-funnel node tmp/portal-qa/capture_pura_audit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: repro edit funnel flow after patch",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/repro_edit_funnel_flow.mjs",
+				"tmp/repro_edit_funnel_flow_after_patch.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: repro funnel anchor prompt",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/repro_funnel_anchor_prompt.mjs",
+				"tmp/repro_funnel_anchor_prompt.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: fetch latest anchor repro thread",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/fetch_thread_messages_to_file.mjs",
+				"cmnvbfcqu01v6v36wqni1wd5z",
+				"tmp/thread_cmnvbfcqu01v6v36wqni1wd5z.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: repro edit funnel flow unique after patch",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/repro_edit_funnel_flow.mjs",
+				"tmp/repro_edit_funnel_flow_after_patch.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: latest unique edit repro thread",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/find_thread_by_title_to_file.mjs",
+				"tmp repro edit existing funnel",
+				"tmp/repro_edit_funnel_thread_lookup.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: repro edit funnel flow after direct-plan patch",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/repro_edit_funnel_flow.mjs",
+				"tmp/repro_edit_funnel_flow_after_patch.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: check funnel edit signal",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"tsx",
+				"tmp/check_funnel_edit_signal.ts"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: check funnel edit signal to file",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"tsx",
+				"tmp/check_funnel_edit_signal_to_file.ts"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: repro edit funnel flow after route fix",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/repro_edit_funnel_flow.mjs",
+				"tmp/repro_edit_funnel_flow_after_patch.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Audit: funnel edit targeted final",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"PURA_SCENARIO_FILTER=01-edit-existing-funnel node tmp/portal-qa/capture_pura_audit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: fetch final edit audit thread",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/fetch_thread_messages_to_file.mjs",
+				"cmnvbqinx01xgv36wg2qafw3b",
+				"tmp/thread_cmnvbqinx01xgv36wg2qafw3b.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Audit: full Pura suite",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture_pura_audit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: recent audit threads snapshot",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/fetch_audit_threads_to_file.mjs",
+				"",
+				"tmp/full_audit_threads_snapshot.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: recent audit threads raw",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"node tmp/portal-qa/inspect_recent_audit_threads.mjs > tmp/inspect_recent_audit_threads_live.jsonl"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: audit threads to file explicit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/fetch_audit_threads_to_file.mjs",
+				"audit shot",
+				"tmp/full_audit_threads_snapshot.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: newsletter audit threads",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/fetch_audit_threads_to_file.mjs",
+				"newsletter",
+				"tmp/newsletter_audit_threads.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: booking audit threads",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/fetch_audit_threads_to_file.mjs",
+				"booking page settings",
+				"tmp/booking_audit_threads.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Audit: newsletter targeted current",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"PURA_SCENARIO_FILTER=03-edit-real-newsletter-draft node tmp/portal-qa/capture_pura_audit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Audit: newsletter targeted after patch",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"PURA_SCENARIO_FILTER=03-edit-real-newsletter-draft node tmp/portal-qa/capture_pura_audit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: repro newsletter edit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/repro_newsletter_edit.mjs",
+				"tmp/repro_newsletter_edit.json"
+			],
+			"isBackground": false
 		}
 	]
 }

@@ -2,6 +2,7 @@ type VercelConfig = {
   token: string | null;
   projectIdOrName: string | null;
   teamId: string | null;
+  teamSlug: string | null;
 };
 
 export function getVercelDomainProvisioningConfig(): VercelConfig {
@@ -13,11 +14,13 @@ export function getVercelDomainProvisioningConfig(): VercelConfig {
     ""
   ).trim();
   const teamId = (process.env.VERCEL_TEAM_ID || "").trim();
+  const teamSlug = (process.env.VERCEL_TEAM_SLUG || "").trim();
 
   return {
     token: token || null,
     projectIdOrName: projectIdOrName || null,
     teamId: teamId || null,
+    teamSlug: teamSlug || null,
   };
 }
 
@@ -38,7 +41,7 @@ export function formatVercelVerificationRecords(verification: unknown): string {
 
 export type EnsureVercelProjectDomainResult =
   | { ok: false; configured: false; error: string }
-  | { ok: false; configured: true; error: string; debug?: unknown }
+  | { ok: false; configured: true; error: string; debug?: unknown; recoverableConflict?: boolean }
   | {
       ok: true;
       configured: true;
@@ -47,10 +50,12 @@ export type EnsureVercelProjectDomainResult =
       raw: unknown;
     };
 
-function getTeamQueryCandidates(teamId: string | null): string[] {
-  if (!teamId) return [""];
-  // Some projects are under a personal account; passing teamId can cause 401/403.
-  return [`?teamId=${encodeURIComponent(teamId)}`, ""];
+function getTeamQueryCandidates(teamId: string | null, teamSlug: string | null): string[] {
+  const candidates: string[] = [];
+  if (teamId) candidates.push(`?teamId=${encodeURIComponent(teamId)}`);
+  if (teamSlug) candidates.push(`?slug=${encodeURIComponent(teamSlug)}`);
+  candidates.push("");
+  return Array.from(new Set(candidates));
 }
 
 function extractVercelError(json: any): { code: string | null; message: string | null } {
@@ -70,8 +75,8 @@ function toCustomerFacingDomainProvisioningError(opts: { code: string | null; me
 
   if (hay.includes("not assigned to a project") || hay.includes("not assigned") || hay.includes("domain is not assigned")) {
     return (
-      "We can’t finish hosting setup for this domain yet because it’s already connected to another website/project on the hosting provider. " +
-      "Next step: disconnect the domain from the other project (or choose a different domain/subdomain), then click Verify again."
+      "DNS is pointed correctly, but the hosting provider is still syncing this domain onto the current project. " +
+      "Please wait a minute and click Verify again."
     );
   }
 
@@ -83,8 +88,8 @@ function toCustomerFacingDomainProvisioningError(opts: { code: string | null; me
     hay.includes("domain_taken")
   ) {
     return (
-      "This domain is already in use on another website/project. " +
-      "Next step: remove it from the other host/project (or use a different domain/subdomain), then try again."
+      "The hosting provider still shows this domain as attached elsewhere, so we’re waiting for that project assignment to sync. " +
+      "If DNS is already pointed here, wait a minute and click Verify again."
     );
   }
 
@@ -106,6 +111,25 @@ function toCustomerFacingDomainProvisioningError(opts: { code: string | null; me
 
   // Avoid leaking raw provider phrasing; keep it short and generic.
   return "We couldn’t complete hosting verification for this domain yet. Please double-check your DNS records and try again in a minute.";
+}
+
+function isLikelyRecoverableDomainConflict(opts: { code: string | null; message: string | null }): boolean {
+  const code = (opts.code || "").trim().toLowerCase();
+  const message = (opts.message || "").trim().toLowerCase();
+  const hay = `${code} ${message}`;
+  return (
+    hay.includes("not assigned to a project") ||
+    hay.includes("not assigned") ||
+    hay.includes("domain is not assigned") ||
+    hay.includes("already in use") ||
+    hay.includes("domain_already_in_use") ||
+    hay.includes("already assigned") ||
+    hay.includes("assigned to another") ||
+    hay.includes("belongs to another") ||
+    hay.includes("belongs to a different") ||
+    hay.includes("domain_taken") ||
+    hay.includes("domain taken")
+  );
 }
 
 function normalizeVercelDomain(raw: string): string {
@@ -140,6 +164,18 @@ function isLikelyDomainInUseError(json: any): boolean {
   return false;
 }
 
+function isLikelyMissingProjectDomainError(json: any): boolean {
+  const { code, message } = extractVercelError(json);
+  const hay = `${code || ""} ${message || ""}`.toLowerCase();
+  if (!hay) return false;
+  if (hay.includes("not assigned to project")) return true;
+  if (hay.includes("project domain is not assigned")) return true;
+  if (hay.includes("domain not found")) return true;
+  if (hay.includes("not found")) return true;
+  if (hay.includes("could not find")) return true;
+  return false;
+}
+
 function getVercelRequestId(res: Response | null): string | null {
   if (!res) return null;
   return res.headers.get("x-vercel-id") || res.headers.get("x-vercel-trace-id") || res.headers.get("x-request-id") || null;
@@ -160,7 +196,7 @@ function isLikelyScopeMismatchStatus(status: number | null | undefined): boolean
  * This is required for Vercel to issue an SSL cert + serve the custom domain reliably.
  */
 export async function ensureVercelProjectDomain(domain: string): Promise<EnsureVercelProjectDomainResult> {
-  const { token, projectIdOrName, teamId } = getVercelDomainProvisioningConfig();
+  const { token, projectIdOrName, teamId, teamSlug } = getVercelDomainProvisioningConfig();
   if (!token || !projectIdOrName) {
     return {
       ok: false,
@@ -174,7 +210,7 @@ export async function ensureVercelProjectDomain(domain: string): Promise<EnsureV
     return { ok: false, configured: true, error: "Please enter a valid domain like example.com (no https://, no paths)." };
   }
 
-  const qpCandidates = getTeamQueryCandidates(teamId);
+  const qpCandidates = getTeamQueryCandidates(teamId, teamSlug);
   const headers = {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
@@ -197,10 +233,14 @@ export async function ensureVercelProjectDomain(domain: string): Promise<EnsureV
       },
     );
     attempt.steps.existing = { status: existing.res?.status ?? null, requestId: existing.requestId, body: existing.json };
+    const existingLooksMissing =
+      !existing.res ||
+      existing.res.status === 404 ||
+      (existing.res.status === 400 && isLikelyMissingProjectDomainError(existing.json));
 
     if (existing.res && existing.res.ok) {
       // proceed
-    } else if (existing.res && existing.res.status !== 404) {
+    } else if (existing.res && !existingLooksMissing) {
       const { code, message } = extractVercelError(existing.json);
       attempt.steps.existingError = { code, message };
       // If a teamId is wrong, retry without it.
@@ -216,7 +256,7 @@ export async function ensureVercelProjectDomain(domain: string): Promise<EnsureV
     }
 
     // Add domain if missing (ignore if already exists on project).
-    if (!existing.res || existing.res.status === 404) {
+    if (existingLooksMissing) {
       const addV10 = await fetchJson(`https://api.vercel.com/v10/projects/${pid}/domains${qp}`,
         {
           method: "POST",
@@ -282,8 +322,9 @@ export async function ensureVercelProjectDomain(domain: string): Promise<EnsureV
           return {
             ok: false,
             configured: true,
+            recoverableConflict: domainInUse || isLikelyRecoverableDomainConflict({ code, message }),
             error: domainInUse
-              ? "This domain is already in use on another website/project. Next step: remove it from the other host/project (or use a different domain/subdomain), then try again."
+              ? "The hosting provider still shows this domain as attached elsewhere, so we’re waiting for that project assignment to sync. If DNS is already pointed here, wait a minute and click Verify again."
               : toCustomerFacingDomainProvisioningError({ code, message }),
             debug: { attempts },
           };
@@ -341,6 +382,7 @@ export async function ensureVercelProjectDomain(domain: string): Promise<EnsureV
       return {
         ok: false,
         configured: true,
+        recoverableConflict: isLikelyRecoverableDomainConflict({ code, message }),
         error: toCustomerFacingDomainProvisioningError({ code, message }),
         debug: { attempts },
       };
@@ -354,6 +396,7 @@ export async function ensureVercelProjectDomain(domain: string): Promise<EnsureV
     return {
       ok: false,
       configured: true,
+      recoverableConflict: isLikelyRecoverableDomainConflict({ code: null, message }),
       error: toCustomerFacingDomainProvisioningError({ code: null, message }),
       debug: { attempts },
     };

@@ -1793,13 +1793,34 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
 
     case "newsletter.newsletters.get":
     case "newsletter.newsletters.send": {
-      const newsletterId = pickFirstDefined(args, ["newsletterId", "newsletter", "draftId", "id"]);
+      const newsletterId = pickFirstDefined(args, [
+        "newsletterId",
+        "newsletter",
+        "draftId",
+        "id",
+        "slug",
+        "newsletterSlug",
+        "newsletterTitle",
+        "draftTitle",
+        "name",
+        "title",
+      ]);
       if (newsletterId !== undefined) args.newsletterId = newsletterId;
       return args;
     }
 
     case "newsletter.newsletters.update": {
-      const newsletterId = pickFirstDefined(args, ["newsletterId", "newsletter", "draftId", "id"]);
+      const newsletterId = pickFirstDefined(args, [
+        "newsletterId",
+        "newsletter",
+        "draftId",
+        "id",
+        "slug",
+        "newsletterSlug",
+        "newsletterTitle",
+        "draftTitle",
+        "targetNewsletter",
+      ]);
       const title = pickFirstDefined(args, ["title", "name", "subject"]);
       const excerpt = pickFirstDefined(args, ["excerpt", "summary", "description"]);
       const content = pickFirstDefined(args, ["content", "body", "markdown", "html", "text"]);
@@ -1857,6 +1878,42 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
     case "newsletter.generate_now": {
       const kind = normalizeContentKindInput(pickFirstDefined(args, ["kind", "audienceKind", "type"]));
       if (kind) args.kind = kind;
+      return args;
+    }
+
+    case "booking.settings.get": {
+      const slug = pickFirstDefined(args, ["slug", "siteSlug", "bookingSlug"]);
+      if (slug !== undefined) args.slug = slug;
+      return args;
+    }
+
+    case "booking.settings.update": {
+      const enabled = normalizeLooseBoolean(pickFirstDefined(args, ["enabled", "active"]));
+      const title = pickFirstDefined(args, ["title", "name", "bookingTitle"]);
+      const description = pickFirstDefined(args, ["description", "summary", "details"]);
+      const durationMinutes = pickFirstDefined(args, ["durationMinutes", "duration", "minutes", "meetingDuration"]);
+      const timeZone = pickFirstDefined(args, ["timeZone", "timezone", "tz"]);
+      const slug = pickFirstDefined(args, ["slug", "siteSlug", "bookingSlug"]);
+      const photoUrl = pickFirstDefined(args, ["photoUrl", "imageUrl", "avatarUrl"]);
+      const meetingLocation = pickFirstDefined(args, ["meetingLocation", "location"]);
+      const meetingDetails = pickFirstDefined(args, ["meetingDetails", "meetingInstructions", "instructions"]);
+      const appointmentPurpose = pickFirstDefined(args, ["appointmentPurpose", "purpose"]);
+      const toneDirection = pickFirstDefined(args, ["toneDirection", "tone", "voice"]);
+      const notificationEmails = pickFirstDefined(args, ["notificationEmails", "emails", "alertEmails"]);
+      const meetingPlatform = pickFirstDefined(args, ["meetingPlatform", "platform"]);
+      if (enabled !== undefined) args.enabled = enabled;
+      if (title !== undefined) args.title = title;
+      if (description !== undefined) args.description = description;
+      if (durationMinutes !== undefined) args.durationMinutes = durationMinutes;
+      if (timeZone !== undefined) args.timeZone = timeZone;
+      if (slug !== undefined) args.slug = slug;
+      if (photoUrl !== undefined) args.photoUrl = photoUrl;
+      if (meetingLocation !== undefined) args.meetingLocation = meetingLocation;
+      if (meetingDetails !== undefined) args.meetingDetails = meetingDetails;
+      if (appointmentPurpose !== undefined) args.appointmentPurpose = appointmentPurpose;
+      if (toneDirection !== undefined) args.toneDirection = toneDirection;
+      if (notificationEmails !== undefined) args.notificationEmails = Array.isArray(notificationEmails) ? notificationEmails : splitLooseStringList(notificationEmails);
+      if (meetingPlatform !== undefined) args.meetingPlatform = meetingPlatform;
       return args;
     }
 
@@ -2238,6 +2295,13 @@ function deriveLinkUrlForAction(action: PortalAgentActionKey, json: any, args?: 
 
   if (String(action).startsWith("nurture.")) return "/portal/app/services/nurture-campaigns";
 
+  if (action === "booking.site.get") {
+    const publicUrl = typeof json?.site?.publicUrl === "string" ? String(json.site.publicUrl).trim() : "";
+    if (publicUrl) return publicUrl;
+    const slug = typeof json?.site?.slug === "string" ? String(json.site.slug).trim() : "";
+    if (slug) return `/book/${encodeURIComponent(slug)}`;
+  }
+
   const mappedCanvasUrl = portalCanvasUrlForAction(action, args);
   if (mappedCanvasUrl) return mappedCanvasUrl;
 
@@ -2448,8 +2512,18 @@ function renderDeterministicAssistantTextForActionResult(opts: {
   }
 
   if (opts.action === "newsletter.newsletters.update") {
-    const title = typeof (opts.args as any)?.title === "string" ? String((opts.args as any).title).trim() : "Newsletter";
+    const resultTitle = typeof (opts.result as any)?.newsletter?.title === "string" ? String((opts.result as any).newsletter.title).trim() : "";
+    const title = resultTitle || (typeof (opts.args as any)?.title === "string" ? String((opts.args as any).title).trim() : "Newsletter");
     return `I updated the newsletter${title ? ` “${title}”` : ""}.${assistantLink("Open Newsletter", opts.linkUrl, "\n\n")}`;
+  }
+
+  if (opts.action === "booking.settings.update") {
+    const site = (opts.result as any)?.site && typeof (opts.result as any).site === "object" ? (opts.result as any).site : null;
+    const title = typeof site?.title === "string" ? String(site.title).trim() : "Booking settings";
+    const slug = typeof site?.slug === "string" ? String(site.slug).trim() : "";
+    const editorLink = assistantLink("Open Booking Settings", opts.linkUrl, "\n\n");
+    const liveLink = slug ? `\n- Live booking link: [Open Live Booking](/book/${encodeURIComponent(slug)})` : "";
+    return `I updated the booking settings for “${title || "Booking settings"}.”${editorLink}${liveLink}`;
   }
 
   if (opts.action === "funnel.create") {
@@ -3267,6 +3341,86 @@ async function ensureBookingSite(ownerId: string, flags: BookingSiteColumnFlags)
     select: bookingSiteSelect(flags),
   });
   return created as any;
+}
+
+async function resolveNewsletterRecordForSite(opts: {
+  siteId: string;
+  newsletterIdOrHint: string;
+}) {
+  const siteId = String(opts.siteId || "").trim();
+  const rawHint = String(opts.newsletterIdOrHint || "").trim();
+  if (!siteId || !rawHint) return null;
+
+  const select = {
+    id: true,
+    siteId: true,
+    kind: true,
+    status: true,
+    slug: true,
+    title: true,
+    excerpt: true,
+    content: true,
+    smsText: true,
+    sentAt: true,
+    createdAt: true,
+    updatedAt: true,
+  } as const;
+
+  if (/^[a-z0-9]{20,40}$/i.test(rawHint)) {
+    const byId = await prisma.clientNewsletter.findFirst({ where: { id: rawHint, siteId }, select }).catch(() => null);
+    if (byId?.id) return byId;
+  }
+
+  const hintSlug = rawHint
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 140);
+  const prefersCurrentDraft =
+    /\b(current|existing|same|that same)\s+draft\b/i.test(rawHint) ||
+    /\bkeep the existing title unchanged\b/i.test(rawHint) ||
+    rawHint.length > 140;
+
+  const candidates = await prisma.clientNewsletter
+    .findMany({
+      where: {
+        siteId,
+        OR: [
+          { slug: rawHint },
+          ...(hintSlug && hintSlug !== rawHint ? [{ slug: hintSlug }] : []),
+          { title: { equals: rawHint, mode: "insensitive" } },
+          { title: { contains: rawHint.slice(0, 140), mode: "insensitive" } },
+        ],
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 5,
+      select,
+    })
+    .catch(() => []);
+
+  if (candidates.length === 1) return candidates[0] ?? null;
+  if (candidates.length > 1) {
+    const rawLower = rawHint.toLowerCase();
+    const exactTitle = candidates.find((row) => String(row.title || "").trim().toLowerCase() === rawLower);
+    if (exactTitle) return exactTitle;
+    const exactSlug = candidates.find((row) => String(row.slug || "").trim().toLowerCase() === rawLower);
+    if (exactSlug) return exactSlug;
+    return candidates[0] ?? null;
+  }
+
+  if (prefersCurrentDraft) {
+    const latestDraft = await prisma.clientNewsletter
+      .findFirst({
+        where: { siteId, status: "DRAFT" },
+        orderBy: { updatedAt: "desc" },
+        select,
+      })
+      .catch(() => null);
+    if (latestDraft?.id) return latestDraft;
+  }
+
+  return null;
 }
 
 function normalizeDomain(raw: string | null | undefined) {
@@ -4888,6 +5042,19 @@ async function runDirectAction(opts: {
           }
 
           if (!vercel.ok) {
+            if (vercel.recoverableConflict) {
+              const https = await checkHttpsReachable(domain);
+              debug.https = https;
+              if (https.ok) {
+                const updated = await prisma.creditCustomDomain.update({
+                  where: { id: domainRow.id },
+                  data: { status: "VERIFIED", verifiedAt: new Date() },
+                  select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+                });
+                return { status: 200, json: { ok: true, verified: true, domain: updated, debug } };
+              }
+            }
+
             await markUnverifiedIfNeeded();
             const current = await readCurrent();
             return {
@@ -4895,7 +5062,9 @@ async function runDirectAction(opts: {
               json: {
                 ok: true,
                 verified: false,
-                error: `DNS is pointing correctly, but we couldn’t finish hosting setup for this domain yet. ${vercel.error}`,
+                error: vercel.recoverableConflict
+                  ? "DNS is pointing correctly, but the hosting provider is still syncing this domain onto the current project. HTTPS may take another minute or two to catch up, so click Verify DNS again shortly."
+                  : `DNS is pointing correctly, but we couldn’t finish hosting setup for this domain yet. ${vercel.error}`,
                 domain: current,
                 debug,
               },
@@ -5032,6 +5201,19 @@ async function runDirectAction(opts: {
           }
 
           if (!vercel.ok) {
+            if (vercel.recoverableConflict) {
+              const https = await checkHttpsReachable(domain);
+              debug.https = https;
+              if (https.ok) {
+                const updated = await prisma.creditCustomDomain.update({
+                  where: { id: domainRow.id },
+                  data: { status: "VERIFIED", verifiedAt: new Date() },
+                  select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+                });
+                return { status: 200, json: { ok: true, verified: true, domain: updated, debug: { ...debug, isApex } } };
+              }
+            }
+
             await markUnverifiedIfNeeded();
             const current = await readCurrent();
             return {
@@ -5039,7 +5221,9 @@ async function runDirectAction(opts: {
               json: {
                 ok: true,
                 verified: false,
-                error: `DNS is pointing correctly, but we couldn’t finish hosting setup for this domain yet. ${vercel.error}`,
+                error: vercel.recoverableConflict
+                  ? "DNS is pointing correctly, but the hosting provider is still syncing this domain onto the current project. HTTPS may take another minute or two to catch up, so click Verify DNS again shortly."
+                  : `DNS is pointing correctly, but we couldn’t finish hosting setup for this domain yet. ${vercel.error}`,
                 domain: current,
                 debug: { ...debug, isApex },
               },
@@ -7968,6 +8152,10 @@ async function runDirectAction(opts: {
             ? {
                 ...(site as any),
                 slug: canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug,
+                publicUrl:
+                  (canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug)
+                    ? `/book/${encodeURIComponent(String(canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug))}`
+                    : null,
               }
             : null,
         },
@@ -9609,23 +9797,7 @@ async function runDirectAction(opts: {
 
       const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true, slug: true, name: true } });
 
-      const newsletter = await prisma.clientNewsletter.findFirst({
-        where: { id: newsletterId, siteId: site.id },
-        select: {
-          id: true,
-          siteId: true,
-          kind: true,
-          status: true,
-          slug: true,
-          title: true,
-          excerpt: true,
-          content: true,
-          smsText: true,
-          sentAt: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
+      const newsletter = await resolveNewsletterRecordForSite({ siteId: site.id, newsletterIdOrHint: newsletterId });
 
       if (!newsletter) return { status: 404, json: { ok: false, error: "Not found" } };
 
@@ -9652,10 +9824,7 @@ async function runDirectAction(opts: {
 
       const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true } });
 
-      const current = await prisma.clientNewsletter.findFirst({
-        where: { id: newsletterId, siteId: site.id },
-        select: { id: true, status: true, smsText: true },
-      });
+      const current = await resolveNewsletterRecordForSite({ siteId: site.id, newsletterIdOrHint: newsletterId });
       if (!current) return { status: 404, json: { ok: false, error: "Not found" } };
 
       if (current.status === "SENT" && !hostedOnly) {
@@ -9665,9 +9834,9 @@ async function runDirectAction(opts: {
       const updated = await prisma.clientNewsletter.update({
         where: { id: current.id },
         data: {
-          title: String((args as any).title || "").trim(),
-          excerpt: String((args as any).excerpt || "").trim(),
-          content: String((args as any).content || "").trim(),
+          title: typeof (args as any).title === "string" ? String((args as any).title).trim() : current.title,
+          excerpt: typeof (args as any).excerpt === "string" ? String((args as any).excerpt).trim() : current.excerpt,
+          content: typeof (args as any).content === "string" ? String((args as any).content).trim() : current.content,
           smsText: current.status === "SENT" ? current.smsText ?? null : ((args as any).smsText ?? null),
         },
         select: { id: true, updatedAt: true },
@@ -9697,10 +9866,7 @@ async function runDirectAction(opts: {
         select: { id: true, slug: true, name: true, ownerId: true },
       });
 
-      const newsletter = await prisma.clientNewsletter.findFirst({
-        where: { id: newsletterId, siteId: site.id },
-        select: { id: true, kind: true, status: true, slug: true, title: true, excerpt: true, smsText: true },
-      });
+      const newsletter = await resolveNewsletterRecordForSite({ siteId: site.id, newsletterIdOrHint: newsletterId });
       if (!newsletter) return { status: 404, json: { ok: false, error: "Not found" } };
       if (newsletter.status === "SENT") return { status: 409, json: { ok: false, error: "Already sent" } };
 

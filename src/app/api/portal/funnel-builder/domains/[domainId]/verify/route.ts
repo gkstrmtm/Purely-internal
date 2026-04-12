@@ -215,6 +215,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
       }
 
       if (!vercel.ok) {
+        if (vercel.recoverableConflict) {
+          const https = await checkHttpsReachable(domain);
+          debug.https = https;
+          if (https.ok) {
+            const updated = await prisma.creditCustomDomain.update({
+              where: { id: domainRow.id },
+              data: { status: "VERIFIED", verifiedAt: new Date() },
+              select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+            });
+            return NextResponse.json({ ok: true, verified: true, domain: updated, debug });
+          }
+        }
+
         if (domainRow.status === "VERIFIED") {
           await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
         }
@@ -226,7 +239,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
           ok: true,
           verified: false,
           error:
-            `DNS is pointing correctly, but we couldn’t finish hosting setup for this domain yet. ${vercel.error}`,
+            vercel.recoverableConflict
+              ? "DNS is pointing correctly, but the hosting provider is still syncing this domain onto the current project. HTTPS may take another minute or two to catch up, so click Verify DNS again shortly."
+              : `DNS is pointing correctly, but we couldn’t finish hosting setup for this domain yet. ${vercel.error}`,
           domain: current,
           debug,
         });
@@ -374,6 +389,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
       }
 
       if (!vercel.ok) {
+        if (vercel.recoverableConflict) {
+          const https = await checkHttpsReachable(domain);
+          debug.https = https;
+          if (https.ok) {
+            const updated = await prisma.creditCustomDomain.update({
+              where: { id: domainRow.id },
+              data: { status: "VERIFIED", verifiedAt: new Date() },
+              select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+            });
+            return NextResponse.json({ ok: true, verified: true, domain: updated, debug: { ...debug, isApex } });
+          }
+        }
+
         if (domainRow.status === "VERIFIED") {
           await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
         }
@@ -385,7 +413,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
           ok: true,
           verified: false,
           error:
-            `DNS is pointing correctly, but we couldn’t finish hosting setup for this domain yet. ${vercel.error}`,
+            vercel.recoverableConflict
+              ? "DNS is pointing correctly, but the hosting provider is still syncing this domain onto the current project. HTTPS may take another minute or two to catch up, so click Verify DNS again shortly."
+              : `DNS is pointing correctly, but we couldn’t finish hosting setup for this domain yet. ${vercel.error}`,
           domain: current,
           debug: { ...debug, isApex },
         });

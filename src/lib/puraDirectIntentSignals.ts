@@ -60,6 +60,7 @@ export type PuraDirectIntentSignals = {
   funnelCreateTitle: string;
   shouldCreateLandingPage: boolean;
   shouldGenerateLandingLayout: boolean;
+  shouldUpdateCurrentFunnelPage: boolean;
   mediaFolderCreateTitle: string;
   mediaImportUrl: string | null;
   mediaImportFolderNameHint: string | null;
@@ -121,6 +122,13 @@ function extractCreateNamedResource(prompt: string, resourceTerms: string[]): st
   ];
   for (const pattern of patterns) {
     const match = prompt.match(pattern);
+    const matchIndex = typeof match?.index === "number" ? match.index : -1;
+    if (matchIndex >= 0) {
+      const prefix = prompt.slice(Math.max(0, matchIndex - 40), matchIndex).toLowerCase();
+      if (/\b(?:open|edit|update|rewrite|revise|refine|polish|view)\b/.test(prefix) || /\bexisting\b/.test(prefix)) {
+        continue;
+      }
+    }
     const value = typeof match?.[1] === "string" ? String(match[1]).trim().replace(/[".]+$/g, "").slice(0, 180) : "";
     if (value) return value;
   }
@@ -267,6 +275,7 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
   const { hasAny, hasAll } = makePhraseHelpers(compactPrompt);
   const hasLatestNewsletterContext = Boolean(String(ctx.lastNewsletter?.id || "").trim());
   const hasLatestBlogContext = Boolean(String(ctx.lastBlogPost?.id || "").trim());
+  const hasLatestFunnelPageContext = Boolean(String(ctx.lastFunnel?.id || "").trim() && String(ctx.lastFunnelPage?.id || "").trim());
   const smsThreadMatch = prompt.match(/\b(?:text|sms)\s+thread\s+with\s+(.+?)\s*\??$/i);
   const mediaImportUrlMatch = prompt.match(/https?:\/\/\S+/i);
   const mediaFolderNameMatch = prompt.match(/into\s+the\s+(.+?)\s+folder/i);
@@ -345,6 +354,11 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
     funnelCreateTitle: extractCreateNamedResource(prompt, ["funnel"]),
     shouldCreateLandingPage: hasAll(["create", "make", "add", "build"], ["landing page", "signup page", "opt in page"], ["funnel", "same funnel", "that funnel"]),
     shouldGenerateLandingLayout: hasAll(["generate", "design", "build", "create"], ["layout", "page layout", "design"], ["landing page", "signup page", "page"]),
+    shouldUpdateCurrentFunnelPage:
+      hasLatestFunnelPageContext &&
+      (hasAny("funnel builder", "same page", "that page", "current page", "hero", "headline", "subheadline", "bullet benefits", "call to action", "cta", "testimonial", "proof strip", "opt-in form", "form") ||
+        /\b(hero|headline|subheadline|cta|testimonial|proof strip|opt-?in form|form)\b/i.test(prompt)) &&
+      hasAny("replace", "update", "change", "rewrite", "revise", "add", "embed", "use", "keep", "leave"),
     mediaFolderCreateTitle: extractCreateNamedResource(prompt, ["media folder", "folder"]),
     mediaImportUrl: mediaImportUrlMatch?.[0] ? String(mediaImportUrlMatch[0]).trim() : null,
     mediaImportFolderNameHint: typeof mediaFolderNameMatch?.[1] === "string" ? String(mediaFolderNameMatch[1]).trim().replace(/[".]+$/g, "") : null,

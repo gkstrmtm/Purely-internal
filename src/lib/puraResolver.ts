@@ -1533,6 +1533,16 @@ async function resolveNewsletterId(opts: {
     return { kind: "clarify", question: "Which newsletter should I use? Reply with the newsletter title (or open it in Newsletter)." };
   }
 
+  const hintSlug = hint
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 140);
+  const newsletterUrl = safeParseUrl(opts.url);
+  const isNewsletterSurface = Boolean(newsletterUrl?.pathname?.includes("/services/newsletter"));
+  const prefersCurrentDraft = /\b(current|existing|same|that same)\s+draft\b/i.test(hintRaw) || /\bkeep the existing title unchanged\b/i.test(hintRaw);
+
   // If they pasted an id, accept it.
   if (/^[a-z0-9]{20,40}$/i.test(hint)) {
     const row = await prisma.clientNewsletter
@@ -1543,7 +1553,14 @@ async function resolveNewsletterId(opts: {
 
   const rows = await prisma.clientNewsletter
     .findMany({
-      where: { siteId: site.id, OR: [{ slug: hint }, { title: { contains: hint, mode: "insensitive" } }] },
+      where: {
+        siteId: site.id,
+        OR: [
+          { slug: hint },
+          ...(hintSlug && hintSlug !== hint ? [{ slug: hintSlug }] : []),
+          { title: { contains: hint, mode: "insensitive" } },
+        ],
+      },
       orderBy: { updatedAt: "desc" },
       take: 6,
       select: { id: true, title: true, slug: true, kind: true, status: true },
@@ -1562,7 +1579,35 @@ async function resolveNewsletterId(opts: {
     return { kind: "clarify", question: `I found multiple newsletters matching “${hint}”. Reply with the exact slug you mean:\n\n${list}` };
   }
 
+  if (prefersCurrentDraft || isNewsletterSurface) {
+    const draft = await prisma.clientNewsletter
+      .findFirst({
+        where: { siteId: site.id, status: "DRAFT" },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, title: true, slug: true },
+      })
+      .catch(() => null);
+    if (draft?.id) {
+      return { kind: "ok", newsletterId: String(draft.id), newsletterTitle: String(draft.title || draft.slug || "Newsletter") };
+    }
+  }
+
   return { kind: "not_found", question: `I couldn’t find a newsletter matching “${hint}”. Reply with the exact title or slug.` };
+}
+
+function extractNewsletterTitleHint(raw: unknown): string {
+  const prompt = String(raw || "").trim();
+  if (!prompt) return "";
+  const patterns = [
+    /\b(?:draft\s+)?newsletter\s+(?:titled|called|named)\s+["“]?(.+?)["”]?(?:[.!?]|\n|$)/i,
+    /\b(?:open|edit|update|rewrite|revise)\s+(?:the\s+)?(?:existing\s+)?(?:draft\s+)?newsletter\s+["“]?(.+?)["”]?(?:[.!?]|\n|$)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = prompt.match(pattern);
+    const value = typeof match?.[1] === "string" ? String(match[1]).trim().replace(/[".]+$/g, "") : "";
+    if (value) return value.slice(0, 180);
+  }
+  return "";
 }
 
 async function resolveMediaFolderId(opts: {
@@ -4115,7 +4160,13 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "newsletterid" || argKeyLower === "draftid") {
       if (resolvedNewsletter?.id) return { ok: true, value: resolvedNewsletter.id };
-      const rn = await resolveNewsletterId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const newsletterHint = extractNewsletterTitleHint(rawHint || fallbackHint);
+      const rn = await resolveNewsletterId({
+        ownerId,
+        hint: mergeResolverHint(newsletterHint || rawHint),
+        url: opts.url,
+        threadContext: opts.threadContext,
+      });
       if (rn.kind !== "ok") return { ok: false, clarifyQuestion: rn.question };
       resolvedNewsletter = { id: rn.newsletterId, title: rn.newsletterTitle };
       return { ok: true, value: rn.newsletterId };
@@ -4438,7 +4489,8 @@ export async function resolvePlanArgs(opts: {
   if (newsletterRefs.length) {
     const baseHint = String(newsletterRefs[0].name || newsletterRefs[0].hint || "").trim();
     const extra = String(opts.userHint || "").trim();
-    const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
+    const extracted = extractNewsletterTitleHint(extra);
+    const hint = extracted || (extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint);
     const rn = await resolveNewsletterId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
     if (rn.kind === "ok") resolvedNewsletter = { id: rn.newsletterId, title: rn.newsletterTitle };
     else return { ok: false, clarifyQuestion: rn.question };
