@@ -6,6 +6,7 @@
     "node": "20.x"
   },
   "scripts": {
+    "predev": "prisma generate",
     "dev": "next dev",
     "prebuild": "node scripts/prisma-prebuild.mjs",
     "build": "next build --webpack",

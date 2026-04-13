@@ -1029,12 +1029,21 @@ export function PortalBookingClient() {
                   <span>Live</span>
                 </span>
               </a>
+              <a
+                href={`${appBase}/services/booking/page-editor`}
+                className={`block ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconEyeGlyph size={18} /></span>
+                  <span>Edit page</span>
+                </span>
+              </a>
             </div>
           </div>
         ) : null}
       </div>
     );
-  }, [liveBookingUrl, previewBookingUrl, topTab]);
+  }, [appBase, liveBookingUrl, previewBookingUrl, topTab]);
 
   useEffect(() => {
     setSidebarOverride({

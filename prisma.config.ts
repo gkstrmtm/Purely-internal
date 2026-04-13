@@ -1,4 +1,32 @@
+import fs from "fs";
+import path from "path";
 import { defineConfig } from "prisma/config";
+
+const envPath = path.join(process.cwd(), ".env");
+
+try {
+  const raw = fs.readFileSync(envPath, "utf8");
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex <= 0) continue;
+
+    const key = trimmed.slice(0, eqIndex).trim();
+    if (!key || process.env[key] !== undefined) continue;
+
+    let value = trimmed.slice(eqIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
+} catch {
+  // Ignore missing .env here; Prisma will report required env vars if absent.
+}
 
 export default defineConfig({
   schema: "prisma/schema.prisma",

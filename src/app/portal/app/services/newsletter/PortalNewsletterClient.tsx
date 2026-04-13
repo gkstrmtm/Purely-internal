@@ -2586,6 +2586,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       <span className="font-semibold text-zinc-600">Preview:</span> {publicBaseUrl}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <a
+                        href={`${basePath}/page-editor`}
+                        className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 transition-colors duration-100 hover:bg-sky-100"
+                      >
+                        Edit page
+                      </a>
                       <button
                         type="button"
                         className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
@@ -2654,7 +2660,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           setSiteConfigOpen(true);
                         }}
                       >
-                        Edit hosted pages
+                        Edit site config
                       </button>
                     </div>
 

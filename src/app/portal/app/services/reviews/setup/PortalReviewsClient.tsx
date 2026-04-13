@@ -1265,19 +1265,27 @@ export default function PortalReviewsClient() {
               {(() => {
                 const canPreview = Boolean(settings.publicPage.enabled && publicSiteSlug);
                 return (
-                  <a
-                    className={
-                      "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
-                      (!canPreview ? "pointer-events-none opacity-50" : "")
-                    }
-                    href={canPreview ? toPurelyHostedUrl(`/${publicSiteSlug}/reviews`) : "#"}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-disabled={!canPreview}
-                    title={!canPreview ? "Enable the public page and ensure you have a site slug." : ""}
-                  >
-                    Preview public reviews page
-                  </a>
+                  <div className="flex flex-wrap items-center justify-end gap-3">
+                    <a
+                      href={`${appBase}/services/reviews/page-editor`}
+                      className="inline-flex items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 transition hover:bg-sky-100"
+                    >
+                      Edit page
+                    </a>
+                    <a
+                      className={
+                        "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
+                        (!canPreview ? "pointer-events-none opacity-50" : "")
+                      }
+                      href={canPreview ? toPurelyHostedUrl(`/${publicSiteSlug}/reviews`) : "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-disabled={!canPreview}
+                      title={!canPreview ? "Enable the public page and ensure you have a site slug." : ""}
+                    >
+                      Preview public reviews page
+                    </a>
+                  </div>
                 );
               })()}
             </div>
@@ -1686,25 +1694,33 @@ export default function PortalReviewsClient() {
                     <div className="text-xs text-neutral-500">Public URL will appear after you have a site handle.</div>
                   )}
 
-                  {liveHostedReviewsUrl ? (
+                  <div className="flex flex-wrap items-center gap-2">
                     <a
-                      href={liveHostedReviewsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
+                      href={`${appBase}/services/reviews/page-editor`}
+                      className="inline-flex items-center justify-center rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 transition-colors duration-100 hover:bg-sky-100"
                     >
-                      View live page
+                      Edit page
                     </a>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled
-                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-400"
-                      title={settings.publicPage.enabled ? "No live URL yet." : "Enable public page to view live URL."}
-                    >
-                      View live page
-                    </button>
-                  )}
+                    {liveHostedReviewsUrl ? (
+                      <a
+                        href={liveHostedReviewsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
+                      >
+                        View live page
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-400"
+                        title={settings.publicPage.enabled ? "No live URL yet." : "Enable public page to view live URL."}
+                      >
+                        View live page
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">

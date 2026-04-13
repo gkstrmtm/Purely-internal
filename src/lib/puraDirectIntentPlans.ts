@@ -63,6 +63,85 @@ export function getPuraDirectActionPlan(opts: {
   const { prompt, signals } = opts;
   const threadContext = safeContext(opts.threadContext);
 
+  if (signals.hostedPageUpdateTarget) {
+    return {
+      action: "hosted_pages.documents.update",
+      traceTitle: "Update Hosted Page Document",
+      args: {
+        service: signals.hostedPageUpdateTarget.service,
+        ...(signals.hostedPageUpdateTarget.pageKey ? { pageKey: signals.hostedPageUpdateTarget.pageKey } : null),
+        ...(signals.hostedPageUpdateTarget.title ? { title: signals.hostedPageUpdateTarget.title } : null),
+        ...(signals.hostedPageUpdateTarget.status ? { status: signals.hostedPageUpdateTarget.status } : null),
+      },
+    };
+  }
+
+  if (signals.hostedPagePublishTarget) {
+    return {
+      action: "hosted_pages.documents.publish",
+      traceTitle: "Publish Hosted Page Document",
+      args: {
+        service: signals.hostedPagePublishTarget.service,
+        ...(signals.hostedPagePublishTarget.pageKey ? { pageKey: signals.hostedPagePublishTarget.pageKey } : null),
+      },
+    };
+  }
+
+  if (signals.hostedPageResetTarget) {
+    return {
+      action: "hosted_pages.documents.reset_to_default",
+      traceTitle: "Reset Hosted Page Document",
+      args: {
+        service: signals.hostedPageResetTarget.service,
+        ...(signals.hostedPageResetTarget.pageKey ? { pageKey: signals.hostedPageResetTarget.pageKey } : null),
+      },
+    };
+  }
+
+  if (signals.hostedPageGenerateTarget) {
+    return {
+      action: "hosted_pages.documents.generate_html",
+      traceTitle: "Generate Hosted Page HTML",
+      args: {
+        service: signals.hostedPageGenerateTarget.service,
+        ...(signals.hostedPageGenerateTarget.pageKey ? { pageKey: signals.hostedPageGenerateTarget.pageKey } : null),
+        prompt,
+      },
+    };
+  }
+
+  if (signals.hostedPagePreviewTarget) {
+    return {
+      action: "hosted_pages.documents.preview_data",
+      traceTitle: "Inspect Hosted Page Preview Data",
+      args: {
+        service: signals.hostedPagePreviewTarget.service,
+        ...(signals.hostedPagePreviewTarget.pageKey ? { pageKey: signals.hostedPagePreviewTarget.pageKey } : null),
+      },
+    };
+  }
+
+  if (signals.hostedPageGetTarget) {
+    return {
+      action: signals.hostedPageGetTarget.pageKey ? "hosted_pages.documents.get" : "hosted_pages.documents.list",
+      traceTitle: signals.hostedPageGetTarget.pageKey ? "Get Hosted Page Document" : "List Hosted Page Documents",
+      args: signals.hostedPageGetTarget.pageKey
+        ? {
+            service: signals.hostedPageGetTarget.service,
+            pageKey: signals.hostedPageGetTarget.pageKey,
+          }
+        : { service: signals.hostedPageGetTarget.service },
+    };
+  }
+
+  if (signals.hostedPageListService) {
+    return {
+      action: "hosted_pages.documents.list",
+      traceTitle: "List Hosted Page Documents",
+      args: { service: signals.hostedPageListService },
+    };
+  }
+
   if (signals.nurtureCampaignCreateTitle && signals.compactPrompt.includes("nurture")) {
     return {
       action: "nurture.campaigns.create",

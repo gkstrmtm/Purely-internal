@@ -4,32 +4,11 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { IconSettingsGlyph } from "@/app/portal/PortalIcons";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 
 import { ConnectAuthPanel } from "./ConnectAuthPanel";
 import { defaultConnectUserDefaults, readConnectUserDefaultsFromStorage, writeConnectUserDefaultsToStorage, type ConnectUserDefaults } from "./connectDefaults";
-
-function SettingsIcon() {
-	return (
-		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
-			<path
-				d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
-				stroke="currentColor"
-				strokeWidth="1.8"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-			<path
-				d="M19.4 15a8 8 0 0 0 .1-1l2-1.2-2-3.4-2.3.5a7.6 7.6 0 0 0-.9-.6L15.8 6h-3.6l-.6 2.3c-.3.2-.6.4-.9.6L8.4 8.4l-2 3.4 2 1.2a8 8 0 0 0 0 2l-2 1.2 2 3.4 2.3-.5c.3.2.6.4.9.6l.6 2.3h3.6l.6-2.3c.3-.2.6-.4.9-.6l2.3.5 2-3.4-2-1.2Z"
-				stroke="currentColor"
-				strokeWidth="1.2"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-				opacity="0.85"
-			/>
-		</svg>
-	);
-}
 
 function Modal(props: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
 	if (!props.open) return null;
@@ -138,63 +117,72 @@ export function ConnectLandingClient({ signedInName }: { signedInName?: string |
 	}
 
 	return (
-		<div className="min-h-screen bg-brand-mist text-brand-ink">
-			<div className="mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-6 py-12">
-				<div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm sm:p-10">
-					<div className="flex items-center justify-between gap-6">
+		<div className="min-h-screen bg-[radial-gradient(circle_at_top,#e8f1ff_0%,#f8fafc_38%,#f1f5f9_100%)] text-brand-ink">
+			<div className="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-4 py-8 sm:px-6 sm:py-12">
+				<div className="relative overflow-hidden rounded-4xl border border-white/70 bg-white/84 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.10)] backdrop-blur-xl sm:p-10">
+					<div className="pointer-events-none absolute inset-0">
+						<div className="absolute -right-16 top-0 h-56 w-56 rounded-full bg-blue-200/35 blur-3xl" />
+						<div className="absolute -left-10 bottom-0 h-48 w-48 rounded-full bg-slate-200/35 blur-3xl" />
+					</div>
+					<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
 						<div className="relative h-12 w-48">
 							<Image src="/brand/3.png" alt="Purely Connect" fill className="object-contain" priority />
 						</div>
 						<div className="flex items-center gap-3">
-							<div className="hidden text-sm text-zinc-600 sm:block">
-								{signedInName ? `Signed in as ${signedInName}` : "Video meetings"}
-							</div>
+							{signedInName ? <div className="hidden text-sm text-zinc-600 sm:block">Signed in as {signedInName}</div> : null}
 							<button
 								onClick={() => setSettingsOpen(true)}
-								className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-base hover:bg-zinc-50"
+								className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200/90 bg-white/88 px-3.5 py-2.5 text-sm font-medium text-zinc-900 shadow-[0_8px_24px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:bg-white"
 								aria-label="Settings"
 								title="Settings"
 							>
-								<SettingsIcon />
+								<IconSettingsGlyph className="h-5 w-5 text-zinc-900" />
 								<span className="hidden sm:inline">Settings</span>
 							</button>
 						</div>
 					</div>
 
-					<h1 className="mt-6 text-balance text-2xl font-semibold text-zinc-900 sm:text-3xl">Video calls, the simple way.</h1>
-					<p className="mt-2 text-base text-zinc-600">
-						Start a meeting, share the link, and hop on a call.
+					<h1 className="mt-2 text-balance text-3xl font-semibold tracking-tight text-zinc-950 sm:mt-5 sm:text-5xl">Meet, share, and stay face to face.</h1>
+					<p className="mt-3 max-w-2xl text-base leading-relaxed text-zinc-600 sm:text-lg">
+						Start a meeting, share the link, and jump into a cleaner calling experience with camera, screen share, and host controls built in.
 					</p>
 
 					<div className="mt-5">
 						<ConnectAuthPanel />
 					</div>
 
-					<div className="mt-6 grid gap-4 sm:grid-cols-2">
+					<div className="mt-8 grid gap-4 lg:grid-cols-[1.02fr,0.98fr]">
 						<button
 							onClick={onCreateMeeting}
 							disabled={creating}
-							className="rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-base font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+							className="group h-full rounded-[28px] bg-(--color-brand-blue) px-5 py-5 text-left text-base font-semibold text-white shadow-[0_18px_40px_rgba(37,99,235,0.24)] transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:px-6"
 						>
-							{creating ? "Starting…" : "Start a meeting"}
+							<div className="flex items-start justify-between gap-4">
+								<div>
+									<div>{creating ? "Starting…" : "Start a meeting"}</div>
+									<div className="mt-1 text-sm font-medium text-blue-100/85">Create a room instantly and share the link when you’re ready.</div>
+								</div>
+							</div>
 						</button>
 
-						<div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+						<div className="rounded-[28px] border border-zinc-200/90 bg-zinc-50/78 p-4 shadow-inner shadow-white/50">
 							<label className="block text-base font-medium text-zinc-900">Join a meeting</label>
-							<div className="mt-3 flex gap-2">
+							<p className="mt-1 text-sm text-zinc-600">Paste a full invite link or drop in a room ID to reconnect fast.</p>
+							<div className="mt-3 flex flex-col gap-2 sm:flex-row">
 								<input
 									value={joinValue}
 									onChange={(e) => setJoinValue(e.target.value)}
 									placeholder="Paste link or room ID"
-									className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+									className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none transition focus:border-zinc-400 focus:ring-2 focus:ring-brand-blue/15"
 								/>
 								<button
 									onClick={onJoin}
-									className="shrink-0 rounded-2xl bg-(--color-brand-blue) px-4 py-3 text-base font-semibold text-white hover:bg-blue-700"
+									className="shrink-0 rounded-2xl bg-(--color-brand-blue) px-4 py-3 text-base font-semibold text-white transition hover:bg-blue-700"
 								>
 									Join
 								</button>
 							</div>
+							<div className="mt-3 text-sm text-zinc-500">Works for guests, employees, and shared hosted links.</div>
 						</div>
 					</div>
 
@@ -209,8 +197,9 @@ export function ConnectLandingClient({ signedInName }: { signedInName?: string |
 
 			<Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="Connect settings">
 				<div className="space-y-6">
-					<div>
+					<div className="rounded-[28px] border border-zinc-200 bg-zinc-50/80 p-4">
 						<div className="text-sm font-semibold text-zinc-900">My defaults</div>
+						<div className="mt-1 text-xs text-zinc-600">Choose how Purely Connect should feel before you even join.</div>
 						<div className="mt-2 space-y-3">
 							<div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
 								<div>
@@ -248,7 +237,7 @@ export function ConnectLandingClient({ signedInName }: { signedInName?: string |
 						</div>
 					</div>
 
-					<div>
+					<div className="rounded-[28px] border border-zinc-200 bg-zinc-50/80 p-4">
 						<div className="text-sm font-semibold text-zinc-900">Host defaults</div>
 						<div className="mt-1 text-xs text-zinc-600">Applied automatically when you are the host.</div>
 						<div className="mt-2 space-y-3">

@@ -1,9 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
+import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
@@ -16,6 +17,70 @@ import { PublicReviewsClient } from "./PublicReviewsClient";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const REVIEWS_APP_TOKEN = "{{REVIEWS_APP}}";
+
+function replaceHostedTextTokens(html: string, values: Record<string, string>) {
+  let out = String(html || "");
+  for (const [key, value] of Object.entries(values)) {
+    const pattern = new RegExp(`\\{\\{${key}\\}\\}`, "g");
+    out = out.replace(pattern, value);
+  }
+  return out;
+}
+
+function extractHostedCustomHtmlParts(html: string) {
+  const raw = String(html || "").trim();
+  if (!raw) return { styles: "", bodyHtml: "" };
+
+  const styles = Array.from(raw.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi))
+    .map((match) => String(match[1] || "").trim())
+    .filter(Boolean)
+    .join("\n");
+
+  const bodyMatch = raw.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  const bodyHtml = bodyMatch?.[1] ? String(bodyMatch[1]).trim() : raw.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "").trim();
+
+  return {
+    styles,
+    bodyHtml: bodyHtml.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ""),
+  };
+}
+
+function renderHostedCustomHtmlTemplate(opts: {
+  html: string;
+  textTokens: Record<string, string>;
+  reviewsApp: ReactNode;
+}) {
+  const replaced = replaceHostedTextTokens(opts.html, opts.textTokens);
+  const { styles, bodyHtml } = extractHostedCustomHtmlParts(replaced);
+  if (!bodyHtml) return opts.reviewsApp;
+
+  const segments = bodyHtml.split(REVIEWS_APP_TOKEN);
+  const hasToken = segments.length > 1;
+  const renderedSegments: ReactNode[] = [];
+
+  segments.forEach((segment, index) => {
+    const cleanSegment = String(segment || "").trim();
+    if (cleanSegment) {
+      renderedSegments.push(
+        <div key={`hosted_reviews_segment_${index}`} dangerouslySetInnerHTML={{ __html: cleanSegment }} />,
+      );
+    }
+
+    if (hasToken && index < segments.length - 1) {
+      renderedSegments.push(<div key={`hosted_reviews_app_${index}`}>{opts.reviewsApp}</div>);
+    }
+  });
+
+  return (
+    <>
+      {styles ? <style dangerouslySetInnerHTML={{ __html: styles }} /> : null}
+      {renderedSegments}
+      {!hasToken ? opts.reviewsApp : null}
+    </>
+  );
+}
 
 export default async function PublicReviewsPage({ params }: { params: Promise<{ siteSlug: string }> }) {
   const { siteSlug } = await params;
@@ -77,6 +142,19 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
     getHostedTheme(ownerId),
   ]);
 
+  const hostedReviewsPage = await (prisma as any).hostedPageDocument.findFirst({
+    where: { ownerId, service: "REVIEWS", pageKey: "reviews_home" },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      id: true,
+      title: true,
+      editorMode: true,
+      blocksJson: true,
+      customHtml: true,
+      updatedAt: true,
+    },
+  });
+
   const settings = data.settings;
   if (!settings.publicPage.enabled) return notFound();
 
@@ -102,6 +180,11 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
   const title = settings.publicPage.title || "Reviews";
   const description = settings.publicPage.description || "";
   const thankYouMessage = (settings.publicPage as any)?.thankYouMessage ? String((settings.publicPage as any).thankYouMessage) : "";
+  const hostedBlocks = coerceBlocksJson(hostedReviewsPage?.blocksJson);
+  const hasHostedBlocks = Boolean(hostedReviewsPage?.editorMode === "BLOCKS" && hostedBlocks.length);
+  const hasHostedCustomHtml = Boolean(
+    hostedReviewsPage?.editorMode === "CUSTOM_HTML" && typeof hostedReviewsPage?.customHtml === "string" && hostedReviewsPage.customHtml.trim(),
+  );
 
   type VerifiedBusiness = {
     ownerId: string;
@@ -232,6 +315,121 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
 
   const otherVerified = await getOtherVerifiedBusinesses();
 
+  const reviewsApp = (
+    <PublicReviewsClient
+      siteHandle={siteHandle}
+      businessName={businessName}
+      brandPrimary={brandPrimary}
+      destinations={settings.destinations}
+      galleryEnabled={Boolean((settings.publicPage as any)?.galleryEnabled ?? true)}
+      thankYouMessage={thankYouMessage}
+      formConfig={(settings.publicPage as any)?.form}
+      initialReviews={reviews.map((r) => ({
+        id: r.id,
+        rating: r.rating,
+        name: r.name,
+        body: r.body,
+        photoUrls: r.photoUrls,
+        businessReply: (r as any).businessReply ?? null,
+        businessReplyAt: (r as any).businessReplyAt ? new Date((r as any).businessReplyAt).toISOString() : null,
+        createdAt: r.createdAt.toISOString(),
+      }))}
+      initialQuestions={qa.map((q: any) => ({
+        id: String(q.id),
+        name: String(q.name || ""),
+        question: String(q.question || ""),
+        answer: q.answer ? String(q.answer) : "",
+        answeredAt: q.answeredAt ? new Date(q.answeredAt).toISOString() : null,
+      }))}
+    />
+  );
+
+  const defaultReviewsBody = (
+    <>
+      <section style={{ backgroundColor: "var(--client-primary)" }}>
+        <div className="mx-auto max-w-6xl px-6 py-14">
+          <div className="max-w-3xl">
+            <div
+              className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-sm font-semibold"
+              style={{ color: "var(--client-on-primary)" }}
+            >
+              <span className="grid h-6 w-6 place-items-center rounded-full bg-white/20">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M20 6L9 17l-5-5"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+              Verified by Purely
+            </div>
+
+            <h1 className="mt-4 font-brand text-4xl sm:text-5xl" style={{ color: "var(--client-on-primary)" }}>
+              {title}
+            </h1>
+            {description ? (
+              <p className="mt-4 text-lg leading-relaxed" style={{ color: "var(--client-on-primary-muted)" }}>
+                {description}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section style={{ backgroundColor: "var(--client-bg)" }}>
+        <div className="mx-auto max-w-6xl px-6 py-14">
+          {Array.isArray(settings.publicPage.photoUrls) && settings.publicPage.photoUrls.length ? (
+            <div className="-mt-24 mb-10">
+              <div className="flex gap-4 overflow-x-auto pb-3">
+                {settings.publicPage.photoUrls.slice(0, 12).map((u) => (
+                  <div
+                    key={u}
+                    className="h-50 w-80 shrink-0 overflow-hidden rounded-3xl border shadow-sm"
+                    style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={u} alt="" className="h-full w-full object-cover" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {reviewsApp}
+        </div>
+      </section>
+    </>
+  );
+
+  const hostedReviewsBody = hasHostedCustomHtml ? (
+    <section style={{ backgroundColor: "var(--client-bg)" }}>
+      <div className="mx-auto max-w-6xl px-6 py-14">
+        {renderHostedCustomHtmlTemplate({
+          html: String(hostedReviewsPage?.customHtml || ""),
+          textTokens: {
+            BUSINESS_NAME: businessName,
+            PAGE_TITLE: title,
+            PAGE_DESCRIPTION: description,
+            SITE_HANDLE: siteHandle,
+          },
+          reviewsApp,
+        })}
+      </div>
+    </section>
+  ) : hasHostedBlocks ? (
+    <section style={{ backgroundColor: "var(--client-bg)" }}>
+      <div className="mx-auto max-w-6xl px-6 py-14">
+        {renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "" })}
+        <div className="mt-10">{reviewsApp}</div>
+      </div>
+    </section>
+  ) : (
+    defaultReviewsBody
+  );
+
   return (
     <div
       className="min-h-screen"
@@ -303,85 +501,10 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
       <HostedPortalAdBanner placement="HOSTED_REVIEWS_PAGE" siteSlug={siteHandle} ownerId={ownerId} pathOverride="/reviews" />
 
       <main>
-        <section style={{ backgroundColor: "var(--client-primary)" }}>
-          <div className="mx-auto max-w-6xl px-6 py-14">
-            <div className="max-w-3xl">
-              <div
-                className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-sm font-semibold"
-                style={{ color: "var(--client-on-primary)" }}
-              >
-                <span className="grid h-6 w-6 place-items-center rounded-full bg-white/20">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path
-                      d="M20 6L9 17l-5-5"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-                Verified by Purely
-              </div>
-
-              <h1 className="mt-4 font-brand text-4xl sm:text-5xl" style={{ color: "var(--client-on-primary)" }}>
-                {title}
-              </h1>
-              {description ? (
-                <p className="mt-4 text-lg leading-relaxed" style={{ color: "var(--client-on-primary-muted)" }}>
-                  {description}
-                </p>
-              ) : null}
-            </div>
-          </div>
-        </section>
+        {hostedReviewsBody}
 
         <section style={{ backgroundColor: "var(--client-bg)" }}>
-          <div className="mx-auto max-w-6xl px-6 py-14">
-            {Array.isArray(settings.publicPage.photoUrls) && settings.publicPage.photoUrls.length ? (
-              <div className="-mt-24 mb-10">
-                <div className="flex gap-4 overflow-x-auto pb-3">
-                  {settings.publicPage.photoUrls.slice(0, 12).map((u) => (
-                    <div
-                      key={u}
-                      className="h-50 w-80 shrink-0 overflow-hidden rounded-3xl border shadow-sm"
-                      style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={u} alt="" className="h-full w-full object-cover" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            <PublicReviewsClient
-              siteHandle={siteHandle}
-              businessName={businessName}
-              brandPrimary={brandPrimary}
-              destinations={settings.destinations}
-              galleryEnabled={Boolean((settings.publicPage as any)?.galleryEnabled ?? true)}
-              thankYouMessage={thankYouMessage}
-              formConfig={(settings.publicPage as any)?.form}
-              initialReviews={reviews.map((r) => ({
-                id: r.id,
-                rating: r.rating,
-                name: r.name,
-                body: r.body,
-                photoUrls: r.photoUrls,
-                businessReply: (r as any).businessReply ?? null,
-                businessReplyAt: (r as any).businessReplyAt ? new Date((r as any).businessReplyAt).toISOString() : null,
-                createdAt: r.createdAt.toISOString(),
-              }))}
-              initialQuestions={qa.map((q: any) => ({
-                id: String(q.id),
-                name: String(q.name || ""),
-                question: String(q.question || ""),
-                answer: q.answer ? String(q.answer) : "",
-                answeredAt: q.answeredAt ? new Date(q.answeredAt).toISOString() : null,
-              }))}
-            />
-
+          <div className="mx-auto max-w-6xl px-6 pb-14">
             {otherVerified.length ? (
               <div className="mt-14">
                 <div className="flex items-end justify-between gap-4">

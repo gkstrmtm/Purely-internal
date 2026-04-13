@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -19,6 +20,18 @@ enum Role {
 enum ClientPortalVariant {
   PORTAL
   CREDIT
+}
+
+enum HostedPageService {
+  BOOKING
+  NEWSLETTER
+  REVIEWS
+  BLOGS
+}
+
+enum HostedPageDocumentStatus {
+  DRAFT
+  PUBLISHED
 }
 
 enum PortalAdPlacement {
@@ -209,6 +222,8 @@ model User {
   portalAiChatMessagesOwned   PortalAiChatMessage[] @relation("PortalAiChatMessageOwner")
   portalAiChatMessagesCreated PortalAiChatMessage[] @relation("PortalAiChatMessageCreatedBy")
   portalAiChatRunsOwned       PortalAiChatRun[]     @relation("PortalAiChatRunOwner")
+
+  hostedPageDocuments HostedPageDocument[]
 
   employeeInvitesCreated EmployeeInvite[] @relation("EmployeeInviteCreatedBy")
   employeeInvitesUsed    EmployeeInvite[] @relation("EmployeeInviteUsedBy")
@@ -2145,6 +2160,37 @@ model ClientBlogSite {
 
   @@index([ownerId])
   @@index([primaryDomain])
+}
+
+model HostedPageDocument {
+  id String @id @default(cuid())
+
+  ownerId String
+  service HostedPageService
+  pageKey String
+  title   String
+  slug    String?
+  status  HostedPageDocumentStatus @default(DRAFT)
+
+  contentMarkdown String @default("")
+  editorMode      CreditFunnelPageEditorMode @default(BLOCKS)
+  blocksJson      Json?
+  customHtml      String @default("")
+  customChatJson  Json?
+
+  seoTitle       String?
+  seoDescription String?
+  themeJson      Json?
+  dataBindingsJson Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, service, pageKey])
+  @@unique([ownerId, service, slug])
+  @@index([ownerId, service, updatedAt])
 }
 
 model PortalBlogGenerationEvent {

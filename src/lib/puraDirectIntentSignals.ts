@@ -7,6 +7,11 @@ export type PuraDirectIntentContext = {
   lastNurtureCampaign?: { id?: string | null; label?: string | null } | null;
 };
 
+export type HostedPageDirectTarget = {
+  service: "BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS";
+  pageKey: string | null;
+};
+
 export type ReviewReplyIntent = {
   reviewName: string;
   replyText: string;
@@ -76,6 +81,13 @@ export type PuraDirectIntentSignals = {
   shouldUpdateBookingThankYou: boolean;
   shouldSetWeekdayAvailability: boolean;
   shouldAssessCrossSurfaceReadiness: boolean;
+  hostedPageListService: "ALL" | "BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS" | null;
+  hostedPageGetTarget: HostedPageDirectTarget | null;
+  hostedPagePreviewTarget: HostedPageDirectTarget | null;
+  hostedPagePublishTarget: HostedPageDirectTarget | null;
+  hostedPageResetTarget: HostedPageDirectTarget | null;
+  hostedPageGenerateTarget: HostedPageDirectTarget | null;
+  hostedPageUpdateTarget: (HostedPageDirectTarget & { title: string | null; status: "DRAFT" | "PUBLISHED" | null }) | null;
 };
 
 function safeContext(raw: unknown): PuraDirectIntentContext {
@@ -111,6 +123,91 @@ function makePhraseHelpers(compactPrompt: string) {
     });
 
   return { hasAny, hasAll };
+}
+
+function hasWord(compactPrompt: string, word: string) {
+  const escaped = String(word || "").trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return escaped ? new RegExp(`\\b${escaped}\\b`, "i").test(compactPrompt) : false;
+}
+
+function detectHostedPageService(compactPrompt: string): "BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS" | null {
+  const hits = [
+    hasWord(compactPrompt, "booking") ? "BOOKING" : null,
+    hasWord(compactPrompt, "newsletter") || hasWord(compactPrompt, "newsletters") ? "NEWSLETTER" : null,
+    hasWord(compactPrompt, "review") || hasWord(compactPrompt, "reviews") ? "REVIEWS" : null,
+    hasWord(compactPrompt, "blog") || hasWord(compactPrompt, "blogs") ? "BLOGS" : null,
+  ].filter(Boolean) as Array<"BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS">;
+  return hits.length === 1 ? hits[0] : null;
+}
+
+function defaultHostedPageKey(service: "BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS", compactPrompt: string): string | null {
+  if (service === "BOOKING") return "booking_main";
+  if (service === "NEWSLETTER") return "newsletter_home";
+  if (service === "REVIEWS") return "reviews_home";
+  if (compactPrompt.includes("blog post template") || compactPrompt.includes("post template") || compactPrompt.includes("single post template")) {
+    return "blogs_post_template";
+  }
+  if (compactPrompt.includes("blog index") || compactPrompt.includes("blogs index") || compactPrompt.includes("blog archive") || compactPrompt.includes("blog home")) {
+    return "blogs_index";
+  }
+  return "blogs_index";
+}
+
+function shouldTargetAllHostedPageDocuments(service: "BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS", compactPrompt: string) {
+  if (service !== "BLOGS") return false;
+  return (
+    compactPrompt.includes("difference between") ||
+    compactPrompt.includes("both of my blog hosted page documents") ||
+    compactPrompt.includes("both blog hosted page documents") ||
+    compactPrompt.includes("blog hosted page documents") ||
+    compactPrompt.includes("blogs hosted page documents") ||
+    compactPrompt.includes("blog hosted pages")
+  );
+}
+
+function extractHostedPageUpdateTitle(prompt: string): string | null {
+  const match =
+    /\b(?:title|name)\s+to\s+["“]([^"”]{1,200})["”]/i.exec(prompt) ||
+    /\b(?:title|name)\s+to\s+'([^']{1,200})'/i.exec(prompt) ||
+    /\bset\s+.*?title\s+to\s+["“]([^"”]{1,200})["”]/i.exec(prompt) ||
+    /\bset\s+.*?title\s+to\s+'([^']{1,200})'/i.exec(prompt) ||
+    /\brename\s+.*?to\s+["“]([^"”]{1,200})["”]/i.exec(prompt) ||
+    /\brename\s+.*?to\s+'([^']{1,200})'/i.exec(prompt);
+  const value = typeof match?.[1] === "string" ? String(match[1]).trim().slice(0, 200) : "";
+  return value || null;
+}
+
+function hasNegatedPublishIntent(compactPrompt: string) {
+  return (
+    compactPrompt.includes("do not publish") ||
+    compactPrompt.includes("dont publish") ||
+    compactPrompt.includes("don't publish") ||
+    compactPrompt.includes("not publish") ||
+    compactPrompt.includes("leave it unpublished") ||
+    compactPrompt.includes("leave this unpublished") ||
+    compactPrompt.includes("keep it unpublished") ||
+    compactPrompt.includes("keep this unpublished") ||
+    compactPrompt.includes("keep it in draft") ||
+    compactPrompt.includes("keep this in draft") ||
+    compactPrompt.includes("leave it in draft") ||
+    compactPrompt.includes("leave this in draft")
+  );
+}
+
+function detectHostedPageRequestedStatus(compactPrompt: string): "DRAFT" | "PUBLISHED" | null {
+  if (hasNegatedPublishIntent(compactPrompt)) return "DRAFT";
+  if (
+    compactPrompt.includes("draft") ||
+    compactPrompt.includes("unpublished") ||
+    compactPrompt.includes("keep it unpublished") ||
+    compactPrompt.includes("leave it unpublished")
+  ) {
+    return "DRAFT";
+  }
+  if (/\bpublished\b/.test(compactPrompt) || /\bpublish\b/.test(compactPrompt)) {
+    return "PUBLISHED";
+  }
+  return null;
 }
 
 function extractCreateNamedResource(prompt: string, resourceTerms: string[]): string {
@@ -297,6 +394,40 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
   const emailThreadMatch = prompt.match(/\b(?:email|conversation|thread)\s+with\s+(.+?)\s*\??$/i);
   const smsThreadWithName = cleanExtractedEntity(smsThreadMatch?.[1]);
   const emailThreadName = cleanExtractedEntity(emailThreadMatch?.[1]);
+  const hostedPageServiceMentions = ["booking", "newsletter", "reviews", "blogs"].filter((term) => compactPrompt.includes(term)).length;
+  const mentionsHostedPageSurface =
+    hasAny("hosted page", "hosted pages", "page editor", "page editors", "hosted html") ||
+    (hostedPageServiceMentions > 0 && hasAny("page", "pages", "document", "documents", "template", "templates"));
+  const hostedService = detectHostedPageService(compactPrompt);
+  const hostedTarget = hostedService
+    ? {
+        service: hostedService,
+        pageKey: shouldTargetAllHostedPageDocuments(hostedService, compactPrompt)
+          ? null
+          : defaultHostedPageKey(hostedService, compactPrompt),
+      }
+    : null;
+  const wantsHostedPageList =
+    mentionsHostedPageSurface &&
+    (hasAny("list", "show", "what are", "what is", "every", "all") || compactPrompt.startsWith("list my hosted page documents"));
+  const wantsHostedPagePreview =
+    mentionsHostedPageSurface &&
+    hasAny("inspect", "preview data", "editor mode", "publish status", "runtime token", "runtime tokens", "live data", "what a user would be editing");
+  const wantsHostedPagePublish =
+    mentionsHostedPageSurface &&
+    hasAny("publish", "go live") &&
+    !hasNegatedPublishIntent(compactPrompt) &&
+    !hasAny("publish status", "published status");
+  const wantsHostedPageReset = mentionsHostedPageSurface && hasAny("reset", "restore default", "default seeded state", "default state");
+  const wantsHostedPageGenerate =
+    mentionsHostedPageSurface &&
+    (hasAny("generate", "redesign", "hosted html", "premium conversion focused") ||
+      (hasAny("trust bar", "stronger headline", "clearer cta", "premium") && hasAny("page design", "design", "hosted page")));
+  const wantsHostedPageUpdate =
+    mentionsHostedPageSurface &&
+    (hasAny("update", "set", "rename") || (hasAny("change") && hasAny("title", "slug", "status", "seo")));
+  const hostedPageUpdateTitle = wantsHostedPageUpdate ? extractHostedPageUpdateTitle(prompt) : null;
+  const hostedPageUpdateStatus = wantsHostedPageUpdate ? detectHostedPageRequestedStatus(compactPrompt) : null;
   const inboxSearchQuery = smsThreadWithName
     ? smsThreadWithName
     : billingInboxSearchQuery || (draftInboxReplyIntent?.contactName ?? null) || (emailThreadName || null);
@@ -350,7 +481,7 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
     shouldPolishLatestBlog:
       hasAll(["polish", "tighten", "refine", "improve", "rewrite"], ["blog", "post", "draft"]) ||
       (hasLatestBlogContext && hasAny("blog", "post", "draft") && hasAny("polish", "tighten", "refine", "improve", "rewrite") && hasAny("latest", "last", "that", "this")),
-    shouldPublishLatestBlog: hasAll(["publish", "post", "go live with"], ["blog", "post", "draft"]),
+    shouldPublishLatestBlog: (hasAny("publish", "go live", "go live with", "post live") && hasAny("blog", "draft")) || (hasAny("publish", "go live") && compactPrompt.includes("blog post draft")),
     funnelCreateTitle: extractCreateNamedResource(prompt, ["funnel"]),
     shouldCreateLandingPage: hasAll(["create", "make", "add", "build"], ["landing page", "signup page", "opt in page"], ["funnel", "same funnel", "that funnel"]),
     shouldGenerateLandingLayout: hasAll(["generate", "design", "build", "create"], ["layout", "page layout", "design"], ["landing page", "signup page", "page"]),
@@ -374,5 +505,12 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
     shouldUpdateBookingThankYou: hasAll(["update", "change", "set"], ["booking form", "booking page form"], ["thank you", "thank-you"], ["message"]),
     shouldSetWeekdayAvailability: hasAll(["set", "update"], ["weekday", "weekdays"], ["booking availability", "availability"], ["next 7 days", "this week", "next week"]),
     shouldAssessCrossSurfaceReadiness: readinessDomainHits >= 5 && hasAny("weak", "incomplete", "ready", "readiness", "status", "looks weak"),
+    hostedPageListService: wantsHostedPageList ? (hostedPageServiceMentions >= 2 || hasAny("all", "every") ? "ALL" : hostedService) : null,
+    hostedPageGetTarget: mentionsHostedPageSurface && hostedTarget && compactPrompt.includes("difference between") ? hostedTarget.service === "BLOGS" ? { service: "BLOGS", pageKey: null } : hostedTarget : null,
+    hostedPagePreviewTarget: wantsHostedPagePreview && hostedTarget ? hostedTarget : null,
+    hostedPagePublishTarget: wantsHostedPagePublish && hostedTarget ? hostedTarget : null,
+    hostedPageResetTarget: wantsHostedPageReset && hostedTarget ? hostedTarget : null,
+    hostedPageGenerateTarget: wantsHostedPageGenerate && hostedTarget ? hostedTarget : null,
+    hostedPageUpdateTarget: (hostedPageUpdateTitle || hostedPageUpdateStatus) && hostedTarget ? { ...hostedTarget, title: hostedPageUpdateTitle, status: hostedPageUpdateStatus } : null,
   };
 }

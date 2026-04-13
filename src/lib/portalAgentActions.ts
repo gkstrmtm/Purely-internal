@@ -112,6 +112,16 @@ export const PortalAgentActionKeySchema = z.enum([
   "funnel_builder.sales.products.list",
   "funnel_builder.sales.products.create",
 
+  "hosted_pages.documents.list",
+  "hosted_pages.documents.bootstrap",
+  "hosted_pages.documents.get",
+  "hosted_pages.documents.update",
+  "hosted_pages.documents.preview_data",
+  "hosted_pages.documents.publish",
+  "hosted_pages.documents.reset_to_default",
+  "hosted_pages.documents.generate_html",
+  "hosted_pages.documents.export_custom_html",
+
   "blogs.appearance.get",
   "blogs.appearance.update",
   "blogs.site.get",
@@ -1001,6 +1011,144 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       funnelId: z.string().trim().min(1).max(120),
       pageId: z.string().trim().min(1).max(120),
+      blocksJson: z.unknown().optional(),
+      title: z.string().trim().max(200).optional(),
+      setEditorMode: z.enum(["BLOCKS", "CUSTOM_HTML"]).optional(),
+    })
+    .strict(),
+
+  "hosted_pages.documents.list": z
+    .object({
+      service: z.enum(["all", "ALL", "booking", "newsletter", "reviews", "blogs", "BOOKING", "NEWSLETTER", "REVIEWS", "BLOGS"]),
+    })
+    .strict(),
+
+  "hosted_pages.documents.bootstrap": z
+    .object({
+      service: z.enum(["booking", "newsletter", "reviews", "blogs", "BOOKING", "NEWSLETTER", "REVIEWS", "BLOGS"]),
+    })
+    .strict(),
+
+  "hosted_pages.documents.get": z
+    .object({
+      documentId: z.string().trim().min(1).max(120).optional(),
+      service: z.enum(["booking", "newsletter", "reviews", "blogs", "BOOKING", "NEWSLETTER", "REVIEWS", "BLOGS"]).optional(),
+      pageKey: z.string().trim().min(1).max(120).optional(),
+    })
+    .refine((value) => Boolean(value.documentId) || Boolean(value.service && value.pageKey), {
+      message: "documentId or service+pageKey is required",
+    })
+    .strict(),
+
+  "hosted_pages.documents.update": z
+    .preprocess((raw) => {
+      if (!isPlainObject(raw)) return raw;
+      const r = raw as Record<string, any>;
+      const out: Record<string, unknown> = {};
+
+      const normalizeEditorMode = (v: unknown): string | undefined => {
+        if (typeof v !== "string") return undefined;
+        const s = v.trim();
+        if (!s) return undefined;
+        const u = s.toUpperCase().replace(/[^A-Z]/g, "_");
+        if (u === "HTML" || u === "CUSTOMHTML" || u === "CUSTOM_HTML" || u === "CUSTOM" || u === "RAW") return "CUSTOM_HTML";
+        if (u === "MD" || u === "MARKDOWN" || u === "MARK_DOWN") return "MARKDOWN";
+        if (u === "BLOCK" || u === "BLOCKS" || u === "BUILDER") return "BLOCKS";
+        return s;
+      };
+
+      if (typeof r.documentId === "string") out.documentId = r.documentId;
+      if (typeof r.service === "string") out.service = r.service;
+      if (typeof r.pageKey === "string") out.pageKey = r.pageKey;
+      if (r.title !== undefined) out.title = r.title;
+      if (r.slug !== undefined) out.slug = r.slug;
+      if (r.status !== undefined) out.status = r.status;
+      if (r.editorMode !== undefined) out.editorMode = normalizeEditorMode(r.editorMode) ?? r.editorMode;
+      if (r.blocksJson !== undefined) out.blocksJson = r.blocksJson;
+      else if (r.blocks !== undefined) out.blocksJson = r.blocks;
+      if (r.customHtml !== undefined) out.customHtml = r.customHtml;
+      else if (r.html !== undefined) out.customHtml = r.html;
+      if (r.contentMarkdown !== undefined) out.contentMarkdown = r.contentMarkdown;
+      else if (r.markdown !== undefined) out.contentMarkdown = r.markdown;
+      if (r.customChatJson !== undefined) out.customChatJson = r.customChatJson;
+      if (r.themeJson !== undefined) out.themeJson = r.themeJson;
+      if (r.dataBindingsJson !== undefined) out.dataBindingsJson = r.dataBindingsJson;
+      if (r.seo !== undefined) out.seo = r.seo;
+
+      return out;
+    },
+    z
+      .object({
+        documentId: z.string().trim().min(1).max(120).optional(),
+        service: z.enum(["booking", "newsletter", "reviews", "blogs", "BOOKING", "NEWSLETTER", "REVIEWS", "BLOGS"]).optional(),
+        pageKey: z.string().trim().min(1).max(120).optional(),
+        title: z.string().trim().max(200).optional().nullable(),
+        slug: z.string().trim().max(80).optional().nullable(),
+        status: z.enum(["DRAFT", "PUBLISHED"]).optional().nullable(),
+        contentMarkdown: z.string().optional().nullable(),
+        editorMode: z.enum(["MARKDOWN", "BLOCKS", "CUSTOM_HTML"]).optional().nullable(),
+        customHtml: z.string().optional().nullable(),
+        blocksJson: z.unknown().optional().nullable(),
+        customChatJson: z.unknown().optional().nullable(),
+        themeJson: z.unknown().optional().nullable(),
+        dataBindingsJson: z.unknown().optional().nullable(),
+        seo: z.unknown().optional().nullable(),
+      })
+      .refine((value) => Boolean(value.documentId) || Boolean(value.service && value.pageKey), {
+        message: "documentId or service+pageKey is required",
+      })
+      .strict()),
+
+  "hosted_pages.documents.preview_data": z
+    .object({
+      documentId: z.string().trim().min(1).max(120).optional(),
+      service: z.enum(["booking", "newsletter", "reviews", "blogs", "BOOKING", "NEWSLETTER", "REVIEWS", "BLOGS"]).optional(),
+      pageKey: z.string().trim().min(1).max(120).optional(),
+    })
+    .refine((value) => Boolean(value.documentId) || Boolean(value.service), {
+      message: "documentId or service is required",
+    })
+    .strict(),
+
+  "hosted_pages.documents.publish": z
+    .object({
+      documentId: z.string().trim().min(1).max(120).optional(),
+      service: z.enum(["booking", "newsletter", "reviews", "blogs", "BOOKING", "NEWSLETTER", "REVIEWS", "BLOGS"]).optional(),
+      pageKey: z.string().trim().min(1).max(120).optional(),
+    })
+    .refine((value) => Boolean(value.documentId) || Boolean(value.service && value.pageKey), {
+      message: "documentId or service+pageKey is required",
+    })
+    .strict(),
+
+  "hosted_pages.documents.reset_to_default": z
+    .object({
+      documentId: z.string().trim().min(1).max(120).optional(),
+      service: z.enum(["booking", "newsletter", "reviews", "blogs", "BOOKING", "NEWSLETTER", "REVIEWS", "BLOGS"]).optional(),
+      pageKey: z.string().trim().min(1).max(120).optional(),
+    })
+    .refine((value) => Boolean(value.documentId) || Boolean(value.service && value.pageKey), {
+      message: "documentId or service+pageKey is required",
+    })
+    .strict(),
+
+  "hosted_pages.documents.generate_html": z
+    .object({
+      documentId: z.string().trim().min(1).max(120).optional(),
+      service: z.enum(["booking", "newsletter", "reviews", "blogs", "BOOKING", "NEWSLETTER", "REVIEWS", "BLOGS"]).optional(),
+      pageKey: z.string().trim().min(1).max(120).optional(),
+      prompt: z.string().trim().min(1).max(8000),
+      currentHtml: z.string().optional().nullable(),
+      attachments: z.unknown().optional().nullable(),
+    })
+    .refine((value) => Boolean(value.documentId) || Boolean(value.service && value.pageKey), {
+      message: "documentId or service+pageKey is required",
+    })
+    .strict(),
+
+  "hosted_pages.documents.export_custom_html": z
+    .object({
+      documentId: z.string().trim().min(1).max(120),
       blocksJson: z.unknown().optional(),
       title: z.string().trim().max(200).optional(),
       setEditorMode: z.enum(["BLOCKS", "CUSTOM_HTML"]).optional(),
@@ -3714,6 +3862,15 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- funnel_builder.pages.delete: Delete a page (fields: funnelId, pageId)",
     "- funnel_builder.pages.generate_html: Generate/update a page’s custom HTML with AI (fields: funnelId, pageId, prompt, currentHtml?, attachments?, contextKeys?, contextMedia?)",
     "- funnel_builder.pages.export_custom_html: Generate and store custom HTML from blocks (fields: funnelId, pageId, blocksJson?, title?, setEditorMode?)",
+    "- hosted_pages.documents.list: List hosted page documents for a service (fields: service=all|booking|newsletter|reviews|blogs)",
+    "- hosted_pages.documents.bootstrap: Create default hosted page documents for a service (fields: service=booking|newsletter|reviews|blogs)",
+    "- hosted_pages.documents.get: Get one hosted page document (fields: documentId OR service+pageKey)",
+    "- hosted_pages.documents.update: Update a hosted page document (fields: documentId OR service+pageKey, title?, slug?, status?, contentMarkdown?, editorMode?, customHtml?, blocksJson?, customChatJson?, themeJson?, dataBindingsJson?, seo?)",
+    "- hosted_pages.documents.preview_data: Get preview/runtime data for hosted page documents (fields: documentId OR service with optional pageKey)",
+    "- hosted_pages.documents.publish: Publish a hosted page document (fields: documentId OR service+pageKey)",
+    "- hosted_pages.documents.reset_to_default: Reset a hosted page document back to its seeded default (fields: documentId OR service+pageKey)",
+    "- hosted_pages.documents.generate_html: Generate specialized hosted-page HTML for a document with Pura (fields: documentId OR service+pageKey, prompt, currentHtml?, attachments?)",
+    "- hosted_pages.documents.export_custom_html: Generate and store custom HTML from hosted-page blocks (fields: documentId, blocksJson?, title?, setEditorMode?)",
     "- funnel_builder.pages.global_header: Apply/unset a global header block (fields: mode, funnelId, headerBlock OR keepOnPageId+localHeaderBlock)",
     "- funnel_builder.custom_code_block.generate: Generate custom code block HTML/CSS or block actions (fields: funnelId, pageId, prompt, currentHtml?, currentCss?, contextKeys?, contextMedia?)",
     "- funnel_builder.sales.products.list: List Stripe products (Funnel Builder sales)",

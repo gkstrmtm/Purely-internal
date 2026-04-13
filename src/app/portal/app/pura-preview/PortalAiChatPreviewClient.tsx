@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { IconChevron, IconCopy, IconEdit, IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
+import { PURA_WELCOME_PROMPT_LIBRARY as WELCOME_PROMPTS } from "@/lib/puraWelcomePrompts";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -99,11 +100,63 @@ const INITIAL_MESSAGES: Record<string, PreviewMessage[]> = {
 };
 
 const PROFILE_OPTIONS: PreviewProfile[] = ["Fast", "Balanced", "Deep"];
-const WELCOME_PROMPTS = [
-  "Summarize the highest-priority leads I should follow up with today.",
-  "Plan three marketing tasks I can finish this week.",
-  "Review what Pura can help automate next for this business.",
-];
+const PREVIEW_WELCOME_PROMPT_HISTORY_STORAGE_KEY = "pura.preview.welcomePromptHistory";
+const PREVIEW_WELCOME_PROMPT_ROTATION_STORAGE_KEY = "pura.preview.welcomePromptRotation";
+
+function previewSeededHash(input: string) {
+  let hash = 2166136261;
+  for (let idx = 0; idx < input.length; idx += 1) {
+    hash ^= input.charCodeAt(idx);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function readPreviewWelcomePromptHistory(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(PREVIEW_WELCOME_PROMPT_HISTORY_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const value of parsed) {
+      const id = typeof value === "string" ? value.trim().slice(0, 80) : "";
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+      if (ids.length >= 12) break;
+    }
+    return ids;
+  } catch {
+    return [];
+  }
+}
+
+function writePreviewWelcomePromptHistory(ids: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PREVIEW_WELCOME_PROMPT_HISTORY_STORAGE_KEY, JSON.stringify(ids.slice(0, 12)));
+  } catch {}
+}
+
+function readPreviewWelcomePromptRotation(): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = window.localStorage.getItem(PREVIEW_WELCOME_PROMPT_ROTATION_STORAGE_KEY);
+    const parsed = Number.parseInt(String(raw || "0"), 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writePreviewWelcomePromptRotation(value: number) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PREVIEW_WELCOME_PROMPT_ROTATION_STORAGE_KEY, String(Math.max(0, Math.floor(value))));
+  } catch {}
+}
 
 function IconVolumeGlyph({ size = 16 }: { size?: number }) {
   return (
@@ -174,7 +227,13 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
   const [draftProfile, setDraftProfile] = useState<PreviewProfile>("Balanced");
   const [input, setInput] = useState("");
   const [runsOpen, setRunsOpen] = useState(false);
+  const [welcomePromptSeed, setWelcomePromptSeed] = useState("0");
+  const [welcomePromptHistorySnapshot, setWelcomePromptHistorySnapshot] = useState<string[]>([]);
+  const [welcomePromptRotationSnapshot, setWelcomePromptRotationSnapshot] = useState(0);
   const setSidebarOverride = useSetPortalSidebarOverride();
+  const welcomePromptHistoryRef = useRef<string[]>([]);
+  const welcomePromptRotationRef = useRef(0);
+  const lastWelcomePromptSelectionRef = useRef("");
 
   const activeThread = useMemo(() => (activeThreadId ? threads.find((thread) => thread.id === activeThreadId) ?? null : null), [activeThreadId, threads]);
   const messages = useMemo(() => (activeThreadId ? messagesByThread[activeThreadId] ?? [] : []), [activeThreadId, messagesByThread]);
@@ -183,6 +242,62 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
   const effectiveResponseProfile = activeThread?.responseProfile ?? draftProfile;
   const effectiveChatModeLabel = effectiveChatMode === "plan" ? "Discuss" : "Work";
   const modeSummaryLabel = `${effectiveChatModeLabel} ${effectiveResponseProfile}`;
+
+  useEffect(() => {
+    const storedRotation = readPreviewWelcomePromptRotation();
+    const storedHistory = readPreviewWelcomePromptHistory();
+    welcomePromptRotationRef.current = storedRotation;
+    welcomePromptHistoryRef.current = storedHistory;
+    setWelcomePromptRotationSnapshot(storedRotation);
+    setWelcomePromptHistorySnapshot(storedHistory);
+  }, []);
+
+  useEffect(() => {
+    if (!showWelcomeComposer) return;
+    const nextRotation = welcomePromptRotationRef.current + 1;
+    welcomePromptRotationRef.current = nextRotation;
+    writePreviewWelcomePromptRotation(nextRotation);
+    setWelcomePromptRotationSnapshot(nextRotation);
+    setWelcomePromptHistorySnapshot(welcomePromptHistoryRef.current);
+    setWelcomePromptSeed(`${Date.now()}-${nextRotation}`);
+  }, [showWelcomeComposer]);
+
+  const welcomePromptEntries = useMemo(() => {
+    const recentIds = new Set(welcomePromptHistorySnapshot.slice(0, 4));
+    const ranked = [...WELCOME_PROMPTS]
+      .map((entry) => ({ entry, jitter: (previewSeededHash(`${welcomePromptSeed}:${entry.id}`) % 1000) / 1000 }))
+      .sort((a, b) => b.jitter - a.jitter);
+    const startIndex = ranked.length ? welcomePromptRotationSnapshot % ranked.length : 0;
+    const selected: Array<(typeof WELCOME_PROMPTS)[number]> = [];
+    const selectedIds = new Set<string>();
+
+    for (let offset = 0; offset < ranked.length && selected.length < 3; offset += 1) {
+      const candidate = ranked[(startIndex + offset) % ranked.length]?.entry;
+      if (!candidate || selectedIds.has(candidate.id) || recentIds.has(candidate.id)) continue;
+      selected.push(candidate);
+      selectedIds.add(candidate.id);
+    }
+
+    for (let offset = 0; offset < ranked.length && selected.length < 3; offset += 1) {
+      const candidate = ranked[(startIndex + offset) % ranked.length]?.entry;
+      if (!candidate || selectedIds.has(candidate.id)) continue;
+      selected.push(candidate);
+      selectedIds.add(candidate.id);
+    }
+
+    return selected;
+  }, [welcomePromptHistorySnapshot, welcomePromptRotationSnapshot, welcomePromptSeed]);
+
+  useEffect(() => {
+    if (!showWelcomeComposer || !welcomePromptEntries.length) return;
+    const shownIds = welcomePromptEntries.map((entry) => entry.id);
+    const signature = shownIds.join("|");
+    if (!signature || lastWelcomePromptSelectionRef.current === signature) return;
+    lastWelcomePromptSelectionRef.current = signature;
+    const nextHistory = [...shownIds, ...welcomePromptHistoryRef.current.filter((id) => !shownIds.includes(id))].slice(0, 12);
+    welcomePromptHistoryRef.current = nextHistory;
+    writePreviewWelcomePromptHistory(nextHistory);
+  }, [showWelcomeComposer, welcomePromptEntries]);
 
   const composerControlButtonClass =
     "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-all duration-100 hover:border-zinc-300 hover:bg-zinc-50";
@@ -487,14 +602,14 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
                     <div className="mt-2 text-sm leading-relaxed text-zinc-500">Start with a question, a task, or the next workflow you want off your plate.</div>
                   </div>
                   <div className="mb-4 hidden grid-cols-1 gap-3 md:grid md:grid-cols-3">
-                    {WELCOME_PROMPTS.map((prompt) => (
+                    {welcomePromptEntries.map((entry) => (
                       <button
-                        key={prompt}
+                        key={entry.id}
                         type="button"
                         className="flex min-h-28 items-start rounded-3xl border border-zinc-200 bg-white p-4 text-left text-sm font-semibold text-zinc-800 shadow-[0_10px_30px_rgba(0,0,0,0.04)] transition-all duration-100 hover:border-zinc-300 hover:bg-zinc-50 hover:shadow-[0_14px_30px_rgba(0,0,0,0.06)]"
-                        onClick={() => setInput(prompt)}
+                        onClick={() => setInput(entry.prompt)}
                       >
-                        <span className="block leading-relaxed">{prompt}</span>
+                        <span className="block leading-relaxed">{entry.prompt}</span>
                       </button>
                     ))}
                   </div>

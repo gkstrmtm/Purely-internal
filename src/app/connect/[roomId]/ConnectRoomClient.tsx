@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
+import { IconCopy as PortalCopyGlyph } from "@/app/portal/PortalIcons";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
@@ -37,6 +38,8 @@ type MediaState = {
 	audioEnabled: boolean;
 	videoEnabled: boolean;
 	isSharing: boolean;
+	cameraStreamId?: string | null;
+	screenStreamId?: string | null;
 };
 
 type RoomSettings = {
@@ -148,13 +151,15 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		}
 	});
 
-	const [remoteTiles, setRemoteTiles] = useState<Array<{ id: string; displayName: string; stream: MediaStream }>>([]);
+	const [remoteTiles, setRemoteTiles] = useState<Array<{ id: string; participantId: string; streamId: string; displayName: string; stream: MediaStream; source: "camera" | "screen" }>>([]);
 
 	const localVideoRef = useRef<HTMLVideoElement | null>(null);
+	const screenVideoRef = useRef<HTMLVideoElement | null>(null);
 	const localStreamRef = useRef<MediaStream | null>(null);
 	const screenStreamRef = useRef<MediaStream | null>(null);
 
 	const peerMapRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+	const screenSenderMapRef = useRef<Map<string, RTCRtpSender>>(new Map());
 	const makingOfferRef = useRef<Map<string, boolean>>(new Map());
 	const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 	const afterSeqRef = useRef<number>(0);
@@ -163,6 +168,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const autoJoinAttemptedRef = useRef(false);
 	const myCredsRef = useRef<ParticipantCreds | null>(null);
 	const roomSettingsRef = useRef<RoomSettings | null>(null);
+	const remoteMediaStateRef = useRef<Record<string, MediaState>>({});
 	const isHostRef = useRef<boolean>(false);
 	const pendingAdmissionRef = useRef<boolean>(false);
 	const connectDefaultsRef = useRef<ConnectUserDefaults>(defaultConnectUserDefaults());
@@ -351,8 +357,40 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		pendingAdmissionRef.current = pendingAdmission;
 	}, [roomSettings, isHost, pendingAdmission]);
 
+	useEffect(() => {
+		remoteMediaStateRef.current = remoteMediaState;
+	}, [remoteMediaState]);
+
+	useEffect(() => {
+		const el = screenVideoRef.current;
+		if (!el) return;
+		if (!isSharing || !screenStreamRef.current) {
+			el.srcObject = null;
+			return;
+		}
+		el.srcObject = screenStreamRef.current;
+		void el.play().catch(() => null);
+	}, [isSharing]);
+
 	function getLocalStream() {
 		return localStreamRef.current;
+	}
+
+	function currentMediaStateSnapshot(overrides?: Partial<MediaState>): MediaState {
+		return {
+			audioEnabled: !isMuted,
+			videoEnabled: !isVideoOff,
+			isSharing,
+			cameraStreamId: localStreamRef.current?.id ?? null,
+			screenStreamId: screenStreamRef.current?.id ?? null,
+			...overrides,
+		};
+	}
+
+	function inferRemoteTileSource(remoteParticipantId: string, streamId: string): "camera" | "screen" {
+		const media = remoteMediaStateRef.current[remoteParticipantId];
+		if (media?.screenStreamId && media.screenStreamId === streamId) return "screen";
+		return "camera";
 	}
 
 	function describeGetUserMediaError(err: unknown) {
@@ -399,25 +437,50 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}
 
 	function upsertRemoteStream(remoteId: string, displayName: string, stream: MediaStream) {
+		const source = inferRemoteTileSource(remoteId, stream.id);
 		setRemoteTiles((prev) => {
-			const idx = prev.findIndex((t) => t.id === remoteId);
+			const tileId = `${remoteId}:${stream.id}`;
+			const idx = prev.findIndex((t) => t.id === tileId);
 			if (idx >= 0) {
 				const next = prev.slice();
-				next[idx] = { id: remoteId, displayName, stream };
+				next[idx] = { id: tileId, participantId: remoteId, streamId: stream.id, displayName, stream, source };
 				return next;
 			}
-			return [...prev, { id: remoteId, displayName, stream }];
+			return [...prev, { id: tileId, participantId: remoteId, streamId: stream.id, displayName, stream, source }];
+		});
+	}
+
+	function syncRemoteTilesForMediaState(remoteId: string, nextMedia: MediaState) {
+		setRemoteTiles((prev) => {
+			let changed = false;
+			let next = prev.map((tile) => {
+				if (tile.participantId !== remoteId) return tile;
+				const source: "camera" | "screen" = nextMedia.screenStreamId && tile.streamId === nextMedia.screenStreamId ? "screen" : "camera";
+				if (tile.source === source) return tile;
+				changed = true;
+				return { ...tile, source };
+			});
+			if (!nextMedia.isSharing) {
+				const filtered = next.filter((tile) => !(tile.participantId === remoteId && tile.source === "screen"));
+				if (filtered.length !== next.length) {
+					changed = true;
+					next = filtered;
+				}
+			}
+			return changed ? next : prev;
 		});
 	}
 
 	function removeRemote(remoteId: string) {
-		setRemoteTiles((prev) => prev.filter((t) => t.id !== remoteId));
+		setRemoteTiles((prev) => prev.filter((t) => t.participantId !== remoteId));
 		setRemoteMediaState((prev) => {
 			if (!prev[remoteId]) return prev;
 			const next = { ...prev };
 			delete next[remoteId];
 			return next;
 		});
+		remoteMediaStateRef.current = Object.fromEntries(Object.entries(remoteMediaStateRef.current).filter(([id]) => id !== remoteId));
+		screenSenderMapRef.current.delete(remoteId);
 	}
 
 	class ApiError extends Error {
@@ -728,13 +791,23 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		for (const [remoteId, pc] of peerMapRef.current.entries()) {
 			const senders = pc.getSenders();
 			const hasAudio = senders.some((s) => s.track?.kind === "audio");
-			const hasVideo = senders.some((s) => s.track?.kind === "video");
+			const hasVideo = senders.some((s) => s.track?.kind === "video" && s !== screenSenderMapRef.current.get(remoteId));
 
 			for (const track of stream.getTracks()) {
 				if (track.kind === "audio" && hasAudio) continue;
 				if (track.kind === "video" && hasVideo) continue;
 				try {
 					pc.addTrack(track, stream);
+				} catch {
+					// ignore
+				}
+			}
+
+			const screenTrack = screenStreamRef.current?.getVideoTracks?.()[0];
+			if (screenTrack && !screenSenderMapRef.current.get(remoteId)) {
+				try {
+					const sender = pc.addTrack(screenTrack, screenStreamRef.current!);
+					screenSenderMapRef.current.set(remoteId, sender);
 				} catch {
 					// ignore
 				}
@@ -766,7 +839,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		return servers;
 	}
 
-	function attachLocalTracksToPeer(pc: RTCPeerConnection) {
+	function attachLocalTracksToPeer(pc: RTCPeerConnection, remoteParticipantId: string) {
 		const local = getLocalStream();
 		if (!local) {
 			// Allow receiving even if local media isn't ready.
@@ -782,6 +855,12 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		for (const track of local.getTracks()) {
 			pc.addTrack(track, local);
 		}
+
+		const screenTrack = screenStreamRef.current?.getVideoTracks?.()[0];
+		if (screenTrack && screenStreamRef.current) {
+			const sender = pc.addTrack(screenTrack, screenStreamRef.current);
+			screenSenderMapRef.current.set(remoteParticipantId, sender);
+		}
 	}
 
 	function createPeer(remoteParticipantId: string) {
@@ -789,7 +868,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			iceServers: buildIceServers(),
 		});
 
-		attachLocalTracksToPeer(pc);
+		attachLocalTracksToPeer(pc, remoteParticipantId);
 
 		pc.onnegotiationneeded = () => {
 			const creds = myCredsRef.current;
@@ -870,16 +949,22 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		if (!creds) return;
 		const pc = getOrCreatePeer(remoteParticipantId);
 		if (pc.signalingState !== "stable") return;
-		const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
-		await pc.setLocalDescription(offer);
+		if (makingOfferRef.current.get(remoteParticipantId)) return;
+		makingOfferRef.current.set(remoteParticipantId, true);
+		try {
+			const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+			await pc.setLocalDescription(offer);
 
-		await apiPost(`/api/connect/rooms/${encodeURIComponent(roomId)}/signal`, {
-			participantId: creds.participantId,
-			secret: creds.secret,
-			toParticipantId: remoteParticipantId,
-			kind: "offer",
-			payload: pc.localDescription,
-		});
+			await apiPost(`/api/connect/rooms/${encodeURIComponent(roomId)}/signal`, {
+				participantId: creds.participantId,
+				secret: creds.secret,
+				toParticipantId: remoteParticipantId,
+				kind: "offer",
+				payload: pc.localDescription,
+			});
+		} finally {
+			makingOfferRef.current.set(remoteParticipantId, false);
+		}
 	}
 
 	async function handleOffer(fromParticipantId: string, payload: any) {
@@ -980,7 +1065,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 					showToast("info", "You’ve been admitted.");
 					void fetchRoomSettingsOnce().catch(() => null);
 					void refreshParticipantsOnce().catch(() => null);
-					void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
+					void broadcastMediaState(currentMediaStateSnapshot()).catch(() => null);
 				}
 				continue;
 			}
@@ -1011,14 +1096,18 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			else if (s.kind === "media") {
 				const payload = s.payload as any;
 				if (!payload || typeof payload !== "object") continue;
+				const nextMedia: MediaState = {
+					audioEnabled: payload.audioEnabled !== false,
+					videoEnabled: payload.videoEnabled !== false,
+					isSharing: payload.isSharing === true,
+					cameraStreamId: typeof payload.cameraStreamId === "string" && payload.cameraStreamId.trim() ? payload.cameraStreamId.trim() : null,
+					screenStreamId: typeof payload.screenStreamId === "string" && payload.screenStreamId.trim() ? payload.screenStreamId.trim() : null,
+				};
 				setRemoteMediaState((prev) => ({
 					...prev,
-					[s.fromParticipantId]: {
-						audioEnabled: payload.audioEnabled !== false,
-						videoEnabled: payload.videoEnabled !== false,
-						isSharing: payload.isSharing === true,
-					},
+					[s.fromParticipantId]: nextMedia,
 				}));
+				syncRemoteTilesForMediaState(s.fromParticipantId, nextMedia);
 			}
 			else if (s.kind === "leave") {
 				const remoteId = (s.payload as any)?.participantId;
@@ -1093,6 +1182,10 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			// Ensure peer exists
 			const already = peerMapRef.current.get(p.id);
 			if (!already) getOrCreatePeer(p.id);
+			if (screenStreamRef.current && peerMapRef.current.get(p.id)?.signalingState === "stable") {
+				void sendOffer(p.id).catch(() => null);
+				continue;
+			}
 
 			// Deterministic caller: only offerer sends offer
 			if (isOfferer(creds.participantId, p.id)) {
@@ -1204,7 +1297,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			startPolling();
 			startParticipantsRefresh();
 			void fetchRoomSettingsOnce().catch(() => null);
-			void broadcastMediaState({ audioEnabled: !defaultsMuted, videoEnabled: !defaultsCamOff, isSharing }).catch(() => null);
+			void broadcastMediaState(currentMediaStateSnapshot({ audioEnabled: !defaultsMuted, videoEnabled: !defaultsCamOff, isSharing: false })).catch(() => null);
 			showChromeTemporarily();
 			void ensureLocalMedia()
 				.then((stream) => {
@@ -1241,6 +1334,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 		for (const pc of peerMapRef.current.values()) pc.close();
 		peerMapRef.current.clear();
+		screenSenderMapRef.current.clear();
 		pendingIceRef.current.clear();
 
 		for (const t of remoteTiles) {
@@ -1383,7 +1477,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			const nextMuted = !isMuted;
 			for (const t of audioTracks) t.enabled = !nextMuted;
 			setIsMuted(nextMuted);
-			void broadcastMediaState({ audioEnabled: nextMuted ? false : true, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
+			void broadcastMediaState(currentMediaStateSnapshot({ audioEnabled: !nextMuted })).catch(() => null);
 			showChromeTemporarily();
 		})();
 	}
@@ -1406,7 +1500,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				// Turning video off
 				for (const t of local.getVideoTracks()) t.enabled = false;
 				setIsVideoOff(true);
-				void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: false, isSharing }).catch(() => null);
+				void broadcastMediaState(currentMediaStateSnapshot({ videoEnabled: false })).catch(() => null);
 				showChromeTemporarily();
 				return;
 			}
@@ -1416,7 +1510,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				await ensureCameraTrackOn();
 				for (const t of local.getVideoTracks()) t.enabled = true;
 				setIsVideoOff(false);
-				void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: true, isSharing }).catch(() => null);
+				void broadcastMediaState(currentMediaStateSnapshot({ videoEnabled: true })).catch(() => null);
 				showChromeTemporarily();
 			} catch (err) {
 				toastMediaIssue(err);
@@ -1451,11 +1545,21 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				void stopShare();
 			};
 
-			for (const pc of peerMapRef.current.values()) {
-				const sender = pc.getSenders().find((s) => s.track?.kind === "video");
-				if (sender) await sender.replaceTrack(screenTrack).catch(() => null);
+			for (const [remoteId, pc] of peerMapRef.current.entries()) {
+				const existingScreenSender = screenSenderMapRef.current.get(remoteId);
+				if (existingScreenSender) await existingScreenSender.replaceTrack(screenTrack).catch(() => null);
+				else {
+					try {
+						const sender = pc.addTrack(screenTrack, screen);
+						screenSenderMapRef.current.set(remoteId, sender);
+					} catch {
+						// ignore
+					}
+				}
+				await sendOffer(remoteId).catch(() => null);
 			}
-			void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: true, isSharing: true }).catch(() => null);
+			void broadcastMediaState(currentMediaStateSnapshot({ isSharing: true, screenStreamId: screen.id })).catch(() => null);
+			showChromeTemporarily();
 		} catch {
 			showToast("warn", "Screen share is not currently supported on this device.");
 		}
@@ -1467,15 +1571,20 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		setIsSharing(false);
 		if (screen) screen.getTracks().forEach((t) => t.stop());
 
-		const local = localStreamRef.current;
-		const cameraTrack = local?.getVideoTracks()?.[0];
-		if (!cameraTrack) return;
-
-		for (const pc of peerMapRef.current.values()) {
-			const sender = pc.getSenders().find((s) => s.track?.kind === "video");
-			if (sender) await sender.replaceTrack(cameraTrack).catch(() => null);
+		for (const [remoteId, pc] of peerMapRef.current.entries()) {
+			const sender = screenSenderMapRef.current.get(remoteId);
+			if (sender) {
+				try {
+					pc.removeTrack(sender);
+				} catch {
+					// ignore
+				}
+				screenSenderMapRef.current.delete(remoteId);
+				await sendOffer(remoteId).catch(() => null);
+			}
 		}
-		void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing: false }).catch(() => null);
+		void broadcastMediaState(currentMediaStateSnapshot({ isSharing: false, screenStreamId: null })).catch(() => null);
+		showChromeTemporarily();
 	}
 
 	async function copyLink() {
@@ -1496,10 +1605,20 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				const parsed = JSON.parse(raw) as ParticipantCreds;
 				if (parsed?.participantId && parsed?.secret) {
 					storedCredsFoundRef.current = true;
+					myCredsRef.current = parsed;
 					setMyCreds(parsed);
 					setJoinName(parsed.displayName);
+					setParticipants([
+						{ id: parsed.participantId, displayName: parsed.displayName, isGuest: parsed.isGuest, createdAt: new Date().toISOString() },
+					]);
 					// Prevent the auto-join effect from firing on this mount.
 					autoJoinAttemptedRef.current = true;
+					void (async () => {
+						startPolling();
+						startParticipantsRefresh();
+						void fetchRoomSettingsOnce().catch(() => null);
+						await refreshParticipantsOnce().catch(() => null);
+					})();
 				}
 			}
 		} catch {
@@ -1549,7 +1668,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		setRemoteTiles((prev) => {
 			let changed = false;
 			const next = prev.map((t) => {
-				const name = participants.find((p) => p.id === t.id)?.displayName;
+				const name = participants.find((p) => p.id === t.participantId)?.displayName;
 				if (name && name !== t.displayName) {
 					changed = true;
 					return { ...t, displayName: name };
@@ -1577,7 +1696,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 					}
 				})();
 				if (!pendingAdmissionRef.current) {
-					void broadcastMediaState({ audioEnabled: !isMuted, videoEnabled: !isVideoOff, isSharing }).catch(() => null);
+					void broadcastMediaState(currentMediaStateSnapshot()).catch(() => null);
 				}
 				showChromeTemporarily();
 				if (cancelled) return;
@@ -1645,9 +1764,10 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const stageHeightClass = showPreCallInfo
 		? "h-[calc(100svh-190px)] sm:h-[calc(100svh-170px)]"
 		: "h-[calc(100svh-140px)] sm:h-[calc(100svh-120px)]";
+	const showLocalScreenTile = Boolean(isSharing && screenStreamRef.current);
 
 	return (
-		<div className="min-h-screen bg-brand-mist text-brand-ink">
+		<div className="min-h-screen bg-[radial-gradient(circle_at_top,#edf4ff_0%,#f8fafc_36%,#f1f5f9_100%)] text-brand-ink">
 			<div className="fixed left-1/2 top-4 z-50 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 space-y-2 px-2">
 				{toasts.map((t) => (
 					<div
@@ -1696,29 +1816,37 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				))}
 			</div>
 
-			<div className="mx-auto w-full max-w-none px-4 py-6 sm:px-6 sm:py-8">
+			<div className="mx-auto w-full max-w-none px-3 py-4 sm:px-6 sm:py-8">
 				<div
 					className={
-						"flex flex-col gap-3 transition sm:flex-row sm:items-center sm:justify-between " +
+						"rounded-[30px] border border-white/75 bg-white/82 px-4 py-4 shadow-[0_18px_48px_rgba(15,23,42,0.07)] backdrop-blur-xl transition sm:flex sm:flex-row sm:items-center sm:justify-between sm:px-5 " +
 						(chromeVisible ? "opacity-100" : "pointer-events-none opacity-0")
 					}
 					onClick={(e) => e.stopPropagation()}
 				>
-					<div>
+					<div className="min-w-0">
 						<div className="flex items-center gap-3">
 							<div className="relative h-8 w-32">
 								<Image src="/brand/3.png" alt="Purely Connect" fill className="object-contain" priority />
 							</div>
 							<div className="text-lg font-semibold text-zinc-900">Meeting</div>
 						</div>
-						<div className="mt-1 text-sm text-zinc-600">Room: {roomId}</div>
+						<div className="mt-1 truncate text-sm text-zinc-500">Room: {roomId}</div>
 					</div>
 
-					<div ref={headerMenuRef} className="relative flex items-center">
+						<div className="mt-3 flex items-center justify-between gap-2 sm:mt-0 sm:justify-end sm:gap-3">
+							<button
+								onClick={() => void copyLink()}
+								className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white/90 px-3.5 py-2.5 text-sm font-medium text-zinc-900 shadow-[0_8px_24px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:bg-white"
+							>
+								<PortalCopyGlyph className="h-4 w-4 text-zinc-900" />
+								<span className="hidden sm:inline">Copy invite</span>
+							</button>
+							<div ref={headerMenuRef} className="relative flex items-center">
 						<button
 							ref={headerMenuButtonRef}
 							onClick={() => setHeaderMenuOpen((p) => !p)}
-							className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white hover:bg-zinc-50"
+								className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white/90 shadow-[0_8px_24px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:bg-white"
 							aria-label="Meeting menu"
 							title="Meeting menu"
 						>
@@ -1726,7 +1854,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 						</button>
 						{headerMenuOpen ? (
 							<div
-								className="fixed z-50 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+								className="fixed z-50 overflow-auto rounded-[26px] border border-zinc-200/80 bg-white/96 shadow-[0_24px_60px_rgba(15,23,42,0.16)] backdrop-blur-xl"
 								style={headerMenuStyle ?? undefined}
 							>
 								<div className="p-2">
@@ -1746,7 +1874,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 										}}
 										className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
 									>
-										<CopyIcon />
+											<PortalCopyGlyph className="h-5 w-5 text-zinc-900" />
 										Copy link
 									</button>
 								</div>
@@ -1804,13 +1932,14 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 								) : null}
 							</div>
 						) : null}
+						</div>
 					</div>
 				</div>
 
 				{!myCreds ? (
-					<div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
-						<h1 className="text-2xl font-semibold text-zinc-900">Join this meeting</h1>
-						<p className="mt-2 text-base text-zinc-600">Enter your name to join.</p>
+					<div className="mt-6 overflow-hidden rounded-4xl border border-white/75 bg-white/88 p-6 shadow-[0_20px_54px_rgba(15,23,42,0.09)] backdrop-blur-xl sm:max-w-3xl sm:p-8">
+						<h1 className="text-3xl font-semibold tracking-tight text-zinc-900">Join this meeting</h1>
+						<p className="mt-2 max-w-2xl text-base text-zinc-600">Enter your name to step into the room. Your saved audio, camera, and mirror defaults still apply on this device.</p>
 
 						<div className="mt-5">
 							<ConnectAuthPanel defaultOpen={false} />
@@ -1826,7 +1955,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 							<button
 								onClick={onJoin}
 								disabled={joining || !safeName(joinName)}
-								className="rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-base font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+								className="rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-base font-semibold text-white shadow-[0_12px_30px_rgba(37,99,235,0.2)] hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
 							>
 								{joining ? "Joining…" : "Join"}
 							</button>
@@ -1836,10 +1965,15 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				) : (
 					<div className="mt-6">
 						{showPreCallInfo ? (
-							<div className="mb-2">
-								<div className="text-sm text-zinc-600">Signed in as</div>
-								<div className="text-xl font-semibold text-zinc-900">{myName || "You"}</div>
-								<div className="mt-1 text-base text-zinc-600">{statusLine}</div>
+							<div className="mb-2 rounded-[28px] border border-white/75 bg-white/88 p-5 shadow-[0_16px_44px_rgba(15,23,42,0.07)] backdrop-blur-xl">
+								<div className="flex flex-wrap items-start justify-between gap-4">
+									<div>
+										<div className="text-sm text-zinc-600">Signed in as</div>
+										<div className="text-xl font-semibold text-zinc-900">{myName || "You"}</div>
+										<div className="mt-1 text-base text-zinc-600">{statusLine}</div>
+									</div>
+									<div className="text-sm text-zinc-500">{pendingAdmission ? "Pending approval" : isHost ? "Host" : "Connected"}</div>
+								</div>
 								{!inActiveCall ? (
 									<div className="mt-4" onClick={(e) => e.stopPropagation()}>
 										<ConnectAuthPanel defaultOpen={false} hideWhenSignedIn />
@@ -1849,14 +1983,25 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 						) : null}
 
 						<div
-							className={
-								"mt-4 grid gap-2 sm:gap-3 grid-cols-1 grid-rows-2 sm:grid-cols-2 sm:grid-rows-1 " + stageHeightClass
-							}
+							className={"mt-4 grid auto-rows-fr gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 " + stageHeightClass}
 							onClick={() => {
 								toggleTileHud();
 								showChromeTemporarily();
 							}}
 						>
+							{showLocalScreenTile ? (
+								<StageTile
+									label="Screen"
+									name={myName ? `${myName}'s share` : "Your screen"}
+									videoEl={<video ref={screenVideoRef} muted playsInline autoPlay className="h-full w-full bg-black object-contain" />}
+									videoEnabled={true}
+									audioEnabled={!isMuted}
+									isSharing={true}
+									loading={false}
+									hudVisible={tileHudVisible}
+									emphasized={true}
+								/>
+							) : null}
 							<StageTile
 								label="You"
 								name={myName || "You"}
@@ -1887,11 +2032,11 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 									/>
 								))
 							) : pendingAdmission ? (
-								<div className="relative overflow-hidden rounded-2xl bg-zinc-950" onClick={(e) => e.stopPropagation()}>
-									<div className="absolute inset-0 bg-linear-to-b from-black/40 to-black/80" />
+								<div className="relative overflow-hidden rounded-[26px] bg-zinc-950" onClick={(e) => e.stopPropagation()}>
+									<div className="absolute inset-0 bg-linear-to-br from-blue-500/18 via-slate-950/55 to-black/90" />
 									<div className="relative h-full p-6 text-white">
 										<div className="text-lg font-semibold">Request to join sent</div>
-										<div className="mt-2 text-base text-white/80">Waiting for the host to approve you.</div>
+										<div className="mt-2 max-w-md text-base text-white/78">Waiting for the host to approve you.</div>
 										<div className="mt-4 flex flex-wrap gap-2">
 											<button
 												onClick={() => void performLeave({ infoToast: null })}
@@ -1903,7 +2048,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 									</div>
 								</div>
 							) : showPreCallInfo && isHost && roomSettings ? (
-								<div className="relative h-full overflow-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm" onClick={(e) => e.stopPropagation()}>
+								<div className="relative h-full overflow-auto rounded-[26px] border border-white/80 bg-white/92 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:p-6" onClick={(e) => e.stopPropagation()}>
 									<div className="flex items-start justify-between gap-3">
 										<div>
 											<div className="text-lg font-semibold text-zinc-900">Meeting settings</div>
@@ -2011,22 +2156,29 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 									) : null}
 								</div>
 							) : otherParticipants.length ? (
-								<div className="relative overflow-hidden rounded-2xl bg-zinc-950">
-									<div className="absolute inset-0 bg-linear-to-b from-black/40 to-black/80" />
+								<div className="relative overflow-hidden rounded-[26px] bg-zinc-950">
+									<div className="absolute inset-0 bg-linear-to-br from-brand-blue/18 via-slate-950/55 to-black/90" />
 									<div className="relative h-full p-6 text-white">
 										<div className="text-lg font-semibold">Connecting…</div>
-										<div className="mt-2 text-base text-white/80">
+										<div className="mt-2 max-w-xl text-base text-white/78">
 											Trying to connect to {otherParticipants.map((p) => p.displayName).join(", ")}. This can take a few seconds.
 										</div>
 										<div className="mt-3 text-sm text-white/60">If it hangs, refresh the page.</div>
 									</div>
 								</div>
 							) : (
-								<div className="relative overflow-hidden rounded-2xl bg-zinc-950">
-									<div className="absolute inset-0 bg-linear-to-b from-black/40 to-black/80" />
+								<div className="relative overflow-hidden rounded-[26px] bg-zinc-950">
+									<div className="absolute inset-0 bg-linear-to-br from-blue-500/16 via-slate-950/55 to-black/90" />
 									<div className="relative h-full p-6 text-white">
 										<div className="text-lg font-semibold">Waiting for someone to join</div>
-										<div className="mt-2 text-base text-white/80">Share the link and they’ll appear here.</div>
+										<div className="mt-2 max-w-md text-base text-white/78">Share the link and they’ll appear here.</div>
+										<button
+											onClick={() => void copyLink()}
+											className="mt-5 inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/15"
+										>
+											<PortalCopyGlyph className="h-4 w-4 text-white" />
+											Copy invite link
+										</button>
 									</div>
 								</div>
 							)}
@@ -2039,7 +2191,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 							}
 							onClick={(e) => e.stopPropagation()}
 						>
-							<div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-full border border-zinc-200 bg-white/90 px-2 py-2 shadow-lg backdrop-blur sm:gap-2">
+							<div className="flex max-w-full items-center gap-1.5 overflow-x-auto rounded-[28px] border border-white/10 bg-zinc-950/80 px-2 py-2 shadow-[0_18px_44px_rgba(0,0,0,0.26)] backdrop-blur-xl sm:gap-2 sm:px-2.5 sm:py-2.5">
 								<IconButton
 									label={isMuted ? "Unmute" : "Mute"}
 									onClick={toggleMute}
@@ -2055,20 +2207,20 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 								<IconButton
 									label={!isSharing ? "Share screen" : "Stop sharing"}
 									onClick={!isSharing ? startShare : stopShare}
-									active={!isSharing}
+									active={isSharing}
 									icon={!isSharing ? <ScreenShareIcon /> : <ScreenStopIcon />}
 								/>
-								<div className="mx-1 h-8 w-px bg-zinc-200" />
+								<div className="mx-1 hidden h-8 w-px bg-white/12 sm:block" />
 								<IconButton
 									label={cameraFacing === "user" ? "Back camera" : "Front camera"}
 									onClick={flipCamera}
 									active={true}
 									icon={<CameraFlipIcon />}
 								/>
-								<div className="mx-1 h-8 w-px bg-zinc-200" />
+								<div className="mx-1 hidden h-8 w-px bg-white/12 sm:block" />
 								<button
 									onClick={onLeave}
-									className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-500 sm:h-11 sm:w-11"
+									className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-red-400/20 bg-red-500 text-white shadow-[0_10px_30px_rgba(239,68,68,0.28)] transition hover:bg-red-400 sm:h-12 sm:w-12"
 									aria-label="Leave"
 									title="Leave"
 								>
@@ -2088,116 +2240,69 @@ function IconButton(props: { label: string; onClick: () => void; icon: ReactNode
 		<button
 			onClick={props.onClick}
 			className={
-				"flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition sm:h-11 sm:w-11 " +
-				(props.active ? "border-zinc-200 bg-white hover:bg-zinc-50" : "border-zinc-200 bg-zinc-100 hover:bg-zinc-200")
+				"group flex h-11 shrink-0 items-center gap-2 rounded-full border px-3 text-sm font-medium transition sm:h-12 " +
+				(props.active
+					? "border-brand-blue/25 bg-brand-blue/95 text-white shadow-[0_10px_24px_rgba(37,99,235,0.22)] hover:-translate-y-0.5 hover:bg-blue-500"
+					: "border-white/10 bg-white/8 text-white hover:-translate-y-0.5 hover:bg-white/15")
 			}
 			aria-label={props.label}
 			title={props.label}
 		>
-			{props.icon}
+			<span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-black/10 text-current group-hover:scale-[1.02]">{props.icon}</span>
+			<span className="hidden whitespace-nowrap pr-1 md:inline">{props.label}</span>
 		</button>
 	);
 }
 
 function MicIcon() {
 	return (
-		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
-			<path
-				d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"
-				stroke="currentColor"
-				strokeWidth="2"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-			<path d="M19 11a7 7 0 0 1-14 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path d="M12 18v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path d="M8 21h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-current">
+			<path d="M19 10V12C19 15.866 15.866 19 12 19M5 10V12C5 15.866 8.13401 19 12 19M12 19V22M8 22H16M12 15C10.3431 15 9 13.6569 9 12V5C9 3.34315 10.3431 2 12 2C13.6569 2 15 3.34315 15 5V12C15 13.6569 13.6569 15 12 15Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
 		</svg>
 	);
-}
+	}
 
 function MicOffIcon() {
 	return (
-		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
-			<path d="M4 4l16 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path
-				d="M9 9v2a3 3 0 0 0 4.2 2.74"
-				stroke="currentColor"
-				strokeWidth="2"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-			<path
-				d="M15 9.34V6a3 3 0 0 0-5.1-2.12"
-				stroke="currentColor"
-				strokeWidth="2"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-			<path d="M19 11a7 7 0 0 1-7 7c-1.2 0-2.34-.3-3.33-.84" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path d="M12 18v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path d="M8 21h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-current">
+			<path d="M4 12V13C4 17.4183 7.58172 21 12 21C14.4653 21 16.6701 19.8849 18.1376 18.1316M2 2L22 22M16 10.4V7C16 4.79086 14.2091 3 12 3C11.0406 3 10.1601 3.33778 9.47086 3.9009M12 17C9.79086 17 8 15.2091 8 13V8L15.2815 15.288C14.5585 16.323 13.3583 17 12 17Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
 		</svg>
 	);
-}
+	}
 
 function VideoIcon() {
 	return (
-		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
-			<path
-				d="M15 10.5V7a2 2 0 0 0-2-2H6A2 2 0 0 0 4 7v10a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-3.5l5 3v-9l-5 3Z"
-				stroke="currentColor"
-				strokeWidth="2"
-				strokeLinejoin="round"
-			/>
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-current">
+			<path d="M2 8.37722C2 8.0269 2 7.85174 2.01462 7.70421C2.1556 6.28127 3.28127 5.1556 4.70421 5.01462C4.85174 5 5.03636 5 5.40558 5C5.54785 5 5.61899 5 5.67939 4.99634C6.45061 4.94963 7.12595 4.46288 7.41414 3.746C7.43671 3.68986 7.45781 3.62657 7.5 3.5C7.54219 3.37343 7.56329 3.31014 7.58586 3.254C7.87405 2.53712 8.54939 2.05037 9.32061 2.00366C9.38101 2 9.44772 2 9.58114 2H14.4189C14.5523 2 14.619 2 14.6794 2.00366C15.4506 2.05037 16.126 2.53712 16.4141 3.254C16.4367 3.31014 16.4578 3.37343 16.5 3.5C16.5422 3.62657 16.5633 3.68986 16.5859 3.746C16.874 4.46288 17.5494 4.94963 18.3206 4.99634C18.381 5 18.4521 5 18.5944 5C18.9636 5 19.1483 5 19.2958 5.01462C20.7187 5.1556 21.8444 6.28127 21.9854 7.70421C22 7.85174 22 8.0269 22 8.37722V16.2C22 17.8802 22 18.7202 21.673 19.362C21.3854 19.9265 20.9265 20.3854 20.362 20.673C19.7202 21 18.8802 21 17.2 21H6.8C5.11984 21 4.27976 21 3.63803 20.673C3.07354 20.3854 2.6146 19.9265 2.32698 19.362C2 18.7202 2 17.8802 2 16.2V8.37722Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+			<path d="M12 16.5C14.2091 16.5 16 14.7091 16 12.5C16 10.2909 14.2091 8.5 12 8.5C9.79086 8.5 8 10.2909 8 12.5C8 14.7091 9.79086 16.5 12 16.5Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
 		</svg>
 	);
-}
+	}
 
 function VideoOffIcon() {
 	return (
-		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
-			<path d="M4 4l16 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path
-				d="M14 10.5V7a2 2 0 0 0-2-2H7.5"
-				stroke="currentColor"
-				strokeWidth="2"
-				strokeLinejoin="round"
-			/>
-			<path
-				d="M15 13.5V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9"
-				stroke="currentColor"
-				strokeWidth="2"
-				strokeLinejoin="round"
-			/>
-			<path d="M20 7v10l-4-2.4" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-current">
+			<path d="M5 5H5.41886C5.55228 5 5.61899 5 5.67939 4.99634C6.45061 4.94963 7.12595 4.46288 7.41414 3.746C7.43671 3.68986 7.45781 3.62657 7.5 3.5C7.54219 3.37343 7.56329 3.31014 7.58586 3.254C7.87405 2.53712 8.54939 2.05037 9.32061 2.00366C9.38101 2 9.44772 2 9.58114 2H14.4189C14.5523 2 14.619 2 14.6794 2.00366C15.4506 2.05037 16.126 2.53712 16.4141 3.254C16.4367 3.31014 16.4578 3.37343 16.5 3.5C16.5422 3.62657 16.5633 3.68986 16.5859 3.746C16.874 4.46288 17.5494 4.94963 18.3206 4.99634C18.381 5 18.4521 5 18.5944 5C18.9636 5 19.1483 5 19.2958 5.01462C20.7187 5.1556 21.8444 6.28127 21.9854 7.70421C22 7.85174 22 8.0269 22 8.37722V18C22 19.0849 21.4241 20.0353 20.5613 20.5622M15.0641 15.0714C15.6482 14.3761 16 13.4791 16 12.5C16 10.2909 14.2091 8.5 12 8.5C11.0216 8.5 10.1252 8.8513 9.43012 9.43464M22 22L2 2M2 7.5V16.2C2 17.8802 2 18.7202 2.32698 19.362C2.6146 19.9265 3.07354 20.3854 3.63803 20.673C4.27976 21 5.11984 21 6.8 21H15.5M12 16.5C9.79086 16.5 8 14.7091 8 12.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
 		</svg>
 	);
-}
+	}
 
 function ScreenShareIcon() {
 	return (
-		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
-			<path d="M4 4h16v10H4V4Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-			<path d="M12 14v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path d="M8 20h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path d="M12 7v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path d="M10 9l2-2 2 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-current">
+			<path d="M8 21H16M12 17V21M6.8 17H17.2C18.8802 17 19.7202 17 20.362 16.673C20.9265 16.3854 21.3854 15.9265 21.673 15.362C22 14.7202 22 13.8802 22 12.2V7.8C22 6.11984 22 5.27976 21.673 4.63803C21.3854 4.07354 20.9265 3.6146 20.362 3.32698C19.7202 3 18.8802 3 17.2 3H6.8C5.11984 3 4.27976 3 3.63803 3.32698C3.07354 3.6146 2.6146 4.07354 2.32698 4.63803C2 5.27976 2 6.11984 2 7.8V12.2C2 13.8802 2 14.7202 2.32698 15.362C2.6146 15.9265 3.07354 16.3854 3.63803 16.673C4.27976 17 5.11984 17 6.8 17Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
 		</svg>
 	);
-}
+	}
 
 function ScreenStopIcon() {
 	return (
-		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
-			<path d="M4 4h16v10H4V4Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-			<path d="M12 14v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path d="M8 20h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-			<path d="M9 7h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-current">
+			<path d="M8 21H16M12 17V21M6.8 17H17.2C18.8802 17 19.7202 17 20.362 16.673C20.9265 16.3854 21.3854 15.9265 21.673 15.362C22 14.7202 22 13.8802 22 12.2V7.8C22 6.11984 22 5.27976 21.673 4.63803C21.3854 4.07354 20.9265 3.6146 20.362 3.32698C19.7202 3 18.8802 3 17.2 3H6.8C5.11984 3 4.27976 3 3.63803 3.32698C3.07354 3.6146 2.6146 4.07354 2.32698 4.63803C2 5.27976 2 6.11984 2 7.8V12.2C2 13.8802 2 14.7202 2.32698 15.362C2.6146 15.9265 3.07354 16.3854 3.63803 16.673C4.27976 17 5.11984 17 6.8 17Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+			<path d="M7 7L17 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
 		</svg>
 	);
-}
-
+	}
 function DotsIcon() {
 	return (
 		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
@@ -2288,7 +2393,7 @@ function PhoneHangupIcon() {
 	);
 }
 
-function RemoteTile(props: { tile: { id: string; displayName: string; stream: MediaStream }; media?: MediaState; hudVisible: boolean }) {
+function RemoteTile(props: { tile: { id: string; displayName: string; stream: MediaStream; source: "camera" | "screen" }; media?: MediaState; hudVisible: boolean }) {
 	const videoRef = useRef<HTMLVideoElement | null>(null);
 
 	useEffect(() => {
@@ -2299,14 +2404,15 @@ function RemoteTile(props: { tile: { id: string; displayName: string; stream: Me
 
 	return (
 		<StageTile
-			label=""
+			label={props.tile.source === "screen" ? "Screen" : ""}
 			name={props.tile.displayName || "Guest"}
-			videoEl={<video ref={videoRef} playsInline autoPlay className="h-full w-full object-cover" />}
-			videoEnabled={props.media?.videoEnabled !== false}
+			videoEl={<video ref={videoRef} playsInline autoPlay className={"h-full w-full " + (props.tile.source === "screen" ? "bg-black object-contain" : "object-cover")} />}
+			videoEnabled={props.tile.source === "screen" ? true : props.media?.videoEnabled !== false}
 			audioEnabled={props.media?.audioEnabled !== false}
-			isSharing={props.media?.isSharing === true}
+			isSharing={props.tile.source === "screen" || props.media?.isSharing === true}
 			loading={false}
 			hudVisible={props.hudVisible}
+			emphasized={props.tile.source === "screen"}
 		/>
 	);
 }
@@ -2320,6 +2426,7 @@ function StageTile(props: {
 	isSharing: boolean;
 	loading: boolean;
 	hudVisible: boolean;
+	emphasized?: boolean;
 }) {
 	const initials = (props.name || "?")
 		.split(" ")
@@ -2329,44 +2436,46 @@ function StageTile(props: {
 		.join("");
 
 	return (
-		<div className="relative h-full overflow-hidden rounded-2xl bg-zinc-950">
+		<div className={"relative h-full overflow-hidden rounded-[26px] border border-white/10 bg-zinc-950 shadow-[0_20px_44px_rgba(15,23,42,0.22)] " + (props.emphasized ? "sm:col-span-2 xl:col-span-2 ring-1 ring-brand-blue/25" : "") }>
+			<div className="pointer-events-none absolute inset-0 bg-linear-to-b from-white/6 via-transparent to-black/35" />
+			<div className="pointer-events-none absolute inset-0 rounded-[26px] ring-1 ring-inset ring-white/6" />
 			<div className="absolute inset-0">
 				<div className={"h-full w-full " + (props.videoEnabled ? "opacity-100" : "opacity-0")}>
 					{props.videoEl}
 				</div>
 				{!props.videoEnabled ? (
 					<div className="absolute inset-0 flex items-center justify-center bg-zinc-950">
-						<div className="flex h-20 w-20 items-center justify-center rounded-full bg-white/10 text-2xl font-semibold text-white">
+						<div className="flex h-18 w-18 items-center justify-center rounded-full border border-white/10 bg-white/8 text-xl font-semibold text-white shadow-[0_12px_30px_rgba(0,0,0,0.18)] sm:h-20 sm:w-20 sm:text-2xl">
 							{initials || "?"}
 						</div>
 					</div>
 				) : null}
 				{props.loading ? (
-					<div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white/80">
-						Connecting…
+					<div className="absolute inset-0 flex items-center justify-center bg-black/45 text-white/80">
+						<div className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium backdrop-blur-sm">Connecting…</div>
 					</div>
 				) : null}
 			</div>
 
 			{props.hudVisible ? (
 				<div className="absolute inset-x-0 bottom-0 p-3" onClick={(e) => e.stopPropagation()}>
-					<div className="flex items-center justify-between rounded-xl bg-black/45 px-3 py-2 text-white backdrop-blur">
+					<div className="flex items-end justify-between rounded-2xl border border-white/10 bg-black/38 px-3 py-2.5 text-white backdrop-blur-xl">
 						<div className="min-w-0">
 							<div className="truncate text-sm font-semibold">{props.label ? `${props.label} · ` : ""}{props.name}</div>
-							<div className="mt-0.5 text-xs text-white/70">
+							<div className="mt-0.5 text-xs text-white/68">
 								{props.isSharing ? "Sharing" : ""}
 								{props.isSharing ? " · " : ""}
 								{props.audioEnabled ? "Mic on" : "Muted"} · {props.videoEnabled ? "Camera on" : "Camera off"}
 							</div>
 						</div>
-						<div className="flex items-center gap-2">
+						<div className="ml-3 flex items-center gap-2">
 							{!props.audioEnabled ? (
-								<span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10" title="Muted">
+								<span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/10" title="Muted">
 									<MicOffIcon />
 								</span>
 							) : null}
 							{!props.videoEnabled ? (
-								<span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/10" title="Camera off">
+								<span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/10" title="Camera off">
 									<VideoOffIcon />
 								</span>
 							) : null}

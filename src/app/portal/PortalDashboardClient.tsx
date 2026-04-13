@@ -1044,7 +1044,7 @@ export function PortalDashboardClient() {
                   key={m.key}
                   className={
                     "rounded-2xl border p-4 " +
-                    (m.enabled ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-zinc-50")
+                    (m.enabled ? "border-transparent bg-emerald-50" : "border-zinc-200 bg-zinc-50")
                   }
                 >
                   <div className="flex items-start justify-between gap-3">

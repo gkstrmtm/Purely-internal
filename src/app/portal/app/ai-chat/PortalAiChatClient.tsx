@@ -14,6 +14,7 @@ import { IconChevron, IconCopy, IconEdit, IconSchedule, IconSend, IconSendHover 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { PURA_AI_PROFILE_OPTIONS, normalizePuraAiProfile, type PuraAiProfile } from "@/lib/puraAiProfile";
+import { PURA_WELCOME_PROMPT_LIBRARY as WELCOME_PROMPT_LIBRARY, type PromptChipDefinition } from "@/lib/puraWelcomePrompts";
 import { buildPortalAiChatThreadHref, parsePortalAiChatThreadRef } from "@/lib/portalAiChatThreadRefs";
 import { usePuraCanvasUiBridgeClient, type PuraCanvasUiAction } from "@/lib/puraCanvasUiBridge.client";
 
@@ -140,6 +141,52 @@ function readStoredDraftResponseProfile(): PuraAiProfile {
   } catch {
     return "balanced";
   }
+}
+
+function readStoredWelcomePromptHistory(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(PURA_CHAT_WELCOME_PROMPT_HISTORY_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const value of parsed) {
+      const id = typeof value === "string" ? value.trim().slice(0, 80) : "";
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+      if (ids.length >= 18) break;
+    }
+    return ids;
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredWelcomePromptHistory(ids: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PURA_CHAT_WELCOME_PROMPT_HISTORY_STORAGE_KEY, JSON.stringify(ids.slice(0, 18)));
+  } catch {}
+}
+
+function readStoredWelcomePromptRotation(): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = window.localStorage.getItem(PURA_CHAT_WELCOME_PROMPT_ROTATION_STORAGE_KEY);
+    const parsed = Number.parseInt(String(raw || "0"), 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeStoredWelcomePromptRotation(value: number) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PURA_CHAT_WELCOME_PROMPT_ROTATION_STORAGE_KEY, String(Math.max(0, Math.floor(value))));
+  } catch {}
 }
 
 function decodeBase64AudioBlob(base64: string, contentType: string): Blob {
@@ -294,6 +341,8 @@ type ChatMode = "plan" | "work";
 const DRAFT_THREAD_KEY = "__draft__";
 const PURA_CHAT_DEFAULT_MODE_STORAGE_KEY = "pura.chat.defaultMode";
 const PURA_CHAT_DEFAULT_PROFILE_STORAGE_KEY = "pura.chat.defaultProfile";
+const PURA_CHAT_WELCOME_PROMPT_HISTORY_STORAGE_KEY = "pura.chat.welcomePromptHistory";
+const PURA_CHAT_WELCOME_PROMPT_ROTATION_STORAGE_KEY = "pura.chat.welcomePromptRotation";
 
 function createEmptyThreadUiState(): ThreadUiState {
   return {
@@ -310,44 +359,6 @@ function createEmptyThreadDraftState(): ThreadDraftState {
     pendingAttachments: [],
   };
 }
-
-type PromptChipDefinition = {
-  id: string;
-  prompt: string;
-  slugs?: string[];
-  keywords?: string[];
-};
-
-const WELCOME_PROMPT_LIBRARY: PromptChipDefinition[] = [
-  { id: "leads-priority", prompt: "Summarize the highest-priority leads I should follow up with today.", slugs: ["lead-scraping", "crm", "inbox", "ai-receptionist"], keywords: ["lead", "follow up", "priority"] },
-  { id: "marketing-week", prompt: "Plan three marketing tasks I can finish this week.", slugs: ["blogs", "newsletter", "funnel-builder", "media-library"], keywords: ["marketing", "campaign", "content"] },
-  { id: "automation-next", prompt: "Review what Pura can help automate next for this business.", slugs: ["automations", "tasks", "booking", "nurture-campaigns"], keywords: ["automate", "workflow", "system"] },
-  { id: "missed-calls", prompt: "Help me tighten our missed-call follow-up flow.", slugs: ["ai-receptionist", "missed-call-textback", "booking"], keywords: ["call", "missed", "text back"] },
-  { id: "newsletter-ideas", prompt: "Give me three newsletter ideas I can send this month.", slugs: ["newsletter", "blogs"], keywords: ["newsletter", "email", "audience"] },
-  { id: "booking-gaps", prompt: "Find weak spots in our booking flow and suggest fixes.", slugs: ["booking", "funnel-builder", "ai-receptionist"], keywords: ["book", "booking", "appointment"] },
-  { id: "task-cleanup", prompt: "Turn my open work into a clean action plan for today.", slugs: ["tasks", "automations"], keywords: ["task", "todo", "plan"] },
-  { id: "blog-seo", prompt: "Map out blog topics that could bring in better search traffic.", slugs: ["blogs", "funnel-builder"], keywords: ["blog", "seo", "search"] },
-  { id: "review-request", prompt: "Draft a smarter review request flow for recent customers.", slugs: ["reviews", "automations", "inbox"], keywords: ["review", "reputation", "customer"] },
-  { id: "nurture-refresh", prompt: "Refresh our nurture campaign so it feels more personal.", slugs: ["nurture-campaigns", "newsletter", "inbox"], keywords: ["nurture", "sequence", "personal"] },
-  { id: "reporting-summary", prompt: "Show me what the reporting data is saying we should fix first.", slugs: ["reporting", "automations", "booking"], keywords: ["report", "reporting", "numbers"] },
-  { id: "inbox-backlog", prompt: "Help me clear the inbox backlog with the fastest wins first.", slugs: ["inbox", "tasks", "ai-receptionist"], keywords: ["inbox", "reply", "backlog"] },
-  { id: "outbound-script", prompt: "Write a tighter outbound script for leads that went cold.", slugs: ["ai-outbound-calls", "lead-scraping", "inbox"], keywords: ["outbound", "cold", "script"] },
-  { id: "lead-list", prompt: "Suggest the best kind of leads to scrape next and why.", slugs: ["lead-scraping", "ai-outbound-calls", "reporting"], keywords: ["lead", "scrape", "prospect"] },
-  { id: "media-reuse", prompt: "Find ways we can reuse our existing media across more campaigns.", slugs: ["media-library", "newsletter", "blogs", "funnel-builder"], keywords: ["media", "asset", "creative"] },
-  { id: "funnel-conversion", prompt: "Audit our funnel and give me three conversion improvements.", slugs: ["funnel-builder", "booking", "reporting"], keywords: ["funnel", "conversion", "landing page"] },
-  { id: "appointment-reminders", prompt: "Draft a reminder sequence to reduce appointment no-shows.", slugs: ["booking", "follow-up", "automations"], keywords: ["reminder", "no-show", "appointment"] },
-  { id: "team-focus", prompt: "Tell me where my team should focus first this week.", slugs: ["tasks", "reporting", "automations"], keywords: ["team", "focus", "week"] },
-  { id: "followup-rewrite", prompt: "Rewrite our follow-up messaging so it gets more replies.", slugs: ["follow-up", "inbox", "newsletter"], keywords: ["follow-up", "reply", "message"] },
-  { id: "automation-builder", prompt: "Design an automation that saves the team the most manual work.", slugs: ["automations", "tasks", "inbox"], keywords: ["automation", "manual", "save time"] },
-  { id: "receptionist-script", prompt: "Improve our AI receptionist script for higher-quality leads.", slugs: ["ai-receptionist", "booking"], keywords: ["receptionist", "caller", "lead quality"] },
-  { id: "sales-story", prompt: "Explain our sales performance in plain English and what to do next.", slugs: ["reporting", "inbox", "booking"], keywords: ["sales", "pipeline", "performance"] },
-  { id: "content-calendar", prompt: "Build a simple content calendar around our best offers.", slugs: ["blogs", "newsletter", "media-library"], keywords: ["content", "calendar", "offer"] },
-  { id: "new-offer", prompt: "Help me turn one service into a stronger offer people actually respond to.", slugs: ["funnel-builder", "booking", "reporting"], keywords: ["offer", "service", "respond"] },
-  { id: "reactivation", prompt: "Create a reactivation plan for leads we have not touched in a while.", slugs: ["nurture-campaigns", "inbox", "ai-outbound-calls"], keywords: ["reactivation", "old leads", "win back"] },
-  { id: "reviews-replies", prompt: "Help me turn new reviews into follow-up opportunities.", slugs: ["reviews", "inbox", "tasks"], keywords: ["review", "reply", "opportunity"] },
-  { id: "default-systems", prompt: "What are the next three systems I should tighten up in the business?", keywords: ["systems", "business", "next"] },
-  { id: "default-team", prompt: "What should I delegate, automate, and personally handle this week?", keywords: ["delegate", "automate", "week"] },
-];
 
 function seededHash(input: string) {
   let hash = 2166136261;
@@ -1523,6 +1534,8 @@ export function PortalAiChatClient({
   const [serviceUsageCounts, setServiceUsageCounts] = useState<Record<string, number>>({});
   // Must be stable for SSR + hydration. We randomize it after mount.
   const [welcomePromptSeed, setWelcomePromptSeed] = useState(() => "0");
+  const [welcomePromptRotationSnapshot, setWelcomePromptRotationSnapshot] = useState(0);
+  const [welcomePromptHistorySnapshot, setWelcomePromptHistorySnapshot] = useState<string[]>([]);
 
   const [threadDraftsById, setThreadDraftsById] = useState<Record<string, ThreadDraftState>>(() => ({
     [DRAFT_THREAD_KEY]: createEmptyThreadDraftState(),
@@ -1539,10 +1552,22 @@ export function PortalAiChatClient({
   const [responseProfile, setResponseProfile] = useState<PuraAiProfile>(() => readStoredDraftResponseProfile());
   const [modeControlsOpen, setModeControlsOpen] = useState(false);
   const [messageDisplayModesById, setMessageDisplayModesById] = useState<Record<string, ChatMode>>(() => ({}));
+  const welcomePromptRotationRef = useRef(0);
+  const welcomePromptHistoryRef = useRef<string[]>([]);
+  const lastWelcomePromptSelectionRef = useRef("");
 
   const [scheduleTaskOpen, setScheduleTaskOpen] = useState(false);
   const [scheduleTaskText, setScheduleTaskText] = useState("");
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    const storedRotation = readStoredWelcomePromptRotation();
+    const storedHistory = readStoredWelcomePromptHistory();
+    welcomePromptRotationRef.current = storedRotation;
+    welcomePromptHistoryRef.current = storedHistory;
+    setWelcomePromptRotationSnapshot(storedRotation);
+    setWelcomePromptHistorySnapshot(storedHistory.slice(0, 12));
+  }, []);
 
   const [attachMenu, setAttachMenu] = useState<FixedMenuStyle | null>(null);
   const [attachMenuAnchorRect, setAttachMenuAnchorRect] = useState<DOMRect | null>(null);
@@ -1645,6 +1670,8 @@ export function PortalAiChatClient({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const forceScrollToBottomRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
+  const manualScrollHoldUntilRef = useRef(0);
+  const touchStartYRef = useRef<number | null>(null);
   const sendInFlightRef = useRef<Set<string>>(new Set());
   const activeThreadIdRef = useRef<string | null>(null);
   const pendingThreadIdsRef = useRef<Set<string>>(new Set());
@@ -2009,7 +2036,8 @@ export function PortalAiChatClient({
       return true;
     }
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const shouldStick = distanceFromBottom <= 140;
+    const holdActive = typeof window !== "undefined" && manualScrollHoldUntilRef.current > window.performance.now();
+    const shouldStick = !holdActive && distanceFromBottom <= 48;
     shouldStickToBottomRef.current = shouldStick;
     return shouldStick;
   }, []);
@@ -2026,6 +2054,32 @@ export function PortalAiChatClient({
   const handleChatScroll = useCallback(() => {
     syncShouldStickToBottom();
   }, [syncShouldStickToBottom]);
+
+  const holdAutoStick = useCallback((ms = 900) => {
+    if (typeof window === "undefined") return;
+    manualScrollHoldUntilRef.current = window.performance.now() + ms;
+  }, []);
+
+  const handleChatWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY < 0) {
+      shouldStickToBottomRef.current = false;
+      holdAutoStick();
+    }
+  }, [holdAutoStick]);
+
+  const handleChatTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    touchStartYRef.current = event.touches[0]?.clientY ?? null;
+  }, []);
+
+  const handleChatTouchMove = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    const startY = touchStartYRef.current;
+    const currentY = event.touches[0]?.clientY ?? null;
+    if (startY === null || currentY === null) return;
+    if (currentY > startY + 4) {
+      shouldStickToBottomRef.current = false;
+      holdAutoStick(1100);
+    }
+  }, [holdAutoStick]);
 
   useEffect(() => {
     if (!messages.length) return;
@@ -4102,15 +4156,24 @@ export function PortalAiChatClient({
 
   useEffect(() => {
     if (!showWelcomeComposer) return;
+    const nextRotation = welcomePromptRotationRef.current + 1;
+    welcomePromptRotationRef.current = nextRotation;
+    writeStoredWelcomePromptRotation(nextRotation);
+    setWelcomePromptRotationSnapshot(nextRotation);
+    setWelcomePromptHistorySnapshot(welcomePromptHistoryRef.current.slice(0, 12));
     setWelcomePromptSeed(`${Date.now()}-${Math.random()}-${activeThreadId || "new"}`);
   }, [activeThreadId, showWelcomeComposer]);
 
-  const welcomePromptChips = useMemo(() => {
+  const welcomePromptChipEntries = useMemo(() => {
     const serviceWeights = inferPromptServiceWeights(threads, serviceUsageCounts);
     const threadText = threads
       .slice(0, 18)
       .map((thread) => `${thread.title || ""}`.toLowerCase())
       .join(" \n ");
+    const historyPenaltyById = new Map<string, number>();
+    welcomePromptHistorySnapshot.forEach((id, index) => {
+      historyPenaltyById.set(id, Math.max(1, 12 - index));
+    });
 
     const ranked = WELCOME_PROMPT_LIBRARY.map((item) => {
       let score = 0;
@@ -4118,31 +4181,58 @@ export function PortalAiChatClient({
       for (const keyword of item.keywords || []) {
         if (threadText.includes(keyword.toLowerCase())) score += 2;
       }
+      const recentPenalty = historyPenaltyById.get(item.id) || 0;
       const jitter = (seededHash(`${welcomePromptSeed}:${item.id}`) % 1000) / 1000;
-      return { item, score, jitter };
-    }).sort((a, b) => (b.score !== a.score ? b.score - a.score : b.jitter - a.jitter));
+      const effectiveScore = score - recentPenalty * 3 + jitter * 0.35;
+      return { item, score, jitter, effectiveScore };
+    }).sort((a, b) => (b.effectiveScore !== a.effectiveScore ? b.effectiveScore - a.effectiveScore : b.score !== a.score ? b.score - a.score : b.jitter - a.jitter));
 
-    const selected: string[] = [];
-    for (const entry of ranked) {
-      if (selected.length >= 3) break;
-      if (selected.includes(entry.item.prompt)) continue;
-      if (selected.length < 3 && (entry.score > 0 || entry.jitter > 0)) {
-        selected.push(entry.item.prompt);
-      }
+    const selected: PromptChipDefinition[] = [];
+    const selectedIds = new Set<string>();
+    const recentIds = new Set(welcomePromptHistorySnapshot.slice(0, 6));
+    const prioritizedPool = ranked.filter((entry) => entry.score > 0).slice(0, Math.max(6, Math.min(12, ranked.length)));
+    const selectionPool = (prioritizedPool.length >= 3 ? prioritizedPool : ranked).slice(0, Math.min(12, ranked.length));
+    const startIndex = selectionPool.length ? welcomePromptRotationSnapshot % selectionPool.length : 0;
+
+    const pushEntry = (entry: (typeof ranked)[number] | undefined) => {
+      if (!entry || selectedIds.has(entry.item.id)) return;
+      selected.push(entry.item);
+      selectedIds.add(entry.item.id);
+    };
+
+    for (let offset = 0; offset < selectionPool.length && selected.length < 3; offset += 1) {
+      const entry = selectionPool[(startIndex + offset) % selectionPool.length];
+      if (recentIds.has(entry.item.id)) continue;
+      pushEntry(entry);
+    }
+
+    for (let offset = 0; offset < selectionPool.length && selected.length < 3; offset += 1) {
+      pushEntry(selectionPool[(startIndex + offset) % selectionPool.length]);
     }
 
     if (selected.length < 3) {
       const fallback = [...WELCOME_PROMPT_LIBRARY]
         .sort((a, b) => seededHash(`${welcomePromptSeed}:${a.id}`) - seededHash(`${welcomePromptSeed}:${b.id}`))
-        .map((item) => item.prompt);
+        .map((item) => item);
       for (const prompt of fallback) {
         if (selected.length >= 3) break;
-        if (!selected.includes(prompt)) selected.push(prompt);
+        if (!selectedIds.has(prompt.id)) selected.push(prompt);
       }
     }
 
     return selected.slice(0, 3);
-  }, [serviceUsageCounts, threads, welcomePromptSeed]);
+  }, [serviceUsageCounts, threads, welcomePromptHistorySnapshot, welcomePromptRotationSnapshot, welcomePromptSeed]);
+
+  useEffect(() => {
+    if (!showWelcomeComposer || !welcomePromptChipEntries.length) return;
+    const shownIds = welcomePromptChipEntries.map((entry) => entry.id);
+    const signature = shownIds.join("|");
+    if (!signature || lastWelcomePromptSelectionRef.current === signature) return;
+    lastWelcomePromptSelectionRef.current = signature;
+    const nextHistory = [...shownIds, ...welcomePromptHistoryRef.current.filter((id) => !shownIds.includes(id))].slice(0, 18);
+    welcomePromptHistoryRef.current = nextHistory;
+    writeStoredWelcomePromptHistory(nextHistory);
+  }, [showWelcomeComposer, welcomePromptChipEntries]);
 
   const composerControlButtonClass =
     "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-all duration-100 hover:border-zinc-300 hover:bg-zinc-50";
@@ -4598,7 +4688,14 @@ export function PortalAiChatClient({
             </div>
           </div>
 
-          <div ref={scrollerRef} className={chatScrollerClassName} onScroll={handleChatScroll}>
+          <div
+            ref={scrollerRef}
+            className={chatScrollerClassName}
+            onScroll={handleChatScroll}
+            onWheelCapture={handleChatWheel}
+            onTouchStart={handleChatTouchStart}
+            onTouchMove={handleChatTouchMove}
+          >
 
           <div className="relative z-10 mx-auto w-full max-w-5xl space-y-3 px-3 pb-16 pt-24 sm:px-4 sm:pb-18 sm:pt-24">
             {messagesLoading && !messages.length ? (
@@ -4867,23 +4964,26 @@ export function PortalAiChatClient({
                     <div className="mt-2 text-sm leading-relaxed text-zinc-500">Start with a question, a task, or the next workflow you want off your plate.</div>
                   </div>
                   <div className="mb-4 hidden grid-cols-1 gap-3 md:grid md:grid-cols-3">
-                    {welcomePromptChips.map((prompt) => (
-                      <button
-                        key={prompt}
-                        type="button"
-                        className="flex min-h-28 items-start rounded-3xl border border-zinc-200 bg-white p-4 text-left text-sm font-semibold text-zinc-800 shadow-[0_10px_30px_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-1 hover:border-zinc-300 hover:bg-zinc-50"
-                        onClick={() => {
-                          setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: prompt }));
-                          requestAnimationFrame(() => {
-                            resizeInput();
-                            inputRef.current?.focus();
-                            inputRef.current?.setSelectionRange(prompt.length, prompt.length);
-                          });
-                        }}
-                      >
-                        <span className="block leading-relaxed">{prompt}</span>
-                      </button>
-                    ))}
+                    {welcomePromptChipEntries.map((entry) => {
+                      const prompt = entry.prompt;
+                      return (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          className="flex min-h-28 items-start rounded-3xl border border-zinc-200 bg-white p-4 text-left text-sm font-semibold text-zinc-800 shadow-[0_10px_30px_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-1 hover:border-zinc-300 hover:bg-zinc-50"
+                          onClick={() => {
+                            setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: prompt }));
+                            requestAnimationFrame(() => {
+                              resizeInput();
+                              inputRef.current?.focus();
+                              inputRef.current?.setSelectionRange(prompt.length, prompt.length);
+                            });
+                          }}
+                        >
+                          <span className="block leading-relaxed">{prompt}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                   <div className="rounded-[28px] bg-transparent p-0 shadow-none sm:rounded-3xl sm:bg-transparent sm:p-0 sm:shadow-none">
                     {composerInner}

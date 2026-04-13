@@ -68,6 +68,22 @@ import { getBookingFormConfig, setBookingFormConfig } from "@/lib/bookingForm";
 import { computeAvailableSlots } from "@/lib/bookingSlots";
 import { getBlogAppearance, setBlogAppearance } from "@/lib/blogAppearance";
 import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug, setStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
+import {
+  bootstrapHostedPageDocuments,
+  exportHostedPageDocumentCustomHtml,
+  getDefaultHostedPagePrompt,
+  getHostedPageDocument,
+  getHostedPageDocumentByPageKey,
+  getHostedPagePreviewData,
+  type HostedPageDocumentDto,
+  listAllHostedPageDocuments,
+  listHostedPageDocuments,
+  parseHostedPageService,
+  resetHostedPageDocumentToDefault,
+  setHostedPageDocumentStatus,
+  updateHostedPageDocument,
+} from "@/lib/hostedPageDocuments";
+import { generateHostedPageHtml } from "@/lib/hostedPageGeneration";
 import { formatAssistantMarkdownLink, normalizeAssistantLinkUrl } from "@/lib/portalAssistantLinks";
 import {
   getAppointmentReminderSettingsForCalendar,
@@ -2368,6 +2384,366 @@ function assistantLink(label: string, raw: unknown, prefix = ""): string {
   return link ? `${prefix}${link}` : "";
 }
 
+function hostedPageEditorPath(serviceRaw: unknown): string {
+  const service = String(serviceRaw || "").trim().toUpperCase();
+  switch (service) {
+    case "BOOKING":
+      return "/portal/app/services/booking/page-editor";
+    case "NEWSLETTER":
+      return "/portal/app/services/newsletter/page-editor";
+    case "REVIEWS":
+      return "/portal/app/services/reviews/page-editor";
+    case "BLOGS":
+      return "/portal/app/services/blogs/page-editor";
+    default:
+      return "/portal/app/services";
+  }
+}
+
+function hostedPageServiceDisplay(serviceRaw: unknown): string {
+  const service = String(serviceRaw || "").trim().toUpperCase();
+  switch (service) {
+    case "BOOKING":
+      return "Booking";
+    case "NEWSLETTER":
+      return "Newsletter";
+    case "REVIEWS":
+      return "Reviews";
+    case "BLOGS":
+      return "Blogs";
+    default:
+      return service || "Hosted pages";
+  }
+}
+
+function hostedPageModeDisplay(modeRaw: unknown): string {
+  const mode = String(modeRaw || "").trim().toUpperCase();
+  if (mode === "CUSTOM_HTML") return "Custom HTML";
+  if (mode === "BLOCKS") return "Blocks";
+  if (mode === "MARKDOWN") return "Markdown";
+  return mode || "Unknown";
+}
+
+function summarizeHostedPageLiveData(previewData: any): string[] {
+  const summary = previewData?.summary && typeof previewData.summary === "object" ? previewData.summary : null;
+  const service = String(previewData?.service || "").trim().toUpperCase();
+  if (!summary) return [];
+
+  if (service === "BOOKING") {
+    const calendarCount = Number((summary as any).calendarCount || 0);
+    const siteTitle = typeof (summary as any).siteTitle === "string" ? String((summary as any).siteTitle).trim() : "";
+    return [
+      siteTitle ? `Live booking title: ${siteTitle}` : "",
+      `Live calendars available: ${calendarCount}`,
+    ].filter(Boolean);
+  }
+
+  if (service === "NEWSLETTER") {
+    const externalCount = Number((summary as any).externalIssueCount || 0);
+    const internalCount = Number((summary as any).internalIssueCount || 0);
+    const latestIssues = Array.isArray((summary as any).latestIssues) ? ((summary as any).latestIssues as any[]) : [];
+    const latestLine = latestIssues.length
+      ? `Latest issues: ${latestIssues.slice(0, 3).map((issue) => String(issue?.title || "Untitled").trim()).filter(Boolean).join(", ")}`
+      : "";
+    return [
+      `Published external issues: ${externalCount}`,
+      internalCount ? `Internal issues: ${internalCount}` : "",
+      latestLine,
+    ].filter(Boolean);
+  }
+
+  if (service === "REVIEWS") {
+    const reviewCount = Number((summary as any).reviewCount || 0);
+    const publicPageEnabled = Boolean((summary as any).publicPageEnabled);
+    const description = typeof (summary as any).description === "string" ? String((summary as any).description).trim() : "";
+    return [
+      `Public page enabled: ${publicPageEnabled ? "Yes" : "No"}`,
+      `Live reviews available: ${reviewCount}`,
+      description ? `Live description: ${description}` : "",
+    ].filter(Boolean);
+  }
+
+  if (service === "BLOGS") {
+    const postCount = Number((summary as any).postCount || 0);
+    const latestPosts = Array.isArray((summary as any).latestPosts) ? ((summary as any).latestPosts as any[]) : [];
+    const latestLine = latestPosts.length
+      ? `Latest posts: ${latestPosts.slice(0, 3).map((post) => String(post?.title || "Untitled").trim()).filter(Boolean).join(", ")}`
+      : "";
+    return [`Published posts: ${postCount}`, latestLine].filter(Boolean);
+  }
+
+  return [];
+}
+
+function summarizeHostedPageEditableSurface(document: any): string[] {
+  const pageKey = String(document?.pageKey || "").trim();
+  switch (pageKey) {
+    case "booking_main":
+      return ["Users edit the booking page wrapper, hero copy, and supporting sections around the live booking app."];
+    case "newsletter_home":
+      return ["Users edit the hero, signup framing, and archive wrapper around the live newsletter archive."];
+    case "reviews_home":
+      return ["Users edit the review-request framing, supporting copy, and layout around the live reviews experience."];
+    case "blogs_index":
+      return ["This is the blog index page users edit to control the archive hero, featured-post framing, and list wrapper."];
+    case "blogs_post_template":
+      return ["This is the single-post template users edit to control the article wrapper, post CTA areas, and surrounding layout."];
+    default:
+      return [];
+  }
+}
+
+function decodeHostedPageSummaryEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function normalizeHostedPageSummaryText(value: string, maxLen = 120): string {
+  const text = decodeHostedPageSummaryEntities(String(value || ""))
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "";
+  return text.length > maxLen ? `${text.slice(0, maxLen - 3).trim()}...` : text;
+}
+
+function extractHostedPageHtmlTexts(html: string, tagName: string, limit = 3): string[] {
+  const regex = new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, "gi");
+  const out: string[] = [];
+  const seen = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(html)) && out.length < limit) {
+    const text = normalizeHostedPageSummaryText(match[1] || "", tagName.toLowerCase() === "h1" ? 140 : 90);
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    out.push(text);
+  }
+  return out;
+}
+
+function extractHostedPageCallToActionLabels(html: string, limit = 3): string[] {
+  const regex = /<(a|button)\b[^>]*>([\s\S]*?)<\/(a|button)>/gi;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(html)) && out.length < limit) {
+    const text = normalizeHostedPageSummaryText(match[2] || "", 60);
+    if (!text || seen.has(text)) continue;
+    if (!/(book|schedule|start|get|join|sign up|signup|subscribe|contact|learn more|read|view|download|call|claim|request|send)/i.test(text)) continue;
+    seen.add(text);
+    out.push(text);
+  }
+  return out;
+}
+
+function summarizeGeneratedHostedPageHtml(htmlRaw: string): string[] {
+  const html = String(htmlRaw || "").trim();
+  if (!html) return [];
+
+  const lines: string[] = [];
+  const sectionCount = (html.match(/<section\b/gi) || []).length;
+  const formCount = (html.match(/<form\b/gi) || []).length;
+  const headline = extractHostedPageHtmlTexts(html, "h1", 1)[0] || "";
+  const secondaryHeadings = [...extractHostedPageHtmlTexts(html, "h2", 3), ...extractHostedPageHtmlTexts(html, "h3", 2)]
+    .filter((value, index, arr) => arr.indexOf(value) === index)
+    .slice(0, 3);
+  const ctaLabels = extractHostedPageCallToActionLabels(html, 3);
+  const runtimeTokens = Array.from(new Set((html.match(/\{\{[A-Z0-9_]+\}\}/g) || []).map((value) => String(value).trim()))).slice(0, 4);
+
+  const structureBits: string[] = [];
+  if (sectionCount > 0) structureBits.push(`${sectionCount} sections`);
+  if (ctaLabels.length > 0) structureBits.push(`${ctaLabels.length} primary CTA${ctaLabels.length === 1 ? "" : "s"}`);
+  if (formCount > 0) structureBits.push(`${formCount} form${formCount === 1 ? "" : "s"}`);
+  if (structureBits.length) lines.push(`Detected structure: ${structureBits.join(", ")}`);
+  if (headline) lines.push(`Main headline: ${headline}`);
+  if (secondaryHeadings.length) lines.push(`Key sections: ${secondaryHeadings.join(" · ")}`);
+  if (ctaLabels.length) lines.push(`Primary calls to action: ${ctaLabels.join(", ")}`);
+  if (runtimeTokens.length) lines.push(`Live runtime tokens kept in place: ${runtimeTokens.join(", ")}`);
+
+  const designSignals: string[] = [];
+  if (/linear-gradient|gradient/gi.test(html)) designSignals.push("gradient styling");
+  if (/box-shadow|shadow\s*:/gi.test(html)) designSignals.push("elevated card surfaces");
+  if (/grid-template-columns|minmax\(|display\s*:\s*grid/gi.test(html)) designSignals.push("responsive grid layout");
+  if (/testimonial|what clients say|what customers say|★★★★★|stars?/gi.test(html)) designSignals.push("social proof section");
+  if (/faq|frequently asked/gi.test(html)) designSignals.push("FAQ block");
+  if (/\{\{BOOKING_APP\}\}/.test(html)) designSignals.push("live booking embed");
+  if (/\{\{NEWSLETTER_ARCHIVE\}\}/.test(html)) designSignals.push("newsletter archive embed");
+  if (/\{\{REVIEWS_APP\}\}/.test(html)) designSignals.push("live reviews embed");
+  if (/\{\{BLOGS_ARCHIVE\}\}/.test(html)) designSignals.push("blog archive embed");
+  if (/\{\{BLOG_POST_BODY\}\}/.test(html)) designSignals.push("blog post body slot");
+  if (designSignals.length) lines.push(`Design signals: ${Array.from(new Set(designSignals)).slice(0, 4).join(", ")}`);
+
+  return lines.slice(0, 5);
+}
+
+function renderHostedPageDocumentBullet(document: any, extra: string[] = []): string {
+  const title = String(document?.title || document?.pageKey || "Hosted page").trim() || "Hosted page";
+  const pageKey = String(document?.pageKey || "").trim();
+  const status = String(document?.status || "DRAFT").trim().toUpperCase() || "DRAFT";
+  const mode = hostedPageModeDisplay(document?.editorMode);
+  const lines = [`- ${title}${pageKey ? ` (${pageKey})` : ""} — ${status}, ${mode}`];
+  for (const value of extra.filter(Boolean)) lines.push(`  - ${value}`);
+  return lines.join("\n");
+}
+
+function renderDeterministicHostedPageAssistantText(opts: {
+  action: PortalAgentActionKey;
+  args: Record<string, unknown>;
+  result: any;
+  linkUrl?: string | null;
+}): string | null {
+  const result = opts.result && typeof opts.result === "object" ? opts.result : null;
+  if (!result) return null;
+
+  if (opts.action === "hosted_pages.documents.list") {
+    const documents = Array.isArray((result as any).documents) ? ((result as any).documents as any[]) : [];
+    if (!documents.length) {
+      return `I didn’t find any hosted page documents yet.${assistantLink("Open Hosted Page Editor", opts.linkUrl, " ")}`.trim();
+    }
+    const groups = new Map<string, any[]>();
+    for (const document of documents) {
+      const service = String(document?.service || "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
+      const items = groups.get(service) || [];
+      items.push(document);
+      groups.set(service, items);
+    }
+    const sections = Array.from(groups.entries()).map(([service, serviceDocs]) => {
+      const path = hostedPageEditorPath(service);
+      const bullets = serviceDocs.map((document) => renderHostedPageDocumentBullet(document, [`Editor screen: ${path}`]));
+      return `**${hostedPageServiceDisplay(service)}**\n${bullets.join("\n")}`;
+    });
+    return [`Here are the hosted page documents I found:`, ...sections, assistantLink("Open Hosted Page Editor", opts.linkUrl, "\n\n")]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  if (opts.action === "hosted_pages.documents.preview_data") {
+    const document = (result as any).document && typeof (result as any).document === "object" ? (result as any).document : null;
+    const previewData = (result as any).previewData && typeof (result as any).previewData === "object" ? (result as any).previewData : null;
+    const multi = Array.isArray((result as any).documents) ? ((result as any).documents as any[]) : [];
+
+    if (document && previewData) {
+      const tokens = Array.isArray(previewData.runtimeTokens) ? previewData.runtimeTokens.filter((value: unknown) => typeof value === "string" && String(value).trim()) : [];
+      const liveDataLines = summarizeHostedPageLiveData(previewData);
+      return [
+        `Here’s the hosted page preview for ${hostedPageServiceDisplay(document.service)}:`,
+        renderHostedPageDocumentBullet(document, [
+          tokens.length ? `Runtime tokens: ${tokens.join(", ")}` : "",
+          ...liveDataLines,
+          ...summarizeHostedPageEditableSurface(document),
+        ]),
+        assistantLink("Open Hosted Page Editor", opts.linkUrl, "\n\n"),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    }
+
+    if (multi.length) {
+      const docs = multi
+        .map((entry) => {
+          const entryDocument = entry?.document && typeof entry.document === "object" ? entry.document : null;
+          const entryPreview = entry?.previewData && typeof entry.previewData === "object" ? entry.previewData : null;
+          if (!entryDocument || !entryPreview) return "";
+          const tokens = Array.isArray(entryPreview.runtimeTokens) ? entryPreview.runtimeTokens.filter((value: unknown) => typeof value === "string" && String(value).trim()) : [];
+          return renderHostedPageDocumentBullet(entryDocument, [
+            tokens.length ? `Runtime tokens: ${tokens.join(", ")}` : "",
+            ...summarizeHostedPageLiveData(entryPreview),
+            ...summarizeHostedPageEditableSurface(entryDocument),
+          ]);
+        })
+        .filter(Boolean);
+      const service = hostedPageServiceDisplay((result as any).service);
+      const serviceIntro =
+        String((result as any).service || "").trim().toUpperCase() === "BLOGS"
+          ? "The blog index page controls the archive/listing view, while the blog post template controls the single article view."
+          : "";
+      return [`Here’s the hosted page preview data for ${service}:`, serviceIntro, ...docs, assistantLink("Open Hosted Page Editor", opts.linkUrl, "\n\n")]
+        .filter(Boolean)
+        .join("\n\n");
+    }
+  }
+
+  if (opts.action === "hosted_pages.documents.update") {
+    const document = (result as any).document && typeof (result as any).document === "object" ? (result as any).document : null;
+    if (!document) return null;
+    const changed: string[] = [];
+    if (typeof (opts.args as any).title === "string" && String((opts.args as any).title).trim()) changed.push(`Title: ${String((opts.args as any).title).trim()}`);
+    if (typeof (opts.args as any).slug === "string") changed.push(`Slug: ${String((opts.args as any).slug).trim() || "cleared"}`);
+    if (typeof (opts.args as any).status === "string" && String((opts.args as any).status).trim()) changed.push(`Status: ${String((opts.args as any).status).trim().toUpperCase()}`);
+    if (typeof (opts.args as any).editorMode === "string" && String((opts.args as any).editorMode).trim()) changed.push(`Editor mode: ${hostedPageModeDisplay((opts.args as any).editorMode)}`);
+    if (typeof (opts.args as any).customHtml === "string") changed.push(`Custom HTML length: ${String((opts.args as any).customHtml).length} characters`);
+    if (Array.isArray((opts.args as any).blocksJson)) changed.push(`Blocks: ${((opts.args as any).blocksJson as unknown[]).length}`);
+    return [
+      `I updated the hosted page for ${hostedPageServiceDisplay(document.service)}.`,
+      renderHostedPageDocumentBullet(document, changed.length ? changed : ["The requested document fields were updated."]),
+      assistantLink("Open Hosted Page Editor", opts.linkUrl, "\n\n"),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  if (opts.action === "hosted_pages.documents.publish") {
+    const document = (result as any).document && typeof (result as any).document === "object" ? (result as any).document : null;
+    if (!document) return null;
+    return [
+      `I published the hosted page for ${hostedPageServiceDisplay(document.service)}.`,
+      renderHostedPageDocumentBullet(document),
+      assistantLink("Open Hosted Page Editor", opts.linkUrl, "\n\n"),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  if (opts.action === "hosted_pages.documents.reset_to_default") {
+    const document = (result as any).document && typeof (result as any).document === "object" ? (result as any).document : null;
+    if (!document) return null;
+    return [
+      `I reset the hosted page back to its seeded default for ${hostedPageServiceDisplay(document.service)}.`,
+      renderHostedPageDocumentBullet(document),
+      assistantLink("Open Hosted Page Editor", opts.linkUrl, "\n\n"),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  if (opts.action === "hosted_pages.documents.generate_html") {
+    const document = (result as any).document && typeof (result as any).document === "object" ? (result as any).document : null;
+    const html = typeof (result as any).html === "string" ? String((result as any).html) : "";
+    const question = typeof (result as any).question === "string" ? String((result as any).question).trim() : "";
+    if (!document) return null;
+    const prompt = typeof (opts.args as any).prompt === "string" ? String((opts.args as any).prompt).trim().replace(/\s+/g, " ") : "";
+    const promptSummary = prompt.length > 160 ? `${prompt.slice(0, 157).trim()}...` : prompt;
+    if (question) {
+      return [
+        `I need one more detail before I generate the hosted page for ${hostedPageServiceDisplay(document.service)}.`,
+        question,
+        renderHostedPageDocumentBullet(document, [promptSummary ? `Requested direction: ${promptSummary}` : ""]),
+        assistantLink("Open Hosted Page Editor", opts.linkUrl, "\n\n"),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+    }
+    return [
+      `I generated fresh hosted HTML for ${hostedPageServiceDisplay(document.service)}.`,
+      renderHostedPageDocumentBullet(document, [
+        promptSummary ? `Applied direction: ${promptSummary}` : "",
+        ...summarizeGeneratedHostedPageHtml(html),
+        `Custom HTML length: ${html.length} characters`,
+      ]),
+      assistantLink("Open Hosted Page Editor", opts.linkUrl, "\n\n"),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  return null;
+}
+
 function renderDeterministicAssistantTextForActionResult(opts: {
   action: PortalAgentActionKey;
   ok: boolean;
@@ -2377,6 +2753,9 @@ function renderDeterministicAssistantTextForActionResult(opts: {
   linkUrl?: string | null;
 }): string | null {
   if (!opts.ok || opts.status < 200 || opts.status >= 300 || !opts.result || typeof opts.result !== "object") return null;
+
+  const hostedPageText = renderDeterministicHostedPageAssistantText(opts);
+  if (hostedPageText) return hostedPageText;
 
   if (opts.action === "tasks.list") {
     const tasks = Array.isArray((opts.result as any).tasks) ? ((opts.result as any).tasks as any[]) : [];
@@ -3453,6 +3832,18 @@ async function runDirectAction(opts: {
   args: any;
 }): Promise<{ status: number; json: any }> {
   const { action, ownerId, actorUserId, args } = opts;
+
+  const resolveHostedPageDocumentId = async () => {
+    const documentId = String(args?.documentId || "").trim();
+    if (documentId) return documentId;
+
+    const service = parseHostedPageService(args?.service);
+    const pageKey = String(args?.pageKey || "").trim();
+    if (!service || !pageKey) return "";
+
+    const document = await getHostedPageDocumentByPageKey(ownerId, service, pageKey);
+    return String(document?.id || "").trim();
+  };
 
   function readStringArray(json: unknown): string[] {
     if (!Array.isArray(json)) return [];
@@ -6205,6 +6596,252 @@ async function runDirectAction(opts: {
       });
 
       return { status: 200, json: { ok: true, html: updated.customHtml, page: updated } };
+    }
+
+    case "hosted_pages.documents.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const rawService = String(args?.service || "").trim();
+      if (!rawService) return { status: 400, json: { ok: false, error: "Invalid service" } };
+
+      if (rawService.toUpperCase() === "ALL") {
+        const services: Array<"BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS"> = ["BOOKING", "NEWSLETTER", "REVIEWS", "BLOGS"];
+        for (const service of services) {
+          await bootstrapHostedPageDocuments(ownerId, service);
+        }
+        const documents = await listAllHostedPageDocuments(ownerId);
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            service: "ALL",
+            documents,
+          },
+        };
+      }
+
+      const service = parseHostedPageService(rawService);
+      if (!service) return { status: 400, json: { ok: false, error: "Invalid service" } };
+
+      const documents = await bootstrapHostedPageDocuments(ownerId, service);
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          service,
+          generatorPrompt: getDefaultHostedPagePrompt(service),
+          documents,
+        },
+      };
+    }
+
+    case "hosted_pages.documents.bootstrap": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const service = parseHostedPageService(args?.service);
+      if (!service) return { status: 400, json: { ok: false, error: "Invalid service" } };
+
+      const documents = await bootstrapHostedPageDocuments(ownerId, service);
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          service,
+          generatorPrompt: getDefaultHostedPagePrompt(service),
+          documents,
+        },
+      };
+    }
+
+    case "hosted_pages.documents.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const documentId = await resolveHostedPageDocumentId();
+      if (!documentId) return { status: 400, json: { ok: false, error: "Invalid documentId" } };
+
+      const document = await getHostedPageDocument(ownerId, documentId);
+      if (!document) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          document,
+          generatorPrompt: getDefaultHostedPagePrompt(document.service, document),
+        },
+      };
+    }
+
+    case "hosted_pages.documents.update": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const documentId = await resolveHostedPageDocumentId();
+      if (!documentId) return { status: 400, json: { ok: false, error: "Invalid documentId" } };
+
+      const document = await updateHostedPageDocument(ownerId, documentId, {
+        title: args?.title,
+        slug: args?.slug,
+        status: args?.status,
+        contentMarkdown: args?.contentMarkdown,
+        editorMode: args?.editorMode,
+        blocksJson: args?.blocksJson,
+        customHtml: args?.customHtml,
+        customChatJson: args?.customChatJson,
+        themeJson: args?.themeJson,
+        dataBindingsJson: args?.dataBindingsJson,
+        seo: typeof args?.seo === "undefined" ? undefined : args.seo,
+      });
+      if (!document) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          document,
+          generatorPrompt: getDefaultHostedPagePrompt(document.service, document),
+        },
+      };
+    }
+
+    case "hosted_pages.documents.preview_data": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const documentId = await resolveHostedPageDocumentId();
+      if (!documentId) {
+        const service = parseHostedPageService(args?.service);
+        if (!service) return { status: 400, json: { ok: false, error: "Invalid documentId" } };
+
+        const documents = await bootstrapHostedPageDocuments(ownerId, service);
+        const previewDocuments = await Promise.all(
+          documents.map(async (document: HostedPageDocumentDto) => ({
+            document,
+            previewData: await getHostedPagePreviewData(ownerId, document.id),
+            generatorPrompt: getDefaultHostedPagePrompt(document.service, document),
+          })),
+        );
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            service,
+            documents: previewDocuments.filter((entry) => entry.previewData),
+          },
+        };
+      }
+
+      const [document, previewData] = await Promise.all([
+        getHostedPageDocument(ownerId, documentId),
+        getHostedPagePreviewData(ownerId, documentId),
+      ]);
+      if (!document || !previewData) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          document,
+          previewData,
+          generatorPrompt: getDefaultHostedPagePrompt(document.service, document),
+        },
+      };
+    }
+
+    case "hosted_pages.documents.publish": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const documentId = await resolveHostedPageDocumentId();
+      if (!documentId) return { status: 400, json: { ok: false, error: "Invalid documentId" } };
+
+      const document = await setHostedPageDocumentStatus(ownerId, documentId, "PUBLISHED");
+      if (!document) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          document,
+          generatorPrompt: getDefaultHostedPagePrompt(document.service, document),
+        },
+      };
+    }
+
+    case "hosted_pages.documents.reset_to_default": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const documentId = await resolveHostedPageDocumentId();
+      if (!documentId) return { status: 400, json: { ok: false, error: "Invalid documentId" } };
+
+      const document = await resetHostedPageDocumentToDefault(ownerId, documentId);
+      if (!document) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          document,
+          generatorPrompt: getDefaultHostedPagePrompt(document.service, document),
+        },
+      };
+    }
+
+    case "hosted_pages.documents.export_custom_html": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const documentId = String(args?.documentId || "").trim();
+      if (!documentId) return { status: 400, json: { ok: false, error: "Invalid documentId" } };
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
+
+      const result = await exportHostedPageDocumentCustomHtml({
+        ownerId,
+        documentId,
+        title: typeof args?.title === "string" ? args.title : undefined,
+        blocksJson: args?.blocksJson,
+        setEditorMode: typeof args?.setEditorMode === "string" ? args.setEditorMode : undefined,
+        basePath,
+      });
+      if (!result) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          html: result.html,
+          document: result.document,
+          generatorPrompt: getDefaultHostedPagePrompt(result.document.service, result.document),
+        },
+      };
+    }
+
+    case "hosted_pages.documents.generate_html": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const documentId = await resolveHostedPageDocumentId();
+      const prompt = typeof args?.prompt === "string" ? args.prompt.trim() : "";
+      if (!documentId) return { status: 400, json: { ok: false, error: "Invalid documentId" } };
+      if (!prompt) return { status: 400, json: { ok: false, error: "Prompt is required" } };
+
+      const result = await generateHostedPageHtml({
+        ownerId,
+        documentId,
+        prompt,
+        currentHtml: typeof args?.currentHtml === "string" ? args.currentHtml : undefined,
+        attachments: args?.attachments,
+        requestOrigin: getAppBaseUrl(),
+      });
+      if (!result) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          ...(result.question ? { question: result.question } : { html: result.html }),
+          document: result.document,
+          generatorPrompt: getDefaultHostedPagePrompt(result.document.service, result.document),
+        },
+      };
     }
 
     case "funnel_builder.pages.generate_html": {

@@ -317,11 +317,20 @@ export function PortalBlogsClient({
                 <span>Live</span>
               </span>
             </a>
+            <a
+              href={`${currentAppBase(pathname)}/services/blogs/page-editor`}
+              className={`block ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
+            >
+              <span className="flex items-center gap-2">
+                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconEyeGlyph size={18} /></span>
+                <span>Edit page</span>
+              </span>
+            </a>
           </div>
         </div>
       </div>
     );
-  }, [liveBlogsHref, onTabChange, previewBlogsHref, routeTab]);
+  }, [liveBlogsHref, onTabChange, pathname, previewBlogsHref, routeTab]);
 
   useEffect(() => {
     if (!entitled) return;
@@ -871,17 +880,6 @@ export function PortalBlogsClient({
                 <div className="text-sm font-semibold text-zinc-900">Posts</div>
                 <div className="mt-2 text-sm text-zinc-600">Edit drafts, export Markdown, and keep everything organized.</div>
               </div>
-              {!isPaMobileApp ? (
-                <button
-                  type="button"
-                  onClick={newDraft}
-                  aria-label="New blog"
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                >
-                  <span className="text-lg leading-none">+</span>
-                  <span>New blog</span>
-                </button>
-              ) : null}
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -898,6 +896,20 @@ export function PortalBlogsClient({
                   Last 30 days · {blogGenerations30d === null ? "N/A" : blogGenerations30d} generation{blogGenerations30d === 1 ? "" : "s"}
                 </div>
               </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              {!isPaMobileApp ? (
+                <button
+                  type="button"
+                  onClick={newDraft}
+                  aria-label="New blog"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  <span className="text-lg leading-none">+</span>
+                  <span>New blog</span>
+                </button>
+              ) : null}
             </div>
 
             <div className={isPaMobileApp ? "mt-5 overflow-x-auto rounded-2xl border border-zinc-200" : "mt-5 overflow-hidden rounded-2xl border border-zinc-200"}>

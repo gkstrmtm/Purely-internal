@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 const postSchema = z.object({
 	participantId: z.string().min(1),
 	secret: z.string().min(1),
-	toParticipantId: z.string().min(1).optional(),
+	toParticipantId: z.string().min(1).nullable().optional(),
 	kind: z.string().min(1).max(30),
 	payload: z.unknown(),
 });

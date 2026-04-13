@@ -570,6 +570,99 @@
 				"tmp/repro_newsletter_edit.json"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "Inspect: prisma failed migration",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_prisma_migration.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: prisma failed migration",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_prisma_migration.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: prisma failed migration summary",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_prisma_migration.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: prisma migration state compact",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_prisma_migration.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: prisma migration state file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_prisma_migration.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: hosted routes check",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/check_hosted_routes.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: connect meeting previews",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/connect_meeting_preview.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Prod: next start",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"start"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "Prod: next start logged",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"npm run start > tmp/prod-server.log 2>&1"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "Inspect: connect preview logged",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"node tmp/connect_meeting_preview.mjs > tmp/connect-preview.log 2>&1"
+			],
+			"isBackground": false
 		}
 	]
 }

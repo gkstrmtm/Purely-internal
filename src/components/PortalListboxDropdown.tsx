@@ -104,7 +104,7 @@ export function PortalListboxDropdown<T extends string>(props: {
     const menu = (
       <div
         ref={menuRef}
-        className="pa-portal-listbox-menu overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
+        className="pa-portal-listbox-menu overflow-hidden rounded-3xl border border-[rgba(37,99,235,0.12)] bg-[rgba(255,255,255,0.74)] shadow-[0_18px_45px_rgba(37,99,235,0.10)] supports-backdrop-filter:bg-[rgba(255,255,255,0.58)] supports-backdrop-filter:backdrop-blur-xl"
         role="listbox"
         style={{
           position: portal ? "fixed" : ("static" as any),
@@ -123,7 +123,7 @@ export function PortalListboxDropdown<T extends string>(props: {
           {options.map((o) => {
             const isSel = o.value === value;
             const disabled = Boolean(o.disabled);
-            const hintClassName = disabled ? "text-zinc-400" : isSel ? "text-white/80" : "text-zinc-600";
+            const hintClassName = disabled ? "text-zinc-400" : isSel ? "text-brand-blue/70" : "text-zinc-600";
             return (
               <button
                 key={o.value}
@@ -131,12 +131,12 @@ export function PortalListboxDropdown<T extends string>(props: {
                 title={o.label}
                 data-selected={isSel ? "true" : "false"}
                 className={
-                  "pa-portal-listbox-option w-full rounded-xl px-3 py-2 text-left text-sm transition " +
+                  "pa-portal-listbox-option w-full rounded-2xl px-3.5 py-2.5 text-left text-sm transition-all duration-150 " +
                   (disabled
                     ? "cursor-not-allowed text-zinc-400"
                     : isSel
-                      ? "bg-(--color-brand-blue) text-white"
-                      : "hover:bg-zinc-50 text-zinc-900")
+                      ? "border border-[rgba(37,99,235,0.12)] bg-[rgba(37,99,235,0.14)] text-brand-blue shadow-[0_10px_24px_rgba(37,99,235,0.08)]"
+                      : "border border-transparent bg-white/26 text-zinc-900 hover:border-[rgba(37,99,235,0.10)] hover:bg-[rgba(255,255,255,0.46)] hover:shadow-[0_10px_24px_rgba(37,99,235,0.08)]")
                 }
                 onClick={() => {
                   if (disabled) return;
@@ -234,7 +234,7 @@ export function PortalListboxDropdown<T extends string>(props: {
         disabled={disabled}
         className={
           (buttonClassName ||
-            "pa-portal-listbox-button flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50") +
+            "pa-portal-listbox-button flex w-full items-center justify-between gap-2 rounded-[22px] border border-[rgba(37,99,235,0.12)] bg-[rgba(255,255,255,0.68)] px-3.5 py-2.5 text-sm shadow-[0_10px_28px_rgba(37,99,235,0.08)] transition-all duration-150 hover:-translate-y-0.5 hover:border-[rgba(37,99,235,0.16)] hover:bg-[rgba(255,255,255,0.76)] supports-backdrop-filter:bg-[rgba(255,255,255,0.52)] supports-backdrop-filter:backdrop-blur-xl") +
           (disabled ? " cursor-not-allowed opacity-60" : "")
         }
         onMouseDown={(e) => {
@@ -265,7 +265,7 @@ export function PortalListboxDropdown<T extends string>(props: {
         >
           {currentLabel}
         </span>
-        <span className="pa-portal-listbox-chevron shrink-0 text-xs text-zinc-500">▾</span>
+        <span className="pa-portal-listbox-chevron shrink-0 text-xs text-brand-blue/70">▾</span>
       </button>
 
       {open ? menuNode : null}

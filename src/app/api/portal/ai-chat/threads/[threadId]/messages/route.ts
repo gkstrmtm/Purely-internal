@@ -3447,9 +3447,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     const failedCount = Number(opts.failedCount || 0);
     const pendingCount = Number(opts.pendingCount || 0);
     if (completedCount <= 0 || failedCount > 0 || pendingCount > 0) return [] as string[];
+    const actionKeys = Array.isArray(opts.actionKeys) ? opts.actionKeys : [];
+    const primaryAction = typeof actionKeys[0] === "string" ? String(actionKeys[0]).trim().toLowerCase() : "";
 
     const haystack = [
-      ...(Array.isArray(opts.actionKeys) ? opts.actionKeys : []),
+      ...actionKeys,
       String(opts.canvasUrl || ""),
       String(opts.promptText || ""),
     ]
@@ -3465,7 +3467,29 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       suggestions.push(trimmed);
     };
 
-    if (/booking|calendar|appointment|availability|meeting/.test(haystack)) {
+    if (/hosted_pages\.documents|hosted page|page-editor|\/page-editor/.test(haystack)) {
+      if (primaryAction === "hosted_pages.documents.list") {
+        push("Inspect the hosted page you want to edit next and I’ll break down its runtime tokens and live data.");
+        push("Pick one hosted page and I’ll generate a higher-converting draft without publishing it.");
+        push("Tell me which hosted page you want to update next and what you want changed.");
+      } else if (primaryAction === "hosted_pages.documents.preview_data") {
+        push("Generate a stronger hosted-page draft for this page without publishing it.");
+        push("Update this hosted page’s title, slug, or editor mode next.");
+        push("Compare this hosted page against the seeded default and tell me what should change.");
+      } else if (primaryAction === "hosted_pages.documents.update" || primaryAction === "hosted_pages.documents.generate_html") {
+        push("Publish this hosted page if the current draft looks right.");
+        push("Reset this hosted page back to its seeded default if you want to undo these changes.");
+        push("Inspect this hosted page again and verify its runtime tokens and live data.");
+      } else if (primaryAction === "hosted_pages.documents.publish") {
+        push("Inspect this hosted page again and verify the published version’s live data.");
+        push("Generate another hosted-page variant if you want to improve the published draft.");
+        push("Reset this hosted page to its seeded default if you want to roll back.");
+      } else if (primaryAction === "hosted_pages.documents.reset_to_default") {
+        push("Generate a fresh hosted-page draft from the default seed.");
+        push("Inspect this hosted page again and I’ll walk through the editable areas.");
+        push("Update this hosted page’s title, slug, or layout direction next.");
+      }
+    } else if (/booking|calendar|appointment|availability|meeting/.test(haystack)) {
       push("Audit the booking flow for the next bottleneck.");
       push("Summarize what changed in booking and what still needs attention.");
     } else if (/funnel|landing|checkout|upsell|downsell|page builder|website/.test(haystack)) {
@@ -3488,8 +3512,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       push("Suggest the next cleanup or publishing step for this media work.");
     }
 
-    push("Summarize what changed and tell me the next best step.");
-    push("What should Pura do next here?");
+    if (!suggestions.length) {
+      push("Summarize what changed and tell me the next best step.");
+      push("What should Pura do next here?");
+    }
     return suggestions.slice(0, 3);
   };
 

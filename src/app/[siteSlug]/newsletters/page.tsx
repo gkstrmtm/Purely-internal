@@ -7,9 +7,14 @@ import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { resolveNewsletterHostedFont } from "@/lib/portalNewsletterFonts";
 import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
 import { getHostedTheme } from "@/lib/hostedTheme";
+import { renderHostedCustomHtmlTemplate } from "@/lib/hostedPageRuntime";
+import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
+import { HostedNewsletterArchive } from "@/components/hosted/HostedNewsletterArchive";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const NEWSLETTER_ARCHIVE_TOKEN = "{{NEWSLETTER_ARCHIVE}}";
 
 type PageProps = {
   params: Promise<{ siteSlug: string }>;
@@ -114,6 +119,27 @@ export default async function ClientNewslettersIndexPage(props: PageProps) {
     select: { slug: true, title: true, excerpt: true, sentAt: true, updatedAt: true },
   });
 
+  const hostedNewsletterPage = await (prisma as any).hostedPageDocument.findFirst({
+    where: { ownerId: (site as any).ownerId, service: "NEWSLETTER", pageKey: "newsletter_home" },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, title: true, editorMode: true, blocksJson: true, customHtml: true },
+  });
+
+  const hostedBlocks = coerceBlocksJson(hostedNewsletterPage?.blocksJson);
+  const hasHostedBlocks = Boolean(hostedNewsletterPage?.editorMode === "BLOCKS" && hostedBlocks.length);
+  const hasHostedCustomHtml = Boolean(
+    hostedNewsletterPage?.editorMode === "CUSTOM_HTML" && typeof hostedNewsletterPage?.customHtml === "string" && hostedNewsletterPage.customHtml.trim(),
+  );
+
+  const newsletterArchive = (
+    <HostedNewsletterArchive
+      newsletters={newsletters}
+      basePath={`/${siteHandle}/newsletters`}
+      emptyTitle="No newsletters yet."
+      emptyDescription="Check back shortly."
+    />
+  );
+
   return (
     <div
       className={"min-h-screen " + (hostedFont.className || "")}
@@ -147,60 +173,40 @@ export default async function ClientNewslettersIndexPage(props: PageProps) {
       </header>
 
       <main>
-        <section style={{ backgroundColor: "var(--client-primary)" }}>
-          <div className="mx-auto max-w-6xl px-6 py-14">
-            <div className="max-w-3xl">
-              <div className="text-4xl sm:text-5xl" style={{ color: "var(--client-on-primary)" }}>
-                newsletters
-              </div>
-              <p className="mt-4 text-lg leading-relaxed" style={{ color: "var(--client-on-primary-muted)" }}>
-                Latest updates from {brandName}.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-6xl px-6 py-14">
-          <div className="mx-auto max-w-3xl">
-            {newsletters.length === 0 ? (
-              <div
-                className="rounded-3xl border p-8"
-                style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-soft)" }}
-              >
-                <div className="text-lg font-semibold" style={{ color: "var(--client-text)" }}>
-                  No newsletters yet.
+        {hasHostedCustomHtml ? (
+          renderHostedCustomHtmlTemplate({
+            html: hostedNewsletterPage.customHtml,
+            textTokens: {
+              BUSINESS_NAME: brandName,
+              PAGE_TITLE: "Newsletters",
+              PAGE_DESCRIPTION: `Latest updates from ${brandName}.`,
+              SITE_HANDLE: String(siteHandle),
+            },
+            runtimeTokens: { [NEWSLETTER_ARCHIVE_TOKEN]: newsletterArchive },
+            fallback: newsletterArchive,
+          })
+        ) : hasHostedBlocks ? (
+          <>
+            <div className="mx-auto max-w-6xl px-6 py-10">{renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "" })}</div>
+            {newsletterArchive}
+          </>
+        ) : (
+          <>
+            <section style={{ backgroundColor: "var(--client-primary)" }}>
+              <div className="mx-auto max-w-6xl px-6 py-14">
+                <div className="max-w-3xl">
+                  <div className="text-4xl sm:text-5xl" style={{ color: "var(--client-on-primary)" }}>
+                    newsletters
+                  </div>
+                  <p className="mt-4 text-lg leading-relaxed" style={{ color: "var(--client-on-primary-muted)" }}>
+                    Latest updates from {brandName}.
+                  </p>
                 </div>
-                <div className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
-                  Check back shortly.
-                </div>
               </div>
-            ) : (
-              <div className="space-y-4">
-                {newsletters.map((n) => (
-                  <Link
-                    key={n.slug}
-                    href={`/${siteHandle}/newsletters/${n.slug}`}
-                    className="block rounded-3xl border p-7 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md hover:brightness-[0.99]"
-                    style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
-                  >
-                    <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--client-muted)" }}>
-                      {formatDate(n.sentAt ?? n.updatedAt)}
-                    </div>
-                    <div className="mt-2 text-2xl" style={{ color: "var(--client-link)" }}>
-                      {n.title}
-                    </div>
-                    <div className="mt-3 text-sm leading-relaxed" style={{ color: "var(--client-text)" }}>
-                      {n.excerpt}
-                    </div>
-                    <div className="mt-5 text-sm font-bold" style={{ color: "var(--client-link)" }}>
-                      read
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
+            </section>
+            {newsletterArchive}
+          </>
+        )}
       </main>
 
       <footer className="border-t" style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}>

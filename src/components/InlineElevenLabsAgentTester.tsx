@@ -601,7 +601,7 @@ export function InlineElevenLabsAgentTester(props: {
 
   return (
     <div className={props.className ?? ""}>
-      <div className="rounded-3xl border border-zinc-200 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] supports-backdrop-filter:bg-white/80 supports-backdrop-filter:backdrop-blur">
+      <div className="flex min-h-80 flex-col">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <div
@@ -636,7 +636,7 @@ export function InlineElevenLabsAgentTester(props: {
           <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>
         ) : null}
 
-        <div className="mt-5 flex items-center justify-center">
+        <div className="flex flex-1 items-center justify-center py-10">
           {status === "connected" ? (
             <button
               type="button"
@@ -680,7 +680,7 @@ export function InlineElevenLabsAgentTester(props: {
           )}
         </div>
 
-        <div className="mt-4 flex items-center justify-center gap-2">
+        <div className="flex items-center justify-center gap-2 pt-1">
           <button
             type="button"
             className={classNames(

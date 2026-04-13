@@ -110,9 +110,11 @@ function bookingApiBase(target: PublicBookingTarget) {
 export function PublicBookingClient({
   target,
   showBranding = true,
+  embedded = false,
 }: {
   target: PublicBookingTarget;
   showBranding?: boolean;
+  embedded?: boolean;
 }) {
   const toast = useToast();
   const [site, setSite] = useState<Site | null>(null);
@@ -357,11 +359,8 @@ export function PublicBookingClient({
   }
 
   if (loading) {
-    return (
-      <div
-        className="min-h-screen"
-        style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}
-      >
+    const content = (
+      <div style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}>
         <div className="mx-auto max-w-3xl px-6 py-12">
           <div className="rounded-3xl border p-6 text-sm" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)", color: "var(--booking-muted)" }}>
             Loading…
@@ -369,14 +368,12 @@ export function PublicBookingClient({
         </div>
       </div>
     );
+    return embedded ? content : <div className="min-h-screen">{content}</div>;
   }
 
   if (error && !site) {
-    return (
-      <div
-        className="min-h-screen"
-        style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}
-      >
+    const content = (
+      <div style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}>
         <div className="mx-auto max-w-3xl px-6 py-12">
           <div className="rounded-3xl border p-6" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
             <div className="text-base font-semibold" style={{ color: "var(--booking-text)" }}>
@@ -394,13 +391,13 @@ export function PublicBookingClient({
         </div>
       </div>
     );
+    return embedded ? content : <div className="min-h-screen">{content}</div>;
   }
 
   if (success && site) {
     const thankYou = (site.form?.thankYouMessage ?? "").trim();
-    return (
+    const content = (
       <div
-        className="min-h-screen"
         style={{
           ...(bookingStyleVars as any),
           backgroundColor: "var(--booking-bg)",
@@ -465,11 +462,11 @@ export function PublicBookingClient({
         </div>
       </div>
     );
+    return embedded ? content : <div className="min-h-screen">{content}</div>;
   }
 
-  return (
+  const content = (
     <div
-      className="min-h-screen"
       style={{
         ...(bookingStyleVars as any),
         backgroundColor: "var(--booking-bg)",
@@ -831,4 +828,5 @@ export function PublicBookingClient({
       </div>
     </div>
   );
+  return embedded ? content : <div className="min-h-screen">{content}</div>;
 }

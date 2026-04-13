@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
 import { prisma } from "@/lib/db";
-import { formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
@@ -12,9 +11,14 @@ import { resolveHostedFont } from "@/lib/portalHostedFonts";
 import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
 import { getHostedTheme } from "@/lib/hostedTheme";
 import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
+import { renderHostedCustomHtmlTemplate } from "@/lib/hostedPageRuntime";
+import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
+import { HostedBlogPostArticle } from "@/components/hosted/HostedBlogPostArticle";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const BLOG_POST_BODY_TOKEN = "{{BLOG_POST_BODY}}";
 
 async function PendingVerification({ ownerId }: { ownerId: string }) {
   const [hostedBrandFont, hostedTheme] = await Promise.all([
@@ -166,12 +170,23 @@ export default async function CustomDomainBlogPostPage({
   });
   if (!post) notFound();
 
+  const hostedBlogPostTemplate = await (prisma as any).hostedPageDocument.findFirst({
+    where: { ownerId: site.ownerId, service: "BLOGS", pageKey: "blogs_post_template" },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, title: true, editorMode: true, blocksJson: true, customHtml: true },
+  });
+
   const brandName = (profile as any)?.businessName || site.name;
   const logoUrl = (profile as any)?.logoUrl || null;
 
   const themeStyle = theme.cssVars;
+  const hostedBlocks = coerceBlocksJson(hostedBlogPostTemplate?.blocksJson);
+  const hasHostedBlocks = Boolean(hostedBlogPostTemplate?.editorMode === "BLOCKS" && hostedBlocks.length);
+  const hasHostedCustomHtml = Boolean(
+    hostedBlogPostTemplate?.editorMode === "CUSTOM_HTML" && typeof hostedBlogPostTemplate?.customHtml === "string" && hostedBlogPostTemplate.customHtml.trim(),
+  );
 
-  const blocks = parseBlogContent(post.content);
+  const postArticle = <HostedBlogPostArticle post={post} blogsHref="/blogs" learnMoreHref="https://purelyautomation.com" />;
 
   return (
     <div
@@ -210,88 +225,26 @@ export default async function CustomDomainBlogPostPage({
       <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" domain={host} ownerId={mapping.ownerId} pathOverride={`/blogs/${postSlug}`} />
 
       <main className="mx-auto max-w-6xl px-6 py-14">
-        <div className="mx-auto max-w-3xl">
-          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--client-muted)" }}>
-            {formatBlogDate(post.publishedAt ?? post.updatedAt)}
-          </div>
-          <h1 className="mt-3 font-brand text-4xl leading-tight sm:text-5xl" style={{ color: "var(--client-link)" }}>
-            {post.title}
-          </h1>
-          <p className="mt-5 text-base leading-relaxed" style={{ color: "var(--client-muted)" }}>
-            {post.excerpt}
-          </p>
-
-          <div className="mt-10 space-y-6">
-            {blocks.map((b, idx) => {
-              if (b.type === "h2") {
-                return (
-                  <h2 key={idx} className="pt-4 font-brand text-2xl" style={{ color: "var(--client-text)" }}>
-                    <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(b.text) }} />
-                  </h2>
-                );
-              }
-              if (b.type === "h3") {
-                return (
-                  <h3 key={idx} className="pt-2 text-lg font-bold" style={{ color: "var(--client-text)" }}>
-                    <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(b.text) }} />
-                  </h3>
-                );
-              }
-              if (b.type === "img") {
-                return (
-                  <div
-                    key={idx}
-                    className="overflow-hidden rounded-3xl border"
-                    style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-soft)" }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={b.src} alt={b.alt || ""} className="h-auto w-full object-cover" />
-                  </div>
-                );
-              }
-              if (b.type === "ul") {
-                return (
-                  <ul key={idx} className="list-disc space-y-2 pl-6 text-sm leading-relaxed" style={{ color: "var(--client-muted)" }}>
-                    {b.items.map((item, itemIdx) => (
-                      <li key={itemIdx} dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(item) }} />
-                    ))}
-                  </ul>
-                );
-              }
-              return (
-                <p key={idx} className="text-sm leading-relaxed" style={{ color: "var(--client-muted)" }}>
-                  <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(b.text) }} />
-                </p>
-              );
-            })}
-          </div>
-
-          <div className="mt-12 rounded-3xl p-8" style={{ backgroundColor: "var(--client-soft)" }}>
-            <div className="font-brand text-2xl" style={{ color: "var(--client-link)" }}>
-              Want this kind of consistency?
-            </div>
-            <p className="mt-3 text-sm leading-relaxed" style={{ color: "var(--client-muted)" }}>
-              This blog is hosted by Purely Automation.
-            </p>
-            <div className="mt-6 flex flex-wrap items-center gap-3">
-              <a
-                href="https://purelyautomation.com"
-                className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-base font-extrabold shadow-sm"
-                style={{ backgroundColor: "var(--client-accent)", color: "var(--client-on-accent)" }}
-              >
-                learn more
-              </a>
-              <Link
-                href="/blogs"
-                className="inline-flex items-center justify-center rounded-2xl border px-6 py-3 text-base font-bold"
-                style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-link)" }}
-              >
-                back to posts
-              </Link>
-            </div>
-          </div>
-
-        </div>
+        {hasHostedCustomHtml ? (
+          renderHostedCustomHtmlTemplate({
+            html: hostedBlogPostTemplate.customHtml,
+            textTokens: {
+              BUSINESS_NAME: brandName,
+              PAGE_TITLE: post.title,
+              PAGE_DESCRIPTION: post.excerpt ?? `Read ${post.title} from ${brandName}.`,
+              SITE_HANDLE: host,
+            },
+            runtimeTokens: { [BLOG_POST_BODY_TOKEN]: postArticle },
+            fallback: postArticle,
+          })
+        ) : hasHostedBlocks ? (
+          <>
+            <div className="px-6 pb-10">{renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "" })}</div>
+            {postArticle}
+          </>
+        ) : (
+          postArticle
+        )}
       </main>
 
       <footer className="border-t" style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}>

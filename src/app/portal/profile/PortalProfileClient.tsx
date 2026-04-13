@@ -192,7 +192,7 @@ function ToggleChip({ checked }: { checked: boolean }) {
       <span
         className={classNames(
           "pa-portal-toggle-track pointer-events-none absolute inset-0 rounded-full bg-zinc-200 transition-colors duration-200",
-          checked && "bg-[color:var(--color-brand-blue)]",
+          checked && "bg-(--color-brand-blue)",
         )}
       />
       <span
@@ -245,6 +245,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const [domainInput, setDomainInput] = useState("");
   const [domainBusy, setDomainBusy] = useState(false);
   const [domainVerifyBusy, setDomainVerifyBusy] = useState<Record<string, boolean>>({});
+  const [domainDeleteBusy, setDomainDeleteBusy] = useState<Record<string, boolean>>({});
   const [expandedDomains, setExpandedDomains] = useState<Record<string, boolean>>({});
   const [salesProvider, setSalesProvider] = useState<SalesReportingProviderKey>("stripe");
   const [stripeSecretKey, setStripeSecretKey] = useState<string>("");
@@ -690,6 +691,31 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     }
     if (json.verified) toast.success(`${domain.domain} is ready.`);
     else if (json.error) toast.error(json.error);
+    await reloadDomains();
+  }
+
+  async function deleteDomain(domain: FunnelBuilderDomain) {
+    if (!domain?.id || domainDeleteBusy[domain.id]) return;
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(`Delete ${domain.domain}? This also removes it from your saved domain list.`);
+      if (!confirmed) return;
+    }
+    setDomainDeleteBusy((current) => ({ ...current, [domain.id]: true }));
+    const res = await fetch(`/api/portal/funnel-builder/domains/${encodeURIComponent(domain.id)}`, {
+      method: "DELETE",
+    }).catch(() => null as any);
+    const json = (await res?.json?.().catch(() => null)) as { ok?: boolean; error?: string } | null;
+    setDomainDeleteBusy((current) => ({ ...current, [domain.id]: false }));
+    if (!res?.ok || !json?.ok) {
+      toast.error(json?.error || "Unable to delete domain");
+      return;
+    }
+    toast.success("Domain deleted");
+    setExpandedDomains((current) => {
+      const next = { ...current };
+      delete next[domain.id];
+      return next;
+    });
     await reloadDomains();
   }
 
@@ -1654,6 +1680,14 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                         className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                                       >
                                         {domainVerifyBusy[domain.id] ? "Verifying…" : verified ? "Re-check DNS" : "Verify DNS"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void deleteDomain(domain)}
+                                        disabled={Boolean(domainDeleteBusy[domain.id])}
+                                        className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-100 disabled:opacity-60"
+                                      >
+                                        {domainDeleteBusy[domain.id] ? "Deleting…" : "Delete domain"}
                                       </button>
                                     </div>
                                   </>
