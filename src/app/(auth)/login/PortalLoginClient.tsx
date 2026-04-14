@@ -59,13 +59,18 @@ export default function PortalLoginClient() {
 
     setLoading(false);
 
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; defaultFrom?: string | null; error?: string } | null;
+
     if (!res.ok) {
-      toast.error("Incorrect email or password");
-      setFailedOnce(true);
+      if (res.status === 401) {
+        toast.error("Incorrect email or password");
+        setFailedOnce(true);
+      } else {
+        toast.error(json?.error || "Unable to sign in right now.");
+      }
       return;
     }
 
-    const json = (await res.json().catch(() => null)) as { ok?: boolean; defaultFrom?: string | null } | null;
     const preferredFrom = safeInternalPath(json?.defaultFrom, defaultFrom);
 
     // Hard navigation ensures the new session cookie is applied for the next request.

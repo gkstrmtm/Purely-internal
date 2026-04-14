@@ -50,7 +50,7 @@ export default async function PortalAppHomePage({
   await requirePortalUser();
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-380 transition-[max-width] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)]">
       <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Dashboard</h1>

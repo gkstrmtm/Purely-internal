@@ -207,34 +207,35 @@ export async function POST(req: Request) {
   const occurredAt = new Date(`${dayKey}T00:00:00.000Z`);
 
   // Aggregate into a single row per owner per day.
-  // This keeps weekly rollups correct (occurredAt stays pinned to day start).
-  await prisma.$transaction(async (tx) => {
-    const existing = await tx.portalHoursSavedEvent.findUnique({
+  // Avoid an interactive transaction here because this endpoint is hit frequently
+  // from the shell and can time out locally while other long queries are in flight.
+  try {
+    const event = await prisma.portalHoursSavedEvent.upsert({
       where: { ownerId_kind_sourceId: { ownerId, kind: KIND, sourceId: dayKey } },
+      create: {
+        ownerId,
+        kind: KIND,
+        sourceId: dayKey,
+        secondsSaved: Math.min(MAX_SECONDS_PER_DAY, dtSec),
+        occurredAt,
+      },
+      update: {
+        secondsSaved: { increment: dtSec },
+        occurredAt,
+      },
       select: { id: true, secondsSaved: true },
     });
 
-    if (!existing) {
-      await tx.portalHoursSavedEvent.create({
-        data: {
-          ownerId,
-          kind: KIND,
-          sourceId: dayKey,
-          secondsSaved: Math.min(MAX_SECONDS_PER_DAY, dtSec),
-          occurredAt,
-        },
+    if (event.secondsSaved > MAX_SECONDS_PER_DAY) {
+      await prisma.portalHoursSavedEvent.update({
+        where: { id: event.id },
+        data: { secondsSaved: MAX_SECONDS_PER_DAY, occurredAt },
         select: { id: true },
       });
-      return;
     }
-
-    const nextTotal = Math.min(MAX_SECONDS_PER_DAY, Math.max(0, existing.secondsSaved) + dtSec);
-    await tx.portalHoursSavedEvent.update({
-      where: { id: existing.id },
-      data: { secondsSaved: nextTotal, occurredAt },
-      select: { id: true },
-    });
-  });
+  } catch {
+    return NextResponse.json({ ok: true, skipped: true });
+  }
 
   return NextResponse.json({ ok: true });
 }

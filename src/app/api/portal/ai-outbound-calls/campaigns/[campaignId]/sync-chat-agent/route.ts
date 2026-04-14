@@ -14,7 +14,9 @@ import {
 } from "@/lib/elevenLabsConvai";
 import { resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
 import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
+import { buildOutboundIntelligenceBrief } from "@/lib/portalAiOutboundIntelligence";
 import { resolveToolIdsForKeys } from "@/lib/voiceAgentTools";
+import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -134,11 +136,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
       .catch(() => null),
     prisma.user.findUnique({ where: { id: ownerId }, select: { name: true } }).catch(() => null),
   ]);
+  const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+  const outboundBrief = buildOutboundIntelligenceBrief({
+    campaignName: campaign.name,
+    kind: "messages",
+    businessContext,
+    config,
+  });
 
   const prompt = buildElevenLabsAgentPrompt(config, {
     businessName: profile?.businessName || null,
     ownerName: ownerUser?.name || null,
-  });
+  }, { outboundBrief, kind: "messages" });
   const firstMessage = config.firstMessage.trim();
 
   const localConfigIsEmpty =

@@ -37,6 +37,7 @@ import { usePortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 import type { Entitlements } from "@/lib/entitlements.shared";
 import { usePortalActiveTimeTracker } from "@/lib/portalActiveTime.client";
+import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 import { usePuraCanvasUiBridgeResponder } from "@/lib/puraCanvasUiBridge.client";
 
@@ -100,7 +101,7 @@ function sidebarIconToneClassForSlug(slug: string) {
 
 function sidebarIconButtonClass(active: boolean, extra?: string) {
   return classNames(
-    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-100 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20",
+    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20",
     active ? "bg-zinc-100 text-brand-blue ring-2 ring-brand-blue/20" : "bg-transparent hover:bg-zinc-50 hover:text-zinc-900",
     extra,
   );
@@ -108,19 +109,19 @@ function sidebarIconButtonClass(active: boolean, extra?: string) {
 
 function sidebarIconChipClass(active: boolean) {
   return classNames(
-    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-all duration-100",
-    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100 group-hover:scale-105",
+    "pa-sidebar-icon-chip pa-sidebar-icon-chip--interactive inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
+    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100",
   );
 }
 
 const portalPrimaryActionClass =
-  "transition-opacity duration-100 hover:opacity-95";
+  "transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:opacity-95";
 
 const portalSecondaryActionClass =
-  "transition-colors duration-100 hover:border-zinc-300 hover:bg-zinc-50";
+  "transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:border-zinc-300 hover:bg-zinc-50";
 
 const portalIconActionClass =
-  "transition-all duration-100 hover:bg-zinc-50 hover:text-zinc-900";
+  "transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-zinc-50 hover:text-zinc-900";
 
 const portalGlassIconSurfaceProps = {
   width: 40,
@@ -144,8 +145,34 @@ const portalGlassIconSurfaceProps = {
 const DESKTOP_SIDEBAR_EXPANDED_WIDTH = "17.5rem";
 const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = "4.75rem";
 
+const PREVIEW_SHELL_ME: Me = {
+  user: {
+    email: "preview@purelyautomation.dev",
+    name: "Local Preview",
+    role: "CLIENT",
+    businessName: "Purely Preview Co.",
+  },
+  entitlements: { blog: true, booking: true, crm: true, leadOutbound: true } as Entitlements,
+  metrics: { hoursSavedThisWeek: 18.5, hoursSavedAllTime: 143.25 },
+};
+
+const PREVIEW_QUICK_ACCESS = [
+  DASHBOARD_SALES_SHORTCUT_SLUG,
+  "blogs",
+  "booking",
+  "inbox",
+  "reviews",
+  "automations",
+];
+
+const PREVIEW_ANALYSIS = {
+  text: "Preview mode is enabled on localhost. The shell is using local-only sample data so you can review the dashboard UI without waiting on live analysis, ads, or reporting requests.",
+  generatedAtIso: "2026-04-13T17:00:00.000Z",
+};
+
 export function PortalShell({ children }: { children: React.ReactNode }) {
-  usePortalActiveTimeTracker();
+  const uiPreview = usePortalUiPreview();
+  usePortalActiveTimeTracker({ enabled: !uiPreview });
   usePuraCanvasUiBridgeResponder();
 
   const pathname = usePathname();
@@ -454,6 +481,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const lastSeenPingRef = useRef<{ atMs: number; path: string } | null>(null);
 
   useEffect(() => {
+    if (uiPreview) return;
+
     const path = typeof pathname === "string" ? pathname : "";
     const search = searchParams ? searchParams.toString() : "";
     const fullPath = search ? `${path}?${search}` : path;
@@ -473,7 +502,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     }).catch(() => {
       // ignore
     });
-  }, [pathname, searchParams]);
+  }, [pathname, searchParams, uiPreview]);
 
   useEffect(() => {
     const tick = () => setNowMs(Date.now());
@@ -658,6 +687,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (uiPreview) {
+      setServiceStatuses(null);
+      return;
+    }
+
     let mounted = true;
     (async () => {
       const res = await fetch("/api/portal/services/status", { cache: "no-store" });
@@ -673,13 +707,18 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [uiPreview]);
 
   useEffect(() => {
     setShowGettingStartedHint(false);
   }, []);
 
   useEffect(() => {
+    if (uiPreview) {
+      setPortalMe(null);
+      return;
+    }
+
     let mounted = true;
     (async () => {
       const res = await fetch("/api/portal/me", { cache: "no-store" });
@@ -694,7 +733,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [uiPreview]);
 
   useEffect(() => {
     window.localStorage.setItem("portalSidebarCollapsed", collapsed ? "1" : "0");
@@ -743,6 +782,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
+    if (uiPreview) {
+      setMe(PREVIEW_SHELL_ME);
+      return;
+    }
+
     let mounted = true;
     (async () => {
       const res = await fetch("/api/customer/me", {
@@ -757,7 +801,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [variant]);
+  }, [uiPreview, variant]);
 
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
   const signedInLabel = (me?.user.email ?? "").trim();
@@ -801,6 +845,20 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const refreshAds = useCallback(
     async (opts: { placement: AdPlacement; reason: "path" | "focus" | "dismiss" }) => {
+      if (uiPreview) {
+        if (opts.placement === "SIDEBAR_BANNER") setSidebarCampaign(null);
+        if (opts.placement === "TOP_BANNER") setTopBannerCampaign(null);
+        if (opts.placement === "FULLSCREEN_REWARD") {
+          setRewardCampaign(null);
+          setRewardStatus(null);
+        }
+        if (opts.placement === "POPUP_CARD") {
+          setPopupCampaign(null);
+          setPopupCampaignPending(null);
+        }
+        return;
+      }
+
       const excludeIds = getExcludedCampaignIds(opts.placement);
       const url =
         `/api/portal/ads/next?placement=${opts.placement}&path=${encodeURIComponent(pathname || "")}` +
@@ -843,7 +901,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         setPopupCampaignPending(json.campaign ?? null);
       }
     },
-    [getExcludedCampaignIds, pathname],
+    [getExcludedCampaignIds, pathname, uiPreview],
   );
 
   useEffect(() => {
@@ -1073,6 +1131,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const activeTopKey = sidebarModeOverride ?? derivedTopKey;
   const hasSidebarOverrideContent = Boolean(sidebarOverride?.desktopSidebarContent || sidebarOverride?.mobileSidebarContent);
+  const sidebarCollapseLocked = Boolean(sidebarOverride?.forceCollapsed);
   const showSidebarOverrideInServices =
     activeTopKey === "services" && derivedTopKey === "services" && hasSidebarOverrideContent && sidebarModeOverride !== "services";
   const sidebarPanelTopKey = activeTopKey;
@@ -1120,6 +1179,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const saveDashboardQuickAccess = useCallback(
     async (slugs: string[]) => {
+      if (uiPreview) {
+        setDashboardQuickAccess(slugs);
+        return slugs;
+      }
+
       const res = await fetch("/api/portal/dashboard/quick-access", {
         method: "PUT",
         headers: { "content-type": "application/json" },
@@ -1136,11 +1200,18 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       setDashboardQuickAccess(next);
       return next;
     },
-    [toast],
+    [toast, uiPreview],
   );
 
   useEffect(() => {
     if (activeTopKey !== "dashboard" || collapsed) return;
+
+    if (uiPreview) {
+      setDashboardQuickAccessFallback(PREVIEW_QUICK_ACCESS);
+      setDashboardQuickAccess(PREVIEW_QUICK_ACCESS);
+      return;
+    }
+
     let mounted = true;
     (async () => {
       const allowed = PORTAL_SERVICES.filter((s) => !s.hidden)
@@ -1183,7 +1254,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [activeTopKey, canViewServiceSlug, collapsed, portalMe, variant, saveDashboardQuickAccess, serviceStatuses]);
+  }, [activeTopKey, canViewServiceSlug, collapsed, portalMe, uiPreview, variant, saveDashboardQuickAccess, serviceStatuses]);
 
   const dashboardQuickAccessEffective = useMemo(() => {
     const base = (dashboardQuickAccess && dashboardQuickAccess.length ? dashboardQuickAccess : dashboardQuickAccessFallback) || [];
@@ -1198,6 +1269,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const refreshDashboardAnalysis = useCallback(
     async (trigger: string) => {
+      if (uiPreview) {
+        setDashboardAnalysis(PREVIEW_ANALYSIS);
+        return;
+      }
+
       if (dashboardAnalysisLoading) return;
       setDashboardAnalysisLoading(true);
       try {
@@ -1213,11 +1289,17 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         setDashboardAnalysisLoading(false);
       }
     },
-    [dashboardAnalysisLoading],
+    [dashboardAnalysisLoading, uiPreview],
   );
 
   useEffect(() => {
     if (activeTopKey !== "dashboard" || collapsed) return;
+
+    if (uiPreview) {
+      setDashboardAnalysis(PREVIEW_ANALYSIS);
+      return;
+    }
+
     let mounted = true;
     (async () => {
       const res = await fetch("/api/portal/dashboard/analysis", { cache: "no-store" }).catch(() => null as any);
@@ -1236,7 +1318,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [activeTopKey, collapsed, refreshDashboardAnalysis]);
+  }, [activeTopKey, collapsed, refreshDashboardAnalysis, uiPreview]);
 
   useEffect(() => {
     const onSaved = () => {
@@ -1309,6 +1391,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
     return (
       <PortalNavLink
+        key={`sidebar_service_${s.slug}`}
         href={`${basePath}/app/services/${s.slug}`}
         className={classNames(
           "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-150",
@@ -1415,7 +1498,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               : "env(safe-area-inset-bottom)",
           }}
         >
-          <main className="h-full overflow-y-auto overscroll-y-contain">
+          <main className="pa-portal-scroll h-full overflow-y-auto">
             {children}
             <div
               aria-hidden
@@ -1433,7 +1516,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       <>
         <style>{portalLightSurfaceNoOutlineCss}</style>
         <div className="pa-portal-ui h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-250 ease-out">
-          <main className="h-full overflow-y-auto overscroll-y-contain">{children}</main>
+          <main className="pa-portal-scroll h-full overflow-y-auto">{children}</main>
         </div>
       </>
     );
@@ -1531,7 +1614,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </button>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-3">
+              <div className="pa-portal-scroll min-h-0 flex-1 overflow-y-auto p-3">
                 <div className="px-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Services</div>
                 <div className="mt-2 space-y-4">
                   {embeddedSidebarServiceGroups.map((group) => (
@@ -1578,7 +1661,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         href={toPurelyHostedUrl("/book-a-call")}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform duration-150 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                         aria-label="Book a call"
                         title="Book a call"
                       >
@@ -1588,7 +1671,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <GlassSurface {...portalGlassIconSurfaceProps} className="rounded-2xl">
                       <PortalNavLink
                         href={`${basePath}/tutorials/getting-started?embed=1`}
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform duration-150 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                         aria-label="Help"
                         title="Help"
                       >
@@ -1603,7 +1686,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Main content */}
-          <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+          <main className="pa-portal-scroll min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-md px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:pt-3">
               {children}
             </div>
@@ -1701,7 +1784,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               href={toPurelyHostedUrl("/book-a-call")}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform hover:scale-110 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none"
               aria-label="Book a call"
               title="Book a call"
             >
@@ -1711,7 +1794,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           <GlassSurface {...portalGlassIconSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl">
             <PortalNavLink
               href={`${basePath}/tutorials/getting-started`}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform hover:scale-110 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none"
               aria-label="Help"
               title="Help"
             >
@@ -1858,7 +1941,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               <div
                 className={classNames(
                   "mt-4 min-h-0 flex-1 pb-4",
-                  activeTopKey === "pura" ? "overflow-hidden" : "overflow-y-auto overscroll-y-contain",
+                  activeTopKey === "pura" ? "overflow-hidden" : "pa-portal-scroll overflow-y-auto",
                 )}
               >
                 {showSidebarOverridePanel ? (
@@ -1899,7 +1982,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               void saveDashboardQuickAccess(next);
                             }}
                             className={classNames(
-                              "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                              "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                               dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
                                 ? "bg-zinc-100 text-zinc-900"
                                 : "text-zinc-700 hover:bg-zinc-50",
@@ -1948,7 +2031,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                   void saveDashboardQuickAccess(next);
                                 }}
                                 className={classNames(
-                                  "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                                  "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                                   selected ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                                 )}
                               >
@@ -1984,7 +2067,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                       key="mobile_shortcut_sales_dashboard"
                                       href={`${basePath}/app/services/reporting/sales`}
                                       className={classNames(
-                                        "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                                        "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                                         pathname === `${basePath}/app/services/reporting/sales`
                                           ? "bg-zinc-100 text-zinc-900"
                                           : "text-zinc-700 hover:bg-zinc-50",
@@ -2017,7 +2100,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         <button
                           type="button"
                           onClick={() => void refreshDashboardAnalysis("manual_refresh")}
-                          className="rounded-xl px-2 py-1 text-[11px] font-semibold text-zinc-600 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                          className="rounded-xl px-2 py-1 text-[11px] font-semibold text-zinc-600 transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                         >
                           {dashboardAnalysisLoading ? "Refreshing…" : "Refresh"}
                         </button>
@@ -2205,7 +2288,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     href={toPurelyHostedUrl("/book-a-call")}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform duration-150 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                     aria-label="Book a call"
                     title="Book a call"
                   >
@@ -2215,7 +2298,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 <GlassSurface {...portalGlassIconSurfaceProps} className="rounded-2xl">
                   <PortalNavLink
                     href={`${basePath}/tutorials/getting-started`}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform duration-150 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                     aria-label="Help"
                     title="Help"
                   >
@@ -2249,10 +2332,19 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 )}
                 <button
                   type="button"
-                  onClick={() => setCollapsed((v) => !v)}
-                  className="group inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
-                  aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-                  title={collapsed ? "Expand" : "Collapse"}
+                  onClick={() => {
+                    if (sidebarCollapseLocked) return;
+                    setCollapsed((v) => !v);
+                  }}
+                  disabled={sidebarCollapseLocked}
+                  className={classNames(
+                    "group inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)",
+                    sidebarCollapseLocked
+                      ? "cursor-default opacity-35"
+                      : "hover:bg-zinc-50 hover:text-zinc-900",
+                  )}
+                  aria-label={sidebarCollapseLocked ? "Sidebar locked while editing" : collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                  title={sidebarCollapseLocked ? "Sidebar locked while editing" : collapsed ? "Expand" : "Collapse"}
                 >
                   <span className="relative inline-flex h-5 w-5 items-center justify-center overflow-hidden" aria-hidden>
                     <span
@@ -2348,7 +2440,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           <div
             className={classNames(
               "min-h-0 flex-1 overscroll-y-contain",
-              activeTopKey === "pura" ? "overflow-hidden p-0" : "overflow-y-auto p-2",
+              activeTopKey === "pura" ? "overflow-hidden p-0" : "pa-portal-scroll overflow-y-auto p-2",
             )}
           >
             {showSidebarOverridePanel ? (
@@ -2391,7 +2483,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           void saveDashboardQuickAccess(next);
                         }}
                         className={classNames(
-                          "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                          "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                           dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
                             ? "bg-zinc-100 text-zinc-900"
                             : "text-zinc-700 hover:bg-zinc-50",
@@ -2440,7 +2532,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               void saveDashboardQuickAccess(next);
                             }}
                             className={classNames(
-                              "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                              "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                               selected ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                             )}
                           >
@@ -2476,7 +2568,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                   key="shortcut_sales_dashboard"
                                   href={`${basePath}/app/services/reporting/sales`}
                                   className={classNames(
-                                    "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                                    "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                                     pathname === `${basePath}/app/services/reporting/sales`
                                       ? "bg-zinc-100 text-zinc-900"
                                       : "text-zinc-700 hover:bg-zinc-50",
@@ -2509,7 +2601,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <button
                       type="button"
                       onClick={() => void refreshDashboardAnalysis("manual_refresh")}
-                      className="rounded-xl px-2 py-1 text-[11px] font-semibold text-zinc-600 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                      className="rounded-xl px-2 py-1 text-[11px] font-semibold text-zinc-600 transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                     >
                       {dashboardAnalysisLoading ? "Refreshing…" : "Refresh"}
                     </button>
@@ -2591,8 +2683,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   >
                     <IconEyeGlyph />
                   </PortalNavLink>
-
-                  <div className="mt-2 flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto overscroll-y-contain px-1 pb-24">
+                  <div className="pa-portal-scroll mt-2 flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto px-1 pb-24">
                     {sidebarServiceGroups.flatMap((group) => {
                       return group.services.flatMap((svc) => {
                         const out: React.ReactNode[] = [];
@@ -2766,7 +2857,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <PortalNavLink
                     href={`${basePath}/app/settings`}
                     className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                       pathname === `${basePath}/app/settings` ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
@@ -2779,7 +2870,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <PortalNavLink
                       href={`${basePath}/app/profile`}
                       className={classNames(
-                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                         pathname.startsWith(`${basePath}/app/profile`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                       )}
                     >
@@ -2793,7 +2884,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <PortalNavLink
                       href={`${basePath}/app/billing`}
                       className={classNames(
-                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                         pathname.startsWith(`${basePath}/app/billing`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                       )}
                     >
@@ -2807,7 +2898,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <PortalNavLink
                     href={`${basePath}/app/settings/appearance`}
                     className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                       pathname.startsWith(`${basePath}/app/settings/appearance`)
                         ? "bg-zinc-100 text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",
@@ -2822,7 +2913,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <PortalNavLink
                     href={`${basePath}/app/settings/integrations`}
                     className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                       pathname.startsWith(`${basePath}/app/settings/integrations`)
                         ? "bg-zinc-100 text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",
@@ -2837,7 +2928,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <PortalNavLink
                     href={`${basePath}/app/settings/business`}
                     className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
                       pathname.startsWith(`${basePath}/app/settings/business`)
                         ? "bg-zinc-100 text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",
@@ -2921,7 +3012,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </div>
           </aside>
 
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain">
+          <div className="pa-portal-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
           <div className="pointer-events-none fixed inset-x-0 top-0 z-90 flex items-start justify-between px-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:hidden">
             <button
               type="button"

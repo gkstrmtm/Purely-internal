@@ -13,10 +13,14 @@ export async function GET() {
 
   const ownerId = auth.session.user.id;
 
-  const [itemsCount, foldersCount] = await Promise.all([
-    (prisma as any).portalMediaItem.count({ where: { ownerId } }),
-    (prisma as any).portalMediaFolder.count({ where: { ownerId } }),
-  ]);
+  try {
+    const [itemsCount, foldersCount] = await Promise.all([
+      (prisma as any).portalMediaItem.count({ where: { ownerId } }),
+      (prisma as any).portalMediaFolder.count({ where: { ownerId } }),
+    ]);
 
-  return NextResponse.json({ ok: true, itemsCount, foldersCount });
+    return NextResponse.json({ ok: true, itemsCount, foldersCount });
+  } catch {
+    return NextResponse.json({ ok: false, error: "Unable to load media stats" });
+  }
 }

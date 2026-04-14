@@ -5,6 +5,8 @@ export type BlogBlock =
   | { type: "p"; text: string }
   | { type: "ul"; items: string[] };
 
+export type BlogCoverImage = { alt: string; src: string };
+
 export function stripDoubleAsterisks(input: string): string {
   return input.replace(/\*\*/g, "");
 }
@@ -115,6 +117,16 @@ export function parseBlogContent(content: string): BlogBlock[] {
   flushParagraph();
 
   return blocks;
+}
+
+export function splitLeadingCoverImage(blocks: BlogBlock[]): { cover: BlogCoverImage | null; blocks: BlogBlock[] } {
+  if (!Array.isArray(blocks) || blocks.length === 0) return { cover: null, blocks: [] };
+  const [first, ...rest] = blocks;
+  if (first?.type !== "img") return { cover: null, blocks };
+  return {
+    cover: { alt: first.alt, src: first.src },
+    blocks: rest,
+  };
 }
 
 export function formatBlogDate(date: Date): string {

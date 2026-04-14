@@ -49,13 +49,13 @@ html {
 }
 
 * {
-  scrollbar-color: transparent transparent;
-  scrollbar-width: none;
+  scrollbar-color: rgba(148, 163, 184, 0.18) transparent;
+  scrollbar-width: thin;
 }
 
 *::-webkit-scrollbar {
-  width: 0;
-  height: 0;
+  width: 8px;
+  height: 8px;
 }
 
 *::-webkit-scrollbar-track {
@@ -63,7 +63,7 @@ html {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: transparent;
+  background: rgba(148, 163, 184, 0.18);
   border: 2px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
@@ -72,8 +72,7 @@ html {
 *:hover,
 *:focus-within,
 *:active {
-  scrollbar-color: rgba(100, 116, 139, 0.38) transparent;
-  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.3) transparent;
 }
 
 *:hover::-webkit-scrollbar,
@@ -86,14 +85,14 @@ html {
 *:hover::-webkit-scrollbar-thumb,
 *:focus-within::-webkit-scrollbar-thumb,
 *:active::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.38);
+  background: rgba(100, 116, 139, 0.3);
   background-clip: padding-box;
 }
 
 *:hover::-webkit-scrollbar-thumb:hover,
 *:focus-within::-webkit-scrollbar-thumb:hover,
 *:active::-webkit-scrollbar-thumb:hover {
-  background: rgba(71, 85, 105, 0.52);
+  background: rgba(71, 85, 105, 0.42);
   background-clip: padding-box;
 }
 
@@ -108,6 +107,35 @@ html {
 
 .scrollbar-gutter-stable {
   scrollbar-gutter: stable both-edges;
+}
+
+.pa-portal-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scrollbar-gutter: auto;
+}
+
+.pa-portal-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.pa-portal-scroll::-webkit-scrollbar-thumb,
+.pa-portal-scroll:hover::-webkit-scrollbar-thumb,
+.pa-portal-scroll:focus-within::-webkit-scrollbar-thumb,
+.pa-portal-scroll:active::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.pa-portal-scroll,
+[data-portal-theme="dark"] .pa-portal-scroll {
+  scrollbar-color: transparent transparent;
+}
+
+.pa-sidebar-icon-chip {
+  transform: none;
 }
 
 img,
@@ -158,23 +186,24 @@ pre {
 }
 
 [data-portal-theme="dark"] * {
-  scrollbar-color: transparent transparent;
+  scrollbar-color: rgba(148, 163, 184, 0.2) transparent;
+  scrollbar-width: thin;
 }
 
 [data-portal-theme="dark"] *:hover,
 [data-portal-theme="dark"] *:focus-within {
-  scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+  scrollbar-color: rgba(148, 163, 184, 0.28) transparent;
 }
 
 [data-portal-theme="dark"] *:hover::-webkit-scrollbar-thumb,
 [data-portal-theme="dark"] *:focus-within::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.3);
+  background: rgba(148, 163, 184, 0.28);
   background-clip: padding-box;
 }
 
 [data-portal-theme="dark"] *:hover::-webkit-scrollbar-thumb:hover,
 [data-portal-theme="dark"] *:focus-within::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.42);
+  background: rgba(148, 163, 184, 0.38);
   background-clip: padding-box;
 }
 

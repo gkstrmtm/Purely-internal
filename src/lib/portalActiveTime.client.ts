@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 type Options = {
+  enabled?: boolean;
   endpoint?: string;
   heartbeatMs?: number;
   idleThresholdMs?: number;
@@ -41,6 +42,7 @@ function postActiveTime(endpoint: string, dtSec: number, path: string) {
 }
 
 export function usePortalActiveTimeTracker(opts?: Options) {
+  const enabled = opts?.enabled ?? true;
   const endpoint = opts?.endpoint ?? "/api/portal/engagement/active-time";
   const heartbeatMs = clampInt(opts?.heartbeatMs, 5000, 60000);
   const idleThresholdMs = clampInt(opts?.idleThresholdMs, 5000, 5 * 60 * 1000);
@@ -51,6 +53,8 @@ export function usePortalActiveTimeTracker(opts?: Options) {
   const mountedRef = useRef(false);
 
   useEffect(() => {
+    if (!enabled) return;
+
     mountedRef.current = true;
     const start = Date.now();
     lastActivityAtRef.current = start;
@@ -121,5 +125,5 @@ export function usePortalActiveTimeTracker(opts?: Options) {
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("pagehide", onPageHide);
     };
-  }, [endpoint, heartbeatMs, idleThresholdMs, maxDtSec]);
+  }, [enabled, endpoint, heartbeatMs, idleThresholdMs, maxDtSec]);
 }

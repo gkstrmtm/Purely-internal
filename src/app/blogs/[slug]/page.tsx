@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
-import { buildBlogCtaText, formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
+import { buildBlogCtaText, formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent, splitLeadingCoverImage } from "@/lib/blog";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -62,7 +62,8 @@ export default async function BlogPostPage(props: PageProps) {
 
   if (!post) notFound();
 
-  const blocks = parseBlogContent(post.content);
+  const parsed = parseBlogContent(post.content);
+  const { cover, blocks } = splitLeadingCoverImage(parsed);
 
   return (
     <div className="min-h-screen bg-white text-zinc-900">
@@ -105,6 +106,15 @@ export default async function BlogPostPage(props: PageProps) {
             {post.title}
           </h1>
           <p className="mt-5 text-base leading-relaxed text-zinc-700">{post.excerpt}</p>
+
+          {cover ? (
+            <div className="mt-8 overflow-hidden rounded-4xl border border-zinc-200 bg-zinc-50 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+              <div className="aspect-video w-full bg-zinc-100">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={cover.src} alt={cover.alt || post.title} className="h-full w-full object-cover object-center" />
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-10 space-y-6">
             {blocks.map((b, idx) => {

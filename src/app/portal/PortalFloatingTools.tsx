@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { buildPortalAiChatThreadHref } from "@/lib/portalAiChatThreadRefs";
+import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
 
 type VersionPayload = {
   ok?: boolean;
@@ -430,6 +431,7 @@ const floatingToolsGradientButtonClass =
   "rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60";
 
 export function PortalFloatingTools() {
+  const uiPreview = usePortalUiPreview();
   const pathname = usePathname() || "";
   const router = useRouter();
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
@@ -480,6 +482,11 @@ export function PortalFloatingTools() {
   }, [chatMessages]);
 
   const loadSuggestedSetupPreview = useCallback(async () => {
+    if (uiPreview) {
+      setPageSuggestion(null);
+      return;
+    }
+
     const serviceSlug = inferSuggestedSetupServiceSlug(pathname);
     if (!serviceSlug) {
       setPageSuggestion(null);
@@ -505,7 +512,7 @@ export function PortalFloatingTools() {
       : [];
 
     setPageSuggestion(buildWidgetSuggestedSetup(proposedActions.filter((action) => action.serviceSlug === serviceSlug)));
-  }, [pathname]);
+  }, [pathname, uiPreview]);
 
   useEffect(() => {
     void loadSuggestedSetupPreview();
@@ -564,6 +571,14 @@ export function PortalFloatingTools() {
   }, []);
 
   useEffect(() => {
+    if (uiPreview) {
+      setProfileHidden(false);
+      if (typeof document !== "undefined") {
+        document.documentElement.removeAttribute("data-pa-hide-floating-tools-pref");
+      }
+      return;
+    }
+
     let mounted = true;
     (async () => {
       const res = await fetch("/api/portal/profile", { cache: "no-store" }).catch(() => null as any);
@@ -588,7 +603,7 @@ export function PortalFloatingTools() {
       mounted = false;
       window.removeEventListener("pa.portal.floating-tools-pref", onPrefChanged as EventListener);
     };
-  }, []);
+  }, [uiPreview]);
 
   const hidden = forceHidden || profileHidden || (isSmallScreen && !isDashboardRoute && !isSettingsRoute && !chatOpen && !reportOpen);
   const moveDockToTopRight = false;
@@ -721,6 +736,11 @@ export function PortalFloatingTools() {
   }, []);
 
   useEffect(() => {
+    if (uiPreview) {
+      setVersion({ ok: true, buildSha: "preview", commitRef: "localhost-preview" });
+      return;
+    }
+
     let mounted = true;
     (async () => {
       const res = await fetch("/api/version", { cache: "no-store" }).catch(() => null as any);
@@ -736,7 +756,7 @@ export function PortalFloatingTools() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [uiPreview]);
 
   const versionLabel = useMemo(() => {
     const sha = shortSha(version?.buildSha);

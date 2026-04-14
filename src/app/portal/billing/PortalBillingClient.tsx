@@ -1082,6 +1082,54 @@ export function PortalBillingClient({
 
   const upgradeHref = creditsFirstForMobileApp ? "/portal/app/billing/upgrade?pa_mobileapp=1" : "/portal/app/billing/upgrade";
 
+  const serviceOverviewRows = (() => {
+    const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
+    const rows = servicesList.map((s) => {
+      const st = serviceStatuses?.[s.slug];
+      const state = st?.state ?? "active";
+      const label = st?.label ?? (state === "locked" ? "Locked" : "Ready");
+      const href = setupHrefForService(s.slug, label);
+      const disabled = state === "locked" || state === "coming_soon";
+
+      const modulePrice =
+        !creditsOnly && s.entitlementKey && modulePrices ? ((modulePrices as any)[s.entitlementKey] as any) : null;
+
+      const priceText = (() => {
+        if (creditsOnly && !s.included) return "Credit-based";
+        if (s.included) return "Included";
+        if (s.entitlementKey && modulePrice) {
+          if (modulePrice.monthlyCents) return `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`;
+          return "Included";
+        }
+        return "Add-on";
+      })();
+
+      const owned = state !== "locked" && state !== "coming_soon";
+      return { s, state, label, href, disabled, priceText, owned };
+    });
+
+    rows.sort((a, b) => {
+      if (a.owned !== b.owned) return a.owned ? -1 : 1;
+      const rank = (state: string) => {
+        if (state === "needs_setup") return 0;
+        if (state === "active") return 1;
+        if (state === "paused" || state === "canceled") return 2;
+        if (state === "locked") return 3;
+        return 4;
+      };
+      const ra = rank(a.state);
+      const rb = rank(b.state);
+      if (ra !== rb) return ra - rb;
+      return a.s.title.localeCompare(b.s.title);
+    });
+
+    return rows;
+  })();
+
+  const ownedServiceRows = serviceOverviewRows.filter((row) => row.owned);
+  const addOnRows = serviceOverviewRows.filter((row) => !row.owned);
+  const showUpgradeServicesCta = !creditsOnly && addOnRows.some((row) => row.s.entitlementKey && modulePurchasable(row.s.entitlementKey as any));
+
   const monthlyText = creditsOnly ? "Upgrade" : status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "N/A";
 
   const creditsCanceled = creditsOnly && creditsLifecycle?.state === "canceled";
@@ -1114,7 +1162,7 @@ export function PortalBillingClient({
     return "bg-zinc-100 text-zinc-700";
   };
 
-  const setupHrefForService = (slug: string, label?: string | null) => {
+  function setupHrefForService(slug: string, label?: string | null) {
     const l = String(label || "").toLowerCase();
     if (slug === "booking") return "/portal/app/services/booking/settings";
     if (slug === "tasks") return "/portal/app/tasks";
@@ -1130,7 +1178,7 @@ export function PortalBillingClient({
     if (slug === "nurture-campaigns") return "/portal/app/services/nurture-campaigns";
     if (slug === "lead-scraping") return "/portal/app/services/lead-scraping/settings";
     return `/portal/app/services/${encodeURIComponent(slug)}`;
-  };
+  }
 
   const setupActionLabelForService = (slug: string, label?: string | null) => {
     const l = String(label || "").toLowerCase();
@@ -1219,44 +1267,7 @@ export function PortalBillingClient({
 
       <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
         <div className="grid gap-2">
-          {(() => {
-            const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
-            const rows = servicesList.map((s) => {
-              const st = serviceStatuses?.[s.slug];
-              const state = st?.state ?? "active";
-              const label = st?.label ?? (state === "locked" ? "Locked" : "Ready");
-              const href = setupHrefForService(s.slug, label);
-              const disabled = state === "locked" || state === "coming_soon";
-
-              const modulePrice =
-                !creditsOnly && s.entitlementKey && modulePrices ? ((modulePrices as any)[s.entitlementKey] as any) : null;
-
-              const priceText = (() => {
-                if (s.included) return "Included";
-                if (creditsOnly) return "Credit-based";
-                if (modulePrice?.monthlyCents) return `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`;
-                return "Add-on";
-              })();
-
-              return { s, state, label, href, disabled, priceText };
-            });
-
-            const rank = (state: string) => {
-              if (state === "needs_setup") return 0;
-              if (state === "active") return 1;
-              if (state === "paused" || state === "canceled") return 2;
-              if (state === "locked" || state === "coming_soon") return 3;
-              return 4;
-            };
-
-            rows.sort((a, b) => {
-              const ra = rank(a.state);
-              const rb = rank(b.state);
-              if (ra !== rb) return ra - rb;
-              return a.s.title.localeCompare(b.s.title);
-            });
-
-            return rows.map((r) => (
+          {ownedServiceRows.map((r) => (
               <button
                 key={r.s.slug}
                 type="button"
@@ -1273,10 +1284,21 @@ export function PortalBillingClient({
                 </div>
                 <div className="shrink-0 text-xs font-semibold text-zinc-700">{r.disabled ? "Locked" : "Open →"}</div>
               </button>
-            ));
-          })()}
+          ))}
         </div>
       </div>
+
+      {showUpgradeServicesCta ? (
+        <div className="mt-3 border-t border-zinc-200 pt-3">
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            onClick={() => router.push(upgradeHref, { scroll: false })}
+          >
+            Explore add-ons
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 
@@ -1888,58 +1910,12 @@ export function PortalBillingClient({
             <div className="mt-4 min-h-0 flex-1 overflow-auto pr-1">
               <div className="space-y-2 text-sm text-zinc-700">
                 {(() => {
-                  const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
-                  const rows = servicesList.map((s) => {
-                    const st = serviceStatuses?.[s.slug];
-                    const state = st?.state ?? "active";
-                    const label = st?.label ?? "Ready";
-
-                    const modulePrice =
-                      pricing && "ok" in pricing && pricing.ok === true && s.entitlementKey
-                        ? (pricing.modules as any)[s.entitlementKey]
-                        : null;
-
-                    const priceText = (() => {
-                      if (creditsOnly && !s.included) return "Credit-based";
-                      if (s.included) return "Included";
-                      if (s.entitlementKey && modulePrice) {
-                        if (modulePrice.monthlyCents) return `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`;
-                        return "Included";
-                      }
-                      return "Add-on";
-                    })();
-
-                    const owned = state !== "locked" && state !== "coming_soon";
-                    return { s, st, state, label, priceText, owned };
-                  });
-
-                  rows.sort((a, b) => {
-                    if (a.owned !== b.owned) return a.owned ? -1 : 1;
-                    const rank = (state: string) => {
-                      if (state === "needs_setup") return 0;
-                      if (state === "active") return 1;
-                      if (state === "paused" || state === "canceled") return 2;
-                      if (state === "locked") return 3;
-                      return 4;
-                    };
-                    const ra = rank(a.state);
-                    const rb = rank(b.state);
-                    if (ra !== rb) return ra - rb;
-                    return a.s.title.localeCompare(b.s.title);
-                  });
-
-                  const ownedRows = rows.filter((r) => r.owned);
-                  const lockedRows = rows.filter((r) => !r.owned);
-
-                  const renderRow = (r: typeof rows[number]) => {
+                  const renderRow = (r: typeof ownedServiceRows[number]) => {
                     const { s, state, label, priceText } = r;
                     const busy = actionBusy?.startsWith(`service:${s.slug}:`) ?? false;
                     const canLifecycleManage = !s.included;
                     const badgeText = (() => {
-                      if (state === "locked" || state === "coming_soon") return label;
-                      if (state === "paused" || state === "canceled") return label;
-                      const access = s.included ? "Included" : "Enabled";
-                      return `${access} · ${label}`;
+                      return label;
                     })();
 
                     return (
@@ -2069,23 +2045,24 @@ export function PortalBillingClient({
 
                   return (
                     <>
-                      {ownedRows.length ? (
-                        <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">You have access</div>
-                      ) : null}
-                      {ownedRows.map(renderRow)}
-
-                      {lockedRows.length ? (
-                        <>
-                          <div className="my-4 border-t border-zinc-200" />
-                          <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Add-ons you don’t have yet</div>
-                          {lockedRows.map(renderRow)}
-                        </>
-                      ) : null}
+                      {ownedServiceRows.map(renderRow)}
                     </>
                   );
                 })()}
               </div>
             </div>
+
+            {showUpgradeServicesCta ? (
+              <div className="mt-4 border-t border-zinc-200 pt-4">
+                <button
+                  type="button"
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                  onClick={() => router.push(upgradeHref, { scroll: false })}
+                >
+                  Explore add-ons
+                </button>
+              </div>
+            ) : null}
 
             {creditsOnly && servicesAdvancedOpen ? (
               <div
@@ -2129,13 +2106,6 @@ export function PortalBillingClient({
                 </div>
               </div>
             ) : null}
-
-            <div className="mt-6 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-brand-blue/10 to-white p-4 text-sm text-zinc-800">
-              <div className="font-semibold text-zinc-900">Want to add more?</div>
-              <div className="mt-1 text-sm text-zinc-700">
-                {creditsOnly ? "Top up credits above, or open a service to configure it." : "Enable add-ons above, or open a service to configure it."}
-              </div>
-            </div>
           </div>
         ) : null}
 

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
-import { formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
+import { formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent, splitLeadingCoverImage } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { getBlogAppearance } from "@/lib/blogAppearance";
@@ -167,7 +167,8 @@ export default async function ClientBlogPostPage(props: PageProps) {
 
   const themeStyle = theme.cssVars;
 
-  const blocks = parseBlogContent(post.content);
+  const parsed = parseBlogContent(post.content);
+  const { cover, blocks } = splitLeadingCoverImage(parsed);
 
   return (
     <div
@@ -221,6 +222,18 @@ export default async function ClientBlogPostPage(props: PageProps) {
           <p className="mt-5 text-base leading-relaxed" style={{ color: "var(--client-muted)" }}>
             {post.excerpt}
           </p>
+
+          {cover ? (
+            <div
+              className="mt-8 overflow-hidden rounded-4xl border shadow-[0_18px_50px_rgba(15,23,42,0.08)]"
+              style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-soft)" }}
+            >
+              <div className="aspect-video w-full" style={{ backgroundColor: "var(--client-soft)" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={cover.src} alt={cover.alt || post.title} className="h-full w-full object-cover object-center" />
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-10 space-y-6">
             {blocks.map((b, idx) => {

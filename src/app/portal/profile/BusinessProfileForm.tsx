@@ -191,6 +191,99 @@ export function BusinessProfileForm({
 
   const dirty = currentSig !== lastSavedSigRef.current;
 
+  function applyProfileToForm(profile: BusinessProfile | null | undefined) {
+    if (!profile) {
+      lastSavedSigRef.current = "{}";
+      return;
+    }
+
+    const nextBusinessName = profile.businessName ?? "";
+    const nextWebsiteUrl = profile.websiteUrl ?? "";
+    const nextIndustry = profile.industry ?? "";
+    const nextBusinessModel = profile.businessModel ?? "";
+    const nextPrimaryGoals = normalizeGoals(profile.primaryGoals);
+    const nextTargetCustomer = profile.targetCustomer ?? "";
+    const nextBrandVoice = profile.brandVoice ?? "";
+
+    const nextLogoUrl = profile.logoUrl ?? "";
+    const nextBrandPrimaryHex = profile.brandPrimaryHex ?? "";
+    const nextBrandSecondaryHex = profile.brandSecondaryHex ?? "";
+    const nextBrandAccentHex = profile.brandAccentHex ?? "";
+    const nextBrandTextHex = profile.brandTextHex ?? "";
+
+    const nextBrandFontFamily = profile.brandFontFamily ?? "";
+    const nextBrandFontGoogleFamily = profile.brandFontGoogleFamily ?? "";
+
+    const hosted = profile.hostedTheme;
+    const nextHostedBgHex = hosted?.bgHex ?? "";
+    const nextHostedSurfaceHex = hosted?.surfaceHex ?? "";
+    const nextHostedSoftHex = hosted?.softHex ?? "";
+    const nextHostedBorderHex = hosted?.borderHex ?? "";
+    const nextHostedTextHex = hosted?.textHex ?? "";
+    const nextHostedMutedTextHex = hosted?.mutedTextHex ?? "";
+    const nextHostedPrimaryHex = hosted?.primaryHex ?? "";
+    const nextHostedAccentHex = hosted?.accentHex ?? "";
+    const nextHostedLinkHex = hosted?.linkHex ?? "";
+
+    setBusinessName(nextBusinessName);
+    setWebsiteUrl(nextWebsiteUrl);
+    setIndustry(nextIndustry);
+    setBusinessModel(nextBusinessModel);
+    setPrimaryGoals(nextPrimaryGoals);
+    setTargetCustomer(nextTargetCustomer);
+    setBrandVoice(nextBrandVoice);
+
+    setLogoUrl(nextLogoUrl);
+    setBrandPrimaryHex(nextBrandPrimaryHex);
+    setBrandSecondaryHex(nextBrandSecondaryHex);
+    setBrandAccentHex(nextBrandAccentHex);
+    setBrandTextHex(nextBrandTextHex);
+
+    setBrandFontFamily(nextBrandFontFamily);
+    setBrandFontGoogleFamily(nextBrandFontGoogleFamily);
+
+    setHostedBgHex(nextHostedBgHex);
+    setHostedSurfaceHex(nextHostedSurfaceHex);
+    setHostedSoftHex(nextHostedSoftHex);
+    setHostedBorderHex(nextHostedBorderHex);
+    setHostedTextHex(nextHostedTextHex);
+    setHostedMutedTextHex(nextHostedMutedTextHex);
+    setHostedPrimaryHex(nextHostedPrimaryHex);
+    setHostedAccentHex(nextHostedAccentHex);
+    setHostedLinkHex(nextHostedLinkHex);
+
+    lastSavedSigRef.current = JSON.stringify({
+      businessName: String(nextBusinessName || "").trim(),
+      websiteUrl: String(nextWebsiteUrl || "").trim(),
+      industry: String(nextIndustry || "").trim(),
+      businessModel: String(nextBusinessModel || "").trim(),
+      primaryGoals: (nextPrimaryGoals || [])
+        .map((g) => String(g || "").trim())
+        .filter(Boolean)
+        .slice(0, 10),
+      targetCustomer: String(nextTargetCustomer || "").trim(),
+      brandVoice: String(nextBrandVoice || "").trim(),
+      logoUrl: String(nextLogoUrl || "").trim(),
+      brandPrimaryHex: String(nextBrandPrimaryHex || "").trim(),
+      brandSecondaryHex: String(nextBrandSecondaryHex || "").trim(),
+      brandAccentHex: String(nextBrandAccentHex || "").trim(),
+      brandTextHex: String(nextBrandTextHex || "").trim(),
+      brandFontFamily: String(nextBrandFontFamily || "").trim(),
+      brandFontGoogleFamily: String(nextBrandFontGoogleFamily || "").trim(),
+      hostedTheme: {
+        bgHex: String(nextHostedBgHex || "").trim(),
+        surfaceHex: String(nextHostedSurfaceHex || "").trim(),
+        softHex: String(nextHostedSoftHex || "").trim(),
+        borderHex: String(nextHostedBorderHex || "").trim(),
+        textHex: String(nextHostedTextHex || "").trim(),
+        mutedTextHex: String(nextHostedMutedTextHex || "").trim(),
+        primaryHex: String(nextHostedPrimaryHex || "").trim(),
+        accentHex: String(nextHostedAccentHex || "").trim(),
+        linkHex: String(nextHostedLinkHex || "").trim(),
+      },
+    });
+  }
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -205,97 +298,7 @@ export function BusinessProfileForm({
         return;
       }
 
-      const p = json.profile;
-      if (p) {
-        const nextBusinessName = p.businessName ?? "";
-        const nextWebsiteUrl = p.websiteUrl ?? "";
-        const nextIndustry = p.industry ?? "";
-        const nextBusinessModel = p.businessModel ?? "";
-        const nextPrimaryGoals = normalizeGoals(p.primaryGoals);
-        const nextTargetCustomer = p.targetCustomer ?? "";
-        const nextBrandVoice = p.brandVoice ?? "";
-
-        const nextLogoUrl = p.logoUrl ?? "";
-        const nextBrandPrimaryHex = p.brandPrimaryHex ?? "";
-        const nextBrandSecondaryHex = p.brandSecondaryHex ?? "";
-        const nextBrandAccentHex = p.brandAccentHex ?? "";
-        const nextBrandTextHex = p.brandTextHex ?? "";
-
-        const nextBrandFontFamily = p.brandFontFamily ?? "";
-        const nextBrandFontGoogleFamily = p.brandFontGoogleFamily ?? "";
-
-        const hosted = p.hostedTheme;
-        const nextHostedBgHex = hosted?.bgHex ?? "";
-        const nextHostedSurfaceHex = hosted?.surfaceHex ?? "";
-        const nextHostedSoftHex = hosted?.softHex ?? "";
-        const nextHostedBorderHex = hosted?.borderHex ?? "";
-        const nextHostedTextHex = hosted?.textHex ?? "";
-        const nextHostedMutedTextHex = hosted?.mutedTextHex ?? "";
-        const nextHostedPrimaryHex = hosted?.primaryHex ?? "";
-        const nextHostedAccentHex = hosted?.accentHex ?? "";
-        const nextHostedLinkHex = hosted?.linkHex ?? "";
-
-        setBusinessName(nextBusinessName);
-        setWebsiteUrl(nextWebsiteUrl);
-        setIndustry(nextIndustry);
-        setBusinessModel(nextBusinessModel);
-        setPrimaryGoals(nextPrimaryGoals);
-        setTargetCustomer(nextTargetCustomer);
-        setBrandVoice(nextBrandVoice);
-
-        setLogoUrl(nextLogoUrl);
-        setBrandPrimaryHex(nextBrandPrimaryHex);
-        setBrandSecondaryHex(nextBrandSecondaryHex);
-        setBrandAccentHex(nextBrandAccentHex);
-        setBrandTextHex(nextBrandTextHex);
-
-        setBrandFontFamily(nextBrandFontFamily);
-        setBrandFontGoogleFamily(nextBrandFontGoogleFamily);
-
-        setHostedBgHex(nextHostedBgHex);
-        setHostedSurfaceHex(nextHostedSurfaceHex);
-        setHostedSoftHex(nextHostedSoftHex);
-        setHostedBorderHex(nextHostedBorderHex);
-        setHostedTextHex(nextHostedTextHex);
-        setHostedMutedTextHex(nextHostedMutedTextHex);
-        setHostedPrimaryHex(nextHostedPrimaryHex);
-        setHostedAccentHex(nextHostedAccentHex);
-        setHostedLinkHex(nextHostedLinkHex);
-
-        lastSavedSigRef.current = JSON.stringify({
-          businessName: String(nextBusinessName || "").trim(),
-          websiteUrl: String(nextWebsiteUrl || "").trim(),
-          industry: String(nextIndustry || "").trim(),
-          businessModel: String(nextBusinessModel || "").trim(),
-          primaryGoals: (nextPrimaryGoals || [])
-            .map((g) => String(g || "").trim())
-            .filter(Boolean)
-            .slice(0, 10),
-          targetCustomer: String(nextTargetCustomer || "").trim(),
-          brandVoice: String(nextBrandVoice || "").trim(),
-
-          logoUrl: String(nextLogoUrl || "").trim(),
-          brandPrimaryHex: String(nextBrandPrimaryHex || "").trim(),
-          brandSecondaryHex: String(nextBrandSecondaryHex || "").trim(),
-          brandAccentHex: String(nextBrandAccentHex || "").trim(),
-          brandTextHex: String(nextBrandTextHex || "").trim(),
-
-          brandFontFamily: String(nextBrandFontFamily || "").trim(),
-          brandFontGoogleFamily: String(nextBrandFontGoogleFamily || "").trim(),
-
-          hostedTheme: {
-            bgHex: String(nextHostedBgHex || "").trim(),
-            surfaceHex: String(nextHostedSurfaceHex || "").trim(),
-            softHex: String(nextHostedSoftHex || "").trim(),
-            borderHex: String(nextHostedBorderHex || "").trim(),
-            textHex: String(nextHostedTextHex || "").trim(),
-            mutedTextHex: String(nextHostedMutedTextHex || "").trim(),
-            primaryHex: String(nextHostedPrimaryHex || "").trim(),
-            accentHex: String(nextHostedAccentHex || "").trim(),
-            linkHex: String(nextHostedLinkHex || "").trim(),
-          },
-        });
-      }
+      applyProfileToForm(json.profile ?? null);
 
       setLoading(false);
     })();
@@ -355,7 +358,7 @@ export function BusinessProfileForm({
       return;
     }
 
-    lastSavedSigRef.current = currentSig;
+    applyProfileToForm(json.profile ?? null);
 
     onSaved?.();
   }

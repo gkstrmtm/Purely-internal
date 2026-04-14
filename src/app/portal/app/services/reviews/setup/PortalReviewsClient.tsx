@@ -98,6 +98,156 @@ function PlainSettingsSection({
   );
 }
 
+function ReviewsRestingState({
+  eyebrow,
+  title,
+  description,
+  children,
+  actions,
+  dotClassName = "bg-slate-500",
+}: {
+  eyebrow?: string;
+  title: string;
+  description: string;
+  children?: React.ReactNode;
+  actions?: React.ReactNode;
+  dotClassName?: string;
+}) {
+  return (
+    <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5">
+      <div className="flex items-start gap-3">
+        <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${dotClassName}`} />
+        <div className="min-w-0 flex-1">
+          {eyebrow ? <div className="text-sm font-medium text-zinc-500">{eyebrow}</div> : null}
+          <div className={eyebrow ? "mt-1 text-base font-semibold text-zinc-900" : "text-base font-semibold text-zinc-900"}>{title}</div>
+          <div className="mt-1 text-sm text-zinc-600">{description}</div>
+          {children ? <div className="mt-4">{children}</div> : null}
+          {actions ? <div className="mt-4 flex flex-wrap gap-2">{actions}</div> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReviewsSidebarRestingState({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3">
+      <div className="text-sm font-semibold text-zinc-800">{title}</div>
+      <div className="mt-1 text-xs leading-5 text-zinc-500">{description}</div>
+    </div>
+  );
+}
+
+function ReviewsLoadingBar({ className }: { className: string }) {
+  return <div aria-hidden="true" className={`animate-pulse rounded-full bg-zinc-200 ${className}`} />;
+}
+
+function ReviewsSidebarLoadingState() {
+  return (
+    <div className="space-y-4" aria-hidden="true">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Reviews</div>
+        <div className="mt-2 space-y-2">
+          <div className="h-11 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+            <ReviewsLoadingBar className="h-4 w-20" />
+          </div>
+          <div className="h-11 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+            <ReviewsLoadingBar className="h-4 w-22" />
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Manual sends</div>
+        <div className="mt-2 h-10 rounded-2xl border border-zinc-200 bg-white px-3 py-3">
+          <ReviewsLoadingBar className="h-3.5 w-36" />
+        </div>
+        <div className="mt-2 space-y-2">
+          <ReviewsLoadingBar className="h-3 w-28" />
+          <ReviewsLoadingBar className="h-3 w-24" />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Recent bookings</div>
+        <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3">
+          <ReviewsLoadingBar className="h-4 w-36" />
+          <ReviewsLoadingBar className="mt-2 h-3 w-full" />
+          <ReviewsLoadingBar className="mt-2 h-3 w-5/6" />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-400">Contacts</div>
+        <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-3">
+          <ReviewsLoadingBar className="h-4 w-32" />
+          <ReviewsLoadingBar className="mt-2 h-3 w-full" />
+          <ReviewsLoadingBar className="mt-2 h-3 w-4/5" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReviewsPageLoadingState() {
+  return (
+    <div className="mt-4 space-y-6" aria-hidden="true">
+      <div className="flex justify-end">
+        <div className="h-10 w-32 animate-pulse rounded-2xl bg-zinc-200" />
+      </div>
+
+      <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-5">
+        <ReviewsLoadingBar className="h-4 w-24" />
+        <ReviewsLoadingBar className="mt-3 h-6 w-72 max-w-full" />
+        <ReviewsLoadingBar className="mt-2 h-4 w-full" />
+        <ReviewsLoadingBar className="mt-2 h-4 w-11/12" />
+        <div className="mt-4 flex flex-wrap gap-2">
+          <div className="h-10 w-40 animate-pulse rounded-2xl bg-zinc-200" />
+          <div className="h-10 w-32 animate-pulse rounded-2xl bg-zinc-200" />
+        </div>
+        <div className="mt-5 space-y-2 text-sm">
+          <ReviewsLoadingBar className="h-4 w-full" />
+          <ReviewsLoadingBar className="h-4 w-10/12" />
+          <ReviewsLoadingBar className="h-4 w-9/12" />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <ReviewsLoadingBar className="h-6 w-36" />
+        <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5">
+          <ReviewsLoadingBar className="h-5 w-64 max-w-full" />
+          <ReviewsLoadingBar className="mt-2 h-4 w-full" />
+          <ReviewsLoadingBar className="mt-2 h-4 w-10/12" />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <ReviewsLoadingBar className="h-6 w-40" />
+        <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5">
+          <ReviewsLoadingBar className="h-5 w-72 max-w-full" />
+          <ReviewsLoadingBar className="mt-2 h-4 w-full" />
+          <ReviewsLoadingBar className="mt-2 h-4 w-11/12" />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <ReviewsLoadingBar className="h-6 w-20" />
+        <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 p-5">
+          <ReviewsLoadingBar className="h-5 w-80 max-w-full" />
+          <ReviewsLoadingBar className="mt-2 h-4 w-full" />
+          <ReviewsLoadingBar className="mt-2 h-4 w-10/12" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const REVIEW_TEMPLATE_VARIABLES: TemplateVariable[] = [
   { key: "name", label: "Contact name", group: "Contact", appliesTo: "Booking contact" },
   { key: "business", label: "Your business name", group: "Business", appliesTo: "Your business" },
@@ -941,6 +1091,15 @@ export default function PortalReviewsClient() {
     }
   }, [settings]);
 
+  function openRequestsSetup() {
+    setTabWithUrl("settings");
+    try {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch {
+      // ignore
+    }
+  }
+
   async function uploadPublicPhotos(files: FileList | null) {
     if (!files || files.length === 0) return;
     setUploadingPhotos(true);
@@ -1083,9 +1242,19 @@ export default function PortalReviewsClient() {
     return calendarTitleById.get(calendarId) || "(unknown calendar)";
   }, [calendarTitleById]);
 
+  const hasHostedReviewsPath = Boolean(settings.publicPage.enabled && (liveHostedReviewsUrl || publicSiteSlug));
+  const hasAnyReviewPath = Boolean(previewLink);
+  const needsReviewsSetupPriority = receivedReviews.length === 0 && events.length === 0 && !hasAnyReviewPath;
+  const reviewsConfiguredButQuiet = receivedReviews.length === 0 && events.length === 0 && hasAnyReviewPath;
+  const showingReviewsOverviewCard = needsReviewsSetupPriority || reviewsConfiguredButQuiet;
+  const initialLoading = loading && !hasLoadedOnceRef.current;
+
   const setSidebarOverride = useSetPortalSidebarOverride();
-  const reviewsSidebar = useMemo(() => (
-    <div className="space-y-4">
+  const reviewsSidebar = useMemo(() => {
+    if (initialLoading) return <ReviewsSidebarLoadingState />;
+
+    return (
+      <div className="space-y-4">
       <div>
         <div className={portalSidebarSectionTitleClass}>Reviews</div>
         <div className={portalSidebarSectionStackClass}>
@@ -1133,7 +1302,12 @@ export default function PortalReviewsClient() {
                 disabled={!settings.automation.manualSend && !bookingsLoadedOnce}
               />
             </div>
-            {bookingsLoading || contactsLoading ? <div className="mt-2 text-xs font-semibold text-zinc-500">Loading…</div> : null}
+            {bookingsLoading || contactsLoading ? (
+              <div className="mt-2 space-y-2" aria-hidden="true">
+                <ReviewsLoadingBar className="h-3 w-24" />
+                <ReviewsLoadingBar className="h-3 w-20" />
+              </div>
+            ) : null}
             {sendResult ? <div className="mt-2 text-xs text-emerald-700">{sendResult}</div> : null}
           </div>
 
@@ -1141,7 +1315,16 @@ export default function PortalReviewsClient() {
             <div className={portalSidebarSectionTitleClass}>Recent bookings</div>
             <div className={portalSidebarSectionStackClass}>
               {filteredRecent.length === 0 ? (
-                <div className="px-1 py-2 text-sm text-zinc-500">No bookings found.</div>
+                <ReviewsSidebarRestingState
+                  title={bookingQuery.trim() ? "No bookings match this search" : !settings.automation.manualSend ? "Manual sends are off" : "Completed bookings will show up here"}
+                  description={
+                    bookingQuery.trim()
+                      ? "Try a different name, email, phone number, or clear the search to see recent bookings again."
+                      : !settings.automation.manualSend
+                        ? "Turn manual sends back on in Requests when you want to send review asks from recent appointments."
+                        : "As appointments wrap up, this list becomes the quickest way to send a review request to the right customer."
+                  }
+                />
               ) : (
                 filteredRecent.slice(0, 10).map((booking) => {
                   const ended = Date.now() >= new Date(booking.endAt).getTime();
@@ -1171,7 +1354,14 @@ export default function PortalReviewsClient() {
             <div className={portalSidebarSectionTitleClass}>Contacts</div>
             <div className={portalSidebarSectionStackClass}>
               {!contactsLoading && contacts.length === 0 ? (
-                <div className="px-1 py-2 text-sm text-zinc-500">No contacts found.</div>
+                <ReviewsSidebarRestingState
+                  title={bookingQuery.trim() ? "No contacts match this search" : "Contacts will show up here when they can be used"}
+                  description={
+                    bookingQuery.trim()
+                      ? "Try a different search term or clear the search to bring matching contacts back into view."
+                      : "This list is for manual review requests outside of bookings, especially when a contact already has a usable phone number."
+                  }
+                />
               ) : (
                 contacts.slice(0, 10).map((contact) => {
                   const canSend = settings.automation.manualSend && Boolean(contact.phone) && !sendingContactId;
@@ -1195,8 +1385,9 @@ export default function PortalReviewsClient() {
           </div>
         </>
       ) : null}
-    </div>
-  ), [bookingQuery, bookingsLoadedOnce, bookingsLoading, calendarLabel, contacts, contactsLoading, filteredRecent, isCalendarAllowedForBooking, manualSend, manualSendContact, sendResult, sending, sendingContactId, settings.automation.manualSend, tab]);
+      </div>
+    );
+  }, [bookingQuery, bookingsLoadedOnce, bookingsLoading, calendarLabel, contacts, contactsLoading, filteredRecent, initialLoading, isCalendarAllowedForBooking, manualSend, manualSendContact, sendResult, sending, sendingContactId, settings.automation.manualSend, tab]);
 
   useEffect(() => {
     setSidebarOverride({
@@ -1209,11 +1400,11 @@ export default function PortalReviewsClient() {
     return () => setSidebarOverride(null);
   }, [setSidebarOverride]);
 
-  if (loading && !hasLoadedOnceRef.current) {
+  if (initialLoading) {
     return (
-      <div className="mx-auto w-full max-w-5xl px-6 py-8">
+      <div className="mx-auto w-full max-w-7xl px-6 py-8">
         <PortalBackToOnboardingLink />
-        <div className="text-sm text-neutral-500">Loading…</div>
+        <ReviewsPageLoadingState />
       </div>
     );
   }
@@ -1236,9 +1427,11 @@ export default function PortalReviewsClient() {
         </div>
       ) : null}
 
-      <div className="mt-4 flex justify-end">
-        <SuggestedSetupModalLauncher serviceSlugs={["reviews"]} buttonLabel="Suggested setup" />
-      </div>
+      {tab === "settings" || !showingReviewsOverviewCard ? (
+        <div className="mt-4 flex justify-end">
+          <SuggestedSetupModalLauncher serviceSlugs={["reviews"]} buttonLabel="Suggested setup" />
+        </div>
+      ) : null}
 
       <div className="mt-4">
         <div className={tab === "settings" ? "" : "hidden"}>
@@ -2235,8 +2428,65 @@ export default function PortalReviewsClient() {
           <div>
             <div className="flex flex-col gap-1">
               <div className="text-lg font-semibold text-zinc-900">Reviews</div>
-              <div className="text-sm text-zinc-600">Manual sends, recent activity, and received reviews.</div>
             </div>
+
+            {needsReviewsSetupPriority ? (
+              <div className="mt-4">
+                <ReviewsRestingState
+                  eyebrow="First steps"
+                  title="Set up where your reviews should go first"
+                  description="There isn’t a live review page or destination configured yet, so this tab has nothing real to collect or show. Finish the setup path first, then Reviews becomes the place to send requests and manage responses."
+                  dotClassName="bg-(--color-brand-blue)"
+                  actions={
+                    <>
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                        onClick={openRequestsSetup}
+                      >
+                        Open requests setup
+                      </button>
+                      <SuggestedSetupModalLauncher serviceSlugs={["reviews"]} buttonLabel="Suggested setup" />
+                    </>
+                  }
+                >
+                  <div className="space-y-2 text-sm text-zinc-700">
+                    <div>1. Turn on the public page so customers have a real place to leave a review.</div>
+                    <div>2. Confirm the review URL or connect the domain you want customers to see.</div>
+                    <div>3. Add Google or another destination if you also want requests to route there.</div>
+                  </div>
+                </ReviewsRestingState>
+              </div>
+            ) : reviewsConfiguredButQuiet ? (
+              <div className="mt-4">
+                <ReviewsRestingState
+                  title="Your review flow is live. This page fills up as customers respond."
+                  description="The setup path is done. When you send review requests or share the page, activity, reviews, and questions will start appearing here as customers leave feedback."
+                  dotClassName="bg-emerald-500"
+                  actions={
+                    <>
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                        onClick={openRequestsSetup}
+                      >
+                        Adjust requests setup
+                      </button>
+                      {previewLink ? (
+                        <a
+                          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                          href={previewLink}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {hasHostedReviewsPath ? "Open review page" : "Open review destination"}
+                        </a>
+                      ) : null}
+                    </>
+                  }
+                />
+              </div>
+            ) : null}
 
           {!settings.automation.manualSend ? (
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -2247,7 +2497,25 @@ export default function PortalReviewsClient() {
           <div className="mt-6">
             <div className="text-lg font-semibold">Recent activity</div>
             <div className="mt-3 space-y-2">
-              {events.length === 0 ? <div className="text-sm text-neutral-600">No activity yet.</div> : null}
+              {events.length === 0 ? (
+                <ReviewsRestingState
+                  title="Requests and delivery history will appear here"
+                  description={
+                    hasAnyReviewPath
+                      ? "Once you send review requests, this area shows sends, skips, failures, and delivery details."
+                      : "There is no review path configured yet, so nothing can be sent from this page until setup is finished."
+                  }
+                  actions={!showingReviewsOverviewCard ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                      onClick={openRequestsSetup}
+                    >
+                      {hasAnyReviewPath ? "Adjust requests setup" : "Finish setup"}
+                    </button>
+                  ) : undefined}
+                />
+              ) : null}
               {events.map((e) => (
                 <div key={e.id} className="rounded-lg border border-zinc-200 bg-white p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2282,10 +2550,44 @@ export default function PortalReviewsClient() {
 
           <div className="mt-6">
             <div className="text-lg font-semibold">Received reviews</div>
-            <div className="mt-1 text-sm text-zinc-600">Reviews submitted on your public reviews page.</div>
 
             <div className="mt-3 space-y-2">
-              {receivedReviews.length === 0 ? <div className="text-sm text-zinc-600">No reviews yet.</div> : null}
+              {receivedReviews.length === 0 ? (
+                <ReviewsRestingState
+                  title={!hasHostedReviewsPath ? "Turn on a live public reviews page first" : "Customer reviews will show up here after the first submission"}
+                  description={
+                    !hasHostedReviewsPath
+                      ? "This inbox only fills up after customers submit on your hosted reviews page. Enable the page and confirm the URL first, then this section will start collecting real reviews."
+                      : "Your page is ready, but no one has submitted yet. Share the page or send the first request so you can see the review flow start working here."
+                  }
+                  actions={
+                    !showingReviewsOverviewCard
+                      ? !hasHostedReviewsPath
+                        ? (
+                          <button
+                            type="button"
+                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                            onClick={openRequestsSetup}
+                          >
+                            Open hosted page setup
+                          </button>
+                        )
+                        : liveHostedReviewsUrl
+                          ? (
+                            <a
+                              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                              href={liveHostedReviewsUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open live reviews page
+                            </a>
+                          )
+                          : undefined
+                      : undefined
+                  }
+                />
+              ) : null}
 
               {receivedReviews.slice(0, 50).map((r) => {
                 const rating = Math.max(1, Math.min(5, Math.round(Number(r.rating) || 0)));
@@ -2447,10 +2749,18 @@ export default function PortalReviewsClient() {
 
           <div className="mt-6">
             <div className="text-lg font-semibold">Q&amp;A</div>
-            <div className="mt-1 text-sm text-zinc-600">Questions asked by visitors on your public reviews page.</div>
 
             <div className="mt-3 space-y-2">
-              {qaQuestions.length === 0 ? <div className="text-sm text-zinc-600">No questions yet.</div> : null}
+              {qaQuestions.length === 0 ? (
+                <ReviewsRestingState
+                  title={!hasHostedReviewsPath ? "Turn on a live public reviews page before expecting questions" : "Visitor questions will show up here once someone asks the first one"}
+                  description={
+                    !hasHostedReviewsPath
+                      ? "Questions come from the public reviews page. Once that page is live, this section becomes the place to answer them."
+                      : "This section stays ready for incoming questions from the public page, so you do not end up with an empty dead spot while things are still quiet."
+                  }
+                />
+              ) : null}
               {qaQuestions.slice(0, 50).map((q) => (
                 <div key={q.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
                   <div className="flex flex-wrap items-start justify-between gap-2">
