@@ -55,6 +55,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         editorMode: true,
         blocksJson: true,
         customHtml: true,
+        draftHtml: true,
         customChatJson: true,
         updatedAt: true,
       },
@@ -82,6 +83,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     data: {
       ...(blocksFromClient.length ? { blocksJson: blocksFromClient as any } : null),
       customHtml: html,
+      draftHtml: html,
       ...(parsed.data.setEditorMode ? { editorMode: parsed.data.setEditorMode } : null),
     },
     select: {
@@ -91,6 +93,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       editorMode: true,
       blocksJson: true,
       customHtml: true,
+      draftHtml: true,
       customChatJson: true,
       updatedAt: true,
     },

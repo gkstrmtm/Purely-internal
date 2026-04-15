@@ -675,6 +675,8 @@ export async function POST(req: Request) {
     "- No external JS/CSS, no frameworks.",
     "- Prefer semantic HTML and classes; keep it minimal.",
     "- Make it safe to embed inside an existing page.",
+    "- Do NOT treat this fragment like a full page. Avoid html/body styles, viewport-height wrappers, or fixed-position layout shells unless the user explicitly asks for them.",
+    "- Keep the fragment responsive inside its parent container. Avoid hardcoded phone-width wrappers or device mockups.",
     "- Do NOT output placeholder URLs (e.g. 'your_calendar_embed_link_here'). If you don't have a real URL, ask a question or return JSON actions.",
     "- Do NOT link to /portal/* routes. Those do not exist on hosted funnels.",
     "- Links should be relative and keep the user on the hosted funnel site.",

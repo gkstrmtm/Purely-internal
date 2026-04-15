@@ -95,6 +95,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     data.editorMode = m;
   }
   if (typeof body?.customHtml === "string") data.customHtml = body.customHtml;
+  if (typeof body?.draftHtml === "string") data.draftHtml = body.draftHtml;
   if (body?.blocksJson !== undefined) data.blocksJson = body.blocksJson;
   if (body?.customChatJson !== undefined) data.customChatJson = body.customChatJson;
 
@@ -123,6 +124,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
           editorMode: true,
           blocksJson: true,
           customHtml: true,
+          draftHtml: true,
           customChatJson: true,
           createdAt: true,
           updatedAt: true,
@@ -139,6 +141,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
           editorMode: true,
           blocksJson: true,
           customHtml: true,
+          draftHtml: true,
           customChatJson: true,
           createdAt: true,
           updatedAt: true,

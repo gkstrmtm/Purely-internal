@@ -1048,11 +1048,14 @@ export function renderCreditFunnelBlocks({
     funnelPathBase?: string;
     funnelPageSlug?: string;
     previewDevice?: "desktop" | "mobile";
+    previewEmbedMode?: "live" | "placeholder";
   };
   editor?: {
     enabled?: boolean;
     selectedBlockId?: string | null;
     hoveredBlockId?: string | null;
+    aiFocusedBlockId?: string | null;
+    aiFocusedPhase?: "pending" | "settled" | null;
     onSelectBlockId?: (id: string) => void;
     onHoverBlockId?: (id: string | null) => void;
     onUpsertBlock?: (next: CreditFunnelBlock) => void;
@@ -1114,6 +1117,74 @@ export function renderCreditFunnelBlocks({
 
   const isEditor = Boolean(editor?.enabled);
   const isPreviewRender = Boolean(context?.previewDevice);
+  const previewEmbedMode = context?.previewEmbedMode === "placeholder" ? "placeholder" : "live";
+  const previewUsesEmbedPlaceholders = isPreviewRender && previewEmbedMode === "placeholder";
+  const isMobilePreview = context?.previewDevice === "mobile";
+
+  const previewEmbedHeight = (raw: number | undefined, desktopFallback: number, mobileMax: number) => {
+    const base = typeof raw === "number" && Number.isFinite(raw) ? raw : desktopFallback;
+    if (!previewUsesEmbedPlaceholders) return base;
+    return Math.min(base, isMobilePreview ? mobileMax : desktopFallback);
+  };
+
+  const renderEmbedPlaceholder = (opts: {
+    key: string;
+    style?: BlockStyle;
+    blockId: string;
+    title: string;
+    subtitle: string;
+    detail?: string;
+    height: number;
+  }) =>
+    React.createElement(
+      "div",
+      {
+        key: opts.key,
+        style: { ...wrapperStyle(opts.style), ...(blockWrapStyle(opts.blockId) || {}) },
+        ...wrapProps(opts.blockId),
+      },
+      renderMoveControls(opts.blockId),
+      React.createElement(
+        "div",
+        {
+          className: "overflow-hidden rounded-[28px] border border-zinc-200 bg-white shadow-sm",
+          style: { minHeight: opts.height },
+        },
+        React.createElement(
+          "div",
+          {
+            className: "flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-4 py-3",
+          },
+          React.createElement(
+            "div",
+            null,
+            React.createElement("div", { className: "text-sm font-semibold text-zinc-900" }, opts.title),
+            React.createElement("div", { className: "mt-1 text-xs text-zinc-500" }, opts.subtitle),
+          ),
+          React.createElement(
+            "div",
+            { className: "rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500" },
+            "Preview paused",
+          ),
+        ),
+        React.createElement(
+          "div",
+          {
+            className: "flex h-full min-h-[inherit] items-center justify-center bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-5 py-8 text-center",
+          },
+          React.createElement(
+            "div",
+            { className: "max-w-sm" },
+            React.createElement("div", { className: "text-sm font-semibold text-zinc-900" }, opts.title),
+            React.createElement(
+              "div",
+              { className: "mt-2 text-sm text-zinc-600" },
+              opts.detail || "Live embeds are simplified inside the editor preview so the canvas stays fast and the phone viewport remains realistic.",
+            ),
+          ),
+        ),
+      ),
+    );
 
   const renderCornerResizeHandle = (block: CreditFunnelBlock): React.ReactNode => {
     if (!isEditor) return null;
@@ -1228,6 +1299,8 @@ export function renderCreditFunnelBlocks({
     // Tailwind's `space-y-4` adds margin-top between siblings; remove the default gap directly after a header block.
     ".funnel-blocks > .funnel-header-block + :not([hidden]){margin-top:0!important;}",
     ".space-y-4 > .funnel-header-block + :not([hidden]){margin-top:0!important;}",
+    "@keyframes funnel-editor-ai-pulse{0%,100%{transform:translateY(0) scale(1);opacity:1}50%{transform:translateY(-1px) scale(1.003);opacity:1}}",
+    "@keyframes funnel-editor-ai-settle{0%{transform:translateY(-1px) scale(1.006)}100%{transform:translateY(0) scale(1)}}",
   ].join("\n");
 
   const renderMoveControls = (id: string): React.ReactNode => {
@@ -1295,11 +1368,27 @@ export function renderCreditFunnelBlocks({
     if (!isEditor) return undefined;
     const selected = editor?.selectedBlockId === id;
     const hovered = editor?.hoveredBlockId === id;
-    if (!selected && !hovered) return undefined;
-    const color = selected ? "var(--color-brand-blue)" : "rgba(15, 23, 42, 0.25)";
+    const aiFocused = editor?.aiFocusedBlockId === id;
+    const aiPhase = editor?.aiFocusedPhase || null;
+    if (!selected && !hovered && !aiFocused) return undefined;
+    const color = selected
+      ? "var(--color-brand-blue)"
+      : aiFocused
+        ? "rgba(24, 24, 27, 0.42)"
+        : "rgba(15, 23, 42, 0.25)";
     return {
-      boxShadow: `0 0 0 ${selected ? 2 : 1}px ${color}`,
+      boxShadow: aiFocused
+        ? `0 0 0 ${selected ? 2 : 1.5}px ${color}, 0 16px 32px rgba(15, 23, 42, 0.08)`
+        : `0 0 0 ${selected ? 2 : 1}px ${color}`,
       borderRadius: 12,
+      transition: "box-shadow 180ms ease, transform 180ms ease",
+      animation: aiFocused
+        ? aiPhase === "pending"
+          ? "funnel-editor-ai-pulse 1.15s ease-in-out infinite"
+          : aiPhase === "settled"
+            ? "funnel-editor-ai-settle 700ms cubic-bezier(0.22, 1, 0.36, 1) 1"
+            : undefined
+        : undefined,
     };
   };
 
@@ -2234,6 +2323,20 @@ export function renderCreditFunnelBlocks({
         }
         const src = `${basePath}/forms/${encodeURIComponent(formSlug)}?embed=1`;
         const height = typeof b.props.height === "number" ? b.props.height : 760;
+        const effectiveHeight = previewEmbedHeight(height, 760, 560);
+
+        if (previewUsesEmbedPlaceholders) {
+          return renderEmbedPlaceholder({
+            key: b.id,
+            style: b.props.style,
+            blockId: b.id,
+            title: "Form embed",
+            subtitle: `/forms/${formSlug}?embed=1`,
+            detail: "Open the hosted funnel or form page to verify real submission behavior. The editor uses a lightweight stand-in here to keep preview responsive.",
+            height: effectiveHeight,
+          });
+        }
+
         return React.createElement(
           "div",
           {
@@ -2250,7 +2353,7 @@ export function renderCreditFunnelBlocks({
                   title: `Form ${formSlug}`,
                   src,
                   className: "w-full rounded-2xl border border-zinc-200 bg-white",
-                  style: { height },
+                  style: { height: effectiveHeight },
                   sandbox: "allow-forms allow-scripts allow-same-origin",
                 }),
                 React.createElement("div", {
@@ -2266,7 +2369,7 @@ export function renderCreditFunnelBlocks({
                 title: `Form ${formSlug}`,
                 src,
                 className: "w-full rounded-2xl border border-zinc-200 bg-white",
-                style: { height },
+                style: { height: effectiveHeight },
                 sandbox: "allow-forms allow-scripts allow-same-origin",
               }),
         );
@@ -2296,6 +2399,7 @@ export function renderCreditFunnelBlocks({
         }
 
         const height = typeof (b.props as any).height === "number" ? (b.props as any).height : 760;
+        const effectiveHeight = previewEmbedHeight(height, 760, 620);
         const slug = context?.bookingSiteSlug ? String(context.bookingSiteSlug).trim() : "";
         const ownerId = context?.bookingOwnerId ? String(context.bookingOwnerId).trim() : "";
         const src = slug
@@ -2325,6 +2429,18 @@ export function renderCreditFunnelBlocks({
           );
         }
 
+        if (previewUsesEmbedPlaceholders) {
+          return renderEmbedPlaceholder({
+            key: b.id,
+            style: (b.props as any).style,
+            blockId: b.id,
+            title: "Calendar embed",
+            subtitle: `Calendar ${calendarId}`,
+            detail: "The booking calendar is paused in editor preview so mobile framing stays accurate and the builder remains usable on slower connections.",
+            height: effectiveHeight,
+          });
+        }
+
         return React.createElement(
           "div",
           {
@@ -2341,7 +2457,7 @@ export function renderCreditFunnelBlocks({
                   title: `Calendar ${calendarId}`,
                   src,
                   className: "w-full rounded-2xl border border-zinc-200 bg-white",
-                  style: { height },
+                  style: { height: effectiveHeight },
                   sandbox: "allow-forms allow-scripts allow-same-origin",
                 }),
                 React.createElement("div", {
@@ -2357,7 +2473,7 @@ export function renderCreditFunnelBlocks({
                 title: `Calendar ${calendarId}`,
                 src,
                 className: "w-full rounded-2xl border border-zinc-200 bg-white",
-                style: { height },
+                style: { height: effectiveHeight },
                 sandbox: "allow-forms allow-scripts allow-same-origin",
               }),
         );
@@ -2570,7 +2686,7 @@ export function renderCreditFunnelBlocks({
           renderBlocksInner(bodyBlocks),
         ),
       ),
-      isEditor && chatbotBlocks.length
+      isEditor && chatbotBlocks.length && !previewUsesEmbedPlaceholders
         ? React.createElement(
             "div",
             {
