@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import {
+  dbHasCreditFunnelPageDraftHtmlColumn,
+  normalizeDraftHtml,
+  withDraftHtmlSelect,
+} from "@/lib/funnelPageDbCompat";
+import { createFunnelPagePublishUpdate } from "@/lib/funnelPageState";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,25 +31,28 @@ export async function POST(
     return NextResponse.json({ ok: false, error: "Invalid id" }, { status: 400 });
   }
 
+  const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
+
   const page = await prisma.creditFunnelPage.findFirst({
     where: { id: pageId, funnelId, funnel: { ownerId: auth.session.user.id } },
-    select: { id: true, draftHtml: true, customHtml: true },
+    select: withDraftHtmlSelect({ id: true, customHtml: true }, hasDraftHtml),
   });
   if (!page) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  // If there's no draft, nothing to publish.
-  const draft = page.draftHtml.trim();
-  if (!draft) {
+  const normalizedPage = normalizeDraftHtml(page);
+  if (!hasDraftHtml) {
+    return NextResponse.json({ ok: true, page: normalizedPage });
+  }
+
+  const publishUpdate = createFunnelPagePublishUpdate(normalizedPage);
+  if (!publishUpdate) {
     return NextResponse.json({ ok: false, error: "No draft to publish" }, { status: 400 });
   }
 
   const updated = await prisma.creditFunnelPage.update({
     where: { id: pageId },
-    data: {
-      customHtml: draft,
-      draftHtml: "",
-    },
-    select: {
+    data: publishUpdate,
+    select: withDraftHtmlSelect({
       id: true,
       slug: true,
       title: true,
@@ -52,12 +61,11 @@ export async function POST(
       editorMode: true,
       blocksJson: true,
       customHtml: true,
-      draftHtml: true,
       customChatJson: true,
       createdAt: true,
       updatedAt: true,
-    },
+    }, hasDraftHtml),
   });
 
-  return NextResponse.json({ ok: true, page: updated });
+  return NextResponse.json({ ok: true, page: normalizeDraftHtml(updated) });
 }

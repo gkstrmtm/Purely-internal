@@ -7,9 +7,20 @@ import type { CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
+import {
+  applyDraftHtmlWriteCompat,
+  dbHasCreditFunnelPageDraftHtmlColumn,
+  normalizeDraftHtml,
+  withDraftHtmlSelect,
+} from "@/lib/funnelPageDbCompat";
 import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { stripeGetWithKey } from "@/lib/stripeFetchWithKey.server";
 import { blocksToCustomHtmlDocument, escapeHtml } from "@/lib/funnelBlocksToCustomHtmlDocument";
+import {
+  createFunnelPageDraftUpdate,
+  createFunnelPageMirroredHtmlUpdate,
+  getFunnelPageCurrentHtml,
+} from "@/lib/funnelPageState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -115,24 +126,30 @@ function detectExplicitBrandStylingIntent(text: string): boolean {
   return /\b(brand|branding|brand colors?|palette|rebrand|use our colors|match the brand|apply brand|brand refresh|match our style)\b/.test(s);
 }
 
+const vagueImprovementIntentPattern = new RegExp(
+  [
+    "\\bfix (this|it|that|the (page|design|button|buttons|colors?|text|header|nav|link|looks?|styling))",
+    "make (this|it|the page) (better|good|great|look good|nicer|cleaner|more professional)",
+    "improve (this|it|the (page|design|look|appearance|styling))",
+    "clean(?: this|\\s+the page|\\s+it)? up",
+    "looks? (bad|off|wrong|ugly|terrible|awful|amateurish|unprofessional|weird|broken|poor)",
+    "this (looks? bad|is off|is wrong|is broken|is bad|needs? work|isn'?t right|doesn'?t look right)",
+    "polish (this|it|the page)?",
+    "just fix (it|this|everything)",
+    "everything is (off|wrong|broken)",
+    "what'?s wrong with (the|this|it)",
+    "\\bupgrade\\b.*\\b(page|design|look)",
+    "\\b(overhaul|revamp)\\b",
+  ].join("|"),
+  "i",
+);
+
 function detectVagueImprovementIntent(text: string): boolean {
   const s = String(text || "").toLowerCase();
   // Catches: "fix this", "make this better", "improve", "clean this up", "looks bad",
   // "polish", "this is off", "fix the buttons", "fix the colors", "this looks wrong",
   // "make it look good", "upgrade", "the design is bad", "fix the design", etc.
-  return /\b(fix (this|it|that|the (page|design|button|buttons|colors?|text|header|nav|link|looks?|styling)))
-    |make (this|it|the page) (better|good|great|look good|nicer|cleaner|more professional)
-    |improve (this|it|the (page|design|look|appearance|styling))
-    |clean(?: this|\s+the page|\s+it)? up
-    |looks? (bad|off|wrong|ugly|terrible|awful|amateurish|unprofessional|weird|broken|poor)
-    |this (looks? bad|is off|is wrong|is broken|is bad|needs? work|isn'?t right|doesn'?t look right)
-    |polish (this|it|the page)?
-    |just fix (it|this|everything)
-    |everything is (off|wrong|broken)
-    |what'?s wrong with (the|this|it)
-    |\bupgrade\b.*\b(page|design|look)
-    |\b(overhaul|revamp)\b
-  /xi.test(s);
+  return vagueImprovementIntentPattern.test(s);
 }
 
 function splitBusinessProfileContext(raw: string): { guidance: string; styling: string } {
@@ -584,6 +601,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const attachments = coerceAttachments(body?.attachments);
   const contextKeys = coerceContextKeys(body?.contextKeys);
   const contextMedia = coerceContextMedia(body?.contextMedia);
+  const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
   const allRegions: Array<{ key: string; label: string; summary: string }> = Array.isArray(body?.allRegions)
     ? (body.allRegions as any[])
         .filter((r) => r && typeof r === "object" && typeof r.key === "string" && r.key.trim())
@@ -597,7 +615,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
   const page = await prisma.creditFunnelPage.findFirst({
     where: { id: pageId, funnelId, funnel: { ownerId: auth.session.user.id } },
-    select: {
+    select: withDraftHtmlSelect({
       id: true,
       slug: true,
       title: true,
@@ -605,11 +623,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       blocksJson: true,
       customChatJson: true,
       customHtml: true,
-      draftHtml: true,
       funnel: { select: { id: true, slug: true, name: true } },
-    },
+    }, hasDraftHtml),
   });
   if (!page) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  const normalizedPage = normalizeDraftHtml(page);
+  const effectiveCurrentHtml =
+    (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : getFunnelPageCurrentHtml(page)).trim();
+  const wantsDesignRedesign = /\b(hero|proof strip|credibility strip|benefits?|testimonials?|cta|call to action|layout|design|redesign|premium|modern|landing page|sales page|polish|refresh)\b/i.test(prompt);
 
   const ownerId = auth.session.user.id;
   const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
@@ -641,7 +662,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       if (missingChatbot) parts.push("I can add a working chatbot widget, but I don't see an ElevenLabs chat agent ID for this account yet. What agent ID should I use?");
       const question = parts[0] ? parts[0].slice(0, 800) : "Which interactive block should I add (shop, calendar, or chatbot)?";
 
-      const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
+      const prevChat = Array.isArray(normalizedPage.customChatJson) ? (normalizedPage.customChatJson as any[]) : [];
       const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
       const assistantMsg = { role: "assistant", content: question, at: new Date().toISOString() };
       const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
@@ -678,8 +699,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     }
 
     const blocks = buildInteractiveBlocks({
-      funnelName: page.funnel.name,
-      pageTitle: page.title,
+      funnelName: normalizedPage.funnel.name,
+      pageTitle: normalizedPage.title,
       ownerId,
       stripeProducts: stripeProducts.ok ? (stripeProducts.products as any) : [],
       ...(calendarId ? { calendarId } : {}),
@@ -687,7 +708,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       intent,
     });
 
-    const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
+    const prevChat = Array.isArray(normalizedPage.customChatJson) ? (normalizedPage.customChatJson as any[]) : [];
     const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
     const assistantMsg = {
       role: "assistant",
@@ -699,21 +720,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
     const htmlSnapshot = blocksToCustomHtmlDocument({
       blocks,
-      pageId: page.id,
+      pageId: normalizedPage.id,
       ownerId,
       basePath,
-      title: page.title || page.funnel.name || "Funnel page",
+      title: normalizedPage.title || normalizedPage.funnel.name || "Funnel page",
     });
 
     const updated = await prisma.creditFunnelPage.update({
-      where: { id: page.id },
-      data: {
+      where: { id: normalizedPage.id },
+      data: applyDraftHtmlWriteCompat({
         editorMode: "BLOCKS",
         blocksJson: blocks as any,
-        customHtml: htmlSnapshot,
+        ...createFunnelPageMirroredHtmlUpdate(htmlSnapshot),
         customChatJson: nextChat,
-      },
-      select: {
+      }, hasDraftHtml),
+      select: withDraftHtmlSelect({
         id: true,
         slug: true,
         title: true,
@@ -722,7 +743,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         customHtml: true,
         customChatJson: true,
         updatedAt: true,
-      },
+      }, hasDraftHtml),
     });
 
     return NextResponse.json({
@@ -734,7 +755,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         contextKeyCount: contextKeys.length,
         contextMediaCount: contextMedia.length,
       }),
-      page: updated,
+      page: normalizeDraftHtml(updated),
     });
   }
 
@@ -778,13 +799,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "- Avoid lorem ipsum, generic 'your company' copy, and weak filler sections.",
   ];
 
-  const effectiveCurrentHtml =
-    (currentHtmlFromClient && currentHtmlFromClient.trim()
-      ? currentHtmlFromClient
-      : page.draftHtml?.trim() || page.customHtml || "").trim();
   const hasCurrentHtml = Boolean(effectiveCurrentHtml);
   const hasSelectedRegion = Boolean(selectedRegion?.html && selectedRegion.html.trim());
-  const wantsDesignRedesign = /\b(hero|proof strip|credibility strip|benefits?|testimonials?|cta|call to action|layout|design|redesign|premium|modern|landing page|sales page|polish|refresh)\b/i.test(prompt);
   const wantsLocalStyleFix = detectLocalStyleFixIntent(prompt);
   const wantsVagueImprovement = detectVagueImprovementIntent(prompt);
   const explicitBrandStylingIntent = detectExplicitBrandStylingIntent(prompt);
@@ -821,7 +837,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       : "",
   ].join("\n");
 
-  const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
+  const prevChat = Array.isArray(normalizedPage.customChatJson) ? (normalizedPage.customChatJson as any[]) : [];
   const attachmentsBlock = attachments.length
     ? [
         "",
@@ -941,8 +957,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       businessContextBlock,
       stripeProductsBlock,
       pageEditContextBlock,
-      `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
-      `Page: ${page.title} (slug: ${page.slug})`,
+      `Funnel: ${normalizedPage.funnel.name} (slug: ${normalizedPage.funnel.slug})`,
+      `Page: ${normalizedPage.title} (slug: ${normalizedPage.slug})`,
       wantsDesignQualityAudit
         ? [
             "DESIGN_QUALITY_CHECKLIST (audit every item before writing output):",
@@ -1058,28 +1074,29 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const cleanHtml = sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html));
 
   const updated = await prisma.creditFunnelPage.update({
-    where: { id: page.id },
-    data: {
+    where: { id: normalizedPage.id },
+    data: applyDraftHtmlWriteCompat({
       editorMode: "CUSTOM_HTML",
       // Write AI output to draftHtml only — user must explicitly Publish to go live.
-      draftHtml: cleanHtml,
+      ...createFunnelPageDraftUpdate(cleanHtml),
       customChatJson: nextChat,
-    },
-    select: {
+    }, hasDraftHtml),
+    select: withDraftHtmlSelect({
       id: true,
       slug: true,
       title: true,
       editorMode: true,
       customHtml: true,
-      draftHtml: true,
       customChatJson: true,
       updatedAt: true,
-    },
+    }, hasDraftHtml),
   });
+
+  const normalizedUpdated = normalizeDraftHtml(updated);
 
   return NextResponse.json({
     ok: true,
-    html: updated.draftHtml,
+    html: getFunnelPageCurrentHtml(normalizedUpdated),
     aiResult: buildAiResultMeta({
       mode: "html-update",
       hadCurrentHtml: Boolean(effectiveCurrentHtml),
@@ -1087,6 +1104,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       contextKeyCount: contextKeys.length,
       contextMediaCount: contextMedia.length,
     }),
-    page: updated,
+    page: normalizedUpdated,
   });
 }

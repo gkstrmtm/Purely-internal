@@ -1895,13 +1895,20 @@ export function renderCreditFunnelBlocks({
                     },
                   }),
                 )
-              : React.createElement("iframe", {
-                  title: "Custom code",
-                  srcDoc,
-                  className: "w-full rounded-2xl border border-zinc-200 bg-white",
-                  style: { height },
-                  sandbox: "allow-forms allow-popups allow-scripts",
-                }),
+              : React.createElement(
+                  "div",
+                  {
+                    className: "w-full",
+                  },
+                  css.trim()
+                    ? React.createElement("style", {
+                        dangerouslySetInnerHTML: { __html: css },
+                      })
+                    : null,
+                  React.createElement("div", {
+                    dangerouslySetInnerHTML: { __html: html },
+                  }),
+                ),
         );
       }
 

@@ -4,6 +4,13 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import {
+  applyDraftHtmlWriteCompat,
+  dbHasCreditFunnelPageDraftHtmlColumn,
+  normalizeDraftHtmlList,
+  withDraftHtmlSelect,
+} from "@/lib/funnelPageDbCompat";
+import { createFunnelPageBlockSnapshotUpdate } from "@/lib/funnelPageState";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -72,6 +79,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const { funnelId: funnelIdRaw } = await ctx.params;
   const funnelId = String(funnelIdRaw || "").trim();
   if (!funnelId) return NextResponse.json({ ok: false, error: "Invalid funnelId" }, { status: 400 });
+  const basePath = auth.variant === "credit" ? "/credit" : "";
 
   const parsed = postSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -84,10 +92,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   });
   if (!funnel) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
+  const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
+
   const pages = await prisma.creditFunnelPage.findMany({
     where: { funnelId },
     orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-    select: {
+    select: withDraftHtmlSelect({
       id: true,
       slug: true,
       title: true,
@@ -99,7 +109,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       customChatJson: true,
       createdAt: true,
       updatedAt: true,
-    },
+    }, hasDraftHtml),
   });
 
   if (parsed.data.mode === "apply") {
@@ -117,11 +127,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
       const nextEditable = [header, ...withoutGlobal];
       const nextBlocks = pageSettings ? [pageSettings, ...nextEditable] : nextEditable;
+      const nextPageUpdate = createFunnelPageBlockSnapshotUpdate({
+        blocks: nextBlocks,
+        pageId: p.id,
+        ownerId: auth.session.user.id,
+        basePath,
+        title: p.title || "Funnel page",
+      });
 
       return prisma.creditFunnelPage.update({
         where: { id: p.id },
-        data: { blocksJson: nextBlocks },
-        select: {
+        data: applyDraftHtmlWriteCompat(nextPageUpdate as any, hasDraftHtml),
+        select: withDraftHtmlSelect({
           id: true,
           slug: true,
           title: true,
@@ -133,12 +150,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
           customChatJson: true,
           createdAt: true,
           updatedAt: true,
-        },
+        }, hasDraftHtml),
       });
     });
 
     const updatedPages = await prisma.$transaction(updates);
-    return NextResponse.json({ ok: true, pages: updatedPages });
+    return NextResponse.json({ ok: true, pages: normalizeDraftHtmlList(updatedPages) });
   }
 
   // unset
@@ -157,11 +174,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
     const nextEditable = p.id === keepOnPageId ? [localHeader, ...withoutGlobal] : withoutGlobal;
     const nextBlocks = pageSettings ? [pageSettings, ...nextEditable] : nextEditable;
+    const nextPageUpdate = createFunnelPageBlockSnapshotUpdate({
+      blocks: nextBlocks,
+      pageId: p.id,
+      ownerId: auth.session.user.id,
+      basePath,
+      title: p.title || "Funnel page",
+    });
 
     return prisma.creditFunnelPage.update({
       where: { id: p.id },
-      data: { blocksJson: nextBlocks },
-      select: {
+      data: applyDraftHtmlWriteCompat(nextPageUpdate as any, hasDraftHtml),
+      select: withDraftHtmlSelect({
         id: true,
         slug: true,
         title: true,
@@ -173,10 +197,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         customChatJson: true,
         createdAt: true,
         updatedAt: true,
-      },
+      }, hasDraftHtml),
     });
   });
 
   const updatedPages = await prisma.$transaction(updates);
-  return NextResponse.json({ ok: true, pages: updatedPages });
+  return NextResponse.json({ ok: true, pages: normalizeDraftHtmlList(updatedPages) });
 }

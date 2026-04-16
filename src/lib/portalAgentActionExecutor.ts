@@ -157,6 +157,12 @@ import { resolveEntitlementsForOwnerId } from "@/lib/entitlements";
 import { checkHttpsReachable, ensureVercelProjectDomain, formatVercelVerificationRecords } from "@/lib/vercelProjectDomains";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { blocksToCustomHtmlDocument, escapeHtml } from "@/lib/funnelBlocksToCustomHtmlDocument";
+import {
+  createFunnelPageBlockSnapshotUpdate,
+  createFunnelPageDraftUpdate,
+  createFunnelPageMirroredHtmlUpdate,
+  getFunnelPageCurrentHtml,
+} from "@/lib/funnelPageState";
 import { generateCreditText } from "@/lib/creditAi";
 import { clearStripeIntegration, getStripeIntegrationStatus, getStripeSecretKeyForOwner, setStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { connectStripeAndActivate, disconnectSalesProvider, getSalesReportingStatus, setActiveSalesProvider, setProviderCredentials } from "@/lib/salesReportingIntegration.server";
@@ -4554,21 +4560,19 @@ async function runDirectAction(opts: {
             blocksJson: blocks as any,
             contentMarkdown: "",
           },
-          select: { id: true, funnelId: true, slug: true, title: true, sortOrder: true, editorMode: true, blocksJson: true, customHtml: true },
+          select: { id: true, funnelId: true, slug: true, title: true, sortOrder: true, editorMode: true, blocksJson: true, customHtml: true, draftHtml: true },
         });
 
         try {
-          const htmlSnapshot = blocksToCustomHtmlDocument({
-            blocks,
-            pageId: created.id,
-            ownerId,
-            basePath,
-            title: created.title || "Funnel page",
-          });
-
           return await prisma.creditFunnelPage.update({
             where: { id: created.id },
-            data: { customHtml: htmlSnapshot },
+            data: createFunnelPageBlockSnapshotUpdate({
+              blocks,
+              pageId: created.id,
+              ownerId,
+              basePath,
+              title: created.title || "Funnel page",
+            }) as any,
             select: {
               id: true,
               funnelId: true,
@@ -4579,6 +4583,7 @@ async function runDirectAction(opts: {
               editorMode: true,
               blocksJson: true,
               customHtml: true,
+              draftHtml: true,
               customChatJson: true,
               createdAt: true,
               updatedAt: true,
@@ -5965,7 +5970,7 @@ async function runDirectAction(opts: {
 
       const page = await prisma.creditFunnelPage.update({
         where: { id: created.id },
-        data: { customHtml: htmlSnapshot },
+        data: createFunnelPageMirroredHtmlUpdate(htmlSnapshot),
         select: {
           id: true,
           funnelId: true,
@@ -5976,6 +5981,7 @@ async function runDirectAction(opts: {
           editorMode: true,
           blocksJson: true,
           customHtml: true,
+          draftHtml: true,
           customChatJson: true,
           createdAt: true,
           updatedAt: true,
@@ -6135,7 +6141,7 @@ async function runDirectAction(opts: {
       const page = await prisma.creditFunnelPage
         .findFirst({
           where: { id: pageId, funnelId, funnel: { ownerId } },
-          select: { id: true, slug: true, title: true, editorMode: true, blocksJson: true, customHtml: true, customChatJson: true, updatedAt: true },
+          select: { id: true, slug: true, title: true, editorMode: true, blocksJson: true, customHtml: true, draftHtml: true, customChatJson: true, updatedAt: true },
         })
         .catch(() => null);
 
@@ -6164,8 +6170,15 @@ async function runDirectAction(opts: {
       const updated = await prisma.creditFunnelPage.update({
         where: { id: page.id },
         data: {
-          ...(blocksFromClient.length ? { blocksJson: blocksFromClient as any } : null),
-          customHtml: html,
+          ...(blocksFromClient.length
+            ? (createFunnelPageBlockSnapshotUpdate({
+                blocks: blocksFromClient,
+                pageId: page.id,
+                ownerId,
+                basePath,
+                title: typeof args?.title === "string" && args.title.trim() ? args.title.trim() : page.title || "Funnel page",
+              }) as any)
+            : createFunnelPageMirroredHtmlUpdate(html)),
           ...(typeof args?.setEditorMode === "string" ? { editorMode: args.setEditorMode } : null),
         },
         select: {
@@ -6175,12 +6188,13 @@ async function runDirectAction(opts: {
           editorMode: true,
           blocksJson: true,
           customHtml: true,
+          draftHtml: true,
           customChatJson: true,
           updatedAt: true,
         },
       });
 
-      return { status: 200, json: { ok: true, html: updated.customHtml, page: updated } };
+      return { status: 200, json: { ok: true, html: getFunnelPageCurrentHtml(updated), page: updated } };
     }
 
     case "funnel_builder.pages.generate_html": {
@@ -6810,8 +6824,13 @@ async function runDirectAction(opts: {
           where: { id: page.id },
           data: {
             editorMode: "BLOCKS",
-            blocksJson: blocks as any,
-            customHtml: htmlSnapshot,
+            ...(createFunnelPageBlockSnapshotUpdate({
+              blocks,
+              pageId: page.id,
+              ownerId,
+              basePath,
+              title: page.title || page.funnel.name || "Funnel page",
+            }) as any),
             customChatJson: nextChat,
           },
           select: {
@@ -6821,6 +6840,7 @@ async function runDirectAction(opts: {
             editorMode: true,
             blocksJson: true,
             customHtml: true,
+            draftHtml: true,
             customChatJson: true,
             updatedAt: true,
           },
@@ -6879,7 +6899,7 @@ async function runDirectAction(opts: {
           : "";
 
       const effectiveCurrentHtml = (
-        (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : exportedCurrentHtmlFromBlocks || page.customHtml || "")
+        (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : exportedCurrentHtmlFromBlocks || getFunnelPageCurrentHtml(page))
       ).trim();
       const hasCurrentHtml = Boolean(effectiveCurrentHtml);
       const wantsDesignRedesign = /\b(hero|proof strip|credibility strip|benefits?|testimonials?|cta|call to action|layout|design|redesign|premium|modern|landing page|sales page|polish|refresh)\b/i.test(prompt);
@@ -7003,7 +7023,7 @@ async function runDirectAction(opts: {
           where: { id: page.id },
           data: {
             editorMode: "CUSTOM_HTML",
-            ...(effectiveCurrentHtml ? { customHtml: normalizePortalHostedPaths(effectiveCurrentHtml) } : {}),
+            ...(effectiveCurrentHtml ? createFunnelPageDraftUpdate(normalizePortalHostedPaths(effectiveCurrentHtml)) : {}),
             customChatJson: nextChat,
           },
           select: {
@@ -7012,6 +7032,7 @@ async function runDirectAction(opts: {
             title: true,
             editorMode: true,
             customHtml: true,
+            draftHtml: true,
             customChatJson: true,
             updatedAt: true,
           },
@@ -7049,19 +7070,20 @@ async function runDirectAction(opts: {
 
       const updated = await prisma.creditFunnelPage.update({
         where: { id: page.id },
-        data: { editorMode: "CUSTOM_HTML", customHtml: normalizePortalHostedPaths(html), customChatJson: nextChat },
+        data: { editorMode: "CUSTOM_HTML", ...(createFunnelPageDraftUpdate(normalizePortalHostedPaths(html))), customChatJson: nextChat },
         select: {
           id: true,
           slug: true,
           title: true,
           editorMode: true,
           customHtml: true,
+          draftHtml: true,
           customChatJson: true,
           updatedAt: true,
         },
       });
 
-      return { status: 200, json: { ok: true, html: updated.customHtml, page: updated } };
+      return { status: 200, json: { ok: true, html: getFunnelPageCurrentHtml(updated), page: updated } };
     }
 
     case "funnel_builder.custom_code_block.generate": {
@@ -7894,11 +7916,16 @@ async function runDirectAction(opts: {
           editorMode: true,
           blocksJson: true,
           customHtml: true,
+          draftHtml: true,
           customChatJson: true,
           createdAt: true,
           updatedAt: true,
         },
       });
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const portalVariant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
+      const pagePathBase = portalBasePath(portalVariant);
 
       if (args?.mode === "apply") {
         const header = coerceHeaderNavFromUnknown(args?.headerBlock, true);
@@ -7914,7 +7941,13 @@ async function runDirectAction(opts: {
           const nextBlocks = pageSettings ? [pageSettings, ...nextEditable] : nextEditable;
           return prisma.creditFunnelPage.update({
             where: { id: p.id },
-            data: { blocksJson: nextBlocks },
+            data: createFunnelPageBlockSnapshotUpdate({
+              blocks: nextBlocks,
+              pageId: p.id,
+              ownerId,
+              basePath: pagePathBase,
+              title: p.title || "Funnel page",
+            }) as any,
             select: {
               id: true,
               slug: true,
@@ -7924,6 +7957,7 @@ async function runDirectAction(opts: {
               editorMode: true,
               blocksJson: true,
               customHtml: true,
+              draftHtml: true,
               customChatJson: true,
               createdAt: true,
               updatedAt: true,
@@ -7950,7 +7984,13 @@ async function runDirectAction(opts: {
           const nextBlocks = pageSettings ? [pageSettings, ...nextEditable] : nextEditable;
           return prisma.creditFunnelPage.update({
             where: { id: p.id },
-            data: { blocksJson: nextBlocks },
+            data: createFunnelPageBlockSnapshotUpdate({
+              blocks: nextBlocks,
+              pageId: p.id,
+              ownerId,
+              basePath: pagePathBase,
+              title: p.title || "Funnel page",
+            }) as any,
             select: {
               id: true,
               slug: true,
@@ -7960,6 +8000,7 @@ async function runDirectAction(opts: {
               editorMode: true,
               blocksJson: true,
               customHtml: true,
+              draftHtml: true,
               customChatJson: true,
               createdAt: true,
               updatedAt: true,

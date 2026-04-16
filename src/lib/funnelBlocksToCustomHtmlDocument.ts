@@ -361,10 +361,11 @@ export function blocksToCustomHtmlDocument(opts: {
 
     if (b.type === "customCode") {
       const html = typeof (b.props as any)?.html === "string" ? String((b.props as any).html) : "";
+      const css = typeof (b.props as any)?.css === "string" ? String((b.props as any).css) : "";
       const cssInline = styleToCss((b.props as any)?.style);
       if (!html.trim()) return "";
       // Inline custom code directly (best-effort).
-      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${html}</div>`;
+      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${css.trim() ? `<style>${css}</style>` : ""}${html}</div>`;
     }
 
     return "";

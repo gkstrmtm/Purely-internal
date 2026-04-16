@@ -4,7 +4,14 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import type { CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
+import {
+  applyDraftHtmlWriteCompat,
+  dbHasCreditFunnelPageDraftHtmlColumn,
+  normalizeDraftHtml,
+  withDraftHtmlSelect,
+} from "@/lib/funnelPageDbCompat";
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
+import { createFunnelPageMirroredHtmlUpdate, getFunnelPageCurrentHtml } from "@/lib/funnelPageState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,59 +52,60 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
   }
 
+  const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
+
   const page = await prisma.creditFunnelPage
     .findFirst({
       where: { id: pageId, funnelId, funnel: { ownerId: auth.session.user.id } },
-      select: {
+      select: withDraftHtmlSelect({
         id: true,
         slug: true,
         title: true,
         editorMode: true,
         blocksJson: true,
         customHtml: true,
-        draftHtml: true,
         customChatJson: true,
         updatedAt: true,
-      },
+      }, hasDraftHtml),
     })
     .catch(() => null);
 
   if (!page) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  const normalizedPage = normalizeDraftHtml(page);
 
   const ownerId = auth.session.user.id;
 
   const blocksFromClient = coerceBlocks(parsed.data.blocksJson);
-  const blocksFromDb = coerceBlocks(page.blocksJson);
+  const blocksFromDb = coerceBlocks(normalizedPage.blocksJson);
   const blocks = blocksFromClient.length ? blocksFromClient : blocksFromDb;
 
   const html = blocksToCustomHtmlDocument({
     blocks,
-    pageId: page.id,
+    pageId: normalizedPage.id,
     ownerId,
     basePath,
-    title: parsed.data.title || page.title || "Funnel page",
+    title: parsed.data.title || normalizedPage.title || "Funnel page",
   });
 
   const updated = await prisma.creditFunnelPage.update({
-    where: { id: page.id },
-    data: {
+    where: { id: normalizedPage.id },
+    data: applyDraftHtmlWriteCompat({
       ...(blocksFromClient.length ? { blocksJson: blocksFromClient as any } : null),
-      customHtml: html,
-      draftHtml: html,
+      ...createFunnelPageMirroredHtmlUpdate(html),
       ...(parsed.data.setEditorMode ? { editorMode: parsed.data.setEditorMode } : null),
-    },
-    select: {
+    }, hasDraftHtml),
+    select: withDraftHtmlSelect({
       id: true,
       slug: true,
       title: true,
       editorMode: true,
       blocksJson: true,
       customHtml: true,
-      draftHtml: true,
       customChatJson: true,
       updatedAt: true,
-    },
+    }, hasDraftHtml),
   });
 
-  return NextResponse.json({ ok: true, html: updated.customHtml, page: updated });
+  const normalizedUpdated = normalizeDraftHtml(updated);
+  return NextResponse.json({ ok: true, html: getFunnelPageCurrentHtml(normalizedUpdated), page: normalizedUpdated });
 }

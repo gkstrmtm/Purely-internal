@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { coerceBlocksJson } from "@/lib/creditFunnelBlocks";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import {
+  applyDraftHtmlWriteCompat,
+  dbHasCreditFunnelPageDraftHtmlColumn,
+  normalizeDraftHtml,
+  withDraftHtmlSelect,
+} from "@/lib/funnelPageDbCompat";
+import { createFunnelPageBlockSnapshotUpdate } from "@/lib/funnelPageState";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -69,9 +77,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
 
   const page = await prisma.creditFunnelPage.findFirst({
     where: { id: pageId, funnelId, funnel: { ownerId: auth.session.user.id } },
-    select: { id: true },
+    select: { id: true, title: true },
   });
   if (!page) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
+  const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
 
   const body = (await req.json().catch(() => null)) as any;
 
@@ -111,11 +121,28 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     data.slug = slug;
   }
 
-  const updated = Object.keys(data).length
+  if (body?.blocksJson !== undefined) {
+    const nextBlocks = coerceBlocksJson(body.blocksJson);
+    const blockSnapshotUpdate = createFunnelPageBlockSnapshotUpdate({
+      blocks: nextBlocks,
+      pageId,
+      ownerId: auth.session.user.id,
+      basePath: auth.variant === "credit" ? "/credit" : "",
+      title: typeof data.title === "string" && data.title.trim() ? data.title : page.title || "Funnel page",
+    });
+
+    data.blocksJson = blockSnapshotUpdate.blocksJson;
+    if (typeof body?.customHtml !== "string") data.customHtml = blockSnapshotUpdate.customHtml;
+    if (typeof body?.draftHtml !== "string") data.draftHtml = blockSnapshotUpdate.draftHtml;
+  }
+
+  const nextData = applyDraftHtmlWriteCompat(data, hasDraftHtml);
+
+  const updated = Object.keys(nextData).length
     ? await prisma.creditFunnelPage.update({
         where: { id: pageId },
-        data,
-        select: {
+        data: nextData,
+        select: withDraftHtmlSelect({
           id: true,
           slug: true,
           title: true,
@@ -124,15 +151,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
           editorMode: true,
           blocksJson: true,
           customHtml: true,
-          draftHtml: true,
           customChatJson: true,
           createdAt: true,
           updatedAt: true,
-        },
+        }, hasDraftHtml),
       })
     : await prisma.creditFunnelPage.findUniqueOrThrow({
         where: { id: pageId },
-        select: {
+        select: withDraftHtmlSelect({
           id: true,
           slug: true,
           title: true,
@@ -141,11 +167,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
           editorMode: true,
           blocksJson: true,
           customHtml: true,
-          draftHtml: true,
           customChatJson: true,
           createdAt: true,
           updatedAt: true,
-        },
+        }, hasDraftHtml),
       });
 
   let nextSeo: FunnelPageSeo | null = null;
@@ -170,7 +195,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     nextSeo = readFunnelPageSeo(existingSettings?.dataJson ?? null, pageId);
   }
 
-  return NextResponse.json({ ok: true, page: { ...updated, seo: nextSeo } });
+  return NextResponse.json({ ok: true, page: { ...normalizeDraftHtml(updated), seo: nextSeo } });
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ funnelId: string; pageId: string }> }) {

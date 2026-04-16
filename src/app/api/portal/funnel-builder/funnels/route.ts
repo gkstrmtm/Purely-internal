@@ -6,6 +6,8 @@ import { prisma } from "@/lib/db";
 import { buildCreditFunnelPagesFromTemplateAndTheme, coerceCreditFunnelTemplateKey, getCreditFunnelTemplate } from "@/lib/creditFunnelTemplates";
 import { coerceCreditFunnelThemeKey, getCreditFunnelTheme } from "@/lib/creditFunnelThemes";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import { applyDraftHtmlWriteCompat, dbHasCreditFunnelPageDraftHtmlColumn } from "@/lib/funnelPageDbCompat";
+import { createFunnelPageMirroredHtmlUpdate } from "@/lib/funnelPageState";
 import { consumeCredits } from "@/lib/credits";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
@@ -119,6 +121,7 @@ export async function POST(req: Request) {
   const requestedThemeKey = coerceCreditFunnelThemeKey(body?.themeKey);
   const themeKey = template ? requestedThemeKey || template.defaultThemeKey : null;
   const theme = themeKey ? getCreditFunnelTheme(themeKey) : null;
+  const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
 
   const pageTemplates = template && theme ? buildCreditFunnelPagesFromTemplateAndTheme(template, theme) : null;
   const pagesCreate = pageTemplates
@@ -129,7 +132,7 @@ export async function POST(req: Request) {
         editorMode: p.editorMode,
         contentMarkdown: p.contentMarkdown,
         blocksJson: p.blocksJson as unknown as Prisma.InputJsonValue,
-        customHtml: p.customHtml,
+        ...applyDraftHtmlWriteCompat(createFunnelPageMirroredHtmlUpdate(p.customHtml || ""), hasDraftHtml),
         ...(p.customChatJson !== undefined && p.customChatJson !== null
           ? { customChatJson: p.customChatJson as unknown as Prisma.InputJsonValue }
           : {}),
@@ -142,7 +145,7 @@ export async function POST(req: Request) {
           editorMode: "BLOCKS" as const,
           contentMarkdown: "",
           blocksJson: [] as unknown as Prisma.InputJsonValue,
-          customHtml: "",
+          ...applyDraftHtmlWriteCompat(createFunnelPageMirroredHtmlUpdate(""), hasDraftHtml),
         },
       ];
 
