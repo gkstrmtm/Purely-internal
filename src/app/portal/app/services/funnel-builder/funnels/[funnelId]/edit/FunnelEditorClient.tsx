@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { PutBlobResult } from "@vercel/blob";
 import { upload as uploadToVercelBlob } from "@vercel/blob/client";
@@ -15,7 +15,6 @@ import {
   type CreditFunnelBlock,
 } from "@/lib/creditFunnelBlocks";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
-import { AiSparkIcon } from "@/components/AiSparkIcon";
 import { LinkUrlModal } from "@/components/LinkUrlModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import PortalImageCropModal from "@/components/PortalImageCropModal";
@@ -23,6 +22,7 @@ import {
   PortalMediaPickerModal,
   type PortalMediaPickItem,
 } from "@/components/PortalMediaPickerModal";
+import { IconCopy, IconExport, IconRedo, IconSend, IconSendHover, IconUndo, IconUpload } from "@/app/portal/PortalIcons";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
@@ -31,8 +31,1130 @@ import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle, googleFon
 import { CreditFormTemplatePreview } from "@/components/CreditFormTemplatePreview";
 import { CREDIT_FORM_TEMPLATES, coerceCreditFormTemplateKey, getCreditFormTemplate, type CreditFormTemplateKey } from "@/lib/creditFormTemplates";
 import { CREDIT_FORM_THEMES, coerceCreditFormThemeKey, getCreditFormTheme, type CreditFormThemeKey } from "@/lib/creditFormThemes";
+import {
+  getFunnelPageCurrentHtml,
+  getFunnelPageDraftHtml,
+  getFunnelPagePublishedHtml,
+} from "@/lib/funnelPageState";
+import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
 import { hostedFunnelPath } from "@/lib/publicHostedKeys";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+import {
+  getFunnelEditorPageSelectionDecision,
+  getFunnelEditorWorkflowViewModel,
+  saveCurrentFunnelEditorPage,
+} from "./funnelEditorPageWorkflow";
+
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
+
+function SpinnerIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className={classNames(className, "animate-spin")} fill="none">
+      <circle cx="12" cy="12" r="9" className="opacity-20" stroke="currentColor" strokeWidth="3" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function AiSparkIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className={className} fill="currentColor">
+      <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74L12 2z" />
+    </svg>
+  );
+}
+
+type BuilderLibraryCardTone = "slate" | "blue" | "emerald" | "amber" | "rose";
+
+function BuilderLibraryCard({
+  label,
+  description,
+  preview,
+  tone = "slate",
+  disabled,
+  onAdd,
+}: {
+  label: string;
+  description?: string;
+  preview: ReactNode;
+  tone?: BuilderLibraryCardTone;
+  disabled?: boolean;
+  onAdd: () => void;
+}) {
+  const toneClassName =
+    tone === "blue"
+      ? "bg-blue-50"
+      : tone === "emerald"
+        ? "bg-emerald-50"
+        : tone === "amber"
+          ? "bg-amber-50"
+          : tone === "rose"
+            ? "bg-rose-50"
+            : "bg-zinc-50";
+
+  return (
+    <div className="overflow-hidden rounded-[26px] border border-zinc-200/90 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
+      <div className={classNames("relative border-b border-zinc-200/80 px-3 py-3", toneClassName)}>
+        <div className="flex items-center justify-between gap-2 text-[11px] font-medium text-zinc-500">
+          <span className="inline-flex items-center rounded-full border border-black/5 bg-white/75 px-2 py-1 backdrop-blur">
+            Preview
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-black/5 bg-white/75 px-2 py-1 backdrop-blur">
+            <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 10h8" />
+              <path d="M11 5l5 5-5 5" />
+            </svg>
+            Drag or add
+          </span>
+        </div>
+        <div className="mt-3 min-h-24 rounded-[22px] border border-black/5 bg-white/80 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+          {preview}
+        </div>
+      </div>
+      <div className="px-3 py-3.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-zinc-900">{label}</div>
+            {description ? <div className="mt-1 text-xs leading-5 text-zinc-500">{description}</div> : null}
+          </div>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={onAdd}
+            className="shrink-0 rounded-xl border border-zinc-200 bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+          >
+            Insert
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BuilderLibraryChooserButton({
+  label,
+  detail,
+  active,
+  preview,
+  countLabel,
+  onClick,
+}: {
+  label: string;
+  detail?: string;
+  active: boolean;
+  preview: ReactNode;
+  countLabel?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={classNames(
+        "w-full rounded-3xl border p-3 text-left transition-[border-color,background-color,box-shadow,transform] duration-150",
+        active
+          ? "border-zinc-900 bg-zinc-900 text-white shadow-[0_14px_30px_rgba(15,23,42,0.10)]"
+          : "border-zinc-200 bg-white text-zinc-900 shadow-[0_8px_20px_rgba(15,23,42,0.03)] hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className={classNames("text-[13px] font-semibold", active ? "text-white" : "text-zinc-900")}>{label}</div>
+          {detail ? <div className={classNames("mt-1 text-[11px] leading-5", active ? "text-white/72" : "text-zinc-500")}>{detail}</div> : null}
+        </div>
+        {countLabel ? (
+          <span className={classNames(
+            "inline-flex shrink-0 rounded-full border px-2 py-1 text-[10px] font-medium",
+            active ? "border-white/15 bg-white/10 text-white/82" : "border-zinc-200 bg-zinc-50 text-zinc-500",
+          )}>
+            {countLabel}
+          </span>
+        ) : null}
+      </div>
+      <div className={classNames(
+        "mt-3 overflow-hidden rounded-[20px] border p-3",
+        active ? "border-white/12 bg-white/8" : "border-zinc-200 bg-zinc-50",
+      )}>
+        <div className={classNames("min-h-14", active ? "text-white" : "text-zinc-700")}>{preview}</div>
+      </div>
+    </button>
+  );
+}
+
+function BuilderRailNavButton({
+  label,
+  detail,
+  active,
+  icon,
+  badge,
+  disabled,
+  spanTwo,
+  onClick,
+}: {
+  label: string;
+  detail?: string;
+  active: boolean;
+  icon: ReactNode;
+  badge?: string;
+  disabled?: boolean;
+  spanTwo?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      aria-pressed={active}
+      className={classNames(
+        "rounded-[20px] border px-3 py-2.5 text-left transition-[border-color,background-color,box-shadow,transform] duration-150",
+        spanTwo ? "col-span-2" : "",
+        active
+          ? "border-zinc-900 bg-zinc-900 text-white shadow-[0_14px_30px_rgba(15,23,42,0.12)]"
+          : "border-zinc-200 bg-white text-zinc-900 shadow-[0_8px_20px_rgba(15,23,42,0.03)] hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50",
+        disabled ? "opacity-55" : "",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span
+            className={classNames(
+              "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-2xl border",
+              active ? "border-white/15 bg-white/10 text-white" : "border-zinc-200 bg-zinc-50 text-zinc-600",
+            )}
+          >
+            <span className="inline-flex h-4 w-4 items-center justify-center">{icon}</span>
+          </span>
+          <span className="min-w-0">
+            <span className={classNames("block text-[13px] font-semibold", active ? "text-white" : "text-zinc-900")}>{label}</span>
+            {detail ? <span className={classNames("mt-0.5 block text-[11px] leading-5", active ? "text-white/72" : "text-zinc-500")}>{detail}</span> : null}
+          </span>
+        </div>
+        {badge ? (
+          <span className={classNames(
+            "inline-flex shrink-0 rounded-full border px-2 py-1 text-[10px] font-medium",
+            active ? "border-white/15 bg-white/10 text-white/82" : "border-zinc-200 bg-zinc-50 text-zinc-500",
+          )}>
+            {badge}
+          </span>
+        ) : null}
+      </div>
+    </button>
+  );
+}
+
+function BuilderStatusPill({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "selected" | "anchor" | "nested" | "muted";
+}) {
+  const toneClassName =
+    tone === "selected"
+      ? "border-zinc-900 bg-zinc-900 text-white"
+      : tone === "anchor"
+        ? "border-blue-200 bg-blue-50 text-blue-700"
+        : tone === "nested"
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          : "border-zinc-200 bg-zinc-100 text-zinc-500";
+
+  return <span className={classNames("inline-flex rounded-full border px-2 py-1 text-[10px] font-medium", toneClassName)}>{label}</span>;
+}
+
+function BuilderOutlineMiniPreview({ kind, active }: { kind: string; active: boolean }) {
+  const panelClassName = active ? "border-white/12 bg-white/8" : "border-zinc-200 bg-zinc-50";
+  const strongClassName = active ? "bg-white/78" : "bg-zinc-500";
+  const mediumClassName = active ? "bg-white/42" : "bg-zinc-300";
+  const softClassName = active ? "border-white/16 bg-white/10" : "border-zinc-200 bg-white";
+
+  return (
+    <div className={classNames("flex h-10 w-14 items-center justify-center rounded-[18px] border p-2", panelClassName)}>
+      {kind === "Section" ? (
+        <div className="flex w-full flex-col gap-1.5">
+          <div className={classNames("h-1.5 w-3/4 rounded-full", strongClassName)} />
+          <div className={classNames("h-4 w-full rounded-lg border", softClassName)} />
+        </div>
+      ) : kind === "Columns" ? (
+        <div className="grid w-full grid-cols-2 gap-1">
+          <div className={classNames("h-6 rounded-md border", softClassName)} />
+          <div className={classNames("h-6 rounded-md border", softClassName)} />
+        </div>
+      ) : kind === "Header" ? (
+        <div className="flex w-full flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-1">
+            <div className={classNames("h-2 w-2.5 rounded", strongClassName)} />
+            <div className="flex gap-1">
+              <div className={classNames("h-1.5 w-2 rounded-full", mediumClassName)} />
+              <div className={classNames("h-1.5 w-2 rounded-full", mediumClassName)} />
+              <div className={classNames("h-1.5 w-2 rounded-full", mediumClassName)} />
+            </div>
+          </div>
+          <div className={classNames("h-1 w-2/3 rounded-full", mediumClassName)} />
+        </div>
+      ) : kind === "Button" || kind === "Commerce" ? (
+        <div className={classNames("h-5 w-full rounded-full", strongClassName)} />
+      ) : kind === "Form" || kind === "Form link" ? (
+        <div className="flex w-full flex-col gap-1">
+          <div className={classNames("h-1.5 w-3/4 rounded-full", mediumClassName)} />
+          <div className={classNames("h-3.5 rounded-md border", softClassName)} />
+          <div className={classNames("h-3.5 rounded-md border", softClassName)} />
+        </div>
+      ) : kind === "Image" || kind === "Video" ? (
+        <div className={classNames("flex h-full w-full items-center justify-center rounded-lg border", softClassName)}>
+          <div className={classNames("h-2.5 w-2.5 rounded-full", kind === "Video" ? strongClassName : mediumClassName)} />
+        </div>
+      ) : kind === "Code" ? (
+        <div className="flex items-center gap-1">
+          <div className={classNames("h-4 w-1 rounded-full", mediumClassName)} />
+          <div className={classNames("h-5 w-4 rounded-md border", softClassName)} />
+          <div className={classNames("h-4 w-1 rounded-full", mediumClassName)} />
+        </div>
+      ) : kind === "Chatbot" ? (
+        <div className="flex w-full flex-col gap-1">
+          <div className={classNames("h-3 w-7 rounded-lg rounded-tl-none", mediumClassName)} />
+          <div className={classNames("h-3 w-6 self-end rounded-lg rounded-tr-none", strongClassName)} />
+        </div>
+      ) : kind === "Spacer" ? (
+        <div className={classNames("h-1 w-full rounded-full", mediumClassName)} />
+      ) : (
+        <div className="flex w-full flex-col gap-1.5">
+          <div className={classNames("h-1.5 w-4/5 rounded-full", strongClassName)} />
+          <div className={classNames("h-1.5 w-3/5 rounded-full", mediumClassName)} />
+          <div className={classNames("h-1.5 w-full rounded-full", mediumClassName)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BuilderOutlineGlyph({ kind, active }: { kind: string; active: boolean }) {
+  const strokeClassName = active ? "text-white" : "text-zinc-600";
+
+  if (kind === "Section") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-4 w-4", strokeClassName)} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="4" width="14" height="12" rx="2" />
+        <path d="M3 8h14" />
+      </svg>
+    );
+  }
+
+  if (kind === "Columns") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-4 w-4", strokeClassName)} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="4" width="14" height="12" rx="2" />
+        <path d="M10 4v12" />
+      </svg>
+    );
+  }
+
+  if (kind === "Header") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-4 w-4", strokeClassName)} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 6h4" />
+        <path d="M10 6h7" />
+        <path d="M3 10h14" />
+      </svg>
+    );
+  }
+
+  if (kind === "Text" || kind === "H1" || kind === "H2" || kind === "H3") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-4 w-4", strokeClassName)} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 6h12" />
+        <path d="M4 10h8" />
+        <path d="M4 14h10" />
+      </svg>
+    );
+  }
+
+  if (kind === "Button" || kind === "Commerce") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-4 w-4", strokeClassName)} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="4" y="6" width="12" height="8" rx="4" />
+      </svg>
+    );
+  }
+
+  if (kind === "Form" || kind === "Form link") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-4 w-4", strokeClassName)} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="4" y="3.5" width="12" height="13" rx="2" />
+        <path d="M7 7h6" />
+        <path d="M7 10h6" />
+      </svg>
+    );
+  }
+
+  if (kind === "Image" || kind === "Video") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-4 w-4", strokeClassName)} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="4" width="14" height="12" rx="2" />
+        <circle cx="7.5" cy="8" r="1.25" />
+        <path d="M17 13l-3.5-3.5L7 16" />
+      </svg>
+    );
+  }
+
+  if (kind === "Chatbot") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-4 w-4", strokeClassName)} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M5 6.5h10a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H9l-4 3v-3H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Z" />
+      </svg>
+    );
+  }
+
+  if (kind === "Code") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-4 w-4", strokeClassName)} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m7 6-4 4 4 4" />
+        <path d="m13 6 4 4-4 4" />
+      </svg>
+    );
+  }
+
+  if (kind === "Spacer") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-4 w-4", strokeClassName)} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 10h12" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-4 w-4", strokeClassName)} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="4" width="12" height="12" rx="2" />
+    </svg>
+  );
+}
+
+function splitCodeLines(raw: string) {
+  return String(raw || "").replace(/\r\n/g, "\n").split("\n");
+}
+
+type HtmlDiffSummary = {
+  addedLines: number;
+  removedLines: number;
+  currentStartLine: number | null;
+  currentEndLine: number | null;
+  addedPreview: string[];
+  removedPreview: string[];
+  changed: boolean;
+};
+
+type HtmlChangeActivityItem = {
+  id: string;
+  pageId: string;
+  kind: "ai-update" | "no-change" | "restore";
+  scopeLabel: string;
+  prompt: string;
+  summary: string;
+  at: string;
+  diff: HtmlDiffSummary;
+  previewChanged: boolean;
+};
+
+function diffPreviewLines(lines: string[], limit = 3) {
+  return lines
+    .map((line) => String(line || "").trim())
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function summarizeHtmlDiff(previousHtml: string, nextHtml: string): HtmlDiffSummary {
+  const previousLines = splitCodeLines(previousHtml);
+  const nextLines = splitCodeLines(nextHtml);
+  const maxShared = Math.min(previousLines.length, nextLines.length);
+
+  let start = 0;
+  while (start < maxShared && previousLines[start] === nextLines[start]) start += 1;
+
+  let previousEnd = previousLines.length - 1;
+  let nextEnd = nextLines.length - 1;
+  while (previousEnd >= start && nextEnd >= start && previousLines[previousEnd] === nextLines[nextEnd]) {
+    previousEnd -= 1;
+    nextEnd -= 1;
+  }
+
+  const removedChunk = start <= previousEnd ? previousLines.slice(start, previousEnd + 1) : [];
+  const addedChunk = start <= nextEnd ? nextLines.slice(start, nextEnd + 1) : [];
+  const changed = addedChunk.length > 0 || removedChunk.length > 0;
+
+  let currentStartLine: number | null = null;
+  let currentEndLine: number | null = null;
+
+  if (changed) {
+    if (addedChunk.length > 0) {
+      currentStartLine = start + 1;
+      currentEndLine = start + addedChunk.length;
+    } else {
+      const anchorLine = Math.min(start + 1, Math.max(nextLines.length, 1));
+      currentStartLine = anchorLine;
+      currentEndLine = anchorLine;
+    }
+  }
+
+  return {
+    addedLines: addedChunk.length,
+    removedLines: removedChunk.length,
+    currentStartLine,
+    currentEndLine,
+    addedPreview: diffPreviewLines(addedChunk),
+    removedPreview: diffPreviewLines(removedChunk),
+    changed,
+  };
+}
+
+function formatActivityTimestamp(raw: string) {
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "Just now";
+  return parsed.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function ChangeCountPill({
+  value,
+  prefix,
+  tone,
+}: {
+  value: number;
+  prefix: "+" | "-";
+  tone: "added" | "removed";
+}) {
+  const toneClassName =
+    tone === "added"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-rose-200 bg-rose-50 text-rose-700";
+
+  return (
+    <span className={classNames("inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold", toneClassName)}>
+      {prefix}
+      {value}
+    </span>
+  );
+}
+
+function HtmlChangeTimeline({ items }: { items: HtmlChangeActivityItem[] }) {
+  if (items.length === 0) {
+    return (
+      <div className="rounded-[28px] border border-zinc-200/80 bg-white/88 p-4 shadow-[0_18px_40px_rgba(15,23,42,0.06)] backdrop-blur">
+        <div className="text-sm font-semibold text-zinc-900">Recent AI changes</div>
+        <p className="mt-2 text-sm text-zinc-500">The next whole-page AI update will show exactly what moved in the hosted source.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] border border-zinc-200/80 bg-white/88 shadow-[0_18px_40px_rgba(15,23,42,0.06)] backdrop-blur">
+      <div className="border-b border-zinc-200/80 px-4 py-3">
+        <div className="text-sm font-semibold text-zinc-900">Recent AI changes</div>
+        <div className="mt-1 text-xs text-zinc-500">Hosted source mutations with timestamps and line deltas.</div>
+      </div>
+      <div className="flex-1 min-h-0 overflow-auto px-4 py-4">
+        <div className="space-y-4">
+          {items.map((item, index) => {
+            const showSnippet = index === 0 && (item.diff.addedPreview.length > 0 || item.diff.removedPreview.length > 0);
+            const previewStatus = item.previewChanged ? "Preview updated" : "Preview unchanged";
+
+            return (
+              <div key={item.id} className="relative pl-6">
+                <span className="absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full bg-zinc-900" />
+                {index < items.length - 1 ? <span className="absolute -bottom-4.5 left-1 top-4 w-px bg-zinc-200" /> : null}
+
+                <div className="rounded-2xl border border-zinc-200/80 bg-white/86 p-3 shadow-[0_12px_28px_rgba(15,23,42,0.04)]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                        <span>{item.scopeLabel}</span>
+                        <span className="h-1 w-1 rounded-full bg-zinc-300" />
+                        <span>{item.kind === "restore" ? "Restore" : item.kind === "no-change" ? "No source change" : "Applied"}</span>
+                      </div>
+                      <div className="mt-1 text-sm font-semibold text-zinc-900">{item.summary}</div>
+                    </div>
+                    <div className="shrink-0 text-[11px] font-medium text-zinc-500">{formatActivityTimestamp(item.at)}</div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <ChangeCountPill value={item.diff.addedLines} prefix="+" tone="added" />
+                    <ChangeCountPill value={item.diff.removedLines} prefix="-" tone="removed" />
+                    <span
+                      className={classNames(
+                        "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                        item.previewChanged
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-amber-200 bg-amber-50 text-amber-700",
+                      )}
+                    >
+                      {previewStatus}
+                    </span>
+                    {item.diff.currentStartLine && item.diff.currentEndLine ? (
+                      <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-600">
+                        Source lines {item.diff.currentStartLine}
+                        {item.diff.currentEndLine > item.diff.currentStartLine ? `-${item.diff.currentEndLine}` : ""}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                    <span className="font-semibold text-zinc-700">Prompt:</span> {item.prompt}
+                  </div>
+
+                  {showSnippet ? (
+                    <div className="mt-3 space-y-2">
+                      {item.diff.addedPreview.length ? (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Added</div>
+                          <div className="mt-2 space-y-1 font-mono text-[11px] leading-5 text-emerald-900">
+                            {item.diff.addedPreview.map((line, snippetIndex) => (
+                              <div key={`add-${item.id}-${snippetIndex}`} className="truncate">+ {line}</div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {item.diff.removedPreview.length ? (
+                        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rose-700">Removed</div>
+                          <div className="mt-2 space-y-1 font-mono text-[11px] leading-5 text-rose-900">
+                            {item.diff.removedPreview.map((line, snippetIndex) => (
+                              <div key={`remove-${item.id}-${snippetIndex}`} className="truncate">- {line}</div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CodeSurface({
+  value,
+  onChange,
+  onCopy,
+  placeholder,
+  readOnly = false,
+  lineHighlightRange,
+}: {
+  value: string;
+  onChange?: (next: string) => void;
+  onCopy?: () => void;
+  placeholder?: string;
+  readOnly?: boolean;
+  lineHighlightRange?: { startLine: number; endLine: number } | null;
+}) {
+  const code = String(value || "");
+  const lines = splitCodeLines(code || placeholder || "");
+  const contentHeightPx = Math.max(lines.length + 2, 30) * 24;
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!lineHighlightRange?.startLine || !scrollRef.current) return;
+    const targetTop = Math.max((lineHighlightRange.startLine - 4) * 24, 0);
+    scrollRef.current.scrollTo({ top: targetTop, behavior: "smooth" });
+  }, [lineHighlightRange?.endLine, lineHighlightRange?.startLine]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950 text-zinc-100 shadow-[0_18px_40px_rgba(15,23,42,0.22)]">
+      <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900 px-4 py-3">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400">HTML</div>
+          <div className="mt-1 text-xs text-zinc-500">Hosted page source</div>
+        </div>
+        <div className="flex items-center gap-2">
+          {onCopy ? (
+            <button
+              type="button"
+              onClick={onCopy}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-950 text-zinc-300 hover:border-zinc-600 hover:text-white"
+              title="Copy HTML"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <rect x="9" y="9" width="11" height="11" rx="2" />
+                <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+              </svg>
+            </button>
+          ) : null}
+
+          <div className="rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-300">
+            {lines.length} lines
+          </div>
+        </div>
+      </div>
+
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
+        <div className="grid min-w-full grid-cols-[auto_minmax(0,1fr)] font-mono text-[12px] leading-6" style={{ minHeight: contentHeightPx }}>
+          <div className="select-none border-r border-zinc-800 bg-zinc-900/80 px-3 py-3 text-right text-zinc-500">
+            {lines.map((_, index) => (
+              <div
+                key={index}
+                className={classNames(
+                  "rounded-md px-2 transition-colors",
+                  lineHighlightRange && index + 1 >= lineHighlightRange.startLine && index + 1 <= lineHighlightRange.endLine
+                    ? "bg-emerald-500/18 text-emerald-200"
+                    : "",
+                )}
+              >
+                {index + 1}
+              </div>
+            ))}
+          </div>
+
+          {readOnly ? (
+            <pre className="min-w-0 overflow-x-auto px-4 py-3 text-zinc-100">{code || placeholder || ""}</pre>
+          ) : (
+            <textarea
+              value={code}
+              onChange={(e) => onChange?.(e.target.value)}
+              wrap="off"
+              spellCheck={false}
+              style={{ height: contentHeightPx }}
+              className="min-w-0 resize-none overflow-hidden bg-transparent px-4 py-3 text-zinc-100 outline-none placeholder:text-zinc-500"
+              placeholder={placeholder}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CustomHtmlPreviewFrame({
+  html,
+  title,
+  previewDevice,
+  heightClassName,
+  selectedRegionKey,
+  selectionState,
+}: {
+  html: string;
+  title: string;
+  previewDevice: "desktop" | "mobile";
+  heightClassName: string;
+  selectedRegionKey?: string | null;
+  selectionState?: "idle" | "pending" | "settled";
+}) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  const applyRegionSelection = useCallback(
+    (scrollBehavior: ScrollBehavior) => {
+      const doc = iframeRef.current?.contentDocument;
+      if (!doc) return;
+      applyHtmlPreviewRegionSelection(doc, selectedRegionKey || null, scrollBehavior, selectionState || "idle");
+    },
+    [selectedRegionKey, selectionState],
+  );
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const handleLoad = () => {
+      applyRegionSelection("auto");
+    };
+
+    iframe.addEventListener("load", handleLoad);
+    if (iframe.contentDocument?.readyState === "complete") handleLoad();
+
+    return () => {
+      iframe.removeEventListener("load", handleLoad);
+    };
+  }, [applyRegionSelection]);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe?.contentDocument || iframe.contentDocument.readyState !== "complete") return;
+    applyRegionSelection("smooth");
+  }, [applyRegionSelection]);
+
+  return (
+    <div className={classNames("mx-auto w-full", previewDevice === "mobile" ? "h-full max-w-98" : "max-w-5xl")}>
+      <div
+        className={classNames(
+          previewDevice === "mobile"
+            ? "h-full overflow-hidden rounded-4xl border border-zinc-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.92)_0%,rgba(248,250,252,0.88)_100%)] p-3 shadow-[0_18px_40px_rgba(15,23,42,0.06)] backdrop-blur"
+            : "rounded-[30px] bg-white/88 shadow-[0_18px_40px_rgba(15,23,42,0.06)] ring-1 ring-zinc-200/70 backdrop-blur",
+        )}
+      >
+        {previewDevice === "mobile" ? <div className="mx-auto mb-3 h-1.5 w-24 rounded-full bg-zinc-300" /> : null}
+        <div className={classNames(previewDevice === "mobile" ? "h-full overflow-hidden rounded-[28px] bg-white" : "h-[82vh] overflow-hidden rounded-[30px] bg-white") }>
+          <iframe
+            ref={iframeRef}
+            title={title}
+            sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
+            allow="microphone"
+            srcDoc={html}
+            className={classNames("block w-full bg-white", previewDevice === "mobile" ? heightClassName : "h-full")}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AiPromptComposer({
+  value,
+  onChange,
+  onSubmit,
+  onAttach,
+  placeholder,
+  busy,
+  busyLabel,
+  attachCount,
+  className,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  onSubmit: () => void;
+  onAttach: () => void;
+  placeholder: string;
+  busy: boolean;
+  busyLabel: string;
+  attachCount: number;
+  className?: string;
+}) {
+  const canSubmit = !busy && value.trim().length > 0;
+
+  return (
+    <div className={classNames("flex items-center gap-2 border-b border-zinc-300/75 px-1 py-1 text-zinc-900 transition-colors focus-within:border-zinc-500", className)}>
+      <AiSparkIcon className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && canSubmit) {
+            e.preventDefault();
+            onSubmit();
+          }
+        }}
+        className="h-10 min-w-0 flex-1 bg-transparent px-1 py-2 text-[14px] tracking-[-0.01em] text-zinc-900 outline-none placeholder:text-zinc-400"
+        placeholder={placeholder}
+      />
+
+      {busy ? <span className="hidden shrink-0 text-[11px] font-medium tracking-[0.01em] text-zinc-500 sm:inline">{busyLabel}</span> : null}
+
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onAttach}
+        className={classNames(
+          "relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-zinc-400 transition-colors hover:text-zinc-700 disabled:opacity-60",
+          attachCount ? "text-brand-blue" : "",
+        )}
+        title={attachCount ? `${attachCount} image${attachCount === 1 ? "" : "s"} attached` : "Attach images to AI"}
+        aria-label={attachCount ? `${attachCount} image${attachCount === 1 ? "" : "s"} attached` : "Attach images to AI"}
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+        </svg>
+        {attachCount ? (
+          <span className="absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-brand-blue px-1 text-[10px] font-semibold leading-4 text-white">
+            {attachCount > 9 ? "9+" : attachCount}
+          </span>
+        ) : null}
+      </button>
+
+      <button
+        type="button"
+        disabled={!canSubmit}
+        onClick={onSubmit}
+        className={classNames(
+          "group inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-all duration-100 hover:scale-105 hover:text-zinc-900 disabled:opacity-50",
+          canSubmit ? "" : "pointer-events-none text-zinc-300",
+        )}
+        title={busy ? busyLabel : "Send prompt to AI"}
+        aria-label={busy ? busyLabel : "Send prompt to AI"}
+      >
+        {busy ? (
+          <SpinnerIcon className="h-4 w-4" />
+        ) : (
+          <>
+            <span className="group-hover:hidden">
+              <IconSend size={16} />
+            </span>
+            <span className="hidden group-hover:inline">
+              <IconSendHover size={16} />
+            </span>
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
+function escapeEditorPreviewText(value: string) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;");
+}
+
+function readEditorPreviewAttr(attrs: string, name: string) {
+  const match = attrs.match(new RegExp(`\\b${name}=(['\"])([\\s\\S]*?)\\1`, "i"));
+  return match ? String(match[2] || "") : "";
+}
+
+function getEditorPreviewEmbedHeight(attrs: string) {
+  const style = readEditorPreviewAttr(attrs, "style");
+  const styleHeight = style.match(/(?:^|;)\s*height\s*:\s*(\d+)px/i);
+  if (styleHeight) return Math.max(120, Math.min(2000, Number(styleHeight[1] || 0)));
+
+  const rawHeight = readEditorPreviewAttr(attrs, "height");
+  const parsedHeight = Number(rawHeight || 0);
+  if (Number.isFinite(parsedHeight) && parsedHeight > 0) {
+    return Math.max(120, Math.min(2000, parsedHeight));
+  }
+
+  return 420;
+}
+
+function buildEditorEmbedPlaceholder(title: string, src: string, heightPx: number) {
+  const safeTitle = escapeEditorPreviewText(title || "Embedded content");
+  const safeSrc = escapeEditorPreviewText(src || "");
+  return `<div data-editor-embed-placeholder="1" style="width:100%;min-height:${heightPx}px;border:1px solid #e4e4e7;border-radius:18px;background:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%);display:flex;align-items:center;justify-content:center;padding:24px;"><div style="width:min(100%,420px);text-align:center;color:#334155;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"><div style="font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#94a3b8;">Editor preview</div><div style="margin-top:10px;font-size:18px;font-weight:700;color:#0f172a;">${safeTitle}</div><div style="margin-top:8px;font-size:13px;line-height:1.5;color:#475569;">Live embeds are paused in the editor preview so blocks and whole-page stay on the same page surface.</div><div style="margin-top:14px;display:inline-flex;max-width:100%;align-items:center;gap:8px;border:1px solid #e2e8f0;border-radius:999px;background:#ffffff;padding:8px 12px;font-size:12px;color:#64748b;">${safeSrc}</div></div></div>`;
+}
+
+function buildEditorPreviewHtml(html: string) {
+  if (!html.trim()) return "";
+
+  return html.replace(/<iframe\b([\s\S]*?)\bsrc=(['\"])(.*?)\2([\s\S]*?)><\/iframe>/gi, (match, beforeSrc, _quote, rawSrc, afterSrc) => {
+    const src = String(rawSrc || "").trim();
+    if (!src) return match;
+
+    const normalized = src.toLowerCase();
+    const isEditorSensitiveEmbed =
+      normalized.includes("/forms/") ||
+      normalized.includes("/book/u/") ||
+      normalized.includes("/embed/chatbot") ||
+      normalized.includes("embed=1");
+
+    if (!isEditorSensitiveEmbed) return match;
+
+    const attrs = `${beforeSrc || ""} ${afterSrc || ""}`;
+    const title = readEditorPreviewAttr(attrs, "title") || "Embedded content";
+    const heightPx = getEditorPreviewEmbedHeight(attrs);
+    return buildEditorEmbedPlaceholder(title, src, heightPx);
+  });
+}
+
+type HtmlRegionScope = {
+  key: string;
+  label: string;
+  summary: string;
+  html: string;
+  sourceIndex: number;
+};
+
+function normalizeInlineText(value: string) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function getHtmlRegionElements(doc: Document): Element[] {
+  const isIgnoredTag = (tagName: string) => ["script", "style", "meta", "link", "noscript"].includes(tagName.toLowerCase());
+
+  let container: Element = doc.body;
+  const bodyChildren = Array.from(doc.body.children).filter((el) => !isIgnoredTag(el.tagName));
+  if (bodyChildren.length === 1) {
+    const only = bodyChildren[0];
+    const grandchildren = Array.from(only.children).filter((el) => !isIgnoredTag(el.tagName));
+    if (grandchildren.length >= 2) container = only;
+  }
+
+  return Array.from(container.children)
+    .filter((el) => !isIgnoredTag(el.tagName))
+    .filter((el) => normalizeInlineText(el.textContent || "") || el.querySelector("img, form, iframe, video, section, article, footer, header, nav"));
+}
+
+function buildHtmlRegionScope(el: Element, sourceIndex: number): HtmlRegionScope {
+  const meta = normalizeInlineText(
+    [
+      el.tagName,
+      el.getAttribute("id") || "",
+      el.getAttribute("class") || "",
+      el.getAttribute("aria-label") || "",
+      el.getAttribute("role") || "",
+    ].join(" "),
+  ).toLowerCase();
+  const heading = normalizeInlineText(el.querySelector("h1, h2, h3")?.textContent || "");
+  const text = normalizeInlineText(el.textContent || "").toLowerCase();
+
+  let label = "";
+  if (/^(header|nav)$/i.test(el.tagName) || /\b(nav|menu|header)\b/.test(meta)) {
+    label = "Header";
+  } else if (/^footer$/i.test(el.tagName) || /\bfooter\b/.test(meta)) {
+    label = "Footer";
+  } else if (sourceIndex === 0 && (el.querySelector("h1") || /\bhero\b/.test(meta))) {
+    label = "Hero";
+  } else if (el.querySelector("form") || /\b(form|apply|signup|sign up|contact)\b/.test(text)) {
+    label = /\b(book|schedule|calendar)\b/.test(text) ? "Booking" : "Form";
+  } else if (/\b(testimonial|testimonials|review|reviews|results|success stor)\b/.test(`${text} ${meta}`)) {
+    label = "Testimonials";
+  } else if (/\b(faq|question|questions|common questions)\b/.test(`${text} ${meta}`)) {
+    label = "FAQ";
+  } else if (/\b(pricing|plans|packages)\b/.test(`${text} ${meta}`)) {
+    label = "Pricing";
+  } else if (/\b(shop|product|products|checkout|cart|buy now|offer)\b/.test(`${text} ${meta}`)) {
+    label = "Offer";
+  } else if (/\b(cta|get started|start now|apply now|book now)\b/.test(`${text} ${meta}`)) {
+    label = "CTA";
+  } else if (heading) {
+    label = heading.slice(0, 48);
+  } else {
+    label = `Section ${sourceIndex + 1}`;
+  }
+
+  const summary = heading || normalizeInlineText(el.textContent || "").slice(0, 180) || `${label} region`;
+  return {
+    key: `${label.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "section"}-${sourceIndex}`,
+    label,
+    summary,
+    html: el.outerHTML.slice(0, 24000),
+    sourceIndex,
+  };
+}
+
+const HTML_PREVIEW_REGION_STYLE_ID = "pa-html-preview-region-style";
+
+function clearHtmlPreviewRegionSelection(doc: Document) {
+  doc.querySelectorAll('[data-ai-region-selected="true"]').forEach((node) => {
+    node.removeAttribute("data-ai-region-selected");
+    node.removeAttribute("data-ai-region-state");
+  });
+  doc.querySelectorAll('[data-ai-region-frame="true"]').forEach((node) => {
+    node.parentNode?.removeChild(node);
+  });
+}
+
+function ensureHtmlPreviewRegionStyle(doc: Document) {
+  if (doc.getElementById(HTML_PREVIEW_REGION_STYLE_ID)) return;
+
+  const style = doc.createElement("style");
+  style.id = HTML_PREVIEW_REGION_STYLE_ID;
+  style.textContent = `
+    @keyframes pa-ai-region-pulse {
+      0%, 100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+      50% {
+        transform: scale(1.004);
+        opacity: 1;
+      }
+    }
+    @keyframes pa-ai-region-settle {
+      0% {
+        transform: scale(1.006);
+      }
+      100% {
+        transform: scale(1);
+      }
+    }
+    [data-ai-region-selected="true"] {
+      isolation: isolate !important;
+      position: relative !important;
+      scroll-margin-top: 36px !important;
+    }
+    [data-ai-region-frame="true"] {
+      position: absolute;
+      inset: 12px;
+      z-index: 2147483646;
+      pointer-events: none;
+      border-radius: 24px;
+      border: 1.5px solid rgba(24, 24, 27, 0.34);
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.028) 0%, rgba(15, 23, 42, 0.01) 100%);
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.55) inset,
+        0 10px 24px rgba(15, 23, 42, 0.08),
+        0 0 0 1px rgba(39, 44, 56, 0.06);
+      transition:
+        border-color 180ms ease,
+        box-shadow 180ms ease,
+        opacity 180ms ease,
+        transform 180ms ease;
+    }
+    [data-ai-region-frame="true"][data-ai-region-state="pending"] {
+      border-color: rgba(24, 24, 27, 0.5);
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.05) 0%, rgba(15, 23, 42, 0.018) 100%);
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.62) inset,
+        0 16px 30px rgba(15, 23, 42, 0.1),
+        0 0 0 1px rgba(24, 24, 27, 0.08);
+      animation: pa-ai-region-pulse 1.2s ease-in-out infinite;
+    }
+    [data-ai-region-frame="true"][data-ai-region-state="settled"] {
+      border-color: rgba(24, 24, 27, 0.42);
+      animation: pa-ai-region-settle 720ms cubic-bezier(0.22, 1, 0.36, 1) 1;
+    }
+    [data-ai-region-selected="true"]::after {
+      content: "";
+      position: absolute;
+      inset: 14px;
+      border-radius: 22px;
+      pointer-events: none;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+    }
+  `;
+  (doc.head || doc.documentElement).appendChild(style);
+}
+
+function applyHtmlPreviewRegionSelection(
+  doc: Document,
+  selectedRegionKey: string | null,
+  scrollBehavior: ScrollBehavior,
+  selectionState: "idle" | "pending" | "settled" = "idle",
+) {
+  if (!doc.body) return;
+
+  ensureHtmlPreviewRegionStyle(doc);
+  clearHtmlPreviewRegionSelection(doc);
+
+  if (!selectedRegionKey) return;
+
+  const regionElements = getHtmlRegionElements(doc).slice(0, 8);
+  const regionScopes = regionElements.map((el, index) => buildHtmlRegionScope(el, index));
+  const selectedRegion = regionScopes.find((region) => region.key === selectedRegionKey) || null;
+  if (!selectedRegion) return;
+
+  const target = regionElements[selectedRegion.sourceIndex];
+  if (!target) return;
+
+  target.setAttribute("data-ai-region-selected", "true");
+  if (selectionState !== "idle") target.setAttribute("data-ai-region-state", selectionState);
+  const frame = doc.createElement("div");
+  frame.setAttribute("data-ai-region-frame", "true");
+  frame.setAttribute("data-ai-region-state", selectionState);
+  target.appendChild(frame);
+
+  target.scrollIntoView({ behavior: scrollBehavior, block: "center", inline: "nearest" });
+}
+
+function detectHtmlRegionScopes(html: string): HtmlRegionScope[] {
+  if (!html.trim() || typeof DOMParser === "undefined") return [];
+
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return getHtmlRegionElements(doc)
+      .slice(0, 8)
+      .map((el, index) => buildHtmlRegionScope(el, index));
+  } catch {
+    return [];
+  }
+}
 
 function formatMoney(cents: number | null | undefined, currency: string) {
   if (typeof cents !== "number" || !Number.isFinite(cents)) return "";
@@ -41,6 +1163,33 @@ function formatMoney(cents: number | null | undefined, currency: string) {
     return new Intl.NumberFormat(undefined, { style: "currency", currency: curr }).format(cents / 100);
   } catch {
     return `${curr} ${(cents / 100).toFixed(2)}`;
+  }
+}
+
+function describeBuilderAiTarget(block: CreditFunnelBlock | null) {
+  if (!block) return "the builder";
+
+  switch (block.type) {
+    case "customCode":
+      return "the selected code block";
+    case "section":
+      return "the selected section";
+    case "columns":
+      return "the selected columns block";
+    case "heading":
+      return "the selected heading";
+    case "paragraph":
+      return "the selected text block";
+    case "formEmbed":
+    case "formLink":
+      return "the selected form block";
+    case "calendarEmbed":
+      return "the selected booking block";
+    case "image":
+    case "video":
+      return "the selected media block";
+    default:
+      return "the selected block";
   }
 }
 
@@ -62,43 +1211,13 @@ type FunnelSeo = {
   noIndex?: boolean;
 };
 
-type CreditForm = {
-  id: string;
-  slug: string;
-  name: string;
-  status: "DRAFT" | "ACTIVE" | "ARCHIVED";
-  createdAt: string;
-  updatedAt: string;
+type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  at?: string;
 };
 
-type BookingCalendarLite = {
-  id: string;
-  title?: string;
-  enabled?: boolean;
-};
-
-type Page = {
-  id: string;
-  slug: string;
-  title: string;
-  sortOrder: number;
-  seo?: { faviconUrl?: string } | null;
-  contentMarkdown: string;
-  editorMode: "MARKDOWN" | "BLOCKS" | "CUSTOM_HTML";
-  blocksJson: unknown;
-  customHtml: string;
-  customChatJson: unknown;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type ChatMessage = { role: "user" | "assistant"; content: string; at?: string };
-
-type BlockChatMessage = { role: "user" | "assistant"; content: string; at?: string };
-
-function classNames(...xs: Array<string | false | null | undefined>) {
-  return xs.filter(Boolean).join(" ");
-}
+type BlockChatMessage = ChatMessage;
 
 function chatDisplayContent(m: { role: "user" | "assistant"; content: string }) {
   const raw = typeof m.content === "string" ? m.content : String(m.content ?? "");
@@ -113,7 +1232,8 @@ function chatDisplayContent(m: { role: "user" | "assistant"; content: string }) 
       t.toLowerCase().includes("</"));
   if (looksLikeHtml) return "(HTML output hidden. See the HTML editor pane.)";
 
-  const looksLikeCodeFence = t.startsWith("```") && (t.includes("```html") || t.includes("```css") || t.includes("```json"));
+  const looksLikeCodeFence =
+    t.startsWith("```") && (t.includes("```html") || t.includes("```css") || t.includes("```json"));
   if (looksLikeCodeFence) return "(Code output hidden. Use the editor fields.)";
 
   return raw;
@@ -152,6 +1272,85 @@ function normalizeSlug(raw: string) {
     .replace(/^-/, "")
     .replace(/-$/, "");
   return cleaned;
+}
+
+function formatSavedAtLabel(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const diffMinutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
+  if (diffMinutes < 1) return "Saved just now";
+  if (diffMinutes < 60) return `Saved ${diffMinutes}m ago`;
+
+  return `Saved ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+}
+
+function createImportedLayoutBlockId(prefix = "blk") {
+  const uuid =
+    typeof globalThis !== "undefined" && globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}-${uuid}`.replace(/[^a-zA-Z0-9-_]/g, "");
+}
+
+function splitCustomHtmlForLayoutImport(rawHtml: string) {
+  const source = String(rawHtml || "").trim();
+  if (!source) return { html: "", css: "" };
+
+  if (typeof DOMParser === "undefined") {
+    return { html: source, css: "" };
+  }
+
+  try {
+    const doc = new DOMParser().parseFromString(source, "text/html");
+    const styleNodes = Array.from(doc.querySelectorAll("style"));
+    const css = styleNodes
+      .map((node) => String(node.textContent || "").trim())
+      .filter(Boolean)
+      .join("\n\n");
+
+    styleNodes.forEach((node) => node.remove());
+
+    const bodyHtml = String(doc.body?.innerHTML || "").trim();
+    return {
+      html: bodyHtml || source,
+      css,
+    };
+  } catch {
+    return { html: source, css: "" };
+  }
+}
+
+function estimateImportedLayoutHeightPx(html: string) {
+  const trimmed = String(html || "").trim();
+  if (!trimmed) return 480;
+
+  const lines = trimmed.split(/\n+/).length;
+  const tags = (trimmed.match(/<[^>]+>/g) || []).length;
+  const estimate = 320 + lines * 12 + tags * 10;
+  return Math.max(420, Math.min(1600, estimate));
+}
+
+function buildLayoutBlocksFromCustomHtml(rawHtml: string) {
+  const { html, css } = splitCustomHtmlForLayoutImport(rawHtml);
+  const importedBlockId = createImportedLayoutBlockId("imported-html");
+
+  const blocks: CreditFunnelBlock[] = [
+    {
+      id: importedBlockId,
+      type: "customCode",
+      props: {
+        html,
+        ...(css ? { css } : {}),
+        heightPx: estimateImportedLayoutHeightPx(html),
+      },
+    },
+  ];
+
+  return { blocks, importedBlockId };
 }
 
 function isHexColor(value: string) {
@@ -895,6 +2094,7 @@ type FunnelEditorDialog =
   | { type: "slug-page"; value: string }
   | { type: "create-page"; slug: string; title: string }
   | { type: "create-form"; slug: string; name: string; templateKey: CreditFormTemplateKey; themeKey: CreditFormThemeKey }
+  | { type: "leave-page"; nextPageId: string | null }
   | { type: "delete-page" }
   | null;
 
@@ -999,7 +2199,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     patch: Partial<
       Pick<
         Page,
-        "title" | "slug" | "sortOrder" | "contentMarkdown" | "editorMode" | "blocksJson" | "customHtml" | "customChatJson"
+        "title" | "slug" | "sortOrder" | "contentMarkdown" | "editorMode" | "blocksJson" | "customHtml" | "draftHtml" | "customChatJson"
       >
     >,
   ) => {
@@ -1074,7 +2274,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               return;
             }
             if (selectedPage.editorMode === "CUSTOM_HTML") {
-              await savePage({ editorMode: "CUSTOM_HTML", customHtml: selectedPage.customHtml || "", customChatJson: selectedChat });
+              await savePage({ editorMode: "CUSTOM_HTML", draftHtml: getFunnelPageCurrentHtml(selectedPage), customChatJson: selectedChat });
               return;
             }
             await setEditorMode("BLOCKS");
@@ -1122,7 +2322,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
                       )}
                     >
-                      Blocks
+                      Builder
                     </button>
                     <button
                       type="button"
@@ -1134,7 +2334,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       )}
                     >
                       <AiSparkIcon className="h-4 w-4" />
-                      Custom code
+                      Page code
                     </button>
                   </div>
 
@@ -1229,6 +2429,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
               {error ? <div className="mx-4 mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
+              {selectedPage && selectedPage.editorMode !== "MARKDOWN" ? (
+                <div className="mx-4 mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm shadow-sm">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Mode context</div>
+                  {selectedPage.editorMode === "BLOCKS" ? (
+                    <div className="mt-1 text-zinc-700">
+                      <span className="font-semibold text-zinc-900">Builder page.</span> Templates, sections, columns, and drag/drop control the structure. Ask AI stays inside this page: it edits a selected custom code block or inserts modular blocks where they belong.
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-zinc-700">
+                      <span className="font-semibold text-zinc-900">Whole-page code.</span> Ask AI edits the full page source for this page only. Builder blocks are a separate structure unless you intentionally switch back to the builder.
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
               <div className="flex flex-1 flex-col overflow-auto lg:min-h-0 lg:flex-row lg:overflow-hidden">
                 <aside className="w-full shrink-0 border-b border-zinc-200 bg-white p-4 lg:min-h-0 lg:w-[380px] lg:overflow-y-auto lg:border-b-0 lg:border-r">
                   {!selectedPage ? (
@@ -1248,7 +2463,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             busy ? "opacity-60" : "",
                           )}
                         >
-                          Switch to Blocks
+                          Switch to Builder
                         </button>
                         <button
                           type="button"
@@ -1259,13 +2474,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             busy ? "opacity-60" : "",
                           )}
                         >
-                          Switch to Custom code
+                          Switch to Page code
                         </button>
                       </div>
                     </div>
                   ) : selectedPage.editorMode === "BLOCKS" ? (
                     <div>
-                      <div className="text-sm font-semibold text-zinc-900">Blocks</div>
+                      <div className="text-sm font-semibold text-zinc-900">Builder</div>
                       <div className="mt-3 grid grid-cols-2 gap-2">
                         {(
                           [
@@ -2050,7 +3265,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
                             <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
                           </svg>
-                          <span>{busy ? "Working…" : "Ask AI"}</span>
+                          <span>{busy ? BUSY_PHASES[busyPhaseIdx] : "Ask AI"}</span>
                         </button>
                         <button
                           type="button"
@@ -2068,8 +3283,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       <div className="mt-4 border-t border-zinc-200 pt-4">
                         <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">HTML</div>
                         <textarea
-                          value={selectedPage.customHtml || ""}
-                          onChange={(e) => setSelectedPageLocal({ customHtml: e.target.value })}
+                          value={getFunnelPageCurrentHtml(selectedPage)}
+                          onChange={(e) => setSelectedPageLocal({ draftHtml: e.target.value })}
                           className="mt-2 min-h-[240px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
                           placeholder="<!doctype html>…"
                         />
@@ -2191,7 +3406,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             title={selectedPage.title}
                             sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
                             allow="microphone"
-                            srcDoc={selectedPage.customHtml || ""}
+                            srcDoc={getFunnelPageCurrentHtml(selectedPage)}
                             className="h-[78vh] w-full bg-white"
                           />
                         </div>
@@ -2298,7 +3513,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             busy ? "bg-zinc-400" : "bg-[color:var(--color-brand-blue)] hover:bg-blue-700",
                           )}
                         >
-                          {busy ? "Working…" : "Ask AI"}
+                          {busy ? BUSY_PHASES[busyPhaseIdx] : "Ask AI"}
                         </button>
                         <button
                           type="button"
@@ -2316,8 +3531,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       <div className="mt-4 border-t border-zinc-200 pt-4">
                         <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">HTML</div>
                         <textarea
-                          value={selectedPage.customHtml || ""}
-                          onChange={(e) => setSelectedPageLocal({ customHtml: e.target.value })}
+                          value={getFunnelPageCurrentHtml(selectedPage)}
+                          onChange={(e) => setSelectedPageLocal({ draftHtml: e.target.value })}
                           className="mt-2 min-h-[240px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
                           placeholder="<!doctype html>…"
                         />
@@ -2390,7 +3605,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             title={selectedPage.title}
                             sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
                             allow="microphone"
-                            srcDoc={selectedPage.customHtml || ""}
+                            srcDoc={getFunnelPageCurrentHtml(selectedPage)}
                             className="h-full w-full bg-white"
                           />
                         </div>
@@ -2451,12 +3666,52 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
 */
 
+type PageSeo = {
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  noIndex?: boolean;
+  faviconUrl?: string;
+};
+
+type Page = {
+  id: string;
+  funnelId: string;
+  title: string;
+  slug: string;
+  sortOrder: number;
+  contentMarkdown: string;
+  editorMode: "BLOCKS" | "CUSTOM_HTML" | "MARKDOWN";
+  blocksJson: unknown;
+  customHtml: string;
+  draftHtml: string;
+  customChatJson: unknown;
+  seo: PageSeo | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type CreditForm = {
+  id: string;
+  slug: string;
+  name: string;
+};
+
+type BookingCalendarLite = {
+  id: string;
+  title?: string;
+  enabled?: boolean;
+};
+
+type BuilderSurfaceMode = "blocks" | "whole-page";
+
 export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; funnelId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const toast = useToast();
 
   const initialPageIdFromUrlRef = useRef<string | null>(null);
+  const initialPageSelectionConsumedRef = useRef(false);
   useEffect(() => {
     if (initialPageIdFromUrlRef.current !== null) return;
     const pid = String(searchParams?.get("pageId") || "").trim();
@@ -2524,6 +3779,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [selectedHeaderNavItemId, setSelectedHeaderNavItemId] = useState<string | null>(null);
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [customCodeBlockPrompt, setCustomCodeBlockPrompt] = useState("");
@@ -2532,6 +3788,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [aiSidebarCustomCodeBusy, setAiSidebarCustomCodeBusy] = useState(false);
   const [aiSidebarCustomCodeBlockId, setAiSidebarCustomCodeBlockId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [savingPage, setSavingPage] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [seoDirty, setSeoDirty] = useState(false);
@@ -2543,51 +3800,55 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [aiContextOpen, setAiContextOpen] = useState(false);
   const [aiContextKeys, setAiContextKeys] = useState<string[]>([]);
+  void setAiContextKeys; // kept for API compatibility
   const [aiContextMedia, setAiContextMedia] = useState<Array<{ url: string; fileName?: string; mimeType?: string }>>([]);
   const [aiContextUploadBusy, setAiContextUploadBusy] = useState(false);
+  const [lastAiRun, setLastAiRun] = useState<null | {
+    pageId: string;
+    prompt: string;
+    summary: string;
+    warnings: string[];
+    at: string;
+    previousPage: Pick<Page, "editorMode" | "blocksJson" | "customHtml" | "draftHtml" | "customChatJson">;
+  }>(null);
   const aiContextUploadInputRef = useRef<HTMLInputElement | null>(null);
 
-  const aiContextOptions = useMemo(
-    () =>
-      [
-        { key: "preset:hero", label: "Preset: Hero", description: "Hero section preset" },
-        { key: "preset:body", label: "Preset: Body", description: "Body/content section preset" },
-        { key: "preset:form", label: "Preset: Form", description: "Form capture preset" },
-        { key: "preset:shop", label: "Preset: Shop", description: "Shop preset (Stripe-connected)" },
-
-        { key: "block:headerNav", label: "Block: Header/Menu", description: "Navigation, logo, CTA" },
-        { key: "block:section", label: "Block: Section", description: "Section wrapper + background" },
-        { key: "block:columns", label: "Block: Columns", description: "Two-column layouts" },
-        { key: "block:heading", label: "Block: Heading", description: "Headlines + section titles" },
-        { key: "block:paragraph", label: "Block: Text", description: "Paragraph/rich text" },
-        { key: "block:button", label: "Block: Button", description: "CTA buttons" },
-        { key: "block:spacer", label: "Block: Spacer", description: "Spacing between sections" },
-
-        { key: "block:formLink", label: "Block: Form link", description: "Link to hosted form" },
-        { key: "block:formEmbed", label: "Block: Form embed", description: "Embedded hosted form" },
-        { key: "block:calendarEmbed", label: "Block: Calendar embed", description: "Embedded booking calendar" },
-
-        { key: "block:image", label: "Block: Image", description: "Image blocks" },
-        { key: "block:video", label: "Block: Video", description: "Video blocks" },
-
-        { key: "block:addToCartButton", label: "Shop: Add to cart", description: "Add-to-cart button" },
-        { key: "block:cartButton", label: "Shop: Cart", description: "Cart button" },
-        { key: "block:salesCheckoutButton", label: "Shop: Checkout", description: "Checkout button" },
-
-        { key: "block:chatbot", label: "Block: AI chatbot", description: "Chatbot widget" },
-      ] as const,
-    [],
-  );
-
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
+  const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
+  const [builderSurfaceMode, setBuilderSurfaceMode] = useState<BuilderSurfaceMode>("blocks");
+  const [customCodeStageMode, setCustomCodeStageMode] = useState<"preview" | "source">("preview");
+  const [, setCustomCodeContextOpen] = useState(false);
+  const [wholePageSyncNotice, setWholePageSyncNotice] = useState<string | null>(null);
+  const [selectedHtmlRegionKey, setSelectedHtmlRegionKey] = useState<string | null>(null);
+  const [htmlScopePickerOpen, setHtmlScopePickerOpen] = useState(false);
+  const [busyPhaseIdx, setBusyPhaseIdx] = useState(0);
+  const [aiResultBanner, setAiResultBanner] = useState<{ summary: string; at: string; tone: "success" | "warning" } | null>(null);
+  const [aiWorkFocus, setAiWorkFocus] = useState<null | {
+    mode: "builder" | "page";
+    label: string;
+    phase: "pending" | "settled";
+    regionKey: string | null;
+    blockId: string | null;
+  }>(null);
+  const [htmlChangeActivity, setHtmlChangeActivity] = useState<HtmlChangeActivityItem[]>([]);
   const [sidebarPanel, setSidebarPanel] = useState<
-    "presets" | "text" | "layout" | "forms" | "media" | "header" | "shop" | "ai" | "page" | "selected"
-  >("presets");
+    "structure" | "presets" | "text" | "layout" | "forms" | "media" | "header" | "shop" | "ai" | "page" | "selected"
+  >("structure");
 
   const [dialog, setDialog] = useState<FunnelEditorDialog>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
 
   const portalVariant: PortalVariant = basePath === "/credit" ? "credit" : "portal";
+  // hostedBasePath is the public-facing URL prefix used in generated block embed URLs
+  // (formEmbed, calendarEmbed). Different from basePath which is the portal nav path.
+  const hostedBasePath = portalVariant === "credit" ? "/credit" : "";
+  const builderLibraryPanels = ["presets", "text", "layout", "forms", "media", "header", "shop"] as const;
+  const builderLibrarySet = new Set<string>(builderLibraryPanels);
+  const builderLibraryPanel = builderLibrarySet.has(sidebarPanel) ? sidebarPanel : "presets";
+  const builderTopLevelPanel =
+    sidebarPanel === "structure" || sidebarPanel === "ai" || sidebarPanel === "page" || sidebarPanel === "selected"
+      ? sidebarPanel
+      : "add";
 
   const platformTargetHost = useMemo(() => {
     if (typeof window !== "undefined") return window.location.hostname || null;
@@ -2657,8 +3918,54 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     () => (pages || []).find((p) => p.id === selectedPageId) || null,
     [pages, selectedPageId],
   );
+  const selectedPageEditorMode = selectedPage?.editorMode ?? null;
+  const selectedPageSupportsBlocksSurface = useMemo(() => {
+    if (!selectedPage) return false;
+    return selectedPage.editorMode === "BLOCKS";
+  }, [selectedPage]);
 
-  type PageHistorySnapshot = Pick<Page, "editorMode" | "blocksJson" | "customHtml" | "customChatJson"> & {
+  useEffect(() => {
+    if (!selectedPageId || !selectedPageEditorMode) {
+      setBuilderSurfaceMode("blocks");
+      setCustomCodeStageMode("preview");
+      setSelectedHtmlRegionKey(null);
+      setWholePageSyncNotice(null);
+      return;
+    }
+
+    setBuilderSurfaceMode(selectedPageEditorMode === "CUSTOM_HTML" ? "whole-page" : "blocks");
+    setCustomCodeStageMode("preview");
+    setSelectedHtmlRegionKey(null);
+    setWholePageSyncNotice(null);
+  }, [selectedPageEditorMode, selectedPageId]);
+
+  const selectedPageHtmlChangeActivity = useMemo(() => {
+    if (!selectedPage?.id) return [] as HtmlChangeActivityItem[];
+    return htmlChangeActivity.filter((item) => item.pageId === selectedPage.id).slice(0, 8);
+  }, [htmlChangeActivity, selectedPage?.id]);
+  const selectedPageIndex = useMemo(() => {
+    if (!pages || !selectedPageId) return -1;
+    return pages.findIndex((page) => page.id === selectedPageId);
+  }, [pages, selectedPageId]);
+  const selectedPageIsEntryPage = selectedPageIndex === 0;
+
+  const latestSelectedPageHtmlChange = selectedPageHtmlChangeActivity[0] || null;
+
+  const latestSourceHighlightRange = useMemo(() => {
+    if (!latestSelectedPageHtmlChange?.diff.changed) return null;
+    const startLine = latestSelectedPageHtmlChange.diff.currentStartLine;
+    const endLine = latestSelectedPageHtmlChange.diff.currentEndLine;
+    if (!startLine || !endLine) return null;
+    return { startLine, endLine };
+  }, [latestSelectedPageHtmlChange]);
+
+  const showInlineHtmlChangeReceipt = customCodeStageMode === "source" && Boolean(latestSelectedPageHtmlChange);
+
+  const appendHtmlChangeActivity = useCallback((item: HtmlChangeActivityItem) => {
+    setHtmlChangeActivity((prev) => [item, ...prev].slice(0, 24));
+  }, []);
+
+  type PageHistorySnapshot = Pick<Page, "editorMode" | "blocksJson" | "customHtml" | "draftHtml" | "customChatJson"> & {
     selectedBlockId: string | null;
   };
 
@@ -2685,6 +3992,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       editorMode: p.editorMode,
       blocksJson: p.blocksJson,
       customHtml: p.customHtml,
+      draftHtml: p.draftHtml,
       customChatJson: p.customChatJson,
       selectedBlockId,
     }),
@@ -2727,6 +4035,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 editorMode: snap.editorMode,
                 blocksJson: snap.blocksJson,
                 customHtml: snap.customHtml,
+                draftHtml: snap.draftHtml ?? "",
                 customChatJson: snap.customChatJson,
               } as Page)
             : p,
@@ -2784,8 +4093,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
+      const keyboardBlocksSurfaceActive = Boolean(selectedPage && selectedPageSupportsBlocksSurface && builderSurfaceMode === "blocks");
       if (!selectedPage) return;
-      if (selectedPage.editorMode !== "BLOCKS") return;
+      if (!keyboardBlocksSurfaceActive) return;
       if (!selectedBlockId) return;
       if (busy) return;
       if (dialog) return;
@@ -2798,7 +4108,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedPage, selectedBlockId, busy, dialog, mediaPickerOpen]);
+  }, [selectedPage, selectedPageSupportsBlocksSurface, builderSurfaceMode, selectedBlockId, busy, dialog, mediaPickerOpen]);
 
   useEffect(() => {
     const isTextInputLike = (el: Element | null) => {
@@ -2891,6 +4201,28 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       cancelled = true;
     };
   }, [portalVariant]);
+
+  const BUSY_PHASES = ["Reviewing page", "Writing update", "Finishing"];
+  const busyPhasesLen = BUSY_PHASES.length;
+  useEffect(() => {
+    if (!busy) { setBusyPhaseIdx(0); return; }
+    const id = setInterval(() => setBusyPhaseIdx((prev) => Math.min(prev + 1, busyPhasesLen - 1)), 4000);
+    return () => clearInterval(id);
+  }, [busy, busyPhasesLen]);
+
+  useEffect(() => {
+    if (!aiResultBanner) return;
+    const id = setTimeout(() => setAiResultBanner(null), 7000);
+    return () => clearTimeout(id);
+  }, [aiResultBanner]);
+
+  useEffect(() => {
+    if (aiWorkFocus?.phase !== "settled") return;
+    const id = setTimeout(() => {
+      setAiWorkFocus((prev) => (prev?.phase === "settled" ? null : prev));
+    }, 1600);
+    return () => clearTimeout(id);
+  }, [aiWorkFocus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3148,6 +4480,51 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks;
   }, [pageSettingsBlock, editableBlocks]);
 
+  const blockTreeNeedsServerWholePageExport = useCallback((blocks: CreditFunnelBlock[]) => {
+    const walk = (items: CreditFunnelBlock[]): boolean => {
+      for (const block of items) {
+        if (!block || typeof block !== "object") continue;
+        if (block.type === "calendarEmbed") return true;
+
+        if (block.type === "section") {
+          const props = (block.props || {}) as Record<string, unknown>;
+          const nestedKeys = ["children", "leftChildren", "rightChildren"] as const;
+          for (const key of nestedKeys) {
+            const nested = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : [];
+            if (walk(nested)) return true;
+          }
+        }
+
+        if (block.type === "columns") {
+          const columns = Array.isArray((block.props as any)?.columns) ? ((block.props as any).columns as any[]) : [];
+          for (const column of columns) {
+            const nested = Array.isArray(column?.children) ? (column.children as CreditFunnelBlock[]) : [];
+            if (walk(nested)) return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    return walk(blocks);
+  }, []);
+
+  const buildWholePageDraftHtml = useCallback(
+    (page: Pick<Page, "id" | "title">, blocks: CreditFunnelBlock[]): string | null => {
+      const normalizedBlocks = Array.isArray(blocks) ? blocks.filter((block) => block && typeof block === "object") : [];
+      if (blockTreeNeedsServerWholePageExport(normalizedBlocks)) return null;
+
+      return blocksToCustomHtmlDocument({
+        blocks: normalizedBlocks,
+        pageId: page.id,
+        ownerId: "",
+        basePath: hostedBasePath,
+        title: page.title || "Funnel page",
+      });
+    },
+    [blockTreeNeedsServerWholePageExport, hostedBasePath],
+  );
+
   const documentSwatches = useMemo(() => {
     if (!selectedBlocks.length) return [] as string[];
     const found: string[] = [];
@@ -3327,10 +4704,238 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     [findBlockInTree],
   );
 
+  const findTopLevelBlockId = useCallback(
+    (blocks: CreditFunnelBlock[], id: string): string | null => {
+      for (const block of blocks) {
+        if (block.id === id) return block.id;
+        if (block.type !== "section" && block.type !== "columns") continue;
+        if (findBlockInTree([block], id)) return block.id;
+      }
+      return null;
+    },
+    [findBlockInTree],
+  );
+
   const selectedBlock = useMemo(() => {
     if (!selectedBlockId) return null;
     return findBlockInTree(editableBlocks, selectedBlockId)?.block || null;
   }, [editableBlocks, selectedBlockId, findBlockInTree]);
+
+  useEffect(() => {
+    if (!selectedBlock || selectedBlock.type !== "headerNav") {
+      setSelectedHeaderNavItemId(null);
+      return;
+    }
+
+    const items = Array.isArray((selectedBlock.props as any)?.items) ? (((selectedBlock.props as any).items as any[]) || []) : [];
+    if (!items.length) {
+      setSelectedHeaderNavItemId(null);
+      return;
+    }
+
+    if (selectedHeaderNavItemId && items.some((item: any) => String(item?.id || "") === selectedHeaderNavItemId)) {
+      return;
+    }
+
+    setSelectedHeaderNavItemId(String(items[0]?.id || ""));
+  }, [selectedBlock, selectedHeaderNavItemId]);
+
+  const blockOutlineItems = useMemo(() => {
+    const items: Array<{ id: string; kind: string; detail: string; depth: number }> = [];
+
+    const describeBlock = (block: CreditFunnelBlock) => {
+      const props: any = block.props || {};
+      const directText = normalizeInlineText(
+        String(
+          props.text ||
+            props.label ||
+            props.title ||
+            props.formSlug ||
+            props.calendarId ||
+            props.anchorLabel ||
+            props.mobileTriggerLabel ||
+            "",
+        ),
+      );
+
+      if (
+        block.type === "salesCheckoutButton" ||
+        block.type === "addToCartButton" ||
+        block.type === "cartButton"
+      ) {
+        return { kind: "Commerce", detail: directText || "Checkout action" };
+      }
+
+      switch (block.type) {
+        case "heading":
+          return { kind: `H${props.level || 2}`, detail: directText || "Heading" };
+        case "paragraph":
+          return { kind: "Text", detail: directText || "Paragraph" };
+        case "button":
+          return { kind: "Button", detail: directText || "Button" };
+        case "formEmbed":
+          return { kind: "Form", detail: directText || "Embedded form" };
+        case "formLink":
+          return { kind: "Form link", detail: directText || "Open form" };
+        case "image":
+          return { kind: "Image", detail: directText || "Image block" };
+        case "video":
+          return { kind: "Video", detail: directText || "Video block" };
+        case "columns":
+          return { kind: "Columns", detail: `${Array.isArray(props.columns) ? props.columns.length : 0} columns` };
+        case "section": {
+          const firstHeading = Array.isArray(props.children)
+            ? (props.children as CreditFunnelBlock[]).find((child) => child?.type === "heading")
+            : null;
+          const headingText = firstHeading ? normalizeInlineText(String((firstHeading.props as any)?.text || "")) : "";
+          return { kind: "Section", detail: headingText || "Content section" };
+        }
+        case "customCode":
+          return { kind: "Code", detail: "Custom block" };
+        case "headerNav":
+          return { kind: "Header", detail: "Navigation" };
+        case "chatbot":
+          return { kind: "Chatbot", detail: directText || "Assistant" };
+        case "spacer":
+          return { kind: "Spacer", detail: "Spacing" };
+        default:
+          return { kind: block.type, detail: directText || block.type };
+      }
+    };
+
+    const visit = (blocks: CreditFunnelBlock[], depth: number) => {
+      for (const block of blocks) {
+        if (!block || typeof block !== "object") continue;
+        const described = describeBlock(block);
+        items.push({ id: block.id, kind: described.kind, detail: described.detail, depth });
+
+        if (block.type === "section") {
+          const props: any = block.props || {};
+          const nestedKeys = ["children", "leftChildren", "rightChildren"] as const;
+          for (const key of nestedKeys) {
+            const nested = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : [];
+            visit(nested, depth + 1);
+          }
+        }
+
+        if (block.type === "columns") {
+          const columns = Array.isArray((block.props as any)?.columns) ? ((block.props as any).columns as any[]) : [];
+          for (const column of columns) {
+            const nested = Array.isArray(column?.children) ? (column.children as CreditFunnelBlock[]) : [];
+            visit(nested, depth + 1);
+          }
+        }
+      }
+    };
+
+    visit(editableBlocks, 0);
+    return items;
+  }, [editableBlocks]);
+
+  const selectedBlockContainer = useMemo(
+    () => (selectedBlockId ? findContainerForBlock(editableBlocks, selectedBlockId) : null),
+    [editableBlocks, findContainerForBlock, selectedBlockId],
+  );
+
+  const selectedOutlineItem = useMemo(
+    () => blockOutlineItems.find((item) => item.id === selectedBlockId) || null,
+    [blockOutlineItems, selectedBlockId],
+  );
+
+  const selectedPageFlowAnchorId = useMemo(
+    () => (selectedBlockId ? findTopLevelBlockId(editableBlocks, selectedBlockId) : null),
+    [editableBlocks, findTopLevelBlockId, selectedBlockId],
+  );
+
+  const selectedPageFlowOutlineItem = useMemo(
+    () => blockOutlineItems.find((item) => item.id === selectedPageFlowAnchorId) || null,
+    [blockOutlineItems, selectedPageFlowAnchorId],
+  );
+
+  const storedPageSourceHtml = useMemo(() => getFunnelPageCurrentHtml(selectedPage), [selectedPage]);
+  const currentPagePublishedHtml = useMemo(() => getFunnelPagePublishedHtml(selectedPage), [selectedPage]);
+  const generatedBlockWholePageHtml = useMemo(() => {
+    if (!selectedPage || !selectedPageSupportsBlocksSurface) return "";
+    const nextHtml = buildWholePageDraftHtml(selectedPage, saveableBlocks);
+    return nextHtml || "";
+  }, [buildWholePageDraftHtml, saveableBlocks, selectedPage, selectedPageSupportsBlocksSurface]);
+  const selectedPageDirty = Boolean(selectedPageId && dirtyPageIds[selectedPageId]);
+  const blocksSurfaceActive = Boolean(selectedPage && selectedPageSupportsBlocksSurface && builderSurfaceMode === "blocks");
+  const wholePageModeActive = Boolean(
+    selectedPage && !blocksSurfaceActive && (selectedPage.editorMode === "CUSTOM_HTML" || builderSurfaceMode === "whole-page"),
+  );
+  const wholePageSourceEditable = Boolean(selectedPage?.editorMode === "CUSTOM_HTML" && !blocksSurfaceActive);
+  const saveStatusLabel = (() => {
+    if (!selectedPage) return null;
+    if (selectedPageDirty) return wholePageSourceEditable ? "Unsaved draft" : "Unsaved";
+    return formatSavedAtLabel((selectedPage as any).updatedAt) || (wholePageSourceEditable ? "Draft saved" : "Saved");
+  })();
+  const wholePageDrawerLabel = wholePageSourceEditable ? "Code editor" : "Code view";
+  const wholePageDrawerSummary = wholePageSourceEditable
+    ? "Edit the page source directly."
+    : "Inspect the current page source without leaving the editor.";
+  const workspaceSummary = wholePageSourceEditable
+    ? "Preview shows the page. Source lets you edit it directly."
+    : "Preview shows the current page. Source shows the latest saved output.";
+  const currentPageSourceHtml = useMemo(() => {
+    if (!selectedPage) return "";
+    if (selectedPage.editorMode === "CUSTOM_HTML") return storedPageSourceHtml;
+    if (generatedBlockWholePageHtml) return generatedBlockWholePageHtml;
+    if (!selectedPageDirty) return storedPageSourceHtml;
+    return "";
+  }, [generatedBlockWholePageHtml, selectedPage, selectedPageDirty, storedPageSourceHtml]);
+  const editorPreviewHtml = useMemo(() => buildEditorPreviewHtml(currentPageSourceHtml), [currentPageSourceHtml]);
+  const wholePageStatusMessage = useMemo(() => {
+    if (!wholePageModeActive) return wholePageSyncNotice;
+    if (!selectedPage || !selectedPageSupportsBlocksSurface) return wholePageSyncNotice;
+    if (!currentPageSourceHtml) {
+      return "You are seeing the current page preview. Save the page when you want the code view refreshed too.";
+    }
+    if (!generatedBlockWholePageHtml) {
+      return "Preview is up to date. Code is showing the latest saved page version until you save again.";
+    }
+    return wholePageSyncNotice;
+  }, [currentPageSourceHtml, generatedBlockWholePageHtml, selectedPage, selectedPageSupportsBlocksSurface, wholePageModeActive, wholePageSyncNotice]);
+  const wholePageSyncMeta = useMemo(() => {
+    if (!selectedPage || !wholePageModeActive) return null;
+
+    if (wholePageSourceEditable) {
+      return selectedPageDirty ? "Draft has unsaved edits" : formatSavedAtLabel((selectedPage as any).updatedAt) || "Draft saved";
+    }
+
+    if (selectedPageDirty) return "Save to refresh this full-page snapshot";
+    return formatSavedAtLabel((selectedPage as any).updatedAt) || "Snapshot is current";
+  }, [selectedPage, wholePageModeActive, wholePageSourceEditable, selectedPageDirty]);
+
+  useEffect(() => {
+    setWholePageSyncNotice(null);
+  }, [selectedPageId]);
+
+  const htmlRegionScopes = useMemo(
+    () => (currentPageSourceHtml ? detectHtmlRegionScopes(currentPageSourceHtml) : []),
+    [currentPageSourceHtml],
+  );
+  const selectedHtmlRegion = useMemo(
+    () => htmlRegionScopes.find((region) => region.key === selectedHtmlRegionKey) || null,
+    [htmlRegionScopes, selectedHtmlRegionKey],
+  );
+  const htmlPreviewSelectionState =
+    aiWorkFocus?.mode === "page" && aiWorkFocus.regionKey && aiWorkFocus.regionKey === selectedHtmlRegion?.key
+      ? aiWorkFocus.phase
+      : "idle";
+
+  useEffect(() => {
+    if (!selectedHtmlRegionKey) return;
+    if (!htmlRegionScopes.some((region) => region.key === selectedHtmlRegionKey)) {
+      setSelectedHtmlRegionKey(null);
+    }
+  }, [htmlRegionScopes, selectedHtmlRegionKey]);
+
+  useEffect(() => {
+    if (selectedPage?.editorMode !== "CUSTOM_HTML" || customCodeStageMode === "source") {
+      setHtmlScopePickerOpen(false);
+    }
+  }, [customCodeStageMode, selectedPage?.editorMode]);
 
   const pageHasStripeProductButtons = useMemo(() => {
     const visit = (blocks: CreditFunnelBlock[] | undefined): boolean => {
@@ -3391,14 +4996,27 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const setSelectedPageLocal = useCallback((patch: Partial<Page>) => {
     if (!selectedPage) return;
 
+    const nextPatch: Partial<Page> = { ...patch };
+    if (patch.blocksJson !== undefined) {
+      const nextBlocks = migrateLegacyAnchorBlocksIntoSections(coerceBlocksJson(patch.blocksJson));
+      const nextDraftHtml = buildWholePageDraftHtml(
+        {
+          id: selectedPage.id,
+          title: patch.title !== undefined ? String(patch.title || "") : selectedPage.title,
+        },
+        nextBlocks,
+      );
+      if (nextDraftHtml !== null) nextPatch.draftHtml = nextDraftHtml;
+    }
+
     const actionKey =
-      patch.blocksJson !== undefined
+      nextPatch.blocksJson !== undefined
         ? "blocks"
-        : patch.customHtml !== undefined
+        : nextPatch.draftHtml !== undefined || nextPatch.customHtml !== undefined
           ? "customHtml"
-          : patch.customChatJson !== undefined
+          : nextPatch.customChatJson !== undefined
             ? "customChatJson"
-            : patch.editorMode !== undefined
+            : nextPatch.editorMode !== undefined
               ? "editorMode"
               : "meta";
     const coalesceWindowMs = actionKey === "customHtml" ? 1200 : 250;
@@ -3406,9 +5024,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
     setDirtyPageIds((prev) => ({ ...prev, [selectedPage.id]: true }));
     setPages((prev) =>
-      (prev || []).map((p) => (p.id === selectedPage.id ? ({ ...p, ...patch } as Page) : p)),
+      (prev || []).map((p) => (p.id === selectedPage.id ? ({ ...p, ...nextPatch } as Page) : p)),
     );
-  }, [pushUndoSnapshot, selectedPage]);
+  }, [buildWholePageDraftHtml, pushUndoSnapshot, selectedPage]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -3445,11 +5063,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setPages(nextPages);
     setDirtyPageIds({});
     const preferredFromUrl = (() => {
+      if (initialPageSelectionConsumedRef.current) return null;
       const pid = initialPageIdFromUrlRef.current;
       if (!pid) return null;
       return nextPages.some((p) => String((p as any)?.id || "").trim() === pid) ? pid : null;
     })();
-    setSelectedPageId((prev) => prev || preferredFromUrl || nextPages[0]?.id || null);
+    setSelectedPageId((prev) => {
+      const current = prev && nextPages.some((p) => p.id === prev) ? prev : null;
+      const nextSelected = current || preferredFromUrl || nextPages[0]?.id || null;
+      if (nextSelected) initialPageSelectionConsumedRef.current = true;
+      return nextSelected;
+    });
 
     if (formsRes && formsRes.ok && formsJson?.ok === true) {
       setForms(Array.isArray(formsJson.forms) ? (formsJson.forms as CreditForm[]) : []);
@@ -3534,11 +5158,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           | "editorMode"
           | "blocksJson"
           | "customHtml"
+          | "draftHtml"
           | "customChatJson"
         >
       >,
     ) => {
-      if (!selectedPage) return;
+      if (!selectedPage) return false;
       setBusy(true);
       setError(null);
       try {
@@ -3553,9 +5178,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save");
         await load();
-        setSelectedPageId(json.page?.id || selectedPage.id);
+        return true;
       } catch (e) {
         setError((e as any)?.message ? String((e as any).message) : "Failed to save");
+        return false;
       } finally {
         setBusy(false);
       }
@@ -3653,117 +5279,273 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     }
   };
 
+  const convertCurrentPageToBlocks = async () => {
+    if (!selectedPage || selectedPage.editorMode !== "CUSTOM_HTML") return;
+
+    const currentHtml = getFunnelPageCurrentHtml(selectedPage);
+    const { blocks: importedBlocks, importedBlockId } = buildLayoutBlocksFromCustomHtml(currentHtml);
+
+    setBusy(true);
+    setError(null);
+    setCustomCodeStageMode("preview");
+    setCustomCodeContextOpen(false);
+    setPreviewMode("edit");
+    setSelectedHtmlRegionKey(null);
+    setWholePageSyncNotice(null);
+
+    try {
+      const res = await fetch(
+        `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            editorMode: "BLOCKS",
+            blocksJson: importedBlocks,
+          }),
+        },
+      );
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "Failed to convert this page into Layout");
+      }
+
+      const page = json.page as Partial<Page> | undefined;
+      if (page?.id) {
+        setPages((prev) =>
+          (prev || []).map((p) =>
+            p.id === page.id
+              ? ({
+                  ...p,
+                  ...page,
+                } as Page)
+              : p,
+          ),
+        );
+      } else {
+        await load();
+      }
+
+      setBuilderSurfaceMode("blocks");
+      setSelectedBlockId(importedBlockId);
+      setSidebarPanel("selected");
+      toast.success("Converted to Layout");
+    } catch (e) {
+      const message = (e as any)?.message ? String((e as any).message) : "Failed to convert this page into Layout";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const setEditorMode = async (mode: "BLOCKS" | "CUSTOM_HTML") => {
     if (!selectedPage) return;
     if (selectedPage.editorMode === mode) return;
+    setError(null);
 
     if (mode === "CUSTOM_HTML" && selectedPage.editorMode === "BLOCKS") {
-      setBusy(true);
-      setError(null);
-      try {
-        const res = await fetch(
-          `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/export-custom-html`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ blocksJson: saveableBlocks, setEditorMode: "CUSTOM_HTML" }),
-          },
-        );
-        const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to export HTML");
+      setCustomCodeStageMode("preview");
+      setCustomCodeContextOpen(false);
+      setSelectedBlockId(null);
+      setWholePageSyncNotice(null);
 
-        const page = json.page as Partial<Page> | undefined;
-        if (page?.id) {
-          setPages((prev) => (prev || []).map((p) => (p.id === page.id ? ({ ...p, ...page } as Page) : p)));
-          setSelectedPageId(String(page.id));
-        } else {
-          await load();
-        }
-      } catch (e) {
-        setError((e as any)?.message ? String((e as any).message) : "Failed to export HTML");
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
+      const nextDraftHtml = buildWholePageDraftHtml(selectedPage, saveableBlocks);
+      setPages((prev) =>
+        (prev || []).map((p) =>
+          p.id === selectedPage.id
+            ? ({
+                ...p,
+                editorMode: "CUSTOM_HTML",
+                ...(nextDraftHtml !== null ? { draftHtml: nextDraftHtml } : null),
+              } as Page)
+            : p,
+        ),
+      );
 
-    setSelectedPageLocal({ editorMode: mode });
-    await savePage({ editorMode: mode });
-  };
+      if (nextDraftHtml !== null) return;
 
-  const saveCurrentPage = async () => {
-    if (!selectedPage) return;
-    if (selectedPage.editorMode === "BLOCKS") {
-      const findGlobalHeader = (blocks: CreditFunnelBlock[]): CreditFunnelBlock | null => {
-        const walk = (arr: CreditFunnelBlock[]): CreditFunnelBlock | null => {
-          for (const b of arr) {
-            if (!b) continue;
-            if (b.type === "headerNav" && (b.props as any)?.isGlobal === true) return b;
-            if (b.type === "section") {
-              const props: any = b.props;
-              const keys = ["children", "leftChildren", "rightChildren"] as const;
-              for (const key of keys) {
-                const nested = Array.isArray(props?.[key]) ? (props[key] as CreditFunnelBlock[]) : [];
-                const found = walk(nested);
-                if (found) return found;
-              }
-            }
-            if (b.type === "columns") {
-              const props: any = b.props;
-              const cols = Array.isArray(props?.columns) ? (props.columns as any[]) : [];
-              for (const c of cols) {
-                const nested = Array.isArray(c?.children) ? (c.children as CreditFunnelBlock[]) : [];
-                const found = walk(nested);
-                if (found) return found;
-              }
-            }
-          }
-          return null;
-        };
-
-        return walk(blocks.filter((b) => b.type !== "page"));
-      };
-
-      const globalHeader = findGlobalHeader(saveableBlocks);
-      if (globalHeader) {
-        setBusy(true);
-        setError(null);
+      const runServerExport = async () => {
         try {
           const res = await fetch(
-            `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/global-header`,
+            `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/export-custom-html`,
             {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ mode: "apply", headerBlock: globalHeader }),
+              body: JSON.stringify({ blocksJson: saveableBlocks, setEditorMode: "CUSTOM_HTML" }),
             },
           );
           const json = (await res.json().catch(() => null)) as any;
-          if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to apply global header");
+          if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to sync whole-page source");
+          setWholePageSyncNotice(null);
+
+          const page = json.page as Partial<Page> | undefined;
+          if (page?.id) {
+            setPages((prev) =>
+              (prev || []).map((p) =>
+                p.id === page.id
+                  ? ({
+                      ...p,
+                      ...page,
+                      draftHtml:
+                        typeof page.draftHtml === "string"
+                          ? page.draftHtml
+                          : typeof json.html === "string"
+                            ? json.html
+                            : p.draftHtml,
+                    } as Page)
+                  : p,
+              ),
+            );
+            return;
+          }
+
           await load();
-          toast.success("Global header updated");
-          return;
         } catch (e) {
-          const msg = (e as any)?.message ? String((e as any).message) : "Failed to apply global header";
-          setError(msg);
-          toast.error(msg);
-          return;
+          const message = (e as any)?.message ? String((e as any).message) : "Failed to sync whole-page source";
+          setWholePageSyncNotice(
+            message === "Not found"
+              ? "Whole-page source could not be refreshed from this page yet. The builder canvas is still available, and you can retry whole-page mode after saving."
+              : `Whole-page source sync failed: ${message}`,
+          );
+        }
+      };
+
+      if (!selectedPage.draftHtml && !selectedPage.customHtml) {
+        setBusy(true);
+        setError(null);
+        try {
+          await runServerExport();
         } finally {
           setBusy(false);
         }
+      } else {
+        void runServerExport();
       }
+      return;
+    }
 
-      await savePage({ editorMode: "BLOCKS", blocksJson: saveableBlocks });
+    if (mode === "BLOCKS" && selectedPage.editorMode === "CUSTOM_HTML") {
+      await convertCurrentPageToBlocks();
       return;
     }
-    if (selectedPage.editorMode === "CUSTOM_HTML") {
-      await savePage({
-        editorMode: "CUSTOM_HTML",
-        customHtml: selectedPage.customHtml || "",
-        customChatJson: selectedChat,
+
+    setPages((prev) =>
+      (prev || []).map((p) =>
+        p.id === selectedPage.id
+          ? ({ ...p, editorMode: mode } as Page)
+          : p,
+      ),
+    );
+    setSelectedBlockId(null);
+  };
+
+  const setBuilderMode = (mode: BuilderSurfaceMode) => {
+    if (!selectedPage || selectedPage.editorMode === "MARKDOWN") return;
+    if (mode === "blocks" && selectedPage.editorMode === "CUSTOM_HTML") {
+      void convertCurrentPageToBlocks();
+      return;
+    }
+    if (mode === "blocks" && !selectedPageSupportsBlocksSurface) return;
+
+    setBuilderSurfaceMode(mode);
+    setCustomCodeStageMode("preview");
+    setCustomCodeContextOpen(false);
+    setSelectedHtmlRegionKey(null);
+    setWholePageSyncNotice(null);
+
+    if (mode === "whole-page") {
+      setSelectedBlockId(null);
+      return;
+    }
+
+    setSidebarPanel(selectedBlockId ? "selected" : "structure");
+    setPreviewMode("edit");
+  };
+
+  const applyGlobalHeader = async (headerBlock: CreditFunnelBlock) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/global-header`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mode: "apply", headerBlock }),
+        },
+      );
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to apply global header");
+      await load();
+      toast.success("Global header updated");
+      return true;
+    } catch (e) {
+      const msg = (e as any)?.message ? String((e as any).message) : "Failed to apply global header";
+      setError(msg);
+      toast.error(msg);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveCurrentPage = async () => {
+    if (!selectedPage) return false;
+    setSavingPage(true);
+    try {
+      return await saveCurrentFunnelEditorPage({
+        selectedPage:
+          blocksSurfaceActive && selectedPage.editorMode === "CUSTOM_HTML"
+            ? { ...selectedPage, editorMode: "BLOCKS" }
+            : selectedPage,
+        saveableBlocks,
+        selectedChat,
+        savePage,
+        setEditorMode,
+        applyGlobalHeader,
       });
+    } finally {
+      setSavingPage(false);
+    }
+  };
+
+  const requestPageSelection = (nextPageId: string | null) => {
+    const decision = getFunnelEditorPageSelectionDecision({
+      busy,
+      savingPage,
+      nextPageId,
+      selectedPageId,
+      selectedPage,
+      selectedPageDirty,
+    });
+
+    if (decision.kind === "ignore") return;
+    if (decision.kind === "confirm-leave") {
+      setDialogError(null);
+      setDialog({ type: "leave-page", nextPageId: decision.nextPageId });
       return;
     }
-    await setEditorMode("BLOCKS");
+
+    setSelectedPageId(decision.nextPageId);
+    setSelectedBlockId(null);
+  };
+
+  const continuePageSelection = async (mode: "save" | "discard") => {
+    if (dialog?.type !== "leave-page") return;
+
+    const nextPageId = dialog.nextPageId;
+    closeDialog();
+
+    if (mode === "save") {
+      const saved = await saveCurrentPage();
+      if (!saved) return;
+    } else {
+      await load();
+    }
+
+    setSelectedPageId(nextPageId);
+    setSelectedBlockId(null);
   };
 
   const upsertBlock = (block: CreditFunnelBlock) => {
@@ -3862,7 +5644,32 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return base.id;
   };
 
-  const selectedPageDirty = Boolean(selectedPageId && dirtyPageIds[selectedPageId]);
+  const insertPageFlowBlocks = (
+    bases: CreditFunnelBlock[],
+    opts?: {
+      select?: boolean;
+      sidebarPanel?: "presets" | "text" | "layout" | "forms" | "media" | "header" | "shop" | "ai" | "page" | "selected";
+    },
+  ): string | null => {
+    if (!selectedPage) return null;
+    const blocksToInsert = bases.filter((block) => block.type !== "page");
+    if (!blocksToInsert.length) return null;
+
+    const anchorId = selectedBlockId ? findTopLevelBlockId(editableBlocks, selectedBlockId) : null;
+    const anchorIndex = anchorId ? editableBlocks.findIndex((block) => block.id === anchorId) : -1;
+    const insertIndex = anchorIndex >= 0 ? anchorIndex + 1 : editableBlocks.length;
+    const nextEditable = [...editableBlocks];
+    nextEditable.splice(insertIndex, 0, ...blocksToInsert);
+
+    setSelectedPageLocal({
+      editorMode: "BLOCKS",
+      blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
+    });
+
+    if (opts?.select !== false) setSelectedBlockId(blocksToInsert[0].id);
+    if (opts?.sidebarPanel) setSidebarPanel(opts.sidebarPanel);
+    return blocksToInsert[0].id;
+  };
 
   const ensurePageSettings = () => {
     if (pageSettingsBlock) return pageSettingsBlock;
@@ -3922,6 +5729,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const addBlock = (type: Exclude<CreditFunnelBlock["type"], "page" | "anchor">): string | null => {
     if (!selectedPage) return null;
+    setPreviewMode("edit");
     const id = newId();
     const base: CreditFunnelBlock =
       type === "headerNav"
@@ -4203,15 +6011,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const addPresetSection = (preset: FunnelPresetKey) => {
     if (!selectedPage) return;
+    setPreviewMode("edit");
     const blocks = buildPresetBlocks(preset);
     if (!blocks.length) return;
-    const nextEditable = [...editableBlocks, ...blocks].filter((b) => b.type !== "page");
-    setSelectedPageLocal({
-      editorMode: "BLOCKS",
-      blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
-    });
-    setSelectedBlockId(blocks[0].id);
-    setSidebarPanel("selected");
+    insertPageFlowBlocks(blocks, { select: true, sidebarPanel: "selected" });
   };
 
   const removeBlock = useCallback((blockId: string) => {
@@ -4353,35 +6156,525 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (!selectedPage) return;
     const promptText = chatInput.trim();
     if (!promptText) return;
+    const previousPage = {
+      editorMode: selectedPage.editorMode,
+      blocksJson: selectedPage.blocksJson,
+      customHtml: selectedPage.customHtml,
+      draftHtml: selectedPage.draftHtml,
+      customChatJson: selectedPage.customChatJson,
+    };
     setBusy(true);
     setError(null);
     try {
-      let currentHtml = selectedPage.customHtml || "";
+      if (blocksSurfaceActive) {
+        const existingBlock =
+          selectedBlock && selectedBlock.type === "customCode"
+            ? selectedBlock
+            : aiSidebarCustomCodeBlockId
+              ? findBlockInTree(editableBlocks, aiSidebarCustomCodeBlockId)?.block ?? null
+              : null;
+        const builderFocusBlock = existingBlock && existingBlock.type === "customCode" ? existingBlock : selectedBlock;
 
-      // If we're in Blocks mode, first export the current blocks into a Custom HTML
-      // document so AI edits apply to the same page (not an unrelated empty doc).
-      if (selectedPage.editorMode === "BLOCKS") {
-        const resExport = await fetch(
-          `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/export-custom-html`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ blocksJson: saveableBlocks, setEditorMode: "CUSTOM_HTML" }),
-          },
-        );
-        const jsonExport = (await resExport.json().catch(() => null)) as any;
-        if (!resExport.ok || !jsonExport || jsonExport.ok !== true) {
-          throw new Error(jsonExport?.error || "Failed to export HTML");
+        if (builderFocusBlock?.id) setSelectedBlockId(builderFocusBlock.id);
+        setAiWorkFocus({
+          mode: "builder",
+          label: `AI is updating ${describeBuilderAiTarget(builderFocusBlock ?? null)}`,
+          phase: "pending",
+          regionKey: null,
+          blockId: builderFocusBlock?.id || null,
+        });
+
+        const currentHtml =
+          existingBlock && existingBlock.type === "customCode"
+            ? String((existingBlock.props as any).html || "")
+            : "";
+        const currentCss =
+          existingBlock && existingBlock.type === "customCode"
+            ? String((existingBlock.props as any).css || "")
+            : "";
+
+        const res = await fetch("/api/portal/funnel-builder/custom-code-block/generate", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            funnelId,
+            pageId: selectedPage.id,
+            prompt: promptText,
+            currentHtml,
+            currentCss,
+            contextKeys: aiContextKeys,
+            contextMedia: aiContextMedia,
+          }),
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to generate builder content");
+
+        const prevChat =
+          existingBlock && existingBlock.type === "customCode" && Array.isArray((existingBlock.props as any).chatJson)
+            ? ((existingBlock.props as any).chatJson as BlockChatMessage[])
+            : [];
+
+        const userMsg: BlockChatMessage = { role: "user", content: promptText, at: new Date().toISOString() };
+
+        const insertCustomCodeBlock = (base: CreditFunnelBlock): CreditFunnelBlock[] => {
+          const selectedContainer = selectedBlockId ? findContainerForBlock(editableBlocks, selectedBlockId) : null;
+
+          if (selectedBlock && selectedBlock.type === "section") {
+            const section = selectedBlock as any;
+            const key: any = section.props?.layout === "two" ? "leftChildren" : "children";
+            const nextSection: CreditFunnelBlock = {
+              ...section,
+              props: {
+                ...section.props,
+                [key]: [...(Array.isArray(section.props?.[key]) ? section.props[key] : []), base],
+              },
+            };
+            return replaceBlockInTree(editableBlocks, nextSection);
+          }
+
+          if (selectedBlockId && selectedContainer && selectedContainer.key !== "root") {
+            const containerBlock = findBlockInTree(editableBlocks, selectedContainer.sectionId)?.block;
+            if (containerBlock && (containerBlock.type === "section" || containerBlock.type === "columns")) {
+              const props: any = (containerBlock as any).props;
+              if (containerBlock.type === "columns" && selectedContainer.key === "columnChildren") {
+                const cols = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+                const col = cols[selectedContainer.columnIndex];
+                const arr =
+                  col && typeof col === "object" && Array.isArray((col as any).children)
+                    ? ((col as any).children as CreditFunnelBlock[])
+                    : [];
+                const idx = arr.findIndex((b) => b.id === selectedBlockId);
+                const nextArr = [...arr];
+                nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, base);
+                const nextCols = cols.map((c, i) =>
+                  i === selectedContainer.columnIndex ? { ...(c || {}), children: nextArr } : c,
+                );
+                const nextContainer: CreditFunnelBlock = {
+                  ...containerBlock,
+                  props: { ...props, columns: nextCols },
+                } as any;
+                return replaceBlockInTree(editableBlocks, nextContainer);
+              }
+
+              const arr = Array.isArray(props[selectedContainer.key])
+                ? (props[selectedContainer.key] as CreditFunnelBlock[])
+                : [];
+              const idx = arr.findIndex((b) => b.id === selectedBlockId);
+              const nextArr = [...arr];
+              nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, base);
+              const nextContainer: CreditFunnelBlock = {
+                ...containerBlock,
+                props: { ...props, [selectedContainer.key]: nextArr },
+              } as any;
+              return replaceBlockInTree(editableBlocks, nextContainer);
+            }
+          }
+
+          if (selectedBlockId && selectedContainer?.key === "root") {
+            const idx = editableBlocks.findIndex((b) => b.id === selectedBlockId);
+            if (idx >= 0) {
+              const next = [...editableBlocks];
+              next.splice(idx + 1, 0, base);
+              return next;
+            }
+          }
+
+          return [...editableBlocks, base];
+        };
+
+        const question = typeof json?.question === "string" ? String(json.question).trim() : "";
+        if (question) {
+          const assistantMsg: BlockChatMessage = { role: "assistant", content: question, at: new Date().toISOString() };
+          const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+          const customCodeId = existingBlock && existingBlock.type === "customCode" ? existingBlock.id : newId();
+          const nextEditable =
+            existingBlock && existingBlock.type === "customCode"
+              ? replaceBlockInTree(
+                  editableBlocks,
+                  {
+                    ...existingBlock,
+                    props: {
+                      ...(existingBlock.props as any),
+                      chatJson: nextChat,
+                    },
+                  } as any,
+                )
+              : insertCustomCodeBlock({
+                  id: customCodeId,
+                  type: "customCode",
+                  props: { html: "", css: "", heightPx: 360, chatJson: nextChat } as any,
+                } as any);
+          const nextBlocksJson = pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable;
+
+          setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: nextBlocksJson });
+          setAiSidebarCustomCodeBlockId(customCodeId);
+          setSelectedBlockId(customCodeId);
+          setSidebarPanel("selected");
+          setChatInput("");
+          setLastAiRun(null);
+          setAiWorkFocus(null);
+          await savePage({ editorMode: "BLOCKS", blocksJson: nextBlocksJson });
+          return;
         }
-        const exportedPage = jsonExport.page as Partial<Page> | undefined;
-        if (exportedPage?.id) {
-          setPages((prev) => (prev || []).map((p) => (p.id === exportedPage.id ? ({ ...p, ...exportedPage } as Page) : p)));
-          setSelectedPageId(String(exportedPage.id));
-          currentHtml = String(exportedPage.customHtml || "");
-        } else {
-          currentHtml = String(jsonExport.html || "");
+
+        const actions = Array.isArray(json?.actions) ? (json.actions as any[]) : [];
+        if (actions.length) {
+          const assistantText = typeof json?.assistantText === "string" ? String(json.assistantText).trim() : "";
+          const assistantMsg: BlockChatMessage | null = assistantText
+            ? { role: "assistant", content: assistantText, at: new Date().toISOString() }
+            : null;
+          const nextChat = [...prevChat, userMsg, ...(assistantMsg ? [assistantMsg] : [])].slice(-40);
+
+          const s = (v: unknown, max = 240) => (typeof v === "string" ? v : "").trim().slice(0, max);
+
+          const isSafeHref = (href: string) => {
+            const raw = String(href || "").trim();
+            if (!raw) return false;
+            if (raw.startsWith("/") || raw.startsWith("#")) return true;
+            try {
+              const u = new URL(raw);
+              return ["http:", "https:", "mailto:", "tel:"].includes(u.protocol);
+            } catch {
+              return false;
+            }
+          };
+
+          const coerceAiBlock = (rawBlock: any): CreditFunnelBlock | null => {
+            const type = s(rawBlock?.type, 40);
+            const props =
+              rawBlock?.props && typeof rawBlock.props === "object" && !Array.isArray(rawBlock.props)
+                ? rawBlock.props
+                : {};
+            const id = newId();
+            const style = coerceBlockStyle((props as any).style);
+
+            if (type === "chatbot") {
+              const agentId = s((props as any).agentId, 140);
+              return {
+                id,
+                type: "chatbot",
+                props: {
+                  agentId: agentId || String(aiReceptionistChatAgentId || "").trim(),
+                  primaryColor: s((props as any).primaryColor, 40) || "#1d4ed8",
+                  launcherStyle:
+                    (props as any).launcherStyle === "dots"
+                      ? "dots"
+                      : (props as any).launcherStyle === "spark"
+                        ? "spark"
+                        : "bubble",
+                  launcherImageUrl: s((props as any).launcherImageUrl, 800) || "",
+                  placementX:
+                    (props as any).placementX === "left"
+                      ? "left"
+                      : (props as any).placementX === "center"
+                        ? "center"
+                        : "right",
+                  placementY:
+                    (props as any).placementY === "top"
+                      ? "top"
+                      : (props as any).placementY === "middle"
+                        ? "middle"
+                        : "bottom",
+                  ...(style ? { style } : null),
+                } as any,
+              };
+            }
+
+            if (type === "image") {
+              const src = s((props as any).src, 1200);
+              return {
+                id,
+                type: "image",
+                props: {
+                  src,
+                  alt: s((props as any).alt, 200),
+                  ...(style ? { style } : null),
+                },
+              };
+            }
+
+            if (type === "heading") {
+              const text = s((props as any).text, 240) || "Heading";
+              const level = [1, 2, 3].includes(Number((props as any).level))
+                ? (Number((props as any).level) as 1 | 2 | 3)
+                : 2;
+              return { id, type: "heading", props: { text, level, ...(style ? { style } : null) } } as any;
+            }
+
+            if (type === "paragraph") {
+              const text = s((props as any).text, 2000) || "";
+              if (!text) return null;
+              return { id, type: "paragraph", props: { text, ...(style ? { style } : null) } } as any;
+            }
+
+            if (type === "button") {
+              const text = s((props as any).text, 120) || "Click";
+              const hrefRaw = s((props as any).href, 800) || "#";
+              const href = isSafeHref(hrefRaw) ? hrefRaw : "#";
+              const variant = (props as any).variant === "secondary" ? "secondary" : "primary";
+              return { id, type: "button", props: { text, href, variant, ...(style ? { style } : null) } } as any;
+            }
+
+            if (type === "spacer") {
+              const heightNum = Number((props as any).height);
+              const height = Number.isFinite(heightNum) ? Math.max(0, Math.min(240, heightNum)) : 24;
+              return { id, type: "spacer", props: { height, ...(style ? { style } : null) } } as any;
+            }
+
+            if (type === "formLink") {
+              const formSlug = s((props as any).formSlug, 160);
+              if (!formSlug) return null;
+              const text = s((props as any).text, 120) || "Open form";
+              return { id, type: "formLink", props: { formSlug, text, ...(style ? { style } : null) } } as any;
+            }
+
+            if (type === "formEmbed") {
+              const formSlug = s((props as any).formSlug, 160);
+              if (!formSlug) return null;
+              const heightNum = Number((props as any).height);
+              const height = Number.isFinite(heightNum) ? Math.max(120, Math.min(1600, heightNum)) : undefined;
+              return {
+                id,
+                type: "formEmbed",
+                props: {
+                  formSlug,
+                  ...(typeof height === "number" ? { height } : {}),
+                  ...(style ? { style } : null),
+                },
+              } as any;
+            }
+
+            if (type === "calendarEmbed") {
+              const calendarId = s((props as any).calendarId, 160);
+              if (!calendarId) return null;
+              const heightNum = Number((props as any).height);
+              const height = Number.isFinite(heightNum) ? Math.max(120, Math.min(1600, heightNum)) : undefined;
+              return {
+                id,
+                type: "calendarEmbed",
+                props: {
+                  calendarId,
+                  ...(typeof height === "number" ? { height } : {}),
+                  ...(style ? { style } : null),
+                },
+              } as any;
+            }
+
+            if (type === "salesCheckoutButton") {
+              const priceId = s((props as any).priceId, 140);
+              const qtyNum = Number((props as any).quantity);
+              const quantity = Number.isFinite(qtyNum) ? Math.max(1, Math.min(20, Math.floor(qtyNum))) : 1;
+              const text = s((props as any).text, 120) || "Buy now";
+              return { id, type: "salesCheckoutButton", props: { text, priceId, quantity, ...(style ? { style } : null) } } as any;
+            }
+
+            return null;
+          };
+
+          const insertAfterAnchor = (blocks: CreditFunnelBlock[], anchorId: string, block: CreditFunnelBlock): CreditFunnelBlock[] => {
+            const container = anchorId ? findContainerForBlock(blocks, anchorId) : null;
+            if (anchorId && container && container.key !== "root") {
+              const containerBlock = findBlockInTree(blocks, container.sectionId)?.block;
+              if (containerBlock && (containerBlock.type === "section" || containerBlock.type === "columns")) {
+                const props: any = (containerBlock as any).props;
+                if (containerBlock.type === "columns" && container.key === "columnChildren") {
+                  const cols = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+                  const col = cols[container.columnIndex];
+                  const arr =
+                    col && typeof col === "object" && Array.isArray((col as any).children)
+                      ? ((col as any).children as CreditFunnelBlock[])
+                      : [];
+                  const idx = arr.findIndex((b) => b.id === anchorId);
+                  const nextArr = [...arr];
+                  nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, block);
+                  const nextCols = cols.map((c, i) =>
+                    i === container.columnIndex ? { ...(c || {}), children: nextArr } : c,
+                  );
+                  const nextContainer: CreditFunnelBlock = {
+                    ...(containerBlock as any),
+                    props: { ...props, columns: nextCols },
+                  } as any;
+                  return replaceBlockInTree(blocks, nextContainer);
+                }
+
+                const arr = Array.isArray(props[container.key]) ? (props[container.key] as CreditFunnelBlock[]) : [];
+                const idx = arr.findIndex((b) => b.id === anchorId);
+                const nextArr = [...arr];
+                nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, block);
+                const nextContainer: CreditFunnelBlock = {
+                  ...(containerBlock as any),
+                  props: { ...props, [container.key]: nextArr },
+                } as any;
+                return replaceBlockInTree(blocks, nextContainer);
+              }
+            }
+
+            if (anchorId && container?.key === "root") {
+              const idx = blocks.findIndex((b) => b.id === anchorId);
+              if (idx >= 0) {
+                const next = [...blocks];
+                next.splice(idx + 1, 0, block);
+                return next;
+              }
+            }
+
+            return [...blocks, block];
+          };
+
+          const customCodeId = existingBlock && existingBlock.type === "customCode" ? existingBlock.id : newId();
+          const updatedCustomCodeBlock: CreditFunnelBlock =
+            existingBlock && existingBlock.type === "customCode"
+              ? ({
+                  ...existingBlock,
+                  props: {
+                    ...(existingBlock.props as any),
+                    chatJson: nextChat,
+                  },
+                } as any)
+              : ({
+                  id: customCodeId,
+                  type: "customCode",
+                  props: { html: "", css: "", heightPx: 360, chatJson: nextChat } as any,
+                } as any);
+
+          let nextEditable =
+            existingBlock && existingBlock.type === "customCode"
+              ? replaceBlockInTree(editableBlocks, updatedCustomCodeBlock)
+              : insertCustomCodeBlock(updatedCustomCodeBlock);
+
+          let anchorId = customCodeId;
+          const insertedIds: string[] = [];
+
+          for (const a of actions.slice(0, 6)) {
+            if (!a || typeof a.type !== "string") continue;
+            if (a.type === "insertAfter") {
+              const nextBlock = coerceAiBlock((a as any).block);
+              if (!nextBlock) continue;
+              nextEditable = insertAfterAnchor(nextEditable, anchorId, nextBlock);
+              anchorId = nextBlock.id;
+              insertedIds.push(nextBlock.id);
+              continue;
+            }
+
+            if (a.type === "insertPresetAfter") {
+              const preset = String((a as any).preset || "").trim();
+              if (preset !== "hero" && preset !== "body" && preset !== "form" && preset !== "shop") continue;
+              const presetBlocks = buildPresetBlocks(preset as any);
+              for (const b of presetBlocks.slice(0, 3)) {
+                nextEditable = insertAfterAnchor(nextEditable, anchorId, b);
+                anchorId = b.id;
+                insertedIds.push(b.id);
+              }
+            }
+          }
+
+          const nextBlocksJson = pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable;
+          const summaryText =
+            assistantText ||
+            (insertedIds.length
+              ? `Added ${insertedIds.length} builder block${insertedIds.length === 1 ? "" : "s"}.`
+              : "Updated the builder with AI.");
+
+          setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: nextBlocksJson });
+          setAiSidebarCustomCodeBlockId(customCodeId);
+          setChatInput("");
+          setLastAiRun({
+            pageId: selectedPage.id,
+            prompt: promptText,
+            summary: summaryText,
+            warnings: [],
+            at: new Date().toISOString(),
+            previousPage,
+          });
+          setAiResultBanner({ summary: summaryText, at: new Date().toISOString(), tone: "success" });
+          setAiWorkFocus({
+            mode: "builder",
+            label: insertedIds.length
+              ? `Added ${insertedIds.length} new block${insertedIds.length === 1 ? "" : "s"}`
+              : `Updated ${describeBuilderAiTarget(builderFocusBlock ?? null)}`,
+            phase: "settled",
+            regionKey: null,
+            blockId: insertedIds[0] || customCodeId,
+          });
+
+          if (insertedIds[0]) {
+            setSelectedBlockId(insertedIds[0]);
+            setSidebarPanel("selected");
+          } else {
+            setSelectedBlockId(customCodeId);
+            setSidebarPanel("selected");
+          }
+
+          await savePage({ editorMode: "BLOCKS", blocksJson: nextBlocksJson });
+          return;
         }
+
+        const nextHtml = typeof json.html === "string" ? json.html : "";
+        const nextCss = typeof json.css === "string" ? json.css : "";
+        const assistantText = typeof json?.assistantText === "string" ? String(json.assistantText).trim() : "";
+        const assistantMsg: BlockChatMessage | null = assistantText
+          ? { role: "assistant", content: assistantText, at: new Date().toISOString() }
+          : null;
+        const nextChat = [...prevChat, userMsg, ...(assistantMsg ? [assistantMsg] : [])].slice(-40);
+
+        const customCodeId = existingBlock && existingBlock.type === "customCode" ? existingBlock.id : newId();
+        const nextEditable =
+          existingBlock && existingBlock.type === "customCode"
+            ? replaceBlockInTree(
+                editableBlocks,
+                {
+                  ...existingBlock,
+                  props: {
+                    ...(existingBlock.props as any),
+                    html: nextHtml,
+                    css: nextCss,
+                    chatJson: nextChat,
+                  },
+                } as any,
+              )
+            : insertCustomCodeBlock({
+                id: customCodeId,
+                type: "customCode",
+                props: { html: nextHtml, css: nextCss, heightPx: 360, chatJson: nextChat } as any,
+              } as any);
+        const nextBlocksJson = pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable;
+        const summaryText = assistantText || "Updated a custom code block in the builder.";
+
+        setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: nextBlocksJson });
+        setAiSidebarCustomCodeBlockId(customCodeId);
+        setSelectedBlockId(customCodeId);
+        setSidebarPanel("selected");
+        setChatInput("");
+        setLastAiRun({
+          pageId: selectedPage.id,
+          prompt: promptText,
+          summary: summaryText,
+          warnings: [],
+          at: new Date().toISOString(),
+          previousPage,
+        });
+        setAiResultBanner({ summary: summaryText, at: new Date().toISOString(), tone: "success" });
+        setAiWorkFocus({
+          mode: "builder",
+          label: `Updated ${describeBuilderAiTarget(builderFocusBlock ?? null)}`,
+          phase: "settled",
+          regionKey: null,
+          blockId: customCodeId,
+        });
+        await savePage({ editorMode: "BLOCKS", blocksJson: nextBlocksJson });
+        return;
       }
+
+      setAiWorkFocus({
+        mode: "page",
+        label: selectedHtmlRegion ? `AI is updating ${selectedHtmlRegion.label}` : "AI is updating the page",
+        phase: "pending",
+        regionKey: selectedHtmlRegion?.key || null,
+        blockId: null,
+      });
+
+      const currentHtml = getFunnelPageCurrentHtml(selectedPage);
+      const wasBlocksExport = false;
 
       const res = await fetch(
         `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/generate-html`,
@@ -4391,6 +6684,16 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           body: JSON.stringify({
             prompt: promptText,
             currentHtml,
+            wasBlocksExport,
+            selectedRegion: selectedHtmlRegion
+              ? {
+                  key: selectedHtmlRegion.key,
+                  label: selectedHtmlRegion.label,
+                  summary: selectedHtmlRegion.summary,
+                  html: selectedHtmlRegion.html,
+                }
+              : null,
+            allRegions: htmlRegionScopes.map((r) => ({ key: r.key, label: r.label, summary: r.summary })),
             contextKeys: aiContextKeys,
             contextMedia: aiContextMedia,
           }),
@@ -4400,19 +6703,172 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to generate HTML");
 
       setChatInput("");
+      const aiResult = json.aiResult && typeof json.aiResult === "object" ? json.aiResult : null;
       const page = json.page as Partial<Page> | undefined;
+      if (!json.question) {
+        const nextHtml = getFunnelPageCurrentHtml(page);
+        const diff = summarizeHtmlDiff(getFunnelPageCurrentHtml(previousPage), nextHtml);
+        const runAt = typeof aiResult?.at === "string" && aiResult.at.trim() ? aiResult.at : new Date().toISOString();
+        const htmlChanged = diff.changed;
+        const noChangeSummary = selectedHtmlRegion
+          ? `${selectedHtmlRegion.label} review finished, but the hosted page source did not change.`
+          : "AI finished, but the hosted page source did not change.";
+        const summaryText = htmlChanged
+          ? typeof aiResult?.summary === "string" && aiResult.summary.trim()
+            ? aiResult.summary.trim()
+            : selectedHtmlRegion
+              ? `Updated ${selectedHtmlRegion.label}.`
+              : "Updated the page with AI."
+          : noChangeSummary;
+        const warnings = Array.isArray(aiResult?.warnings)
+          ? aiResult.warnings
+              .filter((item: unknown) => typeof item === "string" && item.trim())
+              .map((item: string) => item.trim())
+          : [];
+
+        setLastAiRun({
+          pageId: selectedPage.id,
+          prompt: promptText,
+          summary: summaryText,
+          warnings: [...warnings, ...(htmlChanged ? [] : ["No hosted source lines changed in this run."])].slice(0, 4),
+          at: runAt,
+          previousPage,
+        });
+        setAiResultBanner({ summary: summaryText, at: runAt, tone: htmlChanged ? "success" : "warning" });
+        appendHtmlChangeActivity({
+          id: newId(),
+          pageId: selectedPage.id,
+          kind: htmlChanged ? "ai-update" : "no-change",
+          scopeLabel: selectedHtmlRegion ? selectedHtmlRegion.label : "Whole page",
+          prompt: promptText,
+          summary: summaryText,
+          at: runAt,
+          diff,
+          previewChanged: htmlChanged,
+        });
+      } else if (json.question) {
+        setLastAiRun(null);
+        setAiWorkFocus(null);
+      }
+
+      if (!json.question) {
+        const latestDiff = summarizeHtmlDiff(getFunnelPageCurrentHtml(previousPage), getFunnelPageCurrentHtml(page) || currentHtml);
+        setAiWorkFocus({
+          mode: "page",
+          label: latestDiff.changed
+            ? selectedHtmlRegion
+              ? `Updated ${selectedHtmlRegion.label}`
+              : "Updated page"
+            : selectedHtmlRegion
+              ? `${selectedHtmlRegion.label} unchanged`
+              : "Page unchanged",
+          phase: "settled",
+          regionKey: selectedHtmlRegion?.key || null,
+          blockId: null,
+        });
+      }
+
       if (page?.id) {
+        pushUndoSnapshot("ai-result", 0);
         setPages((prev) => (prev || []).map((p) => (p.id === page.id ? ({ ...p, ...page } as Page) : p)));
-        setSelectedPageId(String(page.id));
       } else {
         await load();
       }
     } catch (e) {
+      setAiWorkFocus(null);
       setError((e as any)?.message ? String((e as any).message) : "Failed to generate HTML");
     } finally {
       setBusy(false);
     }
   };
+
+  const restoreLastAiRun = async () => {
+    if (!selectedPage || !lastAiRun || lastAiRun.pageId !== selectedPage.id) return;
+    const currentPage = {
+      editorMode: selectedPage.editorMode,
+      blocksJson: selectedPage.blocksJson,
+      customHtml: selectedPage.customHtml,
+      draftHtml: selectedPage.draftHtml,
+      customChatJson: selectedPage.customChatJson,
+    };
+    const restoreAt = new Date().toISOString();
+    setSelectedPageLocal(lastAiRun.previousPage);
+    await savePage(lastAiRun.previousPage);
+    if (currentPage.editorMode === "CUSTOM_HTML" || lastAiRun.previousPage.editorMode === "CUSTOM_HTML") {
+      const diff = summarizeHtmlDiff(
+        getFunnelPageCurrentHtml(currentPage),
+        getFunnelPageCurrentHtml(lastAiRun.previousPage),
+      );
+      appendHtmlChangeActivity({
+        id: newId(),
+        pageId: selectedPage.id,
+        kind: "restore",
+        scopeLabel: "Restore",
+        prompt: lastAiRun.prompt,
+        summary: "Restored the previous hosted page source.",
+        at: restoreAt,
+        diff,
+        previewChanged: diff.changed,
+      });
+      setAiResultBanner({ summary: "Restored the previous hosted page source.", at: restoreAt, tone: "success" });
+    }
+    setLastAiRun(null);
+    toast.success("Restored page before the last AI update");
+  };
+
+  const wholePageSurfaceActive = wholePageModeActive;
+  const customCodeModeActive = wholePageSourceEditable;
+
+  const [publishingPage, setPublishingPage] = useState(false);
+  const publishPage = async () => {
+    if (!selectedPage || selectedPage.editorMode !== "CUSTOM_HTML") return;
+    setPublishingPage(true);
+    setError(null);
+    try {
+      // If there are unsaved local edits, save them as draft first.
+      if (selectedPageDirty) {
+        await savePage({ draftHtml: getFunnelPageCurrentHtml(selectedPage) });
+      }
+      const res = await fetch(
+        `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/publish`,
+        { method: "POST", headers: { "content-type": "application/json" } },
+      );
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to publish");
+      if (json.page?.id) {
+        setPages((prev) => (prev || []).map((p) => (p.id === json.page.id ? ({ ...p, ...json.page } as Page) : p)));
+        setDirtyPageIds((prev) => { const next = { ...prev }; delete next[selectedPage.id]; return next; });
+      } else {
+        await load();
+      }
+      toast.success("Page published");
+    } catch (e) {
+      const msg = (e as any)?.message ? String((e as any).message) : "Failed to publish";
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setPublishingPage(false);
+    }
+  };
+
+  const copyLiveFunnelHref = useCallback(async () => {
+    if (!funnelLiveHref) return;
+    try {
+      await navigator.clipboard.writeText(funnelLiveHref);
+      toast.success("Live funnel URL copied");
+    } catch {
+      toast.error("Could not copy live funnel URL");
+    }
+  }, [funnelLiveHref, toast]);
+
+  const workflowView = getFunnelEditorWorkflowViewModel({
+    selectedPage,
+    selectedPageDirty,
+    customCodeModeActive,
+    savingPage,
+    publishingPage,
+    selectedPageIsEntryPage,
+  });
 
   return (
     <div className="flex min-h-screen flex-col lg:h-dvh lg:overflow-hidden">
@@ -4720,7 +7176,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       : prev,
                   );
                 }}
-                options={CREDIT_FORM_TEMPLATES.map((t) => ({ value: t.key, label: t.label, hint: t.description }))}
+                options={CREDIT_FORM_TEMPLATES.filter((t) => portalVariant === "credit" || !t.key.startsWith("credit-intake")).map((t) => ({ value: t.key, label: t.label, hint: t.description }))}
                 renderOptionRight={(opt) => {
                   const tmpl = CREDIT_FORM_TEMPLATES.find((t) => t.key === opt.value);
                   const theme = tmpl ? getCreditFormTheme(tmpl.defaultThemeKey) : null;
@@ -4804,24 +7260,65 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       />
 
       <AppModal
-        open={aiContextOpen}
-        title="Add context"
-        description="Select all that apply. These options help the AI match your editor blocks and presets."
-        onClose={() => setAiContextOpen(false)}
-        widthClassName="w-[min(720px,calc(100vw-32px))]"
+        open={dialog?.type === "leave-page"}
+        title="Leave page with unsaved changes?"
+        description="Choose whether to save this page before switching away from it."
+        onClose={closeDialog}
+        widthClassName="w-[min(560px,calc(100vw-32px))]"
         footer={
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
               className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-              onClick={() => {
-                setAiContextKeys([]);
-                setAiContextMedia([]);
-              }}
-              disabled={busy}
+              onClick={closeDialog}
+              disabled={busy || savingPage}
             >
-              Clear selection
+              Stay here
             </button>
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              onClick={() => {
+                void continuePageSelection("discard");
+              }}
+              disabled={busy || savingPage}
+            >
+              Discard changes
+            </button>
+            <button
+              type="button"
+              className={classNames(
+                "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                busy || savingPage ? "bg-zinc-400" : "bg-(--color-brand-blue) hover:bg-blue-700",
+              )}
+              disabled={busy || savingPage}
+              onClick={() => {
+                void continuePageSelection("save");
+              }}
+            >
+              {savingPage ? "Saving…" : workflowView.leavePageConfirmLabel}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+            {workflowView.leavePageSummary}
+          </div>
+          <div className="text-xs text-zinc-500">
+            Discard reloads the last saved server version before switching pages.
+          </div>
+        </div>
+      </AppModal>
+
+      <AppModal
+        open={aiContextOpen}
+        title="Attach images to AI"
+        description="Images you attach here will be passed to the AI so it can reference or embed them in the generated page."
+        onClose={() => setAiContextOpen(false)}
+        widthClassName="w-[min(560px,calc(100vw-32px))]"
+        footer={
+          <div className="flex justify-end">
             <button
               type="button"
               className={classNames(
@@ -4837,120 +7334,76 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         }
       >
         <div className="space-y-3">
-          <div className="text-sm text-zinc-600">
-            Select all that apply. If you’re not sure, leave this blank.
-          </div>
-          <div className="space-y-2">
-            {aiContextOptions.map((opt) => {
-              const checked = aiContextKeys.includes(opt.key);
-              return (
-                <div
-                  key={opt.key}
-                  className={classNames(
-                    "flex cursor-pointer items-start gap-3 rounded-2xl border bg-white p-3",
-                    checked ? "border-blue-200 ring-1 ring-blue-100" : "border-zinc-200",
-                  )}
-                >
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 text-left"
-                    disabled={busy}
-                    onClick={() => {
-                      setAiContextKeys((prev) => {
-                        const has = (prev || []).includes(opt.key);
-                        if (has) return (prev || []).filter((k) => k !== opt.key);
-                        return Array.from(new Set([...(prev || []), opt.key]));
-                      });
-                    }}
-                  >
-                    <div className="text-sm font-semibold text-zinc-900">{opt.label}</div>
-                    <div className="mt-1 text-xs text-zinc-600">{opt.description}</div>
-                    <div className="mt-1 text-[11px] text-zinc-500">Key: {opt.key}</div>
-                  </button>
+          <input
+            ref={aiContextUploadInputRef}
+            type="file"
+            multiple
+            accept="image/*,video/*"
+            className="hidden"
+            onChange={(e) => {
+              const files = e.target.files;
+              e.currentTarget.value = "";
+              if (!files || files.length === 0) return;
+              void uploadAiContextFiles(files);
+            }}
+          />
 
-                  <ToggleSwitch
-                    checked={checked}
-                    disabled={busy}
-                    onChange={(next) => {
-                      setAiContextKeys((prev) => {
-                        if (next) return Array.from(new Set([...(prev || []), opt.key]));
-                        return (prev || []).filter((k) => k !== opt.key);
-                      });
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-zinc-900">Media library</div>
-                <div className="mt-1 text-xs text-zinc-600">Optional: add images/videos the AI can reference.</div>
-              </div>
-              <div className="shrink-0 flex items-center gap-2">
-                <input
-                  ref={aiContextUploadInputRef}
-                  type="file"
-                  multiple
-                  accept="image/*,video/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const files = e.target.files;
-                    // Allow re-selecting the same file(s)
-                    e.currentTarget.value = "";
-                    if (!files || files.length === 0) return;
-                    void uploadAiContextFiles(files);
-                  }}
-                />
-
-                <button
-                  type="button"
-                  disabled={busy || aiContextUploadBusy}
-                  onClick={() => aiContextUploadInputRef.current?.click()}
-                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                >
-                  {aiContextUploadBusy ? "Uploading…" : "Upload files"}
-                </button>
-
-                <button
-                  type="button"
-                  disabled={busy || aiContextUploadBusy}
-                  onClick={() => {
-                    setMediaPickerTarget({ type: "ai-context" });
-                    setMediaPickerOpen(true);
-                  }}
-                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                >
-                  Add media
-                </button>
-              </div>
-            </div>
-
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={busy || aiContextUploadBusy}
+              onClick={() => aiContextUploadInputRef.current?.click()}
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+            >
+              {aiContextUploadBusy ? "Uploading…" : "Upload"}
+            </button>
+            <button
+              type="button"
+              disabled={busy || aiContextUploadBusy}
+              onClick={() => {
+                setMediaPickerTarget({ type: "ai-context" });
+                setMediaPickerOpen(true);
+              }}
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+            >
+              From library
+            </button>
             {aiContextMedia.length ? (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {aiContextMedia.map((m) => {
-                  const label = (m.fileName || "").trim() || "Media";
-                  return (
-                    <button
-                      key={m.url}
-                      type="button"
-                      disabled={busy}
-                      onClick={() => setAiContextMedia((prev) => (prev || []).filter((x) => x.url !== m.url))}
-                      className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
-                      title="Click to remove"
-                    >
-                      <span className="font-semibold">{label}</span>
-                      <span className="text-zinc-400">×</span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="mt-3 text-sm text-zinc-600">No media selected.</div>
-            )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setAiContextMedia([])}
+                className="ml-auto rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-500 hover:bg-zinc-50 disabled:opacity-60"
+              >
+                Clear all
+              </button>
+            ) : null}
           </div>
+
+          {aiContextMedia.length ? (
+            <div className="flex flex-wrap gap-2">
+              {aiContextMedia.map((m) => {
+                const label = (m.fileName || "").trim() || "Image";
+                return (
+                  <button
+                    key={m.url}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setAiContextMedia((prev) => (prev || []).filter((x) => x.url !== m.url))}
+                    className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
+                    title="Click to remove"
+                  >
+                    <span className="font-semibold">{label}</span>
+                    <span className="text-zinc-400">×</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500">
+              No images attached. Upload or pick from your media library.
+            </div>
+          )}
         </div>
       </AppModal>
 
@@ -4964,35 +7417,50 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               ← Back
             </Link>
 
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-brand-ink">{funnel?.name || "…"}</div>
-            </div>
-
-            <button
-              type="button"
-              disabled={busy || !selectedPage}
-              onClick={() => void setEditorMode("BLOCKS")}
-              className={classNames(
-                "rounded-xl border px-3 py-2 text-sm font-semibold",
-                selectedPage?.editorMode === "BLOCKS"
-                  ? "border-(--color-brand-blue) bg-blue-50 text-blue-800"
-                  : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
-              )}
-            >
-              Blocks
-            </button>
-            <button
-              type="button"
-              disabled={busy || !selectedPage}
-              onClick={() => void setEditorMode("CUSTOM_HTML")}
-              className={classNames(
-                "inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold text-white disabled:opacity-60",
-                "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) hover:opacity-90 shadow-sm",
-              )}
-            >
-              <AiSparkIcon className="h-4 w-4" />
-              Custom code
-            </button>
+            {selectedPage ? (
+              <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
+                <button
+                  type="button"
+                  disabled={busy || !selectedPage || selectedPage.editorMode === "MARKDOWN"}
+                  onClick={() => {
+                    if (selectedPage.editorMode === "CUSTOM_HTML") {
+                      void convertCurrentPageToBlocks();
+                      return;
+                    }
+                    setBuilderMode("blocks");
+                  }}
+                  className={classNames(
+                    "rounded-lg px-3 py-1.5 text-sm font-semibold disabled:opacity-60",
+                    blocksSurfaceActive
+                      ? "bg-brand-ink text-white"
+                      : "text-zinc-700 hover:bg-zinc-50",
+                  )}
+                  title={
+                    selectedPage.editorMode === "CUSTOM_HTML"
+                      ? "Convert this page into Layout. The current source will be imported into a draggable HTML block so you can add sections around it."
+                      : selectedPageSupportsBlocksSurface
+                        ? "Work visually with sections, text, buttons, forms, and page structure"
+                        : "Layout tools are unavailable for this page"
+                  }
+                >
+                  Layout
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || !selectedPage}
+                  onClick={() => setBuilderMode("whole-page")}
+                  className={classNames(
+                    "rounded-lg px-3 py-1.5 text-sm font-semibold disabled:opacity-60",
+                    wholePageModeActive
+                      ? "bg-brand-ink text-white"
+                      : "text-zinc-700 hover:bg-zinc-50",
+                  )}
+                  title={selectedPage.editorMode === "BLOCKS" ? "See the current full-page code output for this layout" : "Edit the current page code directly"}
+                >
+                  Code
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -5000,8 +7468,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               value={selectedPageId || ""}
               onChange={(v) => {
                 const nextId = v || null;
-                setSelectedPageId(nextId);
-                setSelectedBlockId(null);
+                requestPageSelection(nextId);
               }}
               options={[
                 { value: "", label: "Select a page…", disabled: true },
@@ -5024,49 +7491,66 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               + Page
             </button>
 
-            <button
-              type="button"
-              disabled={busy || !selectedPage || !canUndo}
-              onClick={() => undo()}
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-              title={
-                typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
-                  ? "Undo (⌘Z)"
-                  : "Undo (Ctrl+Z)"
-              }
-            >
-              Undo
-            </button>
+            <div className="inline-flex items-center rounded-xl border border-zinc-200 bg-white p-1">
+              <button
+                type="button"
+                disabled={busy || !selectedPage || !canUndo}
+                onClick={() => undo()}
+                className="rounded-lg p-2 text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+                title={
+                  typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
+                    ? "Undo (⌘Z)"
+                    : "Undo (Ctrl+Z)"
+                }
+              >
+                <IconUndo size={16} />
+              </button>
 
-            <button
-              type="button"
-              disabled={busy || !selectedPage || !canRedo}
-              onClick={() => redo()}
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-              title={
-                typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
-                  ? "Redo (⇧⌘Z)"
-                  : "Redo (Ctrl+Shift+Z)"
-              }
-            >
-              Redo
-            </button>
+              <button
+                type="button"
+                disabled={busy || !selectedPage || !canRedo}
+                onClick={() => redo()}
+                className="rounded-lg p-2 text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+                title={
+                  typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
+                    ? "Redo (⇧⌘Z)"
+                    : "Redo (Ctrl+Shift+Z)"
+                }
+              >
+                <IconRedo size={16} />
+              </button>
+            </div>
 
             <button
               type="button"
               disabled={busy || !selectedPage || !selectedPageDirty}
               onClick={() => void saveCurrentPage()}
+              title={workflowView.saveButtonTitle}
               className={classNames(
                 "rounded-xl px-4 py-2 text-sm font-semibold",
-                busy
+                savingPage
                   ? "bg-zinc-400 text-white"
                   : selectedPageDirty
                     ? "bg-brand-ink text-white hover:opacity-95"
                     : "cursor-not-allowed border border-zinc-200 bg-white text-zinc-500",
               )}
             >
-              {busy ? "Saving…" : selectedPageDirty ? "Save" : "Saved"}
+              {savingPage ? (
+                <span className="inline-flex items-center gap-2">
+                  <SpinnerIcon className="h-4 w-4" />
+                  Saving
+                </span>
+              ) : workflowView.saveButtonLabel}
             </button>
+
+            {saveStatusLabel ? (
+              <span className={classNames(
+                "text-xs",
+                selectedPageDirty ? "text-amber-600" : "text-zinc-400",
+              )}>
+                {saveStatusLabel}
+              </span>
+            ) : null}
 
             <button
               type="button"
@@ -5082,6 +7566,75 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
           </div>
         </div>
+
+        {selectedPage ? (
+          <div className="border-t border-zinc-200/80 px-4 py-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <div className="truncate text-base font-semibold text-zinc-900">{selectedPage.title || "Untitled page"}</div>
+                  <span className="text-sm text-zinc-500">/{selectedPage.slug}</span>
+                </div>
+
+                <div className="mt-1 text-sm text-zinc-600">{workflowView.workflowSummary}</div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {customCodeModeActive ? (
+                  <button
+                    type="button"
+                    disabled={busy || publishingPage || !selectedPage || !workflowView.hasDeployableDraft}
+                    onClick={() => void publishPage()}
+                    className={classNames(
+                      "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white",
+                      busy || publishingPage || !selectedPage || !workflowView.hasDeployableDraft
+                        ? "bg-zinc-400"
+                        : "bg-emerald-600 hover:bg-emerald-700",
+                    )}
+                    title="Save any pending draft changes, then replace the live hosted page with this draft"
+                  >
+                    {publishingPage ? (
+                      <>
+                        <SpinnerIcon className="h-4 w-4" />
+                        Publishing
+                      </>
+                    ) : (
+                      <>
+                        <IconUpload size={16} className="shrink-0" />
+                        {workflowView.publishButtonLabel}
+                      </>
+                    )}
+                  </button>
+                ) : null}
+                {funnelLiveHref ? (
+                  <>
+                    <Link
+                      href={funnelLiveHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3.5 py-2 text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-zinc-50"
+                    >
+                      <IconExport size={16} className="text-zinc-500" />
+                      {workflowView.liveLinkLabel}
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => void copyLiveFunnelHref()}
+                      className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3.5 py-2 text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-zinc-50"
+                    >
+                      <IconCopy size={16} className="text-zinc-500" />
+                      Copy live URL
+                    </button>
+                  </>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-500">
+                    Live URL will appear after this funnel has a valid public route.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </header>
 
       {error ? (
@@ -5090,10 +7643,119 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         </div>
       ) : null}
 
-      <div className="flex flex-1 flex-col overflow-auto lg:min-h-0 lg:flex-row lg:overflow-hidden">
-        <aside className="w-full shrink-0 border-b border-zinc-200 bg-white p-4 lg:min-h-0 lg:w-95 lg:overflow-y-auto lg:border-b-0 lg:border-r">
+      <div
+        className={classNames(
+          "relative flex flex-1 flex-col overflow-auto lg:min-h-0 lg:overflow-hidden",
+          "lg:grid lg:grid-cols-[320px_minmax(0,1fr)]",
+        )}
+      >
+        <aside
+          className="w-full shrink-0 overflow-y-auto border-b border-zinc-200 bg-zinc-50/80 p-4 lg:order-1 lg:h-full lg:min-h-0 lg:border-b-0 lg:border-r"
+        >
           {!selectedPage ? (
-            <div className="text-sm text-zinc-600">Select a page to edit.</div>
+            pages === null ? (
+              <div className="space-y-3">
+                <div className="h-11 rounded-2xl bg-zinc-100 animate-pulse" />
+                <div className="h-26 rounded-3xl bg-zinc-100 animate-pulse" />
+                <div className="h-18 rounded-3xl bg-zinc-100 animate-pulse" />
+              </div>
+            ) : (
+              <div className="text-sm text-zinc-600">Select a page to edit.</div>
+            )
+          ) : wholePageModeActive ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">{wholePageDrawerLabel}</div>
+                <div className="mt-1 text-sm font-semibold text-zinc-900">{wholePageDrawerSummary}</div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Workspace</div>
+                <div className="mt-1 text-sm text-zinc-600">{workspaceSummary}</div>
+                <div className="mt-3 inline-flex w-full rounded-xl border border-zinc-200 bg-zinc-50 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setCustomCodeStageMode("preview")}
+                    className={classNames(
+                      "flex-1 rounded-lg px-3 py-2 text-sm font-semibold",
+                      customCodeStageMode === "preview" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-white",
+                    )}
+                  >
+                    Preview
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCustomCodeStageMode("source")}
+                    className={classNames(
+                      "flex-1 rounded-lg px-3 py-2 text-sm font-semibold",
+                      customCodeStageMode === "source" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-white",
+                    )}
+                  >
+                    Source
+                  </button>
+                </div>
+
+                {wholePageSourceEditable ? (
+                  <>
+                    <div className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Change area</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedHtmlRegionKey(null)}
+                        className={classNames(
+                          "rounded-full border px-3 py-1.5 text-xs font-semibold",
+                          selectedHtmlRegion ? "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50" : "border-zinc-900 bg-zinc-900 text-white",
+                        )}
+                      >
+                        Full page
+                      </button>
+                      {htmlRegionScopes.map((region) => (
+                        <button
+                          key={region.key}
+                          type="button"
+                          onClick={() => setSelectedHtmlRegionKey(region.key)}
+                          className={classNames(
+                            "rounded-full border px-3 py-1.5 text-xs font-semibold",
+                            selectedHtmlRegion?.key === region.key
+                              ? "border-zinc-900 bg-zinc-900 text-white"
+                              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                          )}
+                          title={region.summary}
+                        >
+                          {region.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+
+                <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                  {wholePageSourceEditable
+                    ? selectedPageDirty
+                      ? "You have unsaved page changes here. Save draft when you are ready to keep them."
+                      : "Use Layout when you want to change sections, buttons, forms, or page structure. Use Code when you want direct page edits."
+                    : selectedPageDirty
+                      ? "This page still uses the Layout editor. Save when you want this code view refreshed."
+                      : "This page still uses the Layout editor. This view lets you inspect the current page code."}
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-500">
+                  <span
+                    className={classNames(
+                      "inline-flex h-1.5 w-1.5 rounded-full",
+                      selectedPageDirty ? "bg-zinc-400" : "bg-emerald-400/80",
+                    )}
+                  />
+                  <span>{wholePageSyncMeta}</span>
+                  {wholePageStatusMessage ? (
+                    <>
+                      <span className="hidden h-1 w-1 rounded-full bg-zinc-300 sm:inline-block" />
+                      <span>{wholePageStatusMessage}</span>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            </div>
           ) : selectedPage.editorMode === "MARKDOWN" ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
               <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Legacy mode</div>
@@ -5111,7 +7773,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     busy ? "opacity-60" : "",
                   )}
                 >
-                  Switch to Blocks
+                  Switch to Layout
                 </button>
                 <button
                   type="button"
@@ -5122,54 +7784,294 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     busy ? "opacity-60" : "",
                   )}
                 >
-                  Switch to Custom code
+                  Switch to Code
                 </button>
               </div>
             </div>
-          ) : selectedPage.editorMode === "BLOCKS" ? (
-            <div>
-              <div className="grid grid-cols-3 gap-2">
-                {(
-                  [
-                    { key: "presets", label: "Presets" },
-                    { key: "text", label: "Text" },
-                    { key: "layout", label: "Layout" },
-                    { key: "forms", label: "Forms" },
-                    { key: "media", label: "Media" },
-                    { key: "header", label: "Header" },
-                    { key: "shop", label: "Shop" },
-                    { key: "ai", label: "AI" },
-                    { key: "page", label: "Theme" },
-                    { key: "selected", label: "Selected" },
-                  ] as const
-                ).map((t) => (
-                  <button
-                    key={t.key}
-                    type="button"
-                    disabled={t.key === "selected" ? !selectedBlock : false}
-                    onClick={() => setSidebarPanel(t.key)}
-                    className={classNames(
-                      "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
-                      t.key === "ai"
-                        ? "inline-flex items-center gap-2 border-transparent bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90"
-                        : t.key === sidebarPanel
-                          ? "border-(--color-brand-blue) bg-blue-50 text-zinc-900"
-                          : "border-zinc-200 bg-zinc-50 text-zinc-800 hover:bg-white",
-                      t.key === "selected" && !selectedBlock ? "opacity-50" : "",
-                    )}
-                    aria-pressed={t.key === sidebarPanel}
-                  >
-                    {t.key === "ai" ? (
-                      <>
-                        <AiSparkIcon className="h-4 w-4" />
-                        {t.label}
-                      </>
-                    ) : (
-                      t.label
-                    )}
-                  </button>
-                ))}
+          ) : blocksSurfaceActive ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2">
+                <BuilderRailNavButton
+                  label="Structure"
+                  icon={
+                    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="4" width="14" height="4" rx="1.5" />
+                      <rect x="3" y="10" width="14" height="6" rx="1.5" />
+                    </svg>
+                  }
+                  active={builderTopLevelPanel === "structure"}
+                  onClick={() => setSidebarPanel("structure")}
+                />
+                <BuilderRailNavButton
+                  label="Add"
+                  icon={
+                    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10 4v12" />
+                      <path d="M4 10h12" />
+                    </svg>
+                  }
+                  active={builderTopLevelPanel === "add"}
+                  onClick={() => setSidebarPanel(builderLibraryPanel as typeof sidebarPanel)}
+                />
+                <BuilderRailNavButton
+                  label="Edit"
+                  icon={
+                    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="m4 13.5 8.5-8.5 3 3L7 16.5H4z" />
+                      <path d="M11.5 6 14 8.5" />
+                    </svg>
+                  }
+                  active={builderTopLevelPanel === "selected"}
+                  disabled={!selectedBlock}
+                  onClick={() => setSidebarPanel("selected")}
+                />
+                <BuilderRailNavButton
+                  label="Page"
+                  icon={
+                    <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3.5" y="4" width="13" height="12" rx="2" />
+                      <path d="M7 8h6" />
+                      <path d="M7 12h4" />
+                    </svg>
+                  }
+                  active={builderTopLevelPanel === "page"}
+                  onClick={() => setSidebarPanel("page")}
+                />
+                <BuilderRailNavButton
+                  label="AI"
+                  icon={<AiSparkIcon className="h-4 w-4" />}
+                  detail={aiContextMedia.length ? `${aiContextMedia.length} refs attached` : undefined}
+                  active={builderTopLevelPanel === "ai"}
+                  spanTwo
+                  onClick={() => setSidebarPanel("ai")}
+                />
               </div>
+
+              {builderTopLevelPanel === "structure" ? (
+                <div className="rounded-[28px] border border-zinc-200 bg-white p-3.5 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[13px] font-medium text-zinc-500">Page map</div>
+                      <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedPage.title || "Untitled page"}</div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-right">
+                      <div className="text-[11px] font-medium text-zinc-500">Map</div>
+                      <div className="mt-1 text-sm font-semibold text-zinc-900">{blockOutlineItems.length}</div>
+                    </div>
+                  </div>
+
+                  {blockOutlineItems.length ? (
+                    <div className="mt-3 max-h-120 space-y-2 overflow-y-auto pr-1">
+                      {blockOutlineItems.map((item) => {
+                        const isActive = selectedBlockId === item.id;
+                        const isAnchor = selectedPageFlowAnchorId === item.id;
+                        const isNested = item.depth > 0;
+                        const indent = item.depth ? Math.min(item.depth * 14, 34) : 0;
+
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedBlockId(item.id);
+                              setSidebarPanel("selected");
+                              setPreviewMode("edit");
+                            }}
+                            className={classNames(
+                              "relative w-full rounded-3xl border px-3 py-3 text-left transition-[border-color,background-color,box-shadow,transform] duration-150",
+                              isActive
+                                ? "border-zinc-900 bg-zinc-900 text-white shadow-[0_16px_34px_rgba(15,23,42,0.14)]"
+                                : isAnchor
+                                  ? "border-blue-200 bg-blue-50/60 text-zinc-900 shadow-[0_10px_24px_rgba(37,99,235,0.06)]"
+                                  : "border-zinc-200 bg-white text-zinc-900 shadow-[0_8px_20px_rgba(15,23,42,0.03)] hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50",
+                            )}
+                          >
+                            {item.depth ? (
+                              <span
+                                aria-hidden="true"
+                                className={classNames("absolute bottom-3 top-3 w-px rounded-full", isActive ? "bg-white/18" : "bg-zinc-200")}
+                                style={{ left: `${14 + Math.max(indent - 8, 0)}px` }}
+                              />
+                            ) : null}
+
+                            <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3">
+                              <div className="pt-0.5" style={{ marginLeft: indent ? `${indent}px` : undefined }}>
+                                <div
+                                  className={classNames(
+                                    "inline-flex h-10 w-10 items-center justify-center rounded-2xl border",
+                                    isActive ? "border-white/15 bg-white/10 text-white" : "border-zinc-200 bg-zinc-50 text-zinc-600",
+                                  )}
+                                >
+                                  <BuilderOutlineGlyph kind={item.kind} active={isActive} />
+                                </div>
+                              </div>
+
+                              <div className="min-w-0">
+                                <div className={classNames("text-[11px] font-medium", isActive ? "text-white/70" : isAnchor ? "text-blue-700" : "text-zinc-500")}>
+                                  {item.kind}
+                                  {isNested ? ` · L${item.depth}` : ""}
+                                  {isAnchor ? " · after" : ""}
+                                </div>
+                                <div className="mt-1 truncate text-sm font-semibold">{item.detail}</div>
+                              </div>
+
+                              <div className="pt-0.5">
+                                <BuilderOutlineMiniPreview kind={item.kind} active={isActive} />
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-[22px] border border-dashed border-zinc-300 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
+                      Add the first section or block to start the page map.
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {builderTopLevelPanel === "add" ? (
+                <div className="rounded-[28px] border border-zinc-200 bg-white p-3.5 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-[13px] font-medium text-zinc-500">Add library</div>
+                      <div className="mt-1 text-sm font-semibold text-zinc-900">Choose a shelf, then add.</div>
+                    </div>
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-right">
+                      <div className="text-[11px] font-medium text-zinc-500">Canvas</div>
+                      <div className="mt-1 text-sm font-semibold text-zinc-900">{previewMode === "edit" ? "Editable" : "Preview only"}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="rounded-[22px] border border-zinc-200 bg-zinc-50 px-3 py-2.5">
+                      <div className="text-[11px] font-medium text-zinc-500">Section</div>
+                      <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{selectedPageFlowOutlineItem ? selectedPageFlowOutlineItem.detail : "Page end"}</div>
+                    </div>
+                    <div className="rounded-[22px] border border-zinc-200 bg-zinc-50 px-3 py-2.5">
+                      <div className="text-[11px] font-medium text-zinc-500">Block</div>
+                      <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{selectedOutlineItem ? selectedOutlineItem.detail : "Page end"}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 border-t border-zinc-200 pt-3">
+                    <div className="text-xs font-medium text-zinc-500">Library shelves</div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {(
+                        [
+                          {
+                            key: "presets",
+                            label: "Sections",
+                            preview: (
+                              <div className="flex h-full flex-col gap-1.5">
+                                <div className="h-3 rounded-lg bg-zinc-800" />
+                                <div className="h-4 rounded-lg bg-zinc-200" />
+                                <div className="h-6 rounded-xl border border-zinc-200 bg-white" />
+                              </div>
+                            ),
+                          },
+                          {
+                            key: "text",
+                            label: "Text",
+                            preview: (
+                              <div className="flex h-full flex-col gap-1.5">
+                                <div className="h-2.5 w-4/5 rounded-full bg-zinc-500" />
+                                <div className="h-1.5 w-full rounded-full bg-zinc-300" />
+                                <div className="h-1.5 w-3/4 rounded-full bg-zinc-300" />
+                                <div className="mt-1 h-5 w-16 rounded-full bg-zinc-900" />
+                              </div>
+                            ),
+                          },
+                          {
+                            key: "layout",
+                            label: "Layout",
+                            preview: (
+                              <div className="flex h-full flex-col gap-1.5">
+                                <div className="h-8 rounded-xl border border-zinc-200 bg-white" />
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <div className="h-5 rounded-lg border border-zinc-200 bg-zinc-100" />
+                                  <div className="h-5 rounded-lg border border-zinc-200 bg-zinc-100" />
+                                </div>
+                              </div>
+                            ),
+                          },
+                          {
+                            key: "forms",
+                            label: "Forms",
+                            preview: (
+                              <div className="flex h-full flex-col gap-1">
+                                <div className="h-2 w-3/5 rounded-full bg-zinc-400" />
+                                <div className="h-4 rounded-md border border-zinc-200 bg-white" />
+                                <div className="h-4 rounded-md border border-zinc-200 bg-white" />
+                                <div className="grid grid-cols-4 gap-1">
+                                  {Array.from({ length: 4 }).map((_, index) => (
+                                    <div key={index} className="h-2 rounded bg-zinc-200" />
+                                  ))}
+                                </div>
+                              </div>
+                            ),
+                          },
+                          {
+                            key: "media",
+                            label: "Media",
+                            preview: (
+                              <div className="grid h-full grid-cols-2 gap-1.5">
+                                <div className="rounded-xl border border-zinc-200 bg-white" />
+                                <div className="flex items-center justify-center rounded-xl bg-zinc-900">
+                                  <div className="ml-0.5 h-0 w-0 border-y-[6px] border-y-transparent border-l-10 border-l-white/70" />
+                                </div>
+                              </div>
+                            ),
+                          },
+                          {
+                            key: "header",
+                            label: "Header",
+                            preview: (
+                              <div className="flex h-full flex-col gap-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="h-2.5 w-7 rounded bg-zinc-800" />
+                                  <div className="flex gap-1">
+                                    <div className="h-1.5 w-3 rounded-full bg-zinc-300" />
+                                    <div className="h-1.5 w-3 rounded-full bg-zinc-300" />
+                                    <div className="h-1.5 w-3 rounded-full bg-zinc-300" />
+                                  </div>
+                                </div>
+                                <div className="h-5 rounded-lg border border-zinc-200 bg-white" />
+                              </div>
+                            ),
+                          },
+                          {
+                            key: "shop",
+                            label: "Shop",
+                            preview: (
+                              <div className="flex h-full flex-col gap-1.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="h-2.5 w-8 rounded-full bg-zinc-500" />
+                                  <div className="h-5 w-8 rounded-lg border border-zinc-200 bg-white" />
+                                </div>
+                                <div className="grid grid-cols-3 gap-1">
+                                  {Array.from({ length: 3 }).map((_, index) => (
+                                    <div key={index} className="h-7 rounded-lg border border-zinc-200 bg-white" />
+                                  ))}
+                                </div>
+                              </div>
+                            ),
+                          },
+                        ] as const
+                      ).map((t) => (
+                        <BuilderLibraryChooserButton
+                          key={t.key}
+                          label={t.label}
+                          preview={t.preview}
+                          active={builderLibraryPanel === t.key}
+                          onClick={() => setSidebarPanel(t.key)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               {sidebarPanel === "page" ? (
                 <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
@@ -5184,7 +8086,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                       return (
                         <div>
-                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Font</div>
                           <PortalFontDropdown
                             value={presetKey}
                             onChange={(k) => {
@@ -5203,7 +8105,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                           {presetKey === "custom" ? (
                             <label className="mt-2 block">
-                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Custom font-family</div>
+                              <div className="mb-1 text-xs font-medium text-zinc-500">Custom font family</div>
                               <input
                                 value={(pageStyle as any)?.fontFamily || ""}
                                 onChange={(e) =>
@@ -5222,7 +8124,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     })()}
 
                     <div>
-                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Brand colors</div>
+                      <div className="mb-1 text-xs font-medium text-zinc-500">Brand colors</div>
                       {brandPalette ? (
                         <div className="grid grid-cols-3 gap-2">
                           {(
@@ -5299,7 +8201,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       <div className="text-sm font-semibold text-zinc-900">SEO</div>
                       <div className="mt-3 space-y-3">
                         <label className="block">
-                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Title</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Title</div>
                           <input
                             value={String(funnel?.seo?.title || "")}
                             onChange={(e) => {
@@ -5319,7 +8221,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <label className="block">
-                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Description</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Description</div>
                           <textarea
                             value={String(funnel?.seo?.description || "")}
                             onChange={(e) => {
@@ -5338,7 +8240,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <label className="block">
-                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Social image URL (optional)</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Social image URL</div>
                           <input
                             value={String(funnel?.seo?.imageUrl || "")}
                             onChange={(e) => {
@@ -5357,7 +8259,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Tab icon (favicon) - this page</div>
+                          <div className="mb-2 text-xs font-medium text-zinc-500">Tab icon for this page</div>
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                             <div className="flex min-w-0 flex-1 items-center gap-3">
                               <div className="h-9 w-9 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
@@ -5458,319 +8360,306 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               ) : null}
 
               {sidebarPanel === "presets" ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Presets</div>
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("text/x-funnel-preset", "hero");
-                        e.dataTransfer.effectAllowed = "copy";
-                      }}
-                      onClick={() => addPresetSection("hero")}
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                      title="Drag into preview or click to add"
-                    >
-                      Hero
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("text/x-funnel-preset", "body");
-                        e.dataTransfer.effectAllowed = "copy";
-                      }}
-                      onClick={() => addPresetSection("body")}
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                      title="Drag into preview or click to add"
-                    >
-                      Body
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("text/x-funnel-preset", "form");
-                        e.dataTransfer.effectAllowed = "copy";
-                      }}
-                      onClick={() => addPresetSection("form")}
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                      title="Drag into preview or click to add"
-                    >
-                      Form
-                    </button>
+                <div className="mt-4 space-y-2.5">
+                  <div className="px-1 text-xs font-medium text-zinc-500">Starter sections</div>
+                  <div className="px-1 pb-1 text-xs text-zinc-500">Drag into the canvas or add one directly.</div>
 
-                    <button
-                      type="button"
-                      disabled={busy}
+                  {(
+                    [
+                      {
+                        key: "hero" as const,
+                        label: "Hero",
+                        description: "Full-width headline, subtext, and CTA on a dark background.",
+                        diagram: (
+                          <div className="flex h-18 flex-col items-center justify-center gap-1.5 rounded-xl bg-zinc-900 px-3 py-3">
+                            <div className="h-2.5 w-3/5 rounded-full bg-white/70" />
+                            <div className="h-1.5 w-2/5 rounded-full bg-white/35" />
+                            <div className="mt-1 h-5 w-16 rounded-full border border-white/25 bg-white/20" />
+                          </div>
+                        ),
+                      },
+                      {
+                        key: "body" as const,
+                        label: "Body",
+                        description: "Heading, supporting copy, and a two-column benefit layout.",
+                        diagram: (
+                          <div className="flex h-18 flex-col gap-1.5 rounded-xl bg-zinc-50 px-3 py-3">
+                            <div className="h-2 w-2/5 rounded-full bg-zinc-400" />
+                            <div className="h-1.5 w-3/5 rounded-full bg-zinc-300" />
+                            <div className="mt-0.5 grid grid-cols-2 gap-1.5">
+                              <div className="rounded-lg border border-zinc-200 bg-white p-1.5">
+                                <div className="mb-1 h-1.5 w-3/4 rounded-full bg-zinc-400" />
+                                <div className="h-1 w-full rounded-full bg-zinc-200" />
+                              </div>
+                              <div className="rounded-lg border border-zinc-200 bg-white p-1.5">
+                                <div className="mb-1 h-1.5 w-3/4 rounded-full bg-zinc-400" />
+                                <div className="h-1 w-full rounded-full bg-zinc-200" />
+                              </div>
+                            </div>
+                          </div>
+                        ),
+                      },
+                      {
+                        key: "form" as const,
+                        label: "Form",
+                        description: "Section heading with an embedded form capture.",
+                        diagram: (
+                          <div className="flex h-18 flex-col gap-1.5 rounded-xl bg-zinc-50 px-3 py-3">
+                            <div className="h-2 w-1/3 rounded-full bg-zinc-400" />
+                            <div className="h-1.5 w-2/3 rounded-full bg-zinc-300" />
+                            <div className="mt-0.5 flex-1 rounded-lg border border-zinc-200 bg-white" />
+                          </div>
+                        ),
+                      },
+                      {
+                        key: "shop" as const,
+                        label: "Shop",
+                        description: "Product columns with cart button and add-to-cart per item.",
+                        diagram: (
+                          <div className="flex h-18 flex-col gap-1.5 rounded-xl bg-zinc-50 px-3 py-3">
+                            <div className="flex items-center gap-1.5">
+                              <div className="h-2 w-1/4 rounded-full bg-zinc-400" />
+                              <div className="ml-auto h-4 w-10 rounded-full border border-zinc-300 bg-white" />
+                            </div>
+                            <div className="grid grid-cols-3 gap-1">
+                              {[0, 1, 2].map((i) => (
+                                <div key={i} className="rounded-lg border border-zinc-200 bg-white p-1">
+                                  <div className="mb-1 h-1.5 w-full rounded-full bg-zinc-300" />
+                                  <div className="mb-1 h-1 w-3/4 rounded-full bg-zinc-200" />
+                                  <div className="h-3 w-full rounded-full border border-zinc-200 bg-zinc-50" />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ),
+                      },
+                    ] as const
+                  ).map(({ key, label, description, diagram }) => (
+                    <div
+                      key={key}
                       draggable
                       onDragStart={(e) => {
-                        e.dataTransfer.setData("text/x-funnel-preset", "shop");
+                        e.dataTransfer.setData("text/x-funnel-preset", key);
                         e.dataTransfer.effectAllowed = "copy";
                       }}
-                      onClick={() => addPresetSection("shop")}
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                      title="Drag into preview or click to add"
+                      className="cursor-grab active:cursor-grabbing"
                     >
-                      Shop
-                    </button>
-                  </div>
-                  <div className="mt-2 text-xs text-zinc-500">Quick-start templates using real blocks (no markdown typing).</div>
+                      <BuilderLibraryCard label={label} description={description} preview={diagram} tone="slate" disabled={busy} onAdd={() => addPresetSection(key)} />
+                    </div>
+                  ))}
                 </div>
               ) : null}
 
               {sidebarPanel === "text" ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Text</div>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {(
-                      [
-                        { type: "heading", label: "Heading" },
-                        { type: "paragraph", label: "Text" },
-                        { type: "button", label: "Button" },
-                      ] as const
-                    ).map((b) => (
-                      <button
-                        key={b.type}
-                        type="button"
-                        disabled={busy}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData("text/x-block-type", b.type);
-                          e.dataTransfer.effectAllowed = "copy";
-                        }}
-                        onClick={() => addBlock(b.type)}
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        title="Drag into preview or click to add"
-                      >
-                        {b.label}
-                      </button>
-                    ))}
-                  </div>
+                <div className="mt-3 space-y-2.5">
+                  {([
+                    {
+                      type: "heading" as const, label: "Heading", desc: "Headline block for section starts and hierarchy.", tone: "slate" as const,
+                      diagram: <div className="flex flex-col gap-1 px-2 py-2"><div className="h-3 w-4/5 rounded-full bg-zinc-800" /><div className="h-1.5 w-3/5 rounded-full bg-zinc-300" /></div>,
+                    },
+                    {
+                      type: "paragraph" as const, label: "Text", desc: "Body copy for explanations, offers, and supporting detail.", tone: "slate" as const,
+                      diagram: <div className="flex flex-col gap-1 px-2 py-2"><div className="h-1.5 w-full rounded-full bg-zinc-300" /><div className="h-1.5 w-5/6 rounded-full bg-zinc-300" /><div className="h-1.5 w-4/6 rounded-full bg-zinc-300" /></div>,
+                    },
+                    {
+                      type: "button" as const, label: "Button", desc: "Primary call to action for clicks, forms, and next steps.", tone: "blue" as const,
+                      diagram: <div className="flex items-center px-2 py-2"><div className="h-7 w-20 rounded-full border-2 border-zinc-800 bg-zinc-900" /></div>,
+                    },
+                  ] as const).map(({ type, label, desc, diagram, tone }) => (
+                    <div key={type} draggable onDragStart={(e) => { e.dataTransfer.setData("text/x-block-type", type); e.dataTransfer.effectAllowed = "copy"; }} className="cursor-grab active:cursor-grabbing">
+                      <BuilderLibraryCard label={label} description={desc} preview={diagram} tone={tone} disabled={busy} onAdd={() => addBlock(type)} />
+                    </div>
+                  ))}
                 </div>
               ) : null}
 
               {sidebarPanel === "layout" ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Layout</div>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {(
-                      [
-                        { type: "section", label: "Section" },
-                        { type: "columns", label: "Columns" },
-                        { type: "spacer", label: "Spacer" },
-                      ] as const
-                    ).map((b) => (
-                      <button
-                        key={b.type}
-                        type="button"
-                        disabled={busy}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData("text/x-block-type", b.type);
-                          e.dataTransfer.effectAllowed = "copy";
-                        }}
-                        onClick={() => addBlock(b.type)}
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        title="Drag into preview or click to add"
-                      >
-                        {b.label}
-                      </button>
-                    ))}
-                  </div>
+                <div className="mt-3 space-y-2.5">
+                  {([
+                    {
+                      type: "section" as const, label: "Section", desc: "Full-width container for a new page band or message break.", tone: "emerald" as const,
+                      diagram: <div className="px-2 py-2"><div className="h-8 rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50" /></div>,
+                    },
+                    {
+                      type: "columns" as const, label: "Columns", desc: "Split content into two side-by-side areas.", tone: "emerald" as const,
+                      diagram: <div className="flex gap-1 px-2 py-2"><div className="h-7 flex-1 rounded-lg border border-zinc-200 bg-zinc-100" /><div className="h-7 flex-1 rounded-lg border border-zinc-200 bg-zinc-100" /></div>,
+                    },
+                    {
+                      type: "spacer" as const, label: "Spacer", desc: "Create breathing room between adjacent blocks.", tone: "slate" as const,
+                      diagram: <div className="flex items-center justify-center px-2 py-2"><div className="h-1 w-full rounded-full bg-zinc-200" /></div>,
+                    },
+                  ] as const).map(({ type, label, desc, diagram, tone }) => (
+                    <div key={type} draggable onDragStart={(e) => { e.dataTransfer.setData("text/x-block-type", type); e.dataTransfer.effectAllowed = "copy"; }} className="cursor-grab active:cursor-grabbing">
+                      <BuilderLibraryCard label={label} description={desc} preview={diagram} tone={tone} disabled={busy} onAdd={() => addBlock(type)} />
+                    </div>
+                  ))}
                 </div>
               ) : null}
 
               {sidebarPanel === "forms" ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Forms</div>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {(
-                      [
-                        { type: "formLink", label: "Form link" },
-                        { type: "formEmbed", label: "Form embed" },
-                        { type: "calendarEmbed", label: "Calendar embed" },
-                      ] as const
-                    ).map((b) => (
-                      <button
-                        key={b.type}
-                        type="button"
-                        disabled={busy}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData("text/x-block-type", b.type);
-                          e.dataTransfer.effectAllowed = "copy";
-                        }}
-                        onClick={() => addBlock(b.type)}
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        title="Drag into preview or click to add"
-                      >
-                        {b.label}
-                      </button>
-                    ))}
-                  </div>
+                <div className="mt-3 space-y-2.5">
+                  {([
+                    {
+                      type: "formLink" as const, label: "Form link", desc: "Send visitors to a hosted form page.", tone: "blue" as const,
+                      diagram: <div className="flex items-center px-2 py-2"><div className="h-6 flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-2"><div className="mt-1.5 h-1.5 w-2/3 rounded-full bg-zinc-300" /></div></div>,
+                    },
+                    {
+                      type: "formEmbed" as const, label: "Form embed", desc: "Capture leads directly inside the page flow.", tone: "blue" as const,
+                      diagram: <div className="flex flex-col gap-1 px-2 py-1.5"><div className="h-1.5 w-3/4 rounded-full bg-zinc-300" /><div className="h-4 rounded-md border border-zinc-200 bg-zinc-50" /><div className="h-1.5 w-2/3 rounded-full bg-zinc-300" /><div className="h-4 rounded-md border border-zinc-200 bg-zinc-50" /></div>,
+                    },
+                    {
+                      type: "calendarEmbed" as const, label: "Calendar", desc: "Book meetings without leaving the page.", tone: "blue" as const,
+                      diagram: <div className="px-2 py-1.5"><div className="grid grid-cols-7 gap-0.5">{Array.from({length: 7}).map((_,i) => <div key={i} className="h-2.5 rounded bg-zinc-200" />)}<div className="h-4 col-span-7 rounded-md border border-zinc-200 bg-zinc-50" /></div></div>,
+                    },
+                  ] as const).map(({ type, label, desc, diagram, tone }) => (
+                    <div key={type} draggable onDragStart={(e) => { e.dataTransfer.setData("text/x-block-type", type); e.dataTransfer.effectAllowed = "copy"; }} className="cursor-grab active:cursor-grabbing">
+                      <BuilderLibraryCard label={label} description={desc} preview={diagram} tone={tone} disabled={busy} onAdd={() => addBlock(type)} />
+                    </div>
+                  ))}
                 </div>
               ) : null}
 
               {sidebarPanel === "media" ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Media</div>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {(
-                      [
-                        { type: "image", label: "Image" },
-                        { type: "video", label: "Video" },
-                      ] as const
-                    ).map((b) => (
-                      <button
-                        key={b.type}
-                        type="button"
-                        disabled={busy}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData("text/x-block-type", b.type);
-                          e.dataTransfer.effectAllowed = "copy";
-                        }}
-                        onClick={() => addBlock(b.type)}
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        title="Drag into preview or click to add"
-                      >
-                        {b.label}
-                      </button>
-                    ))}
-                  </div>
+                <div className="mt-3 space-y-2.5">
+                  {([
+                    {
+                      type: "image" as const, label: "Image", desc: "Add a still image, product shot, or supporting visual.", tone: "amber" as const,
+                      diagram: <div className="px-2 py-1.5"><div className="h-10 rounded-lg border border-zinc-200 bg-zinc-100 flex items-center justify-center"><svg viewBox="0 0 24 24" className="h-5 w-5 text-zinc-400" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg></div></div>,
+                    },
+                    {
+                      type: "video" as const, label: "Video", desc: "Embed a video player inside the page.", tone: "amber" as const,
+                      diagram: <div className="px-2 py-1.5"><div className="h-10 rounded-lg border border-zinc-200 bg-zinc-900 flex items-center justify-center"><svg viewBox="0 0 24 24" className="h-5 w-5 text-white/60" fill="currentColor"><path d="M8 5v14l11-7z" /></svg></div></div>,
+                    },
+                  ] as const).map(({ type, label, desc, diagram, tone }) => (
+                    <div key={type} draggable onDragStart={(e) => { e.dataTransfer.setData("text/x-block-type", type); e.dataTransfer.effectAllowed = "copy"; }} className="cursor-grab active:cursor-grabbing">
+                      <BuilderLibraryCard label={label} description={desc} preview={diagram} tone={tone} disabled={busy} onAdd={() => addBlock(type)} />
+                    </div>
+                  ))}
                 </div>
               ) : null}
 
               {sidebarPanel === "header" ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Header</div>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {(
-                      [
-                        { type: "headerNav", label: "Header / Menu" },
-                      ] as const
-                    ).map((b) => (
-                      <button
-                        key={b.type}
-                        type="button"
-                        disabled={busy}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData("text/x-block-type", b.type);
-                          e.dataTransfer.effectAllowed = "copy";
-                        }}
-                        onClick={() => addBlock(b.type as any)}
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        title="Drag into preview or click to add"
-                      >
-                        {b.label}
-                      </button>
-                    ))}
+                <div className="mt-3 space-y-2.5">
+                  <div draggable onDragStart={(e) => { e.dataTransfer.setData("text/x-block-type", "headerNav"); e.dataTransfer.effectAllowed = "copy"; }} className="cursor-grab active:cursor-grabbing">
+                    <BuilderLibraryCard
+                      label="Header / Nav"
+                      description="Logo, links, and navigation behavior for the top of the page."
+                      tone="slate"
+                      disabled={busy}
+                      onAdd={() => addBlock("headerNav" as any)}
+                      preview={(
+                        <div className="px-2 py-2.5">
+                          <div className="flex items-center justify-between">
+                            <div className="h-2.5 w-7 rounded bg-zinc-800" />
+                            <div className="flex gap-1">
+                              <div className="h-1.5 w-3 rounded-full bg-zinc-300" />
+                              <div className="h-1.5 w-3 rounded-full bg-zinc-300" />
+                              <div className="h-1.5 w-3 rounded-full bg-zinc-300" />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    />
                   </div>
-                  <div className="mt-2 text-xs text-zinc-500">
-                    Tip: sections automatically have anchors you can link to (for example, “Section (#section-…)”).
-                  </div>
+                  <div className="pt-0.5 text-[11px] text-zinc-500">Sections auto-generate anchor IDs — e.g. <span className="font-mono">#section-hero</span></div>
                 </div>
               ) : null}
 
               {sidebarPanel === "shop" ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Shop</div>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {(
-                      [
-                        { type: "addToCartButton", label: "Add to cart" },
-                        { type: "cartButton", label: "Cart button" },
-                        { type: "salesCheckoutButton", label: "Checkout (single)" },
-                      ] as const
-                    ).map((b) => (
-                      <button
-                        key={b.type}
-                        type="button"
-                        disabled={busy}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData("text/x-block-type", b.type);
-                          e.dataTransfer.effectAllowed = "copy";
-                        }}
-                        onClick={() => addBlock(b.type as any)}
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        title="Drag into preview or click to add"
-                      >
-                        {b.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="mt-2 text-xs text-zinc-500">
-                    Use <span className="font-semibold">Add to cart</span> + <span className="font-semibold">Cart</span> for multi-item Stripe checkout.
-                  </div>
+                <div className="mt-3 space-y-2.5">
+                  {([
+                    {
+                      type: "addToCartButton" as const, label: "Add to cart", desc: "Attach a per-product cart action to a product offer.", tone: "rose" as const,
+                      diagram: <div className="flex items-center px-2 py-2"><div className="h-6 w-full rounded-lg border border-zinc-200 bg-zinc-50 flex items-center justify-center"><div className="h-1.5 w-16 rounded-full bg-zinc-400" /></div></div>,
+                    },
+                    {
+                      type: "cartButton" as const, label: "Cart", desc: "Show the current cart and let visitors review items.", tone: "rose" as const,
+                      diagram: <div className="flex items-center px-2 py-2"><div className="h-6 w-8 rounded-lg border border-zinc-200 bg-zinc-50 flex items-center justify-center"><svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-zinc-500" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" /><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" /></svg></div></div>,
+                    },
+                    {
+                      type: "salesCheckoutButton" as const, label: "Checkout (single)", desc: "Send one offer straight into direct checkout.", tone: "rose" as const,
+                      diagram: <div className="flex items-center px-2 py-2"><div className="h-6 w-full rounded-full bg-zinc-800 flex items-center justify-center"><div className="h-1.5 w-12 rounded-full bg-white/60" /></div></div>,
+                    },
+                  ] as const).map(({ type, label, desc, diagram, tone }) => (
+                    <div key={type} draggable onDragStart={(e) => { e.dataTransfer.setData("text/x-block-type", type); e.dataTransfer.effectAllowed = "copy"; }} className="cursor-grab active:cursor-grabbing">
+                      <BuilderLibraryCard label={label} description={desc} preview={diagram} tone={tone} disabled={busy} onAdd={() => addBlock(type as any)} />
+                    </div>
+                  ))}
+                  <div className="pt-1 text-[11px] text-zinc-500">Use <span className="font-semibold">Add to cart</span> + <span className="font-semibold">Cart</span> for multi-item Stripe checkout.</div>
                 </div>
               ) : null}
 
               {sidebarPanel === "ai" ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">AI</div>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {(
-                      [
-                        { type: "chatbot", label: "Chatbot" },
-                        { type: "customCode", label: "Custom code" },
-                      ] as const
-                    ).map((b) => (
-                      <button
-                        key={b.type}
-                        type="button"
-                        disabled={busy}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData("text/x-block-type", b.type);
-                          e.dataTransfer.effectAllowed = "copy";
-                        }}
-                        onClick={() => addBlock(b.type)}
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                        title="Drag into preview or click to add"
-                      >
-                        {b.label}
-                      </button>
+                <div className="mt-3 space-y-3">
+                  <div className="space-y-2.5">
+                    {([
+                      {
+                        type: "chatbot" as const, label: "Chatbot", desc: "Embed a conversational assistant inside the page.", tone: "blue" as const,
+                        diagram: <div className="px-2 py-1.5"><div className="flex flex-col gap-1"><div className="self-start rounded-xl rounded-tl-none bg-zinc-200 px-2 py-1"><div className="h-1.5 w-10 rounded-full bg-zinc-400" /></div><div className="self-end rounded-xl rounded-tr-none bg-zinc-800 px-2 py-1"><div className="h-1.5 w-8 rounded-full bg-white/60" /></div></div></div>,
+                      },
+                      {
+                        type: "customCode" as const, label: "Custom code", desc: "Generate a bespoke HTML/CSS section with AI.", tone: "amber" as const,
+                        diagram: <div className="flex items-center justify-center px-2 py-2"><div className="font-mono text-sm font-bold text-zinc-500">{"</> "}</div></div>,
+                      },
+                    ] as const).map(({ type, label, desc, diagram, tone }) => (
+                      <div key={type} draggable onDragStart={(e) => { e.dataTransfer.setData("text/x-block-type", type); e.dataTransfer.effectAllowed = "copy"; }} className="cursor-grab active:cursor-grabbing">
+                        <BuilderLibraryCard label={label} description={desc} preview={diagram} tone={tone} disabled={busy} onAdd={() => addBlock(type)} />
+                      </div>
                     ))}
                   </div>
-                  <div className="mt-2 text-xs text-zinc-500">AI blocks add chat and advanced embeds to your funnel.</div>
 
                   <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Custom code (AI)</div>
+                        <div className="text-xs font-medium text-zinc-500">AI build</div>
                         <div className="mt-1 text-xs text-zinc-600">
-                          Generate or edit a <span className="font-semibold">Custom code</span> block using the same context + media workflow.
+                          Describe the outcome you want. AI can build a custom section, offer, form, embed, or refine the selected code block without leaving the builder.
                         </div>
                       </div>
-                      {(() => {
-                        const block = aiSidebarCustomCodeBlockId
-                          ? findBlockInTree(editableBlocks, aiSidebarCustomCodeBlockId)?.block
-                          : null;
-                        if (!block || block.type !== "customCode") return null;
-                        return (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => {
-                              setSelectedBlockId(block.id);
-                              setSidebarPanel("selected");
-                            }}
-                            className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                          >
-                            Open block
-                          </button>
-                        );
-                      })()}
+                      <div className="flex shrink-0 items-center gap-2">
+                        {(() => {
+                          const block = aiSidebarCustomCodeBlockId
+                            ? findBlockInTree(editableBlocks, aiSidebarCustomCodeBlockId)?.block
+                            : null;
+                          if (!block || block.type !== "customCode") return null;
+                          return (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                setSelectedBlockId(block.id);
+                                setSidebarPanel("selected");
+                              }}
+                              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              Open block
+                            </button>
+                          );
+                        })()}
+                        <button
+                          type="button"
+                          disabled={busy || aiSidebarCustomCodeBusy}
+                          onClick={() => {
+                            setAiSidebarCustomCodePrompt("");
+
+                            const existingBlock = aiSidebarCustomCodeBlockId
+                              ? findBlockInTree(editableBlocks, aiSidebarCustomCodeBlockId)?.block
+                              : null;
+                            if (existingBlock && existingBlock.type === "customCode") {
+                              upsertBlock({
+                                ...existingBlock,
+                                props: { ...(existingBlock.props as any), chatJson: [] },
+                              } as any);
+                            }
+                          }}
+                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-60"
+                        >
+                          Reset
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="mt-3 max-h-[28vh] space-y-2 overflow-auto rounded-2xl border border-zinc-200 bg-white p-3">
+                    <div className="mt-3 max-h-40 space-y-2 overflow-auto rounded-2xl border border-zinc-200 bg-white p-3">
                       {(() => {
                         const block = aiSidebarCustomCodeBlockId
                           ? findBlockInTree(editableBlocks, aiSidebarCustomCodeBlockId)?.block
@@ -5783,7 +8672,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         if (!msgs.length) {
                           return (
                             <div className="text-sm text-zinc-600">
-                              Ask for an embed or a custom section. Then follow up with edits.
+                              Start with the result you want. AI can lay out the first pass, then you can tighten specific sections with follow-up prompts.
                             </div>
                           );
                         }
@@ -5796,83 +8685,19 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               m.role === "user" ? "bg-blue-50 text-zinc-900" : "bg-zinc-50 text-zinc-800",
                             )}
                           >
-                            <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{m.role}</div>
+                            <div className="text-[11px] font-medium text-zinc-500">{m.role === "user" ? "You" : "AI"}</div>
                             <div className="mt-1 whitespace-pre-wrap wrap-break-word">{chatDisplayContent(m)}</div>
                           </div>
                         ));
                       })()}
                     </div>
 
-                    <textarea
-                      value={aiSidebarCustomCodePrompt}
-                      onChange={(e) => setAiSidebarCustomCodePrompt(e.target.value)}
-                      className="mt-3 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      placeholder="Describe what to build or change…"
-                    />
-
-                    <div className="mt-3 space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Context</div>
-                          <div className="mt-1 text-xs text-zinc-500">Optional: add blocks/presets and media to guide the AI output.</div>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={busy || aiSidebarCustomCodeBusy}
-                          onClick={() => setAiContextOpen(true)}
-                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                        >
-                          Add context
-                        </button>
-                      </div>
-
-                      {aiContextKeys.length || aiContextMedia.length ? (
-                        <div className="flex flex-wrap gap-2">
-                          {aiContextKeys.map((k) => {
-                            const opt = aiContextOptions.find((o) => o.key === k);
-                            const label = opt?.label || k;
-                            return (
-                              <button
-                                key={k}
-                                type="button"
-                                disabled={busy || aiSidebarCustomCodeBusy}
-                                onClick={() => setAiContextKeys((prev) => (prev || []).filter((x) => x !== k))}
-                                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
-                                title="Click to remove"
-                              >
-                                <span className="font-semibold">{label}</span>
-                                <span className="text-zinc-400">×</span>
-                              </button>
-                            );
-                          })}
-
-                          {aiContextMedia.map((m) => {
-                            const label = (m.fileName || "").trim() || "Media";
-                            return (
-                              <button
-                                key={m.url}
-                                type="button"
-                                disabled={busy || aiSidebarCustomCodeBusy}
-                                onClick={() => setAiContextMedia((prev) => (prev || []).filter((x) => x.url !== m.url))}
-                                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
-                                title="Click to remove"
-                              >
-                                <span className="font-semibold">{label}</span>
-                                <span className="text-zinc-400">×</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="text-sm text-zinc-600">No context selected.</div>
-                      )}
-                    </div>
-
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        type="button"
-                        disabled={busy || aiSidebarCustomCodeBusy || !aiSidebarCustomCodePrompt.trim()}
-                        onClick={() => {
+                    <div className="mt-3">
+                      <AiPromptComposer
+                        value={aiSidebarCustomCodePrompt}
+                        onChange={setAiSidebarCustomCodePrompt}
+                        onAttach={() => setAiContextOpen(true)}
+                        onSubmit={() => {
                           void (async () => {
                             if (!selectedPage) return;
                             const prompt = aiSidebarCustomCodePrompt.trim();
@@ -5884,6 +8709,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               const existingBlock = aiSidebarCustomCodeBlockId
                                 ? findBlockInTree(editableBlocks, aiSidebarCustomCodeBlockId)?.block
                                 : null;
+                              const builderFocusBlock =
+                                existingBlock && existingBlock.type === "customCode" ? existingBlock : selectedBlock;
+
+                              if (builderFocusBlock?.id) setSelectedBlockId(builderFocusBlock.id);
+                              setAiWorkFocus({
+                                mode: "builder",
+                                label: `AI is updating ${describeBuilderAiTarget(builderFocusBlock ?? null)}`,
+                                phase: "pending",
+                                regionKey: null,
+                                blockId: builderFocusBlock?.id || null,
+                              });
 
                               const currentHtml =
                                 existingBlock && existingBlock.type === "customCode"
@@ -5944,6 +8780,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 }
 
                                 setAiSidebarCustomCodePrompt("");
+                                setAiWorkFocus(null);
                                 return;
                               }
 
@@ -6283,6 +9120,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 });
 
                                 setAiSidebarCustomCodeBlockId(customCodeId);
+                                setAiWorkFocus({
+                                  mode: "builder",
+                                  label: insertedIds.length
+                                    ? `Added ${insertedIds.length} new block${insertedIds.length === 1 ? "" : "s"}`
+                                    : `Updated ${describeBuilderAiTarget(builderFocusBlock ?? null)}`,
+                                  phase: "settled",
+                                  regionKey: null,
+                                  blockId: insertedIds[0] || customCodeId,
+                                });
 
                                 if (insertedIds[0]) {
                                   setSelectedBlockId(insertedIds[0]);
@@ -6326,9 +9172,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 setAiSidebarCustomCodeBlockId(id);
                               }
 
+                              setAiWorkFocus({
+                                mode: "builder",
+                                label: `Updated ${describeBuilderAiTarget(builderFocusBlock ?? null)}`,
+                                phase: "settled",
+                                regionKey: null,
+                                blockId: existingBlock && existingBlock.type === "customCode" ? existingBlock.id : null,
+                              });
                               setAiSidebarCustomCodePrompt("");
                             } catch (e) {
                               const msg = (e as any)?.message ? String((e as any).message) : "Failed to generate code";
+                              setAiWorkFocus(null);
                               setError(msg);
                               toast.error(msg);
                             } finally {
@@ -6336,36 +9190,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             }
                           })();
                         }}
-                        className={classNames(
-                          "flex-1 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-                          busy || aiSidebarCustomCodeBusy || !aiSidebarCustomCodePrompt.trim()
-                            ? "bg-zinc-400"
-                            : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) hover:opacity-90 shadow-sm",
-                        )}
-                      >
-                        <AiSparkIcon className="h-4 w-4" />
-                        <span>{aiSidebarCustomCodeBusy ? "Working…" : "Ask AI"}</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy || aiSidebarCustomCodeBusy}
-                        onClick={() => {
-                          setAiSidebarCustomCodePrompt("");
-
-                          const existingBlock = aiSidebarCustomCodeBlockId
-                            ? findBlockInTree(editableBlocks, aiSidebarCustomCodeBlockId)?.block
-                            : null;
-                          if (existingBlock && existingBlock.type === "customCode") {
-                            upsertBlock({
-                              ...existingBlock,
-                              props: { ...(existingBlock.props as any), chatJson: [] },
-                            } as any);
-                          }
-                        }}
-                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                      >
-                        Clear
-                      </button>
+                        placeholder={selectedBlock?.type === "customCode"
+                          ? "Change this code block"
+                          : selectedBlock
+                            ? "Add what comes next"
+                            : "Describe the page you want"}
+                        busy={busy || aiSidebarCustomCodeBusy}
+                        busyLabel="AI is building"
+                        attachCount={aiContextMedia.length}
+                      />
                     </div>
 
                     {(() => {
@@ -6376,7 +9209,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       return (
                         <div className="mt-3 space-y-2">
                           <label className="block">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Height (px)</div>
+                            <div className="mb-1 text-xs font-medium text-zinc-500">Height</div>
                             <input
                               type="number"
                               value={String((block.props as any).heightPx ?? 360)}
@@ -6392,7 +9225,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </label>
 
                           <label className="block">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">HTML</div>
+                            <div className="mb-1 text-xs font-medium text-zinc-500">HTML</div>
                             <textarea
                               value={String((block.props as any).html || "")}
                               onChange={(e) =>
@@ -6407,7 +9240,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </label>
 
                           <label className="block">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">CSS (optional)</div>
+                            <div className="mb-1 text-xs font-medium text-zinc-500">CSS</div>
                             <textarea
                               value={String((block.props as any).css || "")}
                               onChange={(e) =>
@@ -6429,14 +9262,26 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
               {sidebarPanel === "selected" ? (
                 <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Selected</div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-zinc-900">Selection</div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {selectedOutlineItem
+                          ? `${selectedOutlineItem.kind} · ${selectedOutlineItem.detail}`
+                          : "Choose a block from the page map or preview."}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-1.5">
+                      {selectedBlock ? <BuilderStatusPill label="Selected" tone="selected" /> : null}
+                      {selectedPageFlowAnchorId ? <BuilderStatusPill label="Anchor" tone="anchor" /> : null}
+                      {selectedBlockContainer && selectedBlockContainer.key !== "root" ? <BuilderStatusPill label="Nested" tone="nested" /> : null}
+                    </div>
+                  </div>
                   {!selectedBlock ? (
                     <div className="mt-2 text-sm text-zinc-600">Click a block in the preview.</div>
                   ) : (
                     <div className="mt-3 space-y-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                        {selectedBlock.type}
-                      </div>
+                      <div className="text-xs font-medium text-zinc-500">{selectedBlock.type}</div>
 
                       {selectedBlock.type === "heading" ? (
                         <div className="space-y-2">
@@ -6486,7 +9331,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       {selectedBlock.type === "customCode" ? (
                         <div className="space-y-2">
                           <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Custom code (AI)</div>
+                            <div className="text-xs font-medium text-zinc-500">Custom code with AI</div>
                             <div className="mt-2 max-h-[28vh] space-y-2 overflow-auto">
                               {Array.isArray((selectedBlock.props as any).chatJson) && (selectedBlock.props as any).chatJson.length ? (
                                 ((selectedBlock.props as any).chatJson as BlockChatMessage[]).map((m, idx) => (
@@ -6497,7 +9342,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       m.role === "user" ? "bg-blue-50 text-zinc-900" : "bg-zinc-50 text-zinc-800",
                                     )}
                                   >
-                                    <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{m.role}</div>
+                                    <div className="text-[11px] font-medium text-zinc-500">{m.role === "user" ? "You" : "AI"}</div>
                                     <div className="mt-1 whitespace-pre-wrap wrap-break-word">{chatDisplayContent(m)}</div>
                                   </div>
                                 ))
@@ -6514,61 +9359,32 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             />
 
                             <div className="mt-3 space-y-2">
-                              <div className="flex items-center justify-between gap-3">
-                                <div>
-                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Context</div>
-                                  <div className="mt-1 text-xs text-zinc-500">Optional: add blocks/presets and media to guide the AI output.</div>
-                                </div>
+                              <div className="flex items-center gap-2">
                                 <button
                                   type="button"
                                   disabled={busy || customCodeBlockBusy}
                                   onClick={() => setAiContextOpen(true)}
-                                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                  className={classNames(
+                                    "inline-flex items-center gap-1.5 rounded-2xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60",
+                                    aiContextMedia.length ? "border-blue-200 text-blue-600" : "text-zinc-700",
+                                  )}
                                 >
-                                  Add context
+                                  <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                                  </svg>
+                                  {aiContextMedia.length ? `${aiContextMedia.length} image${aiContextMedia.length === 1 ? "" : "s"}` : "Attach images"}
                                 </button>
+                                {aiContextMedia.length ? (
+                                  <button
+                                    type="button"
+                                    disabled={busy || customCodeBlockBusy}
+                                    onClick={() => setAiContextMedia([])}
+                                    className="text-xs text-zinc-400 hover:text-zinc-700 disabled:opacity-60"
+                                  >
+                                    Clear
+                                  </button>
+                                ) : null}
                               </div>
-
-                              {aiContextKeys.length || aiContextMedia.length ? (
-                                <div className="flex flex-wrap gap-2">
-                                  {aiContextKeys.map((k) => {
-                                    const opt = aiContextOptions.find((o) => o.key === k);
-                                    const label = opt?.label || k;
-                                    return (
-                                      <button
-                                        key={k}
-                                        type="button"
-                                        disabled={busy || customCodeBlockBusy}
-                                        onClick={() => setAiContextKeys((prev) => (prev || []).filter((x) => x !== k))}
-                                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
-                                        title="Click to remove"
-                                      >
-                                        <span className="font-semibold">{label}</span>
-                                        <span className="text-zinc-400">×</span>
-                                      </button>
-                                    );
-                                  })}
-
-                                  {aiContextMedia.map((m) => {
-                                    const label = (m.fileName || "").trim() || "Media";
-                                    return (
-                                      <button
-                                        key={m.url}
-                                        type="button"
-                                        disabled={busy || customCodeBlockBusy}
-                                        onClick={() => setAiContextMedia((prev) => (prev || []).filter((x) => x.url !== m.url))}
-                                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
-                                        title="Click to remove"
-                                      >
-                                        <span className="font-semibold">{label}</span>
-                                        <span className="text-zinc-400">×</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <div className="text-sm text-zinc-600">No context selected.</div>
-                              )}
                             </div>
 
                             <div className="mt-3 flex gap-2">
@@ -6952,7 +9768,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </div>
 
                           <label className="block">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Height (px)</div>
+                            <div className="mb-1 text-xs font-medium text-zinc-500">Height</div>
                             <input
                               type="number"
                               value={String((selectedBlock.props as any).heightPx ?? 360)}
@@ -6967,7 +9783,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             />
                           </label>
                           <label className="block">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">HTML</div>
+                            <div className="mb-1 text-xs font-medium text-zinc-500">HTML</div>
                             <textarea
                               value={String((selectedBlock.props as any).html || "")}
                               onChange={(e) =>
@@ -6981,7 +9797,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             />
                           </label>
                           <label className="block">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">CSS (optional)</div>
+                            <div className="mb-1 text-xs font-medium text-zinc-500">CSS</div>
                             <textarea
                               value={String((selectedBlock.props as any).css || "")}
                               onChange={(e) =>
@@ -7014,7 +9830,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             return (
                               <>
                                 <div className="block">
-                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Placement (horizontal)</div>
+                                  <div className="mb-1 text-xs font-medium text-zinc-500">Horizontal placement</div>
                                   <div className="inline-flex overflow-hidden rounded-xl border border-zinc-200 bg-white">
                                     {([
                                       { v: "left", label: "Left" },
@@ -7040,7 +9856,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 </div>
 
                                 <div className="block">
-                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Placement (vertical)</div>
+                                  <div className="mb-1 text-xs font-medium text-zinc-500">Vertical placement</div>
                                   <div className="inline-flex overflow-hidden rounded-xl border border-zinc-200 bg-white">
                                     {([
                                       { v: "top", label: "Top" },
@@ -7069,7 +9885,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           })()}
 
                           <div className="block">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Agent ID</div>
+                            <div className="mb-1 text-xs font-medium text-zinc-500">Agent ID</div>
                             {availableAgentOptions.length ? (
                               <PortalListboxDropdown
                                 value={String((selectedBlock.props as any).agentId || "")}
@@ -7124,7 +9940,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           />
 
                           <label className="block">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Launcher style</div>
+                            <div className="mb-1 text-xs font-medium text-zinc-500">Launcher style</div>
                             <PortalListboxDropdown
                               value={String((selectedBlock.props as any).launcherStyle || "bubble")}
                               onChange={(launcherStyle) =>
@@ -7145,7 +9961,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </label>
 
                           <div className="block">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Launcher image (optional)</div>
+                            <div className="mb-1 text-xs font-medium text-zinc-500">Launcher image</div>
 
                             {String((selectedBlock.props as any).launcherImageUrl || "").trim() ? (
                               <div className="mb-2 flex items-center gap-2">
@@ -7289,7 +10105,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         />
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Product</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Product</div>
                           <PortalListboxDropdown
                             value={selectedBlock.props.priceId ?? ""}
                             onChange={(nextPriceId) => {
@@ -7336,7 +10152,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Product name</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Product name</div>
                           <input
                             value={(selectedBlock.props as any)?.productName ?? ""}
                             onChange={(e) =>
@@ -7351,7 +10167,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Short description</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Short description</div>
                           <textarea
                             rows={3}
                             value={(selectedBlock.props as any)?.productDescription ?? ""}
@@ -7384,7 +10200,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         ) : null}
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Quantity</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Quantity</div>
                           <input
                             type="number"
                             min={1}
@@ -7421,7 +10237,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         />
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Product</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Product</div>
                           <PortalListboxDropdown
                             value={(selectedBlock.props as any).priceId ?? ""}
                             onChange={(nextPriceId) => {
@@ -7467,7 +10283,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Product name</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Product name</div>
                           <input
                             value={(selectedBlock.props as any)?.productName ?? ""}
                             onChange={(e) =>
@@ -7482,7 +10298,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Short description</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Short description</div>
                           <textarea
                             rows={3}
                             value={(selectedBlock.props as any)?.productDescription ?? ""}
@@ -7515,7 +10331,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         ) : null}
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Quantity</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Quantity</div>
                           <input
                             type="number"
                             min={1}
@@ -7540,7 +10356,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     {selectedBlock.type === "cartButton" ? (
                       <div className="space-y-2">
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Button text</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Button text</div>
                           <input
                             value={(selectedBlock.props as any).text ?? ""}
                             onChange={(e) =>
@@ -7645,7 +10461,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </div>
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mobile menu</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Mobile menu</div>
                           <PortalListboxDropdown
                             value={String((selectedBlock.props as any)?.mobileMode || "dropdown")}
                             onChange={(v) =>
@@ -7664,7 +10480,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Desktop menu</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Desktop menu</div>
                           <PortalListboxDropdown
                             value={String((selectedBlock.props as any)?.desktopMode || "inline")}
                             onChange={(v) =>
@@ -7684,7 +10500,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Header size</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Header size</div>
                           {(() => {
                             const rawScale = (selectedBlock.props as any)?.sizeScale;
                             const parsedScale = typeof rawScale === "number" && Number.isFinite(rawScale) ? rawScale : undefined;
@@ -7734,7 +10550,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Menu trigger</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Menu trigger</div>
                           <PortalListboxDropdown
                             value={String((selectedBlock.props as any)?.mobileTrigger || "hamburger")}
                             onChange={(v) =>
@@ -7754,7 +10570,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                         {String((selectedBlock.props as any)?.mobileTrigger || "hamburger") === "directory" ? (
                           <label className="block">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Directory label</div>
+                            <div className="mb-1 text-xs font-medium text-zinc-500">Directory label</div>
                             <input
                               value={String((selectedBlock.props as any)?.mobileTriggerLabel || "")}
                               onChange={(e) =>
@@ -7770,7 +10586,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         ) : null}
 
                         <div className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Logo image</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Logo image</div>
                           <div className="flex flex-wrap gap-2">
                             <button
                               type="button"
@@ -7850,7 +10666,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                           {String((selectedBlock.props as any)?.logoUrl || "").trim() ? (
                             <div className="mt-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                              <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected logo</div>
+                              <div className="text-xs font-medium text-zinc-500">Selected logo</div>
                               <div className="mt-1 break-all font-mono text-xs text-zinc-700">
                                 {String((selectedBlock.props as any)?.logoUrl || "").trim()}
                               </div>
@@ -7861,7 +10677,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </div>
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Logo link (optional)</div>
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Logo link</div>
                           <input
                             value={String((selectedBlock.props as any)?.logoHref || "")}
                             onChange={(e) =>
@@ -7876,8 +10692,32 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Menu items</div>
-                          <div className="mt-2 space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-xs font-medium text-zinc-500">Menu items</div>
+                              <div className="mt-1 text-xs text-zinc-500">Select one item, then edit its target below.</div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                const items = Array.isArray((selectedBlock.props as any)?.items)
+                                  ? (((selectedBlock.props as any).items as any[]) || [])
+                                  : [];
+                                const nextItem = { id: newId(), label: "Link", kind: "url", url: "" };
+                                const next = [...items, nextItem];
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, items: next },
+                                } as any);
+                                setSelectedHeaderNavItemId(nextItem.id);
+                              }}
+                              className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                            >
+                              + Add item
+                            </button>
+                          </div>
+                          <div className="mt-3 space-y-3">
                             {(() => {
                               const items = Array.isArray((selectedBlock.props as any)?.items)
                                 ? (((selectedBlock.props as any).items as any[]) || [])
@@ -7925,148 +10765,211 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   props: { ...selectedBlock.props, items: nextItems },
                                 } as any);
 
+                              const describeMenuItemTarget = (item: any) => {
+                                const kind = item?.kind === "page" || item?.kind === "anchor" ? String(item.kind) : "url";
+                                if (kind === "page") {
+                                  const pageSlug = String(item?.pageSlug || "").trim();
+                                  if (!pageSlug) return "Opens the first funnel page";
+                                  const pageTitle = (pages || []).find((page) => page.slug === pageSlug)?.title || pageSlug;
+                                  return `Opens ${pageTitle}`;
+                                }
+                                if (kind === "anchor") {
+                                  const anchorId = String(item?.anchorId || "").trim();
+                                  return anchorId ? `Scrolls to #${anchorId}` : "Scroll target not set";
+                                }
+                                const url = String(item?.url || "").trim();
+                                return url || "External URL not set";
+                              };
+
+                              const selectedMenuItem = items.find((item: any) => String(item?.id || "") === selectedHeaderNavItemId) || null;
+
                               return (
                                 <>
-                                  {items.map((it: any) => {
-                                    const itemId = String(it?.id || "");
-                                    const label = String(it?.label || "");
-                                    const kind = it?.kind === "page" || it?.kind === "anchor" ? String(it.kind) : "url";
+                                  {items.length ? (
+                                    <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
+                                      {items.map((it: any, index: number) => {
+                                        const itemId = String(it?.id || "");
+                                        const label = String(it?.label || "").trim() || `Item ${index + 1}`;
+                                        const kind = it?.kind === "page" || it?.kind === "anchor" ? String(it.kind) : "url";
+                                        const isSelected = itemId === selectedHeaderNavItemId;
 
-                                    return (
-                                      <div key={itemId} className="rounded-xl border border-zinc-200 bg-white p-3">
-                                        <div className="flex items-start justify-between gap-2">
-                                          <div className="min-w-0 flex-1 space-y-2">
+                                        return (
+                                          <button
+                                            key={itemId}
+                                            type="button"
+                                            onClick={() => setSelectedHeaderNavItemId(itemId)}
+                                            className={classNames(
+                                              "flex w-full items-start gap-3 rounded-xl border px-3 py-2.5 text-left",
+                                              isSelected
+                                                ? "border-zinc-900 bg-zinc-900 text-white"
+                                                : "border-zinc-200 bg-zinc-50 text-zinc-900 hover:bg-white",
+                                            )}
+                                          >
+                                            <div className="min-w-0 flex-1">
+                                              <div className={classNames(
+                                                "text-[11px] font-medium",
+                                                isSelected ? "text-white/70" : "text-zinc-500",
+                                              )}>
+                                                {kind === "page" ? "Funnel page" : kind === "anchor" ? "Section link" : "External URL"}
+                                              </div>
+                                              <div className="mt-1 truncate text-sm font-semibold">{label}</div>
+                                              <div className={classNames(
+                                                "mt-1 truncate text-xs",
+                                                isSelected ? "text-white/75" : "text-zinc-500",
+                                              )}>
+                                                {describeMenuItemTarget(it)}
+                                              </div>
+                                            </div>
+                                            <div className={classNames(
+                                              "mt-1 text-[11px] font-medium",
+                                              isSelected ? "text-white/70" : "text-zinc-400",
+                                            )}>
+                                              {isSelected ? "Editing" : "Select"}
+                                            </div>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
+                                      Add a menu item to start structuring this header.
+                                    </div>
+                                  )}
+
+                                  {selectedMenuItem ? (
+                                    <div className="border-t border-zinc-200 pt-3">
+                                      <div className="text-xs font-medium text-zinc-500">Selected item</div>
+                                      <div className="mt-3 space-y-2">
+                                        <input
+                                          value={String(selectedMenuItem?.label || "")}
+                                          onChange={(e) => {
+                                            const next = items.map((x: any) =>
+                                              String(x?.id || "") === String(selectedMenuItem?.id || "") ? { ...x, label: e.target.value } : x,
+                                            );
+                                            updateItems(next);
+                                          }}
+                                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                          placeholder="Label"
+                                        />
+
+                                        <PortalListboxDropdown
+                                          value={selectedMenuItem?.kind === "page" || selectedMenuItem?.kind === "anchor" ? String(selectedMenuItem.kind) : "url"}
+                                          onChange={(v) => {
+                                            const nextKind = String(v || "url");
+                                            const next = items.map((x: any) => {
+                                              if (String(x?.id || "") !== String(selectedMenuItem?.id || "")) return x;
+                                              const base = { ...x, kind: nextKind };
+                                              if (nextKind === "url") return { ...base, url: String(base.url || "").trim(), pageSlug: undefined, anchorId: undefined };
+                                              if (nextKind === "page") return { ...base, pageSlug: String(base.pageSlug || ""), url: undefined, anchorId: undefined };
+                                              return { ...base, anchorId: String(base.anchorId || ""), url: undefined, pageSlug: undefined };
+                                            });
+                                            updateItems(next);
+                                          }}
+                                          options={[
+                                            { value: "url", label: "External URL" },
+                                            { value: "page", label: "Funnel page" },
+                                            { value: "anchor", label: "Section (scroll)" },
+                                          ]}
+                                          className="w-full"
+                                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                        />
+
+                                        {(selectedMenuItem?.kind === "page" || selectedMenuItem?.kind === "anchor") ? null : (
+                                          <>
                                             <input
-                                              value={label}
+                                              value={String(selectedMenuItem?.url || "")}
                                               onChange={(e) => {
-                                                const next = items.map((x: any) => (x?.id === itemId ? { ...x, label: e.target.value } : x));
+                                                const next = items.map((x: any) =>
+                                                  String(x?.id || "") === String(selectedMenuItem?.id || "") ? { ...x, url: e.target.value } : x,
+                                                );
                                                 updateItems(next);
                                               }}
                                               className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                              placeholder="Label"
+                                              placeholder="https://…"
                                             />
+                                            <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                                              <span className="text-sm font-semibold text-zinc-900">Open in new tab</span>
+                                              <ToggleSwitch
+                                                checked={Boolean(selectedMenuItem?.newTab)}
+                                                disabled={busy}
+                                                onChange={(checked) => {
+                                                  const next = items.map((x: any) =>
+                                                    String(x?.id || "") === String(selectedMenuItem?.id || "") ? { ...x, newTab: checked } : x,
+                                                  );
+                                                  updateItems(next);
+                                                }}
+                                              />
+                                            </label>
+                                          </>
+                                        )}
 
+                                        {selectedMenuItem?.kind === "page" ? (
+                                          <PortalListboxDropdown
+                                            value={String(selectedMenuItem?.pageSlug || "")}
+                                            onChange={(v) => {
+                                              const next = items.map((x: any) =>
+                                                String(x?.id || "") === String(selectedMenuItem?.id || "") ? { ...x, pageSlug: String(v || "") } : x,
+                                              );
+                                              updateItems(next);
+                                            }}
+                                            options={[
+                                              { value: "", label: "(Home / first page)" },
+                                              ...(pages || []).map((p) => ({ value: p.slug, label: p.title })),
+                                            ]}
+                                            className="w-full"
+                                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                          />
+                                        ) : null}
+
+                                        {selectedMenuItem?.kind === "anchor" ? (
+                                          <>
                                             <PortalListboxDropdown
-                                              value={kind}
+                                              value={String(selectedMenuItem?.anchorId || "")}
                                               onChange={(v) => {
-                                                const nextKind = String(v || "url");
-                                                const next = items.map((x: any) => {
-                                                  if (x?.id !== itemId) return x;
-                                                  const base = { ...x, kind: nextKind };
-                                                  if (nextKind === "url") return { ...base, url: String(base.url || "").trim(), pageSlug: undefined, anchorId: undefined };
-                                                  if (nextKind === "page") return { ...base, pageSlug: String(base.pageSlug || ""), url: undefined, anchorId: undefined };
-                                                  return { ...base, anchorId: String(base.anchorId || ""), url: undefined, pageSlug: undefined };
-                                                });
+                                                const next = items.map((x: any) =>
+                                                  String(x?.id || "") === String(selectedMenuItem?.id || "") ? { ...x, anchorId: String(v || "") } : x,
+                                                );
                                                 updateItems(next);
                                               }}
-                                                  options={[
-                                                    { value: "url", label: "External URL" },
-                                                    { value: "page", label: "Funnel page" },
-                                                    { value: "anchor", label: "Section (scroll)" },
-                                                  ]}
+                                              options={[
+                                                { value: "", label: "Select an anchor…" },
+                                                ...anchorOptions,
+                                              ]}
                                               className="w-full"
                                               buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                                             />
+                                            <input
+                                              value={String(selectedMenuItem?.anchorId || "")}
+                                              onChange={(e) => {
+                                                const next = items.map((x: any) =>
+                                                  String(x?.id || "") === String(selectedMenuItem?.id || "") ? { ...x, anchorId: e.target.value } : x,
+                                                );
+                                                updateItems(next);
+                                              }}
+                                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                              placeholder="anchor-id"
+                                            />
+                                          </>
+                                        ) : null}
 
-                                            {kind === "url" ? (
-                                              <>
-                                                <input
-                                                  value={String(it?.url || "")}
-                                                  onChange={(e) => {
-                                                    const next = items.map((x: any) => (x?.id === itemId ? { ...x, url: e.target.value } : x));
-                                                    updateItems(next);
-                                                  }}
-                                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                                  placeholder="https://…"
-                                                />
-                                                <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                                                  <span className="text-sm font-semibold text-zinc-900">Open in new tab</span>
-                                                  <ToggleSwitch
-                                                    checked={Boolean(it?.newTab)}
-                                                    disabled={busy}
-                                                    onChange={(checked) => {
-                                                      const next = items.map((x: any) => (x?.id === itemId ? { ...x, newTab: checked } : x));
-                                                      updateItems(next);
-                                                    }}
-                                                  />
-                                                </label>
-                                              </>
-                                            ) : null}
-
-                                            {kind === "page" ? (
-                                              <PortalListboxDropdown
-                                                value={String(it?.pageSlug || "")}
-                                                onChange={(v) => {
-                                                  const next = items.map((x: any) => (x?.id === itemId ? { ...x, pageSlug: String(v || "") } : x));
-                                                  updateItems(next);
-                                                }}
-                                                options={[
-                                                  { value: "", label: "(Home / first page)" },
-                                                  ...(pages || []).map((p) => ({ value: p.slug, label: p.title })),
-                                                ]}
-                                                className="w-full"
-                                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                                              />
-                                            ) : null}
-
-                                            {kind === "anchor" ? (
-                                              <>
-                                                <PortalListboxDropdown
-                                                  value={String(it?.anchorId || "")}
-                                                  onChange={(v) => {
-                                                    const next = items.map((x: any) => (x?.id === itemId ? { ...x, anchorId: String(v || "") } : x));
-                                                    updateItems(next);
-                                                  }}
-                                                  options={[
-                                                    { value: "", label: "Select an anchor…" },
-                                                    ...anchorOptions,
-                                                  ]}
-                                                  className="w-full"
-                                                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                                                />
-                                                <input
-                                                  value={String(it?.anchorId || "")}
-                                                  onChange={(e) => {
-                                                    const next = items.map((x: any) => (x?.id === itemId ? { ...x, anchorId: e.target.value } : x));
-                                                    updateItems(next);
-                                                  }}
-                                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                                  placeholder="anchor-id"
-                                                />
-                                              </>
-                                            ) : null}
-                                          </div>
-
+                                        <div className="flex items-center justify-between gap-2 pt-1">
+                                          <div className="text-xs text-zinc-500">{describeMenuItemTarget(selectedMenuItem)}</div>
                                           <button
                                             type="button"
                                             disabled={busy}
                                             onClick={() => {
-                                              const next = items.filter((x: any) => x?.id !== itemId);
+                                              const next = items.filter((x: any) => String(x?.id || "") !== String(selectedMenuItem?.id || ""));
                                               updateItems(next);
+                                              setSelectedHeaderNavItemId(next.length ? String(next[0]?.id || "") : null);
                                             }}
                                             className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
                                           >
-                                            Remove
+                                            Remove item
                                           </button>
                                         </div>
                                       </div>
-                                    );
-                                  })}
-
-                                  <button
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={() => {
-                                      const next = [
-                                        ...items,
-                                        { id: newId(), label: "Link", kind: "url", url: "" },
-                                      ];
-                                      updateItems(next);
-                                    }}
-                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                                  >
-                                    + Add menu item
-                                  </button>
+                                    </div>
+                                  ) : null}
                                 </>
                               );
                             })()}
@@ -9839,217 +12742,215 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 </div>
               ) : null}
             </div>
-          ) : (
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Custom code (AI)</div>
-              <div className="mt-3 max-h-[40vh] space-y-2 overflow-auto rounded-2xl border border-zinc-200 bg-white p-3">
-                {selectedChat.length === 0 ? (
-                  <div className="text-sm text-zinc-600">
-                    Ask for a layout and CTAs. Then follow up with edits like “change the font”.
-                  </div>
-                ) : (
-                  selectedChat.map((m, idx) => (
-                    <div
-                      key={idx}
-                      className={classNames(
-                        "rounded-xl px-3 py-2 text-sm",
-                        m.role === "user" ? "bg-blue-50 text-zinc-900" : "bg-zinc-50 text-zinc-800",
-                      )}
-                    >
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{m.role}</div>
-                        <div className="mt-1 whitespace-pre-wrap wrap-break-word">{chatDisplayContent(m)}</div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <textarea
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                className="mt-3 min-h-27.5 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                placeholder="Describe what to build or change…"
-              />
-
-              <div className="mt-3 space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Context</div>
-                    <div className="mt-1 text-xs text-zinc-500">Optional: add blocks/presets and media to guide the AI output.</div>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setAiContextOpen(true)}
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                  >
-                    Add context
-                  </button>
-                </div>
-
-                {aiContextKeys.length || aiContextMedia.length ? (
-                  <div className="flex flex-wrap gap-2">
-                    {aiContextKeys.map((k) => {
-                      const opt = aiContextOptions.find((o) => o.key === k);
-                      const label = opt?.label || k;
-                      return (
-                        <button
-                          key={k}
-                          type="button"
-                          disabled={busy}
-                          onClick={() => setAiContextKeys((prev) => (prev || []).filter((x) => x !== k))}
-                          className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
-                          title="Click to remove"
-                        >
-                          <span className="font-semibold">{label}</span>
-                          <span className="text-zinc-400">×</span>
-                        </button>
-                      );
-                    })}
-
-                    {aiContextMedia.map((m) => {
-                      const label = (m.fileName || "").trim() || "Media";
-                      return (
-                        <button
-                          key={m.url}
-                          type="button"
-                          disabled={busy}
-                          onClick={() => setAiContextMedia((prev) => (prev || []).filter((x) => x.url !== m.url))}
-                          className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
-                          title="Click to remove"
-                        >
-                          <span className="font-semibold">{label}</span>
-                          <span className="text-zinc-400">×</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-sm text-zinc-600">No context selected.</div>
-                )}
-              </div>
-
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  disabled={busy || !chatInput.trim()}
-                  onClick={() => void runAi()}
-                  className={classNames(
-                    "flex-1 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-                    busy || !chatInput.trim() ? "bg-zinc-400" : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) hover:opacity-90 shadow-sm",
-                  )}
-                >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
-                    <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
-                  </svg>
-                  <span>{busy ? "Working…" : "Ask AI"}</span>
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    setSelectedPageLocal({ customChatJson: [] });
-                    void savePage({ customChatJson: [] });
-                  }}
-                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                >
-                  Clear
-                </button>
-              </div>
-
-              <div className="mt-4 border-t border-zinc-200 pt-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">HTML</div>
-                <textarea
-                  value={selectedPage.customHtml || ""}
-                  onChange={(e) => setSelectedPageLocal({ customHtml: e.target.value })}
-                  className="mt-2 min-h-60 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
-                  placeholder="<!doctype html>…"
-                />
-                <div className="mt-2 text-xs text-zinc-500">Use Save in the top bar to persist changes.</div>
-              </div>
-            </div>
-          )}
+          ) : null}
         </aside>
 
-                <main className="flex-1 overflow-auto bg-zinc-100 p-3 sm:p-4 lg:min-h-0 lg:overflow-hidden">
+        <main
+          className={classNames(
+            "flex min-h-0 flex-col overflow-auto bg-zinc-100 p-3 sm:p-4 lg:overflow-hidden",
+            "lg:order-2",
+          )}
+        >
+          {aiResultBanner ? (
+            <div
+              className={classNames(
+                "mb-3 flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm shadow-sm",
+                aiResultBanner.tone === "warning"
+                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-900",
+              )}
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 20 20"
+                className={classNames("h-4 w-4 shrink-0", aiResultBanner.tone === "warning" ? "text-amber-500" : "text-emerald-500")}
+                fill="currentColor"
+              >
+                <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clipRule="evenodd" />
+              </svg>
+              <span className="min-w-0 flex-1 font-medium">{aiResultBanner.summary}</span>
+              <button
+                type="button"
+                onClick={() => void restoreLastAiRun()}
+                className={classNames(
+                  "shrink-0 rounded-full border bg-white px-3 py-1 text-xs font-semibold",
+                  aiResultBanner.tone === "warning"
+                    ? "border-amber-300 text-amber-800 hover:bg-amber-100"
+                    : "border-emerald-300 text-emerald-800 hover:bg-emerald-100",
+                )}
+              >
+                Undo
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiResultBanner(null)}
+                className={classNames(
+                  "shrink-0",
+                  aiResultBanner.tone === "warning"
+                    ? "text-amber-400 hover:text-amber-700"
+                    : "text-emerald-400 hover:text-emerald-700",
+                )}
+                aria-label="Dismiss"
+              >
+                <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor" aria-hidden="true">
+                  <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+                </svg>
+              </button>
+            </div>
+          ) : null}
+          {aiWorkFocus ? (
+            <div
+              className={classNames(
+                "mb-3 flex items-center gap-3 rounded-2xl border px-4 py-2.5 text-sm shadow-sm",
+                aiWorkFocus.phase === "pending"
+                  ? "border-zinc-200 bg-white text-zinc-900"
+                  : "border-zinc-200 bg-zinc-50 text-zinc-700",
+              )}
+            >
+              <span
+                className={classNames(
+                  "inline-flex h-2.5 w-2.5 shrink-0 rounded-full",
+                  aiWorkFocus.phase === "pending" ? "animate-pulse bg-zinc-900" : "bg-zinc-500",
+                )}
+              />
+              <span className="min-w-0 flex-1 font-medium">{aiWorkFocus.label}</span>
+              {aiWorkFocus.mode === "page" && aiWorkFocus.regionKey ? (
+                <span className="shrink-0 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                  Scoped
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           <div
             className={classNames(
-              "flex h-full flex-col overflow-hidden border border-zinc-200 bg-white",
+              "flex min-h-0 flex-1 flex-col overflow-hidden border border-zinc-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.06)]",
               previewDevice === "mobile" ? "rounded-2xl" : "rounded-none",
             )}
           >
             <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Preview"}</div>
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Preview"}</div>
+                  {selectedPage ? (
+                    <span className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      {wholePageSurfaceActive
+                        ? customCodeStageMode === "source" ? "Source" : "Preview"
+                        : previewMode === "edit" ? "Edit" : "Preview"}
+                    </span>
+                  ) : null}
+                </div>
                 {selectedPage ? <div className="truncate text-xs text-zinc-500">/{selectedPage.slug}</div> : null}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-1">
+                <div className="inline-flex items-center rounded-xl border border-zinc-200 bg-white p-1">
                   <button
                     type="button"
-                    onClick={() => setPreviewDevice("desktop")}
-                    className={classNames(
-                      "rounded-lg px-3 py-1.5 text-sm font-semibold",
-                      previewDevice === "desktop" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
-                    )}
+                    onClick={() => setPreviewDevice((prev) => (prev === "desktop" ? "mobile" : "desktop"))}
+                    className="relative mr-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+                    aria-label={previewDevice === "desktop" ? "Switch to mobile preview" : "Switch to desktop preview"}
+                    title={previewDevice === "desktop" ? "Switch to mobile" : "Switch to desktop"}
                   >
-                    Desktop
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewDevice("mobile")}
-                    className={classNames(
-                      "rounded-lg px-3 py-1.5 text-sm font-semibold",
-                      previewDevice === "mobile" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
-                    )}
-                  >
-                    Mobile
-                  </button>
-                </div>
-
-                  {funnelLiveHref ? (
-                    <a
-                      href={funnelLiveHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                    >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path
-                          d="M1.5 12s4-7 10.5-7 10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12Z"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                        />
-                        <path
-                          d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                        />
+                    <span className="relative h-4 w-4">
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className={classNames(
+                          "absolute inset-0 h-4 w-4 transition-all duration-200 ease-out",
+                          previewDevice === "desktop" ? "scale-100 opacity-100" : "scale-75 opacity-0",
+                        )}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect x="3.5" y="4.5" width="17" height="11" rx="1.75" />
+                        <path d="M8 19.5h8" />
+                        <path d="M12 15.5v4" />
                       </svg>
-                      View live
-                    </a>
-                  ) : null}
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className={classNames(
+                          "absolute inset-0 h-4 w-4 transition-all duration-200 ease-out",
+                          previewDevice === "mobile" ? "scale-100 opacity-100" : "scale-75 opacity-0",
+                        )}
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect x="7.25" y="2.75" width="9.5" height="18.5" rx="2.25" />
+                        <path d="M10.5 5.75h3" />
+                        <path d="M11.25 18.25h1.5" />
+                      </svg>
+                    </span>
+                  </button>
+                  <div className="mx-0.5 h-4 w-px shrink-0 bg-zinc-200" />
+                  {wholePageSurfaceActive ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setCustomCodeStageMode("preview")}
+                        className={classNames(
+                          "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                          customCodeStageMode === "preview" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
+                        )}
+                      >
+                        Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustomCodeStageMode("source")}
+                        className={classNames(
+                          "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                          customCodeStageMode === "source" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
+                        )}
+                      >
+                        Source
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewMode("edit")}
+                        className={classNames(
+                          "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                          previewMode === "edit" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
+                        )}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewMode("preview")}
+                        className={classNames(
+                          "rounded-lg px-3 py-1.5 text-sm font-semibold",
+                          previewMode === "preview" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
+                        )}
+                      >
+                        Preview
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
             <div
-              className="flex-1 overflow-auto p-8"
+              className={classNames(
+                "flex min-h-0 flex-1 flex-col overflow-auto",
+                previewDevice === "mobile" ? "px-3 py-4 sm:px-5" : "p-4",
+              )}
               onDragOver={(e) => {
-                if (!selectedPage || selectedPage.editorMode !== "BLOCKS") return;
+                if (!selectedPage || selectedPage.editorMode !== "BLOCKS" || previewMode !== "edit") return;
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "copy";
               }}
               onDrop={(e) => {
-                if (!selectedPage || selectedPage.editorMode !== "BLOCKS") return;
+                if (!selectedPage || selectedPage.editorMode !== "BLOCKS" || previewMode !== "edit") return;
                 e.preventDefault();
                 const preset = e.dataTransfer.getData("text/x-funnel-preset");
                 if (preset === "hero" || preset === "body" || preset === "form" || preset === "shop") {
@@ -10061,65 +12962,300 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               }}
             >
               {!selectedPage ? (
-                <div className="text-sm text-zinc-600">Select a page to preview.</div>
-              ) : selectedPage.editorMode === "CUSTOM_HTML" ? (
-                <div
-                  className={classNames(
-                    "mx-auto w-full overflow-hidden border border-zinc-200 bg-white",
-                    previewDevice === "mobile" ? "max-w-105 rounded-3xl" : "max-w-5xl rounded-none",
-                  )}
-                >
-                  <iframe
-                    title={selectedPage.title}
-                    sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
-                    allow="microphone"
-                    srcDoc={selectedPage.customHtml || ""}
-                    className="h-[78vh] w-full bg-white"
-                  />
+                pages === null ? (
+                  <div className="mx-auto w-full max-w-5xl space-y-4">
+                    <div className="h-12 rounded-2xl bg-white animate-pulse" />
+                    <div className="h-[60vh] rounded-4xl bg-white animate-pulse" />
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-600">Select a page to preview.</div>
+                )
+              ) : wholePageModeActive ? (
+                <div className="mx-auto flex min-h-0 flex-1 w-full max-w-6xl flex-col">
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[34px] bg-white/74 shadow-[0_18px_44px_rgba(15,23,42,0.06)] ring-1 ring-zinc-200/70 backdrop-blur">
+                    <div
+                      className={classNames(
+                        "flex min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(180deg,rgba(250,250,252,0.68)_0%,rgba(244,246,248,0.48)_100%)] p-2.5 sm:p-3",
+                      )}
+                    >
+                      <div className={classNames("flex min-h-0 flex-1 flex-col gap-3", wholePageSourceEditable && customCodeStageMode === "source" && selectedPageHtmlChangeActivity.length > 0 ? "xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start" : "") }>
+                        <div className="flex min-h-0 flex-1 flex-col gap-3">
+                          {wholePageSourceEditable && showInlineHtmlChangeReceipt ? (
+                            <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-zinc-200/80 bg-white/82 px-4 py-3 shadow-[0_12px_30px_rgba(15,23,42,0.05)] backdrop-blur">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                  <span>Recent change</span>
+                                  <span className="h-1 w-1 rounded-full bg-zinc-300" />
+                                  <span>{formatActivityTimestamp(latestSelectedPageHtmlChange.at)}</span>
+                                </div>
+                                <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{latestSelectedPageHtmlChange.summary}</div>
+                                <div className="mt-1 truncate text-xs text-zinc-500">{latestSelectedPageHtmlChange.prompt}</div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-600">
+                                  {latestSelectedPageHtmlChange.scopeLabel}
+                                </span>
+                                <ChangeCountPill value={latestSelectedPageHtmlChange.diff.addedLines} prefix="+" tone="added" />
+                                <ChangeCountPill value={latestSelectedPageHtmlChange.diff.removedLines} prefix="-" tone="removed" />
+                                <span
+                                  className={classNames(
+                                    "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                                    latestSelectedPageHtmlChange.previewChanged
+                                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                      : "border-amber-200 bg-amber-50 text-amber-700",
+                                  )}
+                                >
+                                  {latestSelectedPageHtmlChange.previewChanged ? "Preview updated" : "Preview unchanged"}
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+
+                          <div className="flex min-h-0 flex-1 flex-col">
+                            {customCodeStageMode === "source" ? (
+                              currentPageSourceHtml ? (
+                                <CodeSurface
+                                  value={currentPageSourceHtml}
+                                  onChange={wholePageSourceEditable ? (next) => setSelectedPageLocal({ draftHtml: next }) : undefined}
+                                  onCopy={() => {
+                                    try {
+                                      void navigator.clipboard?.writeText?.(currentPageSourceHtml || currentPagePublishedHtml || getFunnelPageDraftHtml(selectedPage));
+                                      toast.success("HTML copied");
+                                    } catch {
+                                      toast.error("Could not copy HTML");
+                                    }
+                                  }}
+                                  placeholder="<!doctype html>"
+                                  readOnly={!wholePageSourceEditable}
+                                  lineHighlightRange={wholePageSourceEditable ? latestSourceHighlightRange : null}
+                                />
+                              ) : (
+                                <div className="flex h-full min-h-[50vh] items-center justify-center rounded-[28px] border border-dashed border-zinc-300 bg-white px-6 text-center text-sm text-zinc-600">
+                                  {wholePageStatusMessage || "No page source available yet. Save the page to generate the source view."}
+                                </div>
+                              )
+                            ) : (
+                              currentPageSourceHtml ? (
+                                <CustomHtmlPreviewFrame
+                                  html={editorPreviewHtml}
+                                  title={selectedPage.title}
+                                  previewDevice={previewDevice}
+                                  heightClassName="h-full"
+                                  selectedRegionKey={selectedHtmlRegion?.key || null}
+                                  selectionState={htmlPreviewSelectionState}
+                                />
+                              ) : selectedPage.editorMode === "BLOCKS" ? (
+                                <div className={classNames("mx-auto w-full", previewDevice === "mobile" ? "max-w-98" : "max-w-5xl")}>
+                                  <div
+                                    className={classNames(
+                                      previewDevice === "mobile"
+                                        ? "overflow-hidden rounded-[30px] border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3 shadow-[0_20px_60px_rgba(15,23,42,0.08)]"
+                                        : "border border-zinc-200 bg-white",
+                                    )}
+                                  >
+                                    {previewDevice === "mobile" ? <div className="mx-auto mb-3 h-1.5 w-24 rounded-full bg-zinc-300" /> : null}
+                                    <div className={classNames(previewDevice === "mobile" ? "h-[min(72vh,780px)] overflow-auto rounded-[28px] bg-white" : "min-h-[82vh]")}>
+                                      {renderCreditFunnelBlocks({
+                                        blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
+                                        basePath: hostedBasePath,
+                                        context: {
+                                          bookingSiteSlug: bookingSiteSlug || undefined,
+                                          funnelPageId: selectedPage.id,
+                                          previewDevice,
+                                          previewEmbedMode: "live",
+                                        },
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex h-full min-h-[50vh] items-center justify-center rounded-[28px] border border-dashed border-zinc-300 bg-white px-6 text-center text-sm text-zinc-600">
+                                  {wholePageSyncNotice || "No page source available yet. Save the page to generate the source view."}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+
+                        {wholePageSourceEditable && customCodeStageMode === "source" && selectedPageHtmlChangeActivity.length > 0 ? (
+                          <div className="hidden h-full min-h-0 xl:block">
+                            <HtmlChangeTimeline items={selectedPageHtmlChangeActivity} />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-zinc-200/70 bg-white/68 px-3 py-2.5 backdrop-blur">
+                      {wholePageSourceEditable ? (
+                        <div className="relative">
+                          {htmlScopePickerOpen ? (
+                            <div className="absolute bottom-[calc(100%+10px)] left-0 z-10 flex max-w-full flex-wrap gap-2 rounded-2xl border border-zinc-200/80 bg-white/90 p-2 shadow-[0_18px_34px_rgba(15,23,42,0.1)] backdrop-blur">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedHtmlRegionKey(null);
+                                  setHtmlScopePickerOpen(false);
+                                }}
+                                className={classNames(
+                                  "rounded-full border px-3 py-1.5 text-xs font-semibold",
+                                  selectedHtmlRegion
+                                    ? "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+                                    : "border-zinc-900 bg-zinc-900 text-white",
+                                )}
+                              >
+                                Whole page
+                              </button>
+                              {htmlRegionScopes.map((region) => (
+                                <button
+                                  key={`popover-${region.key}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedHtmlRegionKey(region.key);
+                                    setHtmlScopePickerOpen(false);
+                                  }}
+                                  className={classNames(
+                                    "rounded-full border px-3 py-1.5 text-xs font-semibold",
+                                    selectedHtmlRegion?.key === region.key
+                                      ? "border-zinc-900 bg-zinc-900 text-white"
+                                      : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
+                                  )}
+                                  title={region.summary}
+                                >
+                                  {region.label}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          <div className="mx-auto flex w-full max-w-4xl items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setHtmlScopePickerOpen((prev) => !prev)}
+                              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-zinc-200/70 bg-white/72 px-3 py-2 text-xs font-semibold text-zinc-700 shadow-[0_6px_16px_rgba(15,23,42,0.05)] backdrop-blur hover:bg-white"
+                              title={selectedHtmlRegion ? selectedHtmlRegion.summary : "Apply changes across the whole page"}
+                            >
+                              <span>{selectedHtmlRegion ? selectedHtmlRegion.label : "Whole page"}</span>
+                              <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-3.5 w-3.5 transition-transform", htmlScopePickerOpen ? "rotate-180" : "") } fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="m5 7.5 5 5 5-5" />
+                              </svg>
+                            </button>
+
+                            <AiPromptComposer
+                              value={chatInput}
+                              onChange={setChatInput}
+                              onAttach={() => setAiContextOpen(true)}
+                              onSubmit={() => void runAi()}
+                              placeholder={selectedHtmlRegion ? `Change ${selectedHtmlRegion.label}` : "Change the page"}
+                              busy={busy}
+                              busyLabel={BUSY_PHASES[busyPhaseIdx]}
+                              attachCount={aiContextMedia.length}
+                              className="min-w-0 flex-1 bg-transparent"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mx-auto flex w-full max-w-4xl items-center rounded-2xl border border-zinc-200/70 bg-white/72 px-4 py-3 text-sm text-zinc-600 shadow-[0_6px_16px_rgba(15,23,42,0.05)] backdrop-blur">
+                          This page source is generated from your layout. Switch to Layout to edit sections, then save to refresh this code view.
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ) : (
-                <div
-                  className={classNames(
-                    "mx-auto w-full border border-zinc-200",
-                    previewDevice === "mobile" ? "max-w-105 rounded-3xl" : "max-w-5xl rounded-none",
-                  )}
-                >
-                  <div className="min-h-[70vh]">
-                    {editableBlocks.length === 0 ? (
-                      <div className="p-8">
-                        <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-600">
-                          Drag a block from the left, or click a block to add.
-                        </div>
-                      </div>
-                    ) : (
-                      renderCreditFunnelBlocks({
-                        blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
-                        basePath,
-                        context: {
-                          bookingSiteSlug: bookingSiteSlug || undefined,
-                          funnelPageId: selectedPage.id,
-                          previewDevice,
-                        },
-                        editor: {
-                          enabled: true,
-                          selectedBlockId,
-                          hoveredBlockId,
-                          onSelectBlockId: (id) => {
-                            setSelectedBlockId(id);
-                            setSidebarPanel("selected");
-                          },
-                          onHoverBlockId: (id) => setHoveredBlockId(id),
-                          onUpsertBlock: (next) => upsertBlock(next),
-                          onReorder: (dragId, dropId) => reorderBlocks(dragId, dropId),
-                          onMove: (id, dir) => moveBlock(id, dir),
-                          canMove: (id, dir) => canMoveBlock(id, dir),
-                        },
-                      })
+                <div className={classNames("mx-auto w-full", previewDevice === "mobile" ? "max-w-98" : "max-w-5xl")}>
+                  <div
+                    className={classNames(
+                      previewDevice === "mobile"
+                        ? "overflow-hidden rounded-[30px] border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3 shadow-[0_20px_60px_rgba(15,23,42,0.08)]"
+                        : "border border-zinc-200 bg-white",
                     )}
+                  >
+                    {previewDevice === "mobile" ? <div className="mx-auto mb-3 h-1.5 w-24 rounded-full bg-zinc-300" /> : null}
+                    <div
+                      className={classNames(previewDevice === "mobile" ? "h-[min(72vh,780px)] overflow-auto rounded-[28px] bg-white" : "min-h-[82vh]") }
+                      onDragOver={(e) => {
+                        if (!blocksSurfaceActive || previewMode !== "edit") return;
+                        const t = e.dataTransfer.types;
+                        if (t.includes("text/x-block-type") || t.includes("text/x-funnel-preset")) {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "copy";
+                        }
+                      }}
+                      onDrop={(e) => {
+                        if (!blocksSurfaceActive || previewMode !== "edit") return;
+                        e.preventDefault();
+                        const blockType = e.dataTransfer.getData("text/x-block-type");
+                        if (blockType) { addBlock(blockType as any); return; }
+                        const presetKey = e.dataTransfer.getData("text/x-funnel-preset");
+                        if (presetKey) addPresetSection(presetKey as any);
+                      }}
+                    >
+                      {previewDevice === "mobile" ? (
+                        <div className="border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-[11px] font-medium text-zinc-600">
+                          Mobile viewport preview. Live embeds are simplified here so the canvas stays responsive.
+                        </div>
+                      ) : null}
+
+                      {editableBlocks.length === 0 ? (
+                        <div className={classNames(previewDevice === "mobile" ? "p-4" : "p-8")}>
+                          <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-6 text-sm text-zinc-600">
+                            Let AI draft the page, or drop in the first block when you want manual control.
+                          </div>
+                        </div>
+                      ) : (
+                        renderCreditFunnelBlocks({
+                          blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
+                          basePath: hostedBasePath,
+                          context: {
+                            bookingSiteSlug: bookingSiteSlug || undefined,
+                            funnelPageId: selectedPage.id,
+                            previewDevice,
+                            previewEmbedMode: previewMode === "preview" ? "live" : "placeholder",
+                          },
+                          editor: previewMode === "edit"
+                            ? {
+                                enabled: true,
+                                selectedBlockId,
+                                hoveredBlockId,
+                                aiFocusedBlockId: aiWorkFocus?.mode === "builder" ? aiWorkFocus.blockId : null,
+                                aiFocusedPhase: aiWorkFocus?.mode === "builder" ? aiWorkFocus.phase : null,
+                                onSelectBlockId: (id) => {
+                                  setSelectedBlockId(id);
+                                  setSidebarPanel("selected");
+                                },
+                                onHoverBlockId: (id) => setHoveredBlockId(id),
+                                onUpsertBlock: (next) => upsertBlock(next),
+                                onReorder: (dragId, dropId) => reorderBlocks(dragId, dropId),
+                                onMove: (id, dir) => moveBlock(id, dir),
+                                canMove: (id, dir) => canMoveBlock(id, dir),
+                              }
+                            : undefined,
+                        })
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
             </div>
+
+            {blocksSurfaceActive && selectedPage ? (
+              <div className="border-t border-zinc-200/70 bg-white/68 px-3 py-2.5 backdrop-blur">
+                <div className="mx-auto flex w-full max-w-4xl items-center gap-3">
+                  <AiPromptComposer
+                    value={chatInput}
+                    onChange={setChatInput}
+                    onAttach={() => setAiContextOpen(true)}
+                    onSubmit={() => void runAi()}
+                    placeholder="Describe what you want AI to build or change"
+                    busy={busy}
+                    busyLabel={BUSY_PHASES[busyPhaseIdx]}
+                    attachCount={aiContextMedia.length}
+                    className="min-w-0 flex-1 bg-transparent"
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
         </main>
       </div>

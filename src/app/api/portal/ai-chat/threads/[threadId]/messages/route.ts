@@ -7953,6 +7953,161 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       return heuristicFallbackResponse;
     }
 
+    const tryHostedPageDirectFallbackResponse = async () => {
+      const fallbackSurfaceHint = describeDirectIntentSurface({
+        url: contextUrl,
+        canvasUrl: null,
+        contextKeys: [],
+      });
+      const fallbackPrompt = [fallbackSurfaceHint, promptForFallback].filter(Boolean).join("\n\n");
+      const signals = detectPuraDirectIntentSignals(promptForFallback || fallbackPrompt, fallbackThreadContext);
+      const hasHostedDirectIntent = Boolean(
+        signals.hostedPageGenerateTarget ||
+          signals.hostedPageUpdateTarget ||
+          signals.hostedPagePublishTarget ||
+          signals.hostedPageResetTarget ||
+          signals.hostedPagePreviewTarget ||
+          signals.hostedPageGetTarget ||
+          signals.hostedPageListService,
+      );
+      if (!hasHostedDirectIntent) return null;
+
+      const directPrerequisiteMessage = getPuraDirectPrerequisiteMessage({ signals, threadContext: fallbackThreadContext });
+      if (directPrerequisiteMessage) {
+        const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "assistant",
+            text: absolutizeAssistantTextLinks(directPrerequisiteMessage),
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: now,
+          },
+          select: {
+            id: true,
+            role: true,
+            text: true,
+            attachmentsJson: true,
+            createdAt: true,
+            sendAt: true,
+            sentAt: true,
+          },
+        });
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+        return NextResponse.json({
+          ok: true,
+          userMessage: responseUserMessage,
+          assistantMessage: assistantMsg,
+          assistantActions: [],
+          autoActionMessage: null,
+          canvasUrl: null,
+          assistantChoices: null,
+          clientUiActions: [],
+        });
+      }
+
+      const plan = getPuraDirectActionPlan({ prompt: promptForFallback, signals, threadContext: fallbackThreadContext });
+      if (!plan) return null;
+
+      const exec = await executePortalAgentAction({
+        ownerId,
+        actorUserId: createdByUserId,
+        action: plan.action,
+        args: plan.args,
+      });
+      const assistantText = typeof (exec as any)?.assistantText === "string" ? absolutizeAssistantTextLinks(String((exec as any).assistantText).trim()) : "";
+      if (!assistantText) return null;
+
+      const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "assistant",
+          text: assistantText,
+          attachmentsJson: null,
+          createdByUserId: null,
+          sendAt: null,
+          sentAt: now,
+        },
+        select: {
+          id: true,
+          role: true,
+          text: true,
+          attachmentsJson: true,
+          createdAt: true,
+          sendAt: true,
+          sentAt: true,
+        },
+      });
+
+      const canvasUrl = typeof (exec as any)?.linkUrl === "string" ? String((exec as any).linkUrl).trim().slice(0, 1200) : null;
+      const prevCtx = persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext) ? (persistedThreadContext as any) : {};
+      const prevRuns = Array.isArray(prevCtx.runs) ? (prevCtx.runs as unknown[]) : [];
+      const derivedPatch = deriveThreadContextPatchFromAction(plan.action, plan.args, (exec as any)?.result);
+      const runTrace = {
+        at: now.toISOString(),
+        workTitle: plan.traceTitle,
+        assistantMessageId: assistantMsg.id,
+        steps: [{ key: plan.action, title: plan.traceTitle, ok: Boolean((exec as any)?.ok), linkUrl: canvasUrl }],
+        canvasUrl,
+      };
+      const followUpSuggestions = buildProactiveFollowUpSuggestions({
+        actionKeys: [plan.action],
+        canvasUrl,
+        promptText: promptMessage,
+        completedCount: Boolean((exec as any)?.ok) ? 1 : 0,
+        failedCount: Boolean((exec as any)?.ok) ? 0 : 1,
+        pendingCount: 0,
+      });
+      const nextCtx = withPersistedFollowUpSuggestions(
+        {
+          ...prevCtx,
+          ...(derivedPatch && typeof derivedPatch === "object" && !Array.isArray(derivedPatch) ? (derivedPatch as any) : {}),
+          lastWorkTitle: plan.traceTitle,
+          lastCanvasUrl: canvasUrl,
+          runs: [...prevRuns.slice(-19), runTrace],
+        },
+        assistantMsg.id,
+        followUpSuggestions,
+      );
+
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+      await persistActiveChatRun({
+        status: Boolean((exec as any)?.ok) ? "completed" : "failed",
+        runId: activeRunId,
+        startedAt: activeRunStartedAt,
+        runTrace,
+        summaryText: assistantText,
+        followUpSuggestions,
+        completedAt: now,
+      });
+      persistedThreadContext = nextCtx;
+
+      return NextResponse.json({
+        ok: true,
+        userMessage: responseUserMessage,
+        assistantMessage: assistantMsg,
+        assistantActions: [],
+        autoActionMessage: null,
+        canvasUrl,
+        assistantChoices: null,
+        clientUiActions: Array.isArray((exec as any)?.clientUiAction)
+          ? (exec as any).clientUiAction
+          : (exec as any)?.clientUiAction
+            ? [(exec as any).clientUiAction]
+            : [],
+        runTrace,
+        followUpSuggestions,
+      });
+    };
+
+    const hostedPageDirectFallbackResponse = await tryHostedPageDirectFallbackResponse();
+    if (hostedPageDirectFallbackResponse) {
+      return hostedPageDirectFallbackResponse;
+    }
+
     // If agentic planning didn't return a response, fall back to support chat.
     // AI-first: if model generation fails, omit the assistant bubble.
     try {

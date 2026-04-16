@@ -26,6 +26,18 @@ import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingL
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
+import {
+  archivePreviewBlogPost,
+  createPreviewAutomationDraft,
+  createPreviewBlogPost,
+  createPreviewBlogSite,
+  deletePreviewBlogPost,
+  readPreviewBlogState,
+  savePreviewAutomationSettings,
+  savePreviewBlogAppearance,
+  savePreviewBlogSite,
+} from "@/lib/portalBlogsPreview.client";
 import { IconEdit, IconEyeGlyph, IconGlobeGlyph, IconServiceGlyph } from "@/app/portal/PortalIcons";
 
 export type BlogsTab = "posts" | "automation" | "settings";
@@ -82,6 +94,12 @@ type BlogAppearance = {
   useBrandFont: boolean;
   titleFontKey: string;
   bodyFontKey: string;
+};
+
+const PREVIEW_ME: Me = {
+  user: { email: "preview@purelyautomation.dev", name: "Local Preview", role: "CLIENT" },
+  entitlements: { blog: true, booking: true, crm: true },
+  billing: { configured: true },
 };
 
 type PostConfirm =
@@ -145,6 +163,7 @@ export function PortalBlogsClient({
   onTabChange: (tab: BlogsTab) => void;
 }) {
   const toast = useToast();
+  const uiPreview = usePortalUiPreview();
   const pathname = usePathname();
   const appBase = currentAppBase(pathname);
   const searchParams = useSearchParams();
@@ -317,20 +336,11 @@ export function PortalBlogsClient({
                 <span>Live</span>
               </span>
             </a>
-            <a
-              href={`${currentAppBase(pathname)}/services/blogs/page-editor`}
-              className="inline-flex items-center gap-2 rounded-2xl bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-900"
-            >
-              <span className="flex items-center gap-2">
-                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconEdit size={18} /></span>
-                <span>Edit page</span>
-              </span>
-            </a>
           </div>
         </div>
       </div>
     );
-  }, [liveBlogsHref, onTabChange, pathname, previewBlogsHref, routeTab]);
+  }, [liveBlogsHref, onTabChange, previewBlogsHref, routeTab]);
 
   useEffect(() => {
     if (!entitled) return;
@@ -385,7 +395,52 @@ export function PortalBlogsClient({
 
   const [automationStatusBusy, setAutomationStatusBusy] = useState(false);
 
+  const applyPreviewSnapshot = useCallback((snapshot: ReturnType<typeof readPreviewBlogState>) => {
+    setMe(PREVIEW_ME);
+    setSite(snapshot.site);
+    setPosts(snapshot.posts);
+    setAutomation(snapshot.automation);
+    setAppearance(snapshot.appearance);
+    setFunnelDomains(snapshot.funnelDomains);
+    setCredits(snapshot.credits);
+    setBlogCreditsUsed30d(snapshot.blogCreditsUsed30d);
+    setBlogGenerations30d(snapshot.blogGenerations30d);
+
+    setSiteName(snapshot.site?.name ?? "");
+    setSiteSlug(snapshot.site?.slug ?? "");
+    setSiteDomain(snapshot.site?.primaryDomain ?? "");
+    lastSavedSiteSigRef.current = JSON.stringify({
+      name: (snapshot.site?.name ?? "").trim() ? String(snapshot.site?.name ?? "") : "My Blog",
+      slug: String(snapshot.site?.slug ?? "").trim(),
+      primaryDomain: String(snapshot.site?.primaryDomain ?? "").trim(),
+    });
+
+    const nextTopics = sanitizeTopics(snapshot.automation.topics ?? []);
+    const preset = inferFrequencyPreset(snapshot.automation.frequencyDays);
+    setAutoEnabled(Boolean(snapshot.automation.enabled));
+    setAutoFrequencyUnit(preset.unit);
+    setAutoFrequencyCount(preset.count);
+    setAutoTopics(nextTopics);
+    setAutoPublish(Boolean(snapshot.automation.autoPublish));
+    lastSavedAutoSigRef.current = JSON.stringify({
+      enabled: Boolean(snapshot.automation.enabled),
+      frequencyDays: Math.min(30, Math.max(1, Math.floor(Number(snapshot.automation.frequencyDays) || 7))),
+      topics: nextTopics,
+      autoPublish: Boolean(snapshot.automation.autoPublish),
+    });
+  }, []);
+
   const refreshAutomationStatus = useCallback(async () => {
+    if (uiPreview) {
+      setAutomationStatusBusy(true);
+      try {
+        applyPreviewSnapshot(readPreviewBlogState());
+      } finally {
+        setAutomationStatusBusy(false);
+      }
+      return;
+    }
+
     // Refresh only the status fields so we don’t clobber in-progress edits
     // or throw the whole Blogs UI into a loading screen.
     setAutomationStatusBusy(true);
@@ -408,7 +463,7 @@ export function PortalBlogsClient({
     } finally {
       setAutomationStatusBusy(false);
     }
-  }, []);
+  }, [applyPreviewSnapshot, uiPreview]);
 
   const refreshAll = useCallback(async () => {
     const firstLoad = !hasLoadedOnceRef.current;
@@ -416,6 +471,19 @@ export function PortalBlogsClient({
     else setRefreshing(true);
     setError(null);
     setFunnelDomainsBusy(true);
+
+    if (uiPreview) {
+      try {
+        applyPreviewSnapshot(readPreviewBlogState());
+      } finally {
+        setFunnelDomainsBusy(false);
+        if (!hasLoadedOnceRef.current) hasLoadedOnceRef.current = true;
+        if (firstLoad) setLoading(false);
+        else setRefreshing(false);
+      }
+      return;
+    }
+
     try {
       const [meRes, siteRes, postsRes, autoRes, creditsRes, usageRes, domainsRes, appearanceRes] = await Promise.all([
         fetch("/api/customer/me", {
@@ -519,13 +587,19 @@ export function PortalBlogsClient({
       if (firstLoad) setLoading(false);
       else setRefreshing(false);
     }
-  }, []);
+  }, [applyPreviewSnapshot, uiPreview]);
 
   const saveAppearance = useCallback(
     async (next: Partial<BlogAppearance>) => {
       if (appearanceSaving) return;
       setAppearanceSaving(true);
       try {
+        if (uiPreview) {
+          const saved = savePreviewBlogAppearance(next);
+          setAppearance(saved);
+          return;
+        }
+
         const res = await fetch("/api/portal/blogs/appearance", {
           method: "PUT",
           headers: { "content-type": "application/json" },
@@ -541,7 +615,7 @@ export function PortalBlogsClient({
         setAppearanceSaving(false);
       }
     },
-    [appearanceSaving, toast],
+    [appearanceSaving, toast, uiPreview],
   );
 
   useEffect(() => {
@@ -626,6 +700,14 @@ export function PortalBlogsClient({
 
   async function archivePost(postId: string, archived: boolean) {
     setError(null);
+
+    if (uiPreview) {
+      archivePreviewBlogPost(postId, archived);
+      applyPreviewSnapshot(readPreviewBlogState());
+      toast.success(archived ? "Post archived." : "Post restored.");
+      return;
+    }
+
     const res = await fetch(`/api/portal/blogs/posts/${postId}/archive`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -654,6 +736,14 @@ export function PortalBlogsClient({
 
   async function deletePost(postId: string) {
     setError(null);
+
+    if (uiPreview) {
+      deletePreviewBlogPost(postId);
+      applyPreviewSnapshot(readPreviewBlogState());
+      toast.success("Post deleted.");
+      return;
+    }
+
     const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE" });
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     if (!res.ok || !json.ok) {
@@ -667,6 +757,14 @@ export function PortalBlogsClient({
   async function createSite() {
     setSiteSaving(true);
     setError(null);
+
+    if (uiPreview) {
+      createPreviewBlogSite({ name: siteName || "My Blog", slug: siteSlug, primaryDomain: siteDomain || null });
+      applyPreviewSnapshot(readPreviewBlogState());
+      setSiteSaving(false);
+      toast.success("Blog workspace created.");
+      return;
+    }
 
     const res = await fetch("/api/portal/blogs/site", {
       method: "POST",
@@ -700,6 +798,14 @@ export function PortalBlogsClient({
     setSiteSaving(true);
     setError(null);
 
+    if (uiPreview) {
+      savePreviewBlogSite({ name: nextName, slug: siteSlug, primaryDomain: siteDomain || null });
+      applyPreviewSnapshot(readPreviewBlogState());
+      setSiteSaving(false);
+      toast.success("Blog settings saved.");
+      return;
+    }
+
     const res = await fetch("/api/portal/blogs/site", {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -732,12 +838,19 @@ export function PortalBlogsClient({
 
   async function newDraft() {
     if (!site) {
-      setError("Create your blog workspace first (Settings → Create blog workspace).");
+      setError("Finish blog setup first, then create the first draft.");
       onTabChange("settings");
       return;
     }
 
     setError(null);
+
+    if (uiPreview) {
+      const post = createPreviewBlogPost({ title: "" });
+      window.location.href = `${appBase}/services/blogs/${post.id}`;
+      return;
+    }
+
     const res = await fetch("/api/portal/blogs/posts", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -765,6 +878,21 @@ export function PortalBlogsClient({
       topics,
       autoPublish: Boolean(autoPublish),
     });
+
+    if (uiPreview) {
+      savePreviewAutomationSettings({
+        enabled: Boolean(autoEnabled),
+        frequencyDays: nextFrequencyDays,
+        topics,
+        autoPublish: Boolean(autoPublish),
+      });
+      applyPreviewSnapshot(readPreviewBlogState());
+      setAutoSaving(false);
+      lastSavedAutoSigRef.current = nextSig;
+      toast.success("Automation saved.");
+      return;
+    }
+
     const res = await fetch("/api/portal/blogs/automation/settings", {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -878,59 +1006,128 @@ export function PortalBlogsClient({
             <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Posts</div>
-                <div className="mt-2 text-sm text-zinc-600">Edit drafts, export Markdown, and keep everything organized.</div>
+                <div className="mt-2 text-sm text-zinc-600">Start with setup, then move into drafting and publishing without guessing what comes next.</div>
               </div>
             </div>
 
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
-                <div className="text-xs font-semibold text-zinc-600">Total credits</div>
-                <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
-              </div>
-              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
-                <div className="text-xs font-semibold text-zinc-600">Blog credits used</div>
-                <div className="mt-2 text-2xl font-bold text-brand-ink">
-                  {blogCreditsUsed30d === null ? "N/A" : blogCreditsUsed30d.toLocaleString()}
+            {!site ? (
+              <div className="mt-5 rounded-4xl border border-zinc-200 bg-linear-to-br from-stone-50 via-white to-blue-50/60 p-5 shadow-sm sm:p-6">
+                <div className="max-w-3xl">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Start here</div>
+                  <div className="mt-3 text-2xl font-semibold tracking-tight text-zinc-900 sm:text-[2rem]">Set up the blog workspace before writing the first post.</div>
+                  <div className="mt-3 text-sm leading-6 text-zinc-600 sm:text-[15px]">
+                    The workspace needs a name, a hosted path, and optionally a domain before the editor feels grounded. Once that is set, the first draft becomes the obvious next step instead of a dead end.
+                  </div>
                 </div>
-                <div className="mt-1 text-xs text-zinc-500">
-                  Last 30 days · {blogGenerations30d === null ? "N/A" : blogGenerations30d} generation{blogGenerations30d === 1 ? "" : "s"}
+
+                <div className="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-3">
+                  <div className="rounded-3xl border border-zinc-200 bg-white/90 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Step 1</div>
+                    <div className="mt-2 text-base font-semibold text-zinc-900">Create the workspace</div>
+                    <div className="mt-2 text-sm text-zinc-600">Name the blog, set the hosted slug, and create the base link that all posts will live under.</div>
+                  </div>
+                  <div className="rounded-3xl border border-zinc-200 bg-white/90 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Step 2</div>
+                    <div className="mt-2 text-base font-semibold text-zinc-900">Confirm preview and live paths</div>
+                    <div className="mt-2 text-sm text-zinc-600">Make sure the hosted preview link looks right. If you want a custom domain, connect it after the workspace exists.</div>
+                  </div>
+                  <div className="rounded-3xl border border-zinc-200 bg-white/90 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Step 3</div>
+                    <div className="mt-2 text-base font-semibold text-zinc-900">Write the first post</div>
+                    <div className="mt-2 text-sm text-zinc-600">Once setup is ready, the editor opens with a cleaner publish flow and the preview links make more sense.</div>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => onTabChange("settings")}
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                  >
+                    Open blog setup
+                  </button>
+                  <Link
+                    href={`${appBase}/profile`}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  >
+                    Business info
+                  </Link>
+                  <Link
+                    href={`${appBase}/services/funnel-builder/settings`}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  >
+                    Domains
+                  </Link>
                 </div>
               </div>
-            </div>
+            ) : (
+              <>
+                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
+                    <div className="text-xs font-semibold text-zinc-600">Total credits</div>
+                    <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
+                    <div className="text-xs font-semibold text-zinc-600">Blog credits used</div>
+                    <div className="mt-2 text-2xl font-bold text-brand-ink">
+                      {blogCreditsUsed30d === null ? "N/A" : blogCreditsUsed30d.toLocaleString()}
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      Last 30 days · {blogGenerations30d === null ? "N/A" : blogGenerations30d} generation{blogGenerations30d === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                </div>
 
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-              {!isPaMobileApp ? (
-                <button
-                  type="button"
-                  onClick={newDraft}
-                  aria-label="New blog"
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                >
-                  <span className="text-lg leading-none">+</span>
-                  <span>New blog</span>
-                </button>
-              ) : null}
-            </div>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                  {!isPaMobileApp ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void newDraft();
+                      }}
+                      aria-label="New blog"
+                      className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm transition-opacity duration-100 hover:opacity-90"
+                    >
+                      + New blog
+                    </button>
+                  ) : null}
+                </div>
 
-            <div className={isPaMobileApp ? "mt-5 overflow-x-auto rounded-2xl border border-zinc-200" : "mt-5 overflow-hidden rounded-2xl border border-zinc-200"}>
-              <table className={isPaMobileApp ? "min-w-180 w-full text-left text-sm" : "w-full text-left text-sm"}>
-                <thead className="bg-zinc-50 text-xs font-semibold text-zinc-600">
-                  <tr>
-                    <th className="px-4 py-3">Title</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Updated</th>
-                    <th className="px-4 py-3 text-right"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {posts.length === 0 ? (
-                    <tr>
-                      <td className="px-4 py-4 text-zinc-600" colSpan={4}>
-                        No posts yet. Click “New blog” to start.
-                      </td>
-                    </tr>
-                  ) : (
-                    posts.map((p) => {
+                {posts.length === 0 ? (
+                  <div className="mt-5 rounded-3xl border border-dashed border-zinc-300 bg-zinc-50/80 p-6 text-center">
+                    <div className="text-sm font-semibold text-zinc-900">Your workspace is ready.</div>
+                    <div className="mt-2 text-sm text-zinc-600">Create the first post to check the editor, preview hierarchy, and publish controls.</div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void newDraft();
+                      }}
+                      className="mt-4 inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    >
+                      Create first post
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className={isPaMobileApp ? "mt-5 overflow-x-auto rounded-2xl border border-zinc-200" : "mt-5 overflow-hidden rounded-2xl border border-zinc-200"}>
+                  <table className={isPaMobileApp ? "min-w-180 w-full text-left text-sm" : "w-full text-left text-sm"}>
+                    <thead className="bg-zinc-50 text-xs font-semibold text-zinc-600">
+                      <tr>
+                        <th className="px-4 py-3">Title</th>
+                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">Updated</th>
+                        <th className="px-4 py-3 text-right"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {posts.length === 0 ? (
+                        <tr>
+                          <td className="px-4 py-4 text-zinc-600" colSpan={4}>
+                            No posts yet. Create the first draft when you’re ready.
+                          </td>
+                        </tr>
+                      ) : (
+                        posts.map((p) => {
                       const statusLabel = p.archivedAt ? "Archived" : p.status === "PUBLISHED" ? "Published" : "Draft";
                       const statusClasses = p.archivedAt
                         ? "bg-zinc-100 text-zinc-700"
@@ -977,15 +1174,18 @@ export function PortalBlogsClient({
                           </td>
                         </tr>
                       );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
 
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
-              Publish right here to your hosted blog (or custom domain), or export drafts to another site (WordPress, Webflow, Shopify, etc.).
-            </div>
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
+                  Publish right here to your hosted blog (or custom domain), or export drafts to another site once the content is ready.
+                  {uiPreview ? " Local preview mode is keeping all of this client-side." : ""}
+                </div>
+              </>
+            )}
           </div>
         </>
       ) : null}
@@ -1144,8 +1344,22 @@ export function PortalBlogsClient({
                 disabled={generatingNow || !site}
                 onClick={async () => {
                   if (!site) {
-                    setError("Create your blog workspace first (Settings → Create blog workspace).");
+                    setError("Finish blog setup first, then generate the first post.");
                     onTabChange("settings");
+                    return;
+                  }
+
+                  if (uiPreview) {
+                    setGeneratingNow(true);
+                    setError(null);
+                    const previewPost = createPreviewAutomationDraft();
+                    setGeneratingNow(false);
+                    applyPreviewSnapshot(readPreviewBlogState());
+                    if (!previewPost?.id) {
+                      setError("Unable to generate a post right now.");
+                      return;
+                    }
+                    window.location.href = `${appBase}/services/blogs/${previewPost.id}`;
                     return;
                   }
 
@@ -1169,7 +1383,7 @@ export function PortalBlogsClient({
 
                   window.location.href = `${appBase}/services/blogs/${json.postId}`;
                 }}
-                className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="inline-flex w-full items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 px-5 py-3 text-sm font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-60"
               >
                 {generatingNow ? "Generating…" : "Generate next post now"}
               </button>
@@ -1532,7 +1746,7 @@ export function PortalBlogsClient({
               {confirm.kind === "delete" ? (
                 <button
                   type="button"
-                  className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                  className="inline-flex items-center justify-center rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
                   onClick={async () => {
                     const postId = confirm.postId;
                     setConfirm(null);
@@ -1634,7 +1848,7 @@ export function PortalBlogsClient({
 
                       <button
                         type="button"
-                        className="w-full px-4 py-3 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                        className="w-full px-4 py-3 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50"
                         onClick={() => {
                           setOpenPostMenu(null);
                           setConfirm({ kind: "delete", postId: p.id, title: p.title || "Untitled" });
@@ -1744,10 +1958,14 @@ export function PortalBlogsClient({
               "calc(var(--pa-portal-embed-footer-offset,0px) + 5.75rem + var(--pa-portal-floating-tools-reserve, 0px))",
           }}
           onClick={() => {
+            if (!site) {
+              onTabChange("settings");
+              return;
+            }
             void newDraft();
           }}
         >
-          + New blog
+          {site ? "+ New blog" : "Finish setup"}
         </button>
       ) : null}
     </div>

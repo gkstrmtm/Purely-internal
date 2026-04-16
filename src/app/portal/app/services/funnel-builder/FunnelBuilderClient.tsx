@@ -256,7 +256,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [createFunnelTemplateKey, setCreateFunnelTemplateKey] = useState<CreditFunnelTemplateKey>("credit-audit-leadgen");
   const [createFunnelThemeKey, setCreateFunnelThemeKey] = useState<CreditFunnelThemeKey>("royal-indigo");
   const [createFunnelPreviewOpen, setCreateFunnelPreviewOpen] = useState(false);
-  const [createFunnelUseTemplate, setCreateFunnelUseTemplate] = useState(true);
+  const [createFunnelUseTemplate, setCreateFunnelUseTemplate] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const [funnelDeleteBusy, setFunnelDeleteBusy] = useState<Record<string, boolean>>({});
@@ -887,7 +887,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     setCreateFunnelTemplateKey("credit-audit-leadgen");
     setCreateFunnelThemeKey("royal-indigo");
     setCreateFunnelPreviewOpen(false);
-    setCreateFunnelUseTemplate(true);
+    setCreateFunnelUseTemplate(false);
   }, [creatingKind]);
 
   const openCreate = (kind: "funnel" | "form") => {
@@ -1936,7 +1936,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                   <input
                     value={createSlug}
                     onChange={(e) => setCreateSlug(e.target.value)}
-                    placeholder={creatingKind === "funnel" ? "credit-repair" : "intake"}
+                    placeholder={creatingKind === "funnel" ? "lead-capture" : "intake"}
                     className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
                   />
                   <div className="mt-1 text-xs text-zinc-500">
@@ -1949,7 +1949,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                   <input
                     value={createName}
                     onChange={(e) => setCreateName(e.target.value)}
-                    placeholder={creatingKind === "funnel" ? "Credit Repair Funnel" : "Client Intake Form"}
+                    placeholder={creatingKind === "funnel" ? "Lead Capture Funnel" : "Client Intake Form"}
                     className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
                   />
                 </div>
@@ -2050,8 +2050,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             </div>
                           </>
                         ) : (
-                          <div className="mt-3 rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                            This will create an empty funnel with a single blank page. You can add blocks and styling in the editor.
+                            <div className="mt-3 rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                              This will create an empty funnel with a single blank page so you can define the structure and conversion path yourself.
                           </div>
                         )}
                       </>

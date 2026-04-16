@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import GlassSurface from "@/components/GlassSurface";
 import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass } from "@/components/portalGlass";
 import { buildPortalAiChatThreadHref } from "@/lib/portalAiChatThreadRefs";
 
@@ -427,11 +428,33 @@ const floatingToolsSecondaryButtonClass =
     portalGlassButtonClass,
   ].join(" ");
 
+const floatingToolsCloseButtonClass =
+  "inline-flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-zinc-600 transition-colors duration-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]";
+
 const floatingToolsPrimaryButtonClass =
   "rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60";
 
 const floatingToolsGradientButtonClass =
   "rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60";
+
+const floatingToolsPuraSendButtonClass =
+  "inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-blue text-white transition-all duration-100 hover:scale-105 hover:opacity-95 disabled:opacity-60";
+
+const floatingToolsGlassSurfaceProps = {
+  borderWidth: 0.04,
+  blur: 7,
+  displace: 0.22,
+  distortionScale: -72,
+  redOffset: 0,
+  greenOffset: 2,
+  blueOffset: 6,
+  backgroundOpacity: 0.16,
+  saturation: 1.05,
+  brightness: 46,
+  opacity: 0.985,
+  mixBlendMode: "soft-light" as const,
+  style: { background: "rgba(255,255,255,0.46)", boxShadow: "none" },
+};
 
 export function PortalFloatingTools() {
   const pathname = usePathname() || "";
@@ -604,11 +627,11 @@ export function PortalFloatingTools() {
     ? `fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130103 max-w-[calc(100vw-1.5rem)] rounded-2xl px-4 py-3 text-sm text-zinc-800 sm:top-auto sm:right-4 sm:max-w-sm sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] ${portalGlassPanelClass}`
     : `fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-130103 max-w-sm rounded-2xl px-4 py-3 text-sm text-zinc-800 ${portalGlassPanelClass}`;
   const reportPanelPositionClass = moveDockToTopRight
-    ? `absolute right-3 top-[calc(env(safe-area-inset-top)+4rem)] w-[min(520px,calc(100vw-1.5rem))] rounded-3xl p-5 sm:top-auto sm:right-4 sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))] ${portalGlassPanelClass}`
-    : `absolute bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 w-[min(520px,calc(100vw-2rem))] rounded-3xl p-5 ${portalGlassPanelClass}`;
+    ? `absolute right-3 top-[calc(env(safe-area-inset-top)+4rem)] w-[min(520px,calc(100vw-1.5rem))] sm:top-auto sm:right-4 sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))]`
+    : `absolute bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 w-[min(520px,calc(100vw-2rem))]`;
   const chatPanelPositionClass = moveDockToTopRight
-    ? `fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130101 w-[min(520px,calc(100vw-1.5rem))] overflow-hidden rounded-3xl p-5 sm:right-4 sm:top-auto sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))] ${portalGlassPanelClass}`
-    : `fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-130101 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl p-5 ${portalGlassPanelClass}`;
+    ? `fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130101 w-[min(520px,calc(100vw-1.5rem))] sm:right-4 sm:top-auto sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))]`
+    : `fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-130101 w-[min(520px,calc(100vw-2rem))]`;
   const dockPositionClass = moveDockToTopRight
     ? "fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130100 flex justify-end sm:top-auto sm:right-4 sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)]"
     : "fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-130100 flex justify-end";
@@ -1067,44 +1090,49 @@ export function PortalFloatingTools() {
             ref={reportCardRef}
             className={reportPanelPositionClass}
           >
-            <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Report a bug</div>
-                <div className="mt-1 text-xs text-zinc-500">{versionLabel}</div>
+            <GlassSurface {...floatingToolsGlassSurfaceProps} width="100%" height="auto" borderRadius={24} className="rounded-3xl shadow-2xl">
+              <div className="w-full rounded-3xl bg-[rgba(255,255,255,0.62)] p-5 backdrop-blur-[2px]">
+                <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Report a bug</div>
+                    <div className="mt-1 text-xs text-zinc-500">{versionLabel}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className={classNames(floatingToolsCloseButtonClass, "text-[1.35rem] leading-none disabled:opacity-60")}
+                    onClick={() => setReportOpen(false)}
+                    disabled={sending}
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="mt-4">
+                  <textarea
+                    className="min-h-30 w-full rounded-2xl border border-white/35 bg-white/55 p-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                    placeholder="What happened? What did you expect?"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    disabled={sending}
+                  />
+                  <div className="mt-2 text-xs text-zinc-500">Includes your current page URL and version automatically.</div>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <div className="text-xs text-zinc-500">We’ll notify the team by email.</div>
+                  <button
+                    type="button"
+                    className={floatingToolsPrimaryButtonClass}
+                    onClick={() => void submit()}
+                    disabled={sending}
+                  >
+                    {sending ? "Sending…" : "Send"}
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                className={classNames(floatingToolsSecondaryButtonClass, "disabled:opacity-60")}
-                onClick={() => setReportOpen(false)}
-                disabled={sending}
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="mt-4">
-              <textarea
-                className="min-h-30 w-full rounded-2xl border border-white/35 bg-white/55 p-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
-                placeholder="What happened? What did you expect?"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                disabled={sending}
-              />
-              <div className="mt-2 text-xs text-zinc-500">Includes your current page URL and version automatically.</div>
-            </div>
-
-            <div className="mt-4 flex items-center justify-between gap-3">
-              <div className="text-xs text-zinc-500">We’ll notify the team by email.</div>
-              <button
-                type="button"
-                className={floatingToolsPrimaryButtonClass}
-                onClick={() => void submit()}
-                disabled={sending}
-              >
-                {sending ? "Sending…" : "Send"}
-              </button>
-            </div>
+            </GlassSurface>
           </div>
         </div>
       ) : null}
@@ -1114,246 +1142,254 @@ export function PortalFloatingTools() {
           ref={chatPanelRef}
           className={chatPanelPositionClass}
         >
-            <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Pura</div>
-                <div className="mt-1 text-xs text-zinc-500">{versionLabel}</div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="group inline-flex items-center rounded-2xl bg-transparent text-sm font-semibold text-zinc-700 transition-colors duration-100 hover:text-zinc-900"
-                  onClick={continueWithPura}
-                  aria-label="Continue with Pura"
-                  title="Continue with Pura"
-                >
-                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-100 group-hover:scale-105 group-hover:bg-zinc-50 group-hover:text-zinc-900">
-                    <IconContinueWithPura />
-                  </span>
-                  <span className="ml-2 max-w-0 overflow-hidden whitespace-nowrap text-sm font-semibold opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-40 group-hover:opacity-100">
-                    Continue with Pura
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className={floatingToolsSecondaryButtonClass}
-                  onClick={() => setChatOpen(false)}
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-
-            <div
-              ref={chatScrollRef}
-              onScroll={() => {
-                const el = chatScrollRef.current;
-                if (!el) return;
-                const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-                shouldAutoScrollRef.current = distanceFromBottom < 140;
-              }}
-              className="mt-4 max-h-[55vh] space-y-3 overflow-auto"
-            >
-              {chatMessages.map((m, idx) => (
-                <div
-                  key={m.id || idx}
-                  className={
-                    "rounded-2xl px-3 py-2 text-sm leading-relaxed " +
-                    (m.role === "user"
-                      ? "ml-10 bg-brand-blue font-semibold text-white"
-                      : "mr-10 border border-zinc-200 bg-white text-zinc-800")
-                  }
-                >
-                  {m.role === "assistant" && m.id.startsWith("optimistic-assistant-") ? <ThinkingDots /> : m.role === "assistant" ? renderMarkdownish(m.text) : m.text}
-                  {m.role === "assistant" && m.suggestedSetup ? (
-                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Suggestion</div>
-                      <div className="mt-1 text-sm font-semibold text-zinc-900">{m.suggestedSetup.title}</div>
-                      {m.suggestedSetup.detailLines.length ? (
-                        <div className="mt-1 space-y-1 text-xs text-zinc-600">
-                          {m.suggestedSetup.detailLines.map((line) => (
-                            <div key={line}>{line}</div>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className="mt-3 flex items-center gap-2">
-                        <button
-                          type="button"
-                          className={classNames(
-                            "rounded-xl px-3 py-2 text-xs font-semibold text-white transition-transform duration-150",
-                            m.suggestedSetup.status === "applied"
-                              ? "bg-emerald-600"
-                              : m.suggestedSetup.status === "applying"
-                                ? "bg-zinc-400"
-                                : "bg-brand-blue hover:opacity-95",
-                          )}
-                          onClick={() => void applySuggestedSetupFromMessage(m.suggestedSetup!.actionIds, m.suggestedSetup!.key)}
-                          disabled={m.suggestedSetup.status === "applying" || m.suggestedSetup.status === "applied"}
-                        >
-                          {m.suggestedSetup.status === "applied"
-                            ? "Applied"
-                            : m.suggestedSetup.status === "applying"
-                              ? "Applying…"
-                              : "Apply now"}
-                        </button>
-                        {m.suggestedSetup.status === "error" && m.suggestedSetup.error ? (
-                          <div className="text-xs text-red-600">{m.suggestedSetup.error}</div>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : null}
+          <GlassSurface {...floatingToolsGlassSurfaceProps} width="100%" height="auto" borderRadius={24} className="rounded-3xl shadow-2xl">
+            <div className="w-full rounded-3xl bg-[rgba(255,255,255,0.62)] p-5 backdrop-blur-[2px]">
+              <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Pura</div>
+                  <div className="mt-1 text-xs text-zinc-500">{versionLabel}</div>
                 </div>
-              ))}
-              <div ref={chatEndRef} />
-            </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="group inline-flex items-center rounded-2xl bg-transparent text-sm font-semibold text-zinc-700 transition-colors duration-100 hover:text-zinc-900"
+                    onClick={continueWithPura}
+                    aria-label="Continue with Pura"
+                    title="Continue with Pura"
+                  >
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-100 group-hover:scale-105 group-hover:bg-zinc-50 group-hover:text-zinc-900">
+                      <IconContinueWithPura />
+                    </span>
+                    <span className="ml-2 max-w-0 overflow-hidden whitespace-nowrap text-sm font-semibold opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-40 group-hover:opacity-100">
+                      Continue with Pura
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={classNames(floatingToolsCloseButtonClass, "text-[1.35rem] leading-none")}
+                    onClick={() => setChatOpen(false)}
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
 
-            <div className="mt-4 flex gap-2">
-              <input
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder={pageSuggestion ? "Reply to this suggestion…" : "Ask a question, assign tasks, and more!"}
-                className="h-11 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void sendSupportChat();
+              <div
+                ref={chatScrollRef}
+                onScroll={() => {
+                  const el = chatScrollRef.current;
+                  if (!el) return;
+                  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+                  shouldAutoScrollRef.current = distanceFromBottom < 140;
                 }}
-                disabled={chatSending}
-              />
-              <button
-                type="button"
-                className={classNames(
-                  "group inline-flex h-11 w-11 items-center justify-center rounded-2xl",
-                  floatingToolsGradientButtonClass,
-                  (!chatInput.trim() || chatSending) && "opacity-60",
-                )}
-                onClick={() => void sendSupportChat()}
-                disabled={!chatInput.trim() || chatSending}
-                aria-label="Send"
+                className="mt-4 max-h-[55vh] space-y-3 overflow-auto"
               >
-                <span className="group-hover:hidden">
-                  <IconSend />
-                </span>
-                <span className="hidden group-hover:inline">
-                  <IconSendHover />
-                </span>
-              </button>
-            </div>
+                {chatMessages.map((m, idx) => (
+                  <div
+                    key={m.id || idx}
+                    className={
+                      "rounded-2xl px-3 py-2 text-sm leading-relaxed " +
+                      (m.role === "user"
+                        ? "ml-10 bg-brand-blue font-semibold text-white"
+                        : "mr-10 border border-zinc-200 bg-white text-zinc-800")
+                    }
+                  >
+                    {m.role === "assistant" && m.id.startsWith("optimistic-assistant-") ? <ThinkingDots /> : m.role === "assistant" ? renderMarkdownish(m.text) : m.text}
+                    {m.role === "assistant" && m.suggestedSetup ? (
+                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Suggestion</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900">{m.suggestedSetup.title}</div>
+                        {m.suggestedSetup.detailLines.length ? (
+                          <div className="mt-1 space-y-1 text-xs text-zinc-600">
+                            {m.suggestedSetup.detailLines.map((line) => (
+                              <div key={line}>{line}</div>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="mt-3 flex items-center gap-2">
+                          <button
+                            type="button"
+                            className={classNames(
+                              "rounded-xl px-3 py-2 text-xs font-semibold text-white transition-transform duration-150",
+                              m.suggestedSetup.status === "applied"
+                                ? "bg-emerald-600"
+                                : m.suggestedSetup.status === "applying"
+                                  ? "bg-zinc-400"
+                                  : "bg-brand-blue hover:opacity-95",
+                            )}
+                            onClick={() => void applySuggestedSetupFromMessage(m.suggestedSetup!.actionIds, m.suggestedSetup!.key)}
+                            disabled={m.suggestedSetup.status === "applying" || m.suggestedSetup.status === "applied"}
+                          >
+                            {m.suggestedSetup.status === "applied"
+                              ? "Applied"
+                              : m.suggestedSetup.status === "applying"
+                                ? "Applying…"
+                                : "Apply now"}
+                          </button>
+                          {m.suggestedSetup.status === "error" && m.suggestedSetup.error ? (
+                            <div className="text-xs text-red-600">{m.suggestedSetup.error}</div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+                <div ref={chatEndRef} />
+              </div>
 
-            <div className="mt-2 text-xs text-zinc-500">Continue in Pura anytime, or use Report bug if something is broken.</div>
+              <div className="mt-4 flex gap-2">
+                <input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder={pageSuggestion ? "Reply to this suggestion…" : "Ask a question, assign tasks, and more!"}
+                  className="h-11 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void sendSupportChat();
+                  }}
+                  disabled={chatSending}
+                />
+                <button
+                  type="button"
+                  className={classNames(floatingToolsPuraSendButtonClass, (!chatInput.trim() || chatSending) && "opacity-60")}
+                  onClick={() => void sendSupportChat()}
+                  disabled={!chatInput.trim() || chatSending}
+                  aria-label="Send"
+                >
+                  <IconSend />
+                </button>
+              </div>
+
+              <div className="mt-2 text-xs text-zinc-500">Continue in Pura anytime, or use Report bug if something is broken.</div>
+            </div>
+          </GlassSurface>
         </div>
       ) : null}
 
-      <div className={dockPositionClass}>
+      {!reportOpen && !chatOpen ? <div className={dockPositionClass}>
         {minimized ? (
           compactDock ? (
             <div className="group flex items-center justify-end gap-2">
-              <button
-                type="button"
-                className="pointer-events-none rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 opacity-0 shadow-lg transition-all duration-150 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100"
-                onClick={() => setCompactDock(false)}
-                aria-label="Expand tools"
-              >
-                Show
-              </button>
-              <button
-                type="button"
-                className="relative grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-100 hover:scale-105 hover:bg-zinc-50"
-                onClick={() => persistMinimized(false)}
-                aria-label="Open chat and report tools"
-              >
-                {pageSuggestion ? <span className="absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full bg-brand-pink ring-2 ring-white" /> : null}
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path
-                      d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-              </button>
+              <GlassSurface {...floatingToolsGlassSurfaceProps} width="auto" height={40} borderRadius={20} className="pointer-events-auto rounded-full opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100">
+                <button
+                  type="button"
+                  className="pointer-events-none h-10 rounded-full bg-[rgba(255,255,255,0.62)] px-3 py-2 text-xs font-semibold text-zinc-700 backdrop-blur-[2px] transition-all duration-150 group-hover:pointer-events-auto hover:bg-[rgba(255,255,255,0.72)]"
+                  onClick={() => setCompactDock(false)}
+                  aria-label="Expand tools"
+                >
+                  Show
+                </button>
+              </GlassSurface>
+              <GlassSurface {...floatingToolsGlassSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl shadow-lg">
+                <button
+                  type="button"
+                  className="relative grid h-11 w-11 place-items-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-800 backdrop-blur-[2px] transition-all duration-100 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)]"
+                  onClick={() => persistMinimized(false)}
+                  aria-label="Open chat and report tools"
+                >
+                  {pageSuggestion ? <span className="absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full bg-brand-pink ring-2 ring-white" /> : null}
+                  <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                </button>
+              </GlassSurface>
             </div>
           ) : (
             <div className="group flex items-center justify-end gap-2">
-              <button
-                type="button"
-                className="pointer-events-none rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 opacity-0 shadow-lg transition-all duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
-                onClick={() => setCompactDock(true)}
-                aria-label="Hide tools"
-              >
-                Hide
-              </button>
-              <button
-                type="button"
-                className="relative flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-colors duration-100 hover:bg-zinc-50"
-                onClick={() => persistMinimized(false)}
-                aria-label="Open tools"
-              >
-                {pageSuggestion ? <span className="absolute right-2 top-1.5 h-2.5 w-2.5 rounded-full bg-brand-pink" /> : null}
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path
-                      d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-                <span className="text-sm font-semibold text-zinc-900">Chat and Report</span>
-              </button>
+              <GlassSurface {...floatingToolsGlassSurfaceProps} width="auto" height={40} borderRadius={20} className="pointer-events-auto rounded-full opacity-0 shadow-lg transition-all duration-150 group-hover:opacity-100">
+                <button
+                  type="button"
+                  className="pointer-events-none h-10 rounded-full bg-[rgba(255,255,255,0.62)] px-3 py-2 text-xs font-semibold text-zinc-700 backdrop-blur-[2px] transition-all duration-150 group-hover:pointer-events-auto hover:bg-[rgba(255,255,255,0.72)]"
+                  onClick={() => setCompactDock(true)}
+                  aria-label="Hide tools"
+                >
+                  Hide
+                </button>
+              </GlassSurface>
+              <GlassSurface {...floatingToolsGlassSurfaceProps} width="auto" height={44} borderRadius={22} className="pointer-events-auto rounded-full shadow-lg">
+                <button
+                  type="button"
+                  className="relative flex h-11 items-center gap-2 rounded-full bg-[rgba(255,255,255,0.62)] px-3 py-2 text-xs font-semibold text-zinc-800 backdrop-blur-[2px] transition-colors duration-100 hover:bg-[rgba(255,255,255,0.72)]"
+                  onClick={() => persistMinimized(false)}
+                  aria-label="Open tools"
+                >
+                  {pageSuggestion ? <span className="absolute right-2 top-1.5 h-2.5 w-2.5 rounded-full bg-brand-pink" /> : null}
+                  <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                  <span className="text-sm font-semibold text-zinc-900">Chat and Report</span>
+                </button>
+              </GlassSurface>
             </div>
           )
         ) : (
           <div
             ref={toolsCardRef}
-            className="w-[min(320px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl"
+            className="w-[min(320px,calc(100vw-2rem))]"
           >
-            <div className="mb-3 h-1.5 w-14 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(29,78,216,0.25))]" />
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="truncate text-xs font-semibold text-zinc-500">Version</div>
-                <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{versionLabel}</div>
+            <GlassSurface {...floatingToolsGlassSurfaceProps} width="100%" height="auto" borderRadius={24} className="rounded-3xl shadow-2xl">
+              <div className="w-full rounded-3xl bg-[rgba(255,255,255,0.62)] p-4 backdrop-blur-[2px]">
+                <div className="mb-3 h-1.5 w-14 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(29,78,216,0.25))]" />
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-semibold text-zinc-500">Version</div>
+                    <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{versionLabel}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className={classNames(floatingToolsCloseButtonClass, "text-[1.35rem] leading-none")}
+                    onClick={() => persistMinimized(true)}
+                    aria-label="Minimize"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div />
+                  <button
+                    type="button"
+                    className={classNames(
+                      "rounded-2xl px-3 py-2 text-sm font-semibold",
+                      "bg-(--color-brand-blue) text-white transition-opacity duration-100 hover:opacity-95",
+                    )}
+                    onClick={() => setReportOpen(true)}
+                  >
+                    Report bug
+                  </button>
+
+                  <button
+                    type="button"
+                    className={classNames(
+                      "relative rounded-2xl px-3 py-2 text-sm font-semibold",
+                      "bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white transition-opacity duration-100 hover:opacity-95",
+                    )}
+                    onClick={openChatPanel}
+                  >
+                    {pageSuggestion ? <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-white/95 ring-2 ring-brand-pink" /> : null}
+                    Chat
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                className="rounded-full border border-transparent bg-white px-2 py-1 text-xs font-semibold text-zinc-500 transition-colors duration-100 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
-                onClick={() => persistMinimized(true)}
-                aria-label="Minimize"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <div />
-              <button
-                type="button"
-                className={classNames(
-                  "rounded-2xl px-3 py-2 text-sm font-semibold",
-                  "bg-(--color-brand-blue) text-white transition-opacity duration-100 hover:opacity-95",
-                )}
-                onClick={() => setReportOpen(true)}
-              >
-                Report bug
-              </button>
-
-              <button
-                type="button"
-                className={classNames(
-                  "relative rounded-2xl px-3 py-2 text-sm font-semibold",
-                  "bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white transition-opacity duration-100 hover:opacity-95",
-                )}
-                onClick={openChatPanel}
-              >
-                {pageSuggestion ? <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-white/95 ring-2 ring-brand-pink" /> : null}
-                Chat
-              </button>
-            </div>
+            </GlassSurface>
           </div>
         )}
-      </div>
+      </div> : null}
     </>
   );
 }

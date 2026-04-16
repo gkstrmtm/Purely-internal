@@ -11,6 +11,7 @@ import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEdit
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalContactDetailsModal } from "@/components/PortalContactDetailsModal";
 import { useToast } from "@/components/ToastProvider";
+import { portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { DateTimePicker } from "@/components/DateTimePicker";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
@@ -24,7 +25,7 @@ import {
   portalSidebarIconToneNeutralClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
-import { IconFunnel, IconInboxGlyph, IconSchedule, IconSearch, IconSend, IconServiceGlyph } from "@/app/portal/PortalIcons";
+import { IconEdit, IconFunnel, IconInboxGlyph, IconSchedule, IconSearch, IconSend, IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { normalizePhoneForStorage } from "@/lib/phone";
 import { normalizePortalContactCustomVarKey, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
@@ -98,7 +99,8 @@ type SettingsRes = {
 };
 
 type ApiErrorRes = { ok: false; code?: string; error?: string };
-type ThreadsRes = { ok: true; threads: Thread[] } | ApiErrorRes;
+type ThreadsCursor = { lastMessageAt: string; id: string };
+type ThreadsRes = { ok: true; threads: Thread[]; hasMore?: boolean; nextCursor?: ThreadsCursor | null } | ApiErrorRes;
 type MessagesRes = { ok: true; messages: Message[]; scheduledMessages?: ScheduledMessage[] } | ApiErrorRes;
 
 type ContactLite = {
@@ -245,6 +247,23 @@ function threadLooksLikeAttachment(thread: Pick<Thread, "subject" | "lastMessage
   );
 }
 
+const inboxSoftBlueActiveClass =
+  "border-transparent bg-[rgba(29,78,216,0.12)] text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)]";
+
+const inboxSoftBlueToggleTrackActiveClass =
+  "bg-[rgba(29,78,216,0.18)] shadow-[0_8px_24px_rgba(29,78,216,0.14)]";
+
+function mergeUniqueThreads(current: Thread[], incoming: Thread[]) {
+  const seen = new Set(current.map((thread) => thread.id));
+  const merged = [...current];
+  for (const thread of incoming) {
+    if (seen.has(thread.id)) continue;
+    seen.add(thread.id);
+    merged.push(thread);
+  }
+  return merged;
+}
+
 export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const toast = useToast();
   const router = useRouter();
@@ -298,6 +317,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [loadingThreads, setLoadingThreads] = useState(true);
   const hasLoadedThreadsOnceRef = useRef<{ email: boolean; sms: boolean }>({ email: false, sms: false });
   const [refreshingThreads, setRefreshingThreads] = useState(false);
+  const [loadingMoreThreads, setLoadingMoreThreads] = useState(false);
+  const [hasMoreThreads, setHasMoreThreads] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -325,6 +346,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const preferredComposeRef = useRef<boolean>(Boolean(initialDeepLink.compose));
   const emailSearchInputRef = useRef<HTMLInputElement | null>(null);
   const composerInteractionRef = useRef<ComposerInteraction | null>(null);
+  const threadPaginationRef = useRef<{ email: ThreadsCursor | null; sms: ThreadsCursor | null }>({ email: null, sms: null });
+  const threadHasMoreRef = useRef<{ email: boolean; sms: boolean }>({ email: false, sms: false });
+  const sidebarThreadListRef = useRef<HTMLDivElement | null>(null);
+  const mobileThreadListRef = useRef<HTMLDivElement | null>(null);
 
   function splitComposeRecipients(raw: string): string[] {
     const s = String(raw || "").trim();
@@ -364,6 +389,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
+
+  useEffect(() => {
+    setHasMoreThreads(threadHasMoreRef.current[tab]);
+  }, [tab]);
 
   const [settings, setSettings] = useState<SettingsRes | null>(null);
 
@@ -967,13 +996,21 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     };
   }, []);
 
-  async function loadThreads(nextTab: Channel, opts?: { preserveSelection?: boolean; clearUI?: boolean }) {
+  async function loadThreads(nextTab: Channel, opts?: { preserveSelection?: boolean; clearUI?: boolean; append?: boolean }) {
     const preserveSelection = Boolean(opts?.preserveSelection);
     const clearUI = Boolean(opts?.clearUI);
+    const append = Boolean(opts?.append);
+    const cursor = append ? threadPaginationRef.current[nextTab] : null;
+    if (append) {
+      if (loadingMoreThreads || !threadHasMoreRef.current[nextTab] || !cursor) return;
+      setLoadingMoreThreads(true);
+    }
     const isFirstLoad = !hasLoadedThreadsOnceRef.current[nextTab];
     const useFullLoading = isFirstLoad || clearUI;
-    if (useFullLoading) setLoadingThreads(true);
-    else setRefreshingThreads(true);
+    if (!append) {
+      if (useFullLoading) setLoadingThreads(true);
+      else setRefreshingThreads(true);
+    }
 
     setError(null);
 
@@ -983,10 +1020,19 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       setThreads([]);
       setMessages([]);
       setActiveThreadId(null);
+      threadPaginationRef.current[nextTab] = null;
+      threadHasMoreRef.current[nextTab] = false;
+      setHasMoreThreads(false);
     }
 
     try {
-      const res = await fetch(`/api/portal/inbox/threads?channel=${nextTab}`, {
+      const params = new URLSearchParams({ channel: nextTab, take: "80" });
+      if (append && cursor) {
+        params.set("cursorLastMessageAt", cursor.lastMessageAt);
+        params.set("cursorId", cursor.id);
+      }
+
+      const res = await fetch(`/api/portal/inbox/threads?${params.toString()}`, {
         cache: "no-store",
       });
 
@@ -1000,6 +1046,17 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         setError(
           apiError || (nextTab === "sms" ? "We couldn’t load your text message threads." : "We couldn’t load your email threads."),
         );
+        return;
+      }
+
+      const nextHasMore = Boolean(json.hasMore);
+      threadPaginationRef.current[nextTab] = json.nextCursor ?? null;
+      threadHasMoreRef.current[nextTab] = nextHasMore;
+      if (nextTab === tab) setHasMoreThreads(nextHasMore);
+
+      if (append) {
+        setThreads((prev) => mergeUniqueThreads(prev, json.threads));
+        hasLoadedThreadsOnceRef.current[nextTab] = true;
         return;
       }
 
@@ -1062,10 +1119,28 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     } catch {
       setError(nextTab === "sms" ? "We couldn’t load your text message threads." : "We couldn’t load your email threads.");
     } finally {
-      setLoadingThreads(false);
-      setRefreshingThreads(false);
+      if (append) {
+        setLoadingMoreThreads(false);
+      } else {
+        setLoadingThreads(false);
+        setRefreshingThreads(false);
+      }
     }
   }
+
+  const loadMoreThreads = useCallback(() => {
+    if (loadingThreads || refreshingThreads || loadingMoreThreads || !threadHasMoreRef.current[tab]) return;
+    void loadThreads(tab, { append: true, preserveSelection: true });
+  }, [loadingMoreThreads, loadingThreads, refreshingThreads, tab]);
+
+  const handleThreadListScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      const target = event.currentTarget;
+      const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 180;
+      if (nearBottom) loadMoreThreads();
+    },
+    [loadMoreThreads],
+  );
 
   async function loadMessages(threadId: string) {
     setLoadingMessages(true);
@@ -1096,6 +1171,14 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     loadThreads(tab, { clearUI: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  useEffect(() => {
+    if (loadingThreads || loadingMoreThreads || !threadHasMoreRef.current[tab]) return;
+    const containers = [sidebarThreadListRef.current, mobileThreadListRef.current].filter(Boolean) as HTMLDivElement[];
+    if (!containers.length) return;
+    const needsMore = containers.some((container) => container.scrollHeight <= container.clientHeight + 24);
+    if (needsMore) loadMoreThreads();
+  }, [filteredThreads.length, loadingMoreThreads, loadingThreads, loadMoreThreads, tab]);
 
   useEffect(() => {
     // If the active thread is filtered out by the email box, pick the first visible thread.
@@ -1650,7 +1733,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className={portalSidebarSectionTitleClass}>{conversationTitle}</div>
-          <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
+          <div ref={sidebarThreadListRef} onScroll={handleThreadListScroll} className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">
             {loadingThreads ? (
               <div className="px-3 py-3 text-xs text-zinc-500">Loading conversations…</div>
             ) : filteredThreads.length ? (
@@ -1714,6 +1797,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     </button>
                   );
                 })}
+                {loadingMoreThreads ? <div className="px-3 py-2 text-xs font-medium text-zinc-500">Loading older conversations…</div> : null}
+                {!loadingMoreThreads && hasMoreThreads ? <div className="px-3 py-2 text-xs text-zinc-400">Scroll to load older conversations.</div> : null}
               </div>
             ) : (
               <div className="px-3 py-3 text-xs text-zinc-500">
@@ -1779,34 +1864,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         }}
       />
 
-      <div className="mt-3 flex w-full flex-wrap gap-2 lg:hidden">
-        <button
-          type="button"
-          onClick={() => setChannel("email")}
-          aria-current={tab === "email" ? "page" : undefined}
-          className={
-            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-colors duration-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "email"
-              ? "border-zinc-200 bg-zinc-100 text-zinc-900"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Email
-        </button>
-        <button
-          type="button"
-          onClick={() => setChannel("sms")}
-          aria-current={tab === "sms" ? "page" : undefined}
-          className={
-            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-colors duration-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "sms"
-              ? "border-zinc-200 bg-zinc-100 text-zinc-900"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          SMS
-        </button>
-      </div>
       <div className="mt-4 flex justify-center">
         <div className="flex w-full items-center gap-3 lg:max-w-xl">
             <div className="relative min-w-0 flex-1">
@@ -1838,12 +1895,12 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <>
                     <div className="fixed inset-0 z-30" onMouseDown={() => setEmailSearchMenu(null)} onTouchStart={() => setEmailSearchMenu(null)} aria-hidden />
                     <div
-                      className="fixed z-40 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                      className={classNames("fixed z-40 overflow-auto rounded-2xl px-1 py-1", portalGlassPanelClass)}
                       style={{ left: emailSearchMenu.left, top: emailSearchMenu.top, width: emailSearchMenu.width, maxHeight: emailSearchMenu.maxHeight }}
                       onMouseDown={(e) => e.stopPropagation()}
                       onTouchStart={(e) => e.stopPropagation()}
                     >
-                      <div className="border-b border-zinc-100 px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                      <div className="border-b border-white/40 px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
                         {threadSearch.trim() ? "Matches" : "Recent searches"}
                       </div>
                       <div className="py-2">
@@ -1852,7 +1909,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                             <button
                               key={item.key}
                               type="button"
-                              className="w-full px-4 py-3 text-left hover:bg-zinc-50"
+                              className="w-full rounded-2xl px-4 py-3 text-left transition hover:bg-white/55"
                               onMouseDown={(e) => {
                                 e.preventDefault();
                                 setThreadSearch(item.query);
@@ -1882,35 +1939,35 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <>
                     <div className="fixed inset-0 z-30" onMouseDown={() => setEmailFiltersMenu(null)} onTouchStart={() => setEmailFiltersMenu(null)} aria-hidden />
                     <div
-                      className="fixed z-40 w-80 overflow-auto rounded-3xl border border-zinc-200 bg-white shadow-xl"
+                      className={classNames("fixed z-40 w-80 overflow-auto rounded-3xl", portalGlassPanelClass)}
                       style={{ left: emailFiltersMenu.left, top: emailFiltersMenu.top, maxHeight: emailFiltersMenu.maxHeight }}
                       onMouseDown={(e) => e.stopPropagation()}
                       onTouchStart={(e) => e.stopPropagation()}
                     >
-                      <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                      <div className="border-b border-white/40 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
                       <div className="space-y-4 px-4 py-4">
                         <label className="block">
                           <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Who</div>
-                          <input value={emailSearchWho} onChange={(e) => setEmailSearchWho(e.target.value)} className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300" placeholder="Contact or recipient" />
+                          <input value={emailSearchWho} onChange={(e) => setEmailSearchWho(e.target.value)} className={classNames("mt-1 w-full rounded-2xl px-3 py-2 text-sm text-zinc-900 outline-none transition", portalGlassSectionClass)} placeholder="Contact or recipient" />
                         </label>
                         <label className="block">
                           <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">From</div>
-                          <input value={emailSearchFrom} onChange={(e) => setEmailSearchFrom(e.target.value)} className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300" placeholder="Sender" />
+                          <input value={emailSearchFrom} onChange={(e) => setEmailSearchFrom(e.target.value)} className={classNames("mt-1 w-full rounded-2xl px-3 py-2 text-sm text-zinc-900 outline-none transition", portalGlassSectionClass)} placeholder="Sender" />
                         </label>
                         <label className="block">
                           <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
-                          <input value={emailSearchSubject} onChange={(e) => setEmailSearchSubject(e.target.value)} className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300" placeholder="Subject" />
+                          <input value={emailSearchSubject} onChange={(e) => setEmailSearchSubject(e.target.value)} className={classNames("mt-1 w-full rounded-2xl px-3 py-2 text-sm text-zinc-900 outline-none transition", portalGlassSectionClass)} placeholder="Subject" />
                         </label>
                         <label className="block">
                           <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Has words</div>
-                          <input value={emailSearchWords} onChange={(e) => setEmailSearchWords(e.target.value)} className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300" placeholder="Any text in the thread" />
+                          <input value={emailSearchWords} onChange={(e) => setEmailSearchWords(e.target.value)} className={classNames("mt-1 w-full rounded-2xl px-3 py-2 text-sm text-zinc-900 outline-none transition", portalGlassSectionClass)} placeholder="Any text in the thread" />
                         </label>
 
                         <div>
                           <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Date</div>
                           <div className="mt-2 grid grid-cols-2 gap-2">
                             {([ { key: "any" as const, label: "Any time" }, { key: "7d" as const, label: "Last 7 days" }, { key: "30d" as const, label: "Last 30 days" }, { key: "90d" as const, label: "Last 90 days" } ] satisfies Array<{ key: DateFilter; label: string }>).map((opt) => (
-                              <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold", emailDateFilter === opt.key ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")} onClick={() => setEmailDateFilter(opt.key)}>{opt.label}</button>
+                              <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold transition", emailDateFilter === opt.key ? inboxSoftBlueActiveClass : "border-white/45 bg-white/65 text-zinc-800 hover:bg-white/90")} onClick={() => setEmailDateFilter(opt.key)}>{opt.label}</button>
                             ))}
                           </div>
                         </div>
@@ -1919,7 +1976,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mailbox</div>
                           <div className="mt-2 grid grid-cols-2 gap-2">
                             {([ { key: "inbox" as const, label: "Inbox" }, { key: "unread" as const, label: `Unread (${unreadEmailCount})` }, { key: "sent" as const, label: "Outbox" } ] satisfies Array<{ key: EmailBox; label: string }>).map((opt) => (
-                              <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold", emailBox === opt.key ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")} onClick={() => setEmailBox(opt.key)}>{opt.label}</button>
+                              <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold transition", emailBox === opt.key ? inboxSoftBlueActiveClass : "border-white/45 bg-white/65 text-zinc-800 hover:bg-white/90")} onClick={() => setEmailBox(opt.key)}>{opt.label}</button>
                             ))}
                           </div>
                         </div>
@@ -1928,24 +1985,24 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Search scope</div>
                           <div className="mt-2 grid grid-cols-2 gap-2">
                             {([ { key: "current" as const, label: "Current" }, { key: "inbox" as const, label: "Inbox" }, { key: "unread" as const, label: "Unread" }, { key: "outbox" as const, label: "Outbox" }, { key: "attachments" as const, label: "Attachments" } ] satisfies Array<{ key: EmailSearchCategory; label: string }>).map((opt) => (
-                              <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold", emailSearchCategory === opt.key ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")} onClick={() => setEmailSearchCategory(opt.key)}>{opt.label}</button>
+                              <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold transition", emailSearchCategory === opt.key ? inboxSoftBlueActiveClass : "border-white/45 bg-white/65 text-zinc-800 hover:bg-white/90")} onClick={() => setEmailSearchCategory(opt.key)}>{opt.label}</button>
                             ))}
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                        <div className={classNames("flex items-center justify-between gap-3 rounded-2xl px-3 py-2", portalGlassSectionClass)}>
                           <div>
                             <div className="text-xs font-semibold text-zinc-900">Has attachments</div>
                             <div className="text-[11px] text-zinc-500">Best-effort based on subject or preview</div>
                           </div>
-                          <button type="button" className={classNames("h-7 w-12 rounded-full border transition", emailHasAttachmentsOnly ? "border-brand-ink bg-brand-ink" : "border-zinc-200 bg-zinc-100")} onClick={() => setEmailHasAttachmentsOnly((v) => !v)} aria-pressed={emailHasAttachmentsOnly} aria-label="Toggle attachments filter">
+                          <button type="button" className={classNames("h-7 w-12 rounded-full transition", emailHasAttachmentsOnly ? inboxSoftBlueToggleTrackActiveClass : "bg-white/80 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.2)]")} onClick={() => setEmailHasAttachmentsOnly((v) => !v)} aria-pressed={emailHasAttachmentsOnly} aria-label="Toggle attachments filter">
                             <span className={classNames("block h-6 w-6 translate-x-0.5 rounded-full bg-white shadow transition", emailHasAttachmentsOnly && "translate-x-[1.4rem]")} />
                           </button>
                         </div>
 
                         <button
                           type="button"
-                          className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                          className={classNames("w-full rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:bg-white/90", portalGlassButtonClass)}
                           onClick={() => {
                             setEmailSearchWho("");
                             setEmailSearchFrom("");
@@ -1967,21 +2024,21 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 {tab === "sms" && smsFiltersMenu ? (
                   <>
                     <div className="fixed inset-0 z-30" onMouseDown={() => setSmsFiltersMenu(null)} onTouchStart={() => setSmsFiltersMenu(null)} aria-hidden />
-                    <div className="fixed z-40 overflow-auto rounded-3xl border border-zinc-200 bg-white shadow-xl" style={{ left: smsFiltersMenu.left, top: smsFiltersMenu.top, width: smsFiltersMenu.width, maxHeight: smsFiltersMenu.maxHeight }} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
-                      <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                    <div className={classNames("fixed z-40 overflow-auto rounded-3xl", portalGlassPanelClass)} style={{ left: smsFiltersMenu.left, top: smsFiltersMenu.top, width: smsFiltersMenu.width, maxHeight: smsFiltersMenu.maxHeight }} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+                      <div className="border-b border-white/40 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
                       <div className="px-4 py-4">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Date</div>
                         <div className="mt-2 grid grid-cols-2 gap-2">
                           {([ { key: "any" as const, label: "Any time" }, { key: "7d" as const, label: "Last 7 days" }, { key: "30d" as const, label: "Last 30 days" }, { key: "90d" as const, label: "Last 90 days" } ] satisfies Array<{ key: DateFilter; label: string }>).map((opt) => (
-                            <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold", smsDateFilter === opt.key ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")} onClick={() => setSmsDateFilter(opt.key)}>{opt.label}</button>
+                            <button key={opt.key} type="button" className={classNames("rounded-xl border px-3 py-2 text-left text-xs font-semibold transition", smsDateFilter === opt.key ? inboxSoftBlueActiveClass : "border-white/45 bg-white/65 text-zinc-800 hover:bg-white/90")} onClick={() => setSmsDateFilter(opt.key)}>{opt.label}</button>
                           ))}
                         </div>
-                        <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                        <div className={classNames("mt-4 flex items-center justify-between gap-3 rounded-2xl px-3 py-2", portalGlassSectionClass)}>
                           <div>
                             <div className="text-xs font-semibold text-zinc-900">Incoming only</div>
                             <div className="text-[11px] text-zinc-500">Last message from them</div>
                           </div>
-                          <button type="button" className={classNames("h-7 w-12 rounded-full border transition", smsIncomingOnly ? "border-brand-ink bg-brand-ink" : "border-zinc-200 bg-zinc-100")} onClick={() => setSmsIncomingOnly((v) => !v)} aria-pressed={smsIncomingOnly} aria-label="Toggle incoming-only filter">
+                          <button type="button" className={classNames("h-7 w-12 rounded-full transition", smsIncomingOnly ? inboxSoftBlueToggleTrackActiveClass : "bg-white/80 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.2)]")} onClick={() => setSmsIncomingOnly((v) => !v)} aria-pressed={smsIncomingOnly} aria-label="Toggle incoming-only filter">
                             <span className={classNames("block h-6 w-6 translate-x-0.5 rounded-full bg-white shadow transition", smsIncomingOnly && "translate-x-[1.4rem]")} />
                           </button>
                         </div>
@@ -1992,7 +2049,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
               <button
                   type="button"
-                  className={classNames("inline-flex h-12 w-12 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-colors duration-100 hover:bg-zinc-50", tab === "email" ? (emailBox !== "inbox" || emailDateFilter !== "any" || emailHasAttachmentsOnly || emailSearchWho || emailSearchFrom || emailSearchSubject || emailSearchWords || emailSearchCategory !== "current") && "border-brand-ink" : (smsDateFilter !== "any" || smsIncomingOnly) && "border-brand-ink")}
+                  className={classNames("inline-flex h-12 w-12 items-center justify-center rounded-full text-zinc-800 transition-colors duration-100 hover:bg-white/90", portalGlassButtonClass, tab === "email" ? (emailBox !== "inbox" || emailDateFilter !== "any" || emailHasAttachmentsOnly || emailSearchWho || emailSearchFrom || emailSearchSubject || emailSearchWords || emailSearchCategory !== "current") && "text-brand-blue" : (smsDateFilter !== "any" || smsIncomingOnly) && "text-brand-blue")}
                   onClick={(e) => {
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     if (tab === "email") {
@@ -2139,7 +2196,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             {loadingThreads ? (
               <div className="px-3 py-4 text-sm text-zinc-600">Loading…</div>
             ) : filteredThreads.length ? (
-              <div className="min-h-0 flex-1 overflow-y-auto">
+              <div ref={mobileThreadListRef} onScroll={handleThreadListScroll} className="min-h-0 flex-1 overflow-y-auto">
                 {filteredThreads.map((t) => {
                 const active = t.id === activeThreadId;
 
@@ -2230,6 +2287,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   </button>
                 );
               })}
+              {loadingMoreThreads ? <div className="px-4 py-3 text-xs font-medium text-zinc-500">Loading older conversations…</div> : null}
+              {!loadingMoreThreads && hasMoreThreads ? <div className="px-4 py-3 text-xs text-zinc-400">Scroll to load older conversations.</div> : null}
             </div>
           ) : (
             <div className="px-3 py-4 text-sm text-zinc-600">
@@ -2487,20 +2546,15 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       {activeThread ? activeThread.peerAddress : "Open the last conversation or start a new text."}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
-                    onClick={openSmsComposer}
-                  >
-                    New text
-                  </button>
                   {activeThread ? (
                     <button
                       type="button"
-                      className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 transition hover:bg-zinc-50"
                       onClick={openContactModalForActiveThread}
+                      aria-label={activeThread.contactId ? "Edit contact" : "Add contact"}
+                      title={activeThread.contactId ? "Edit contact" : "Add contact"}
                     >
-                      {activeThread.contactId ? "Edit contact" : "Add contact"}
+                      <IconEdit size={18} />
                     </button>
                   ) : null}
                 </div>
@@ -2539,7 +2593,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       </div>
 
                       {toSuggestionsMenu ? (
-                        <div className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg" style={{ left: toSuggestionsMenu.left, top: toSuggestionsMenu.top, width: toSuggestionsMenu.width, maxHeight: toSuggestionsMenu.maxHeight }} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+                        <div className={classNames("fixed z-12045 overflow-auto rounded-2xl", portalGlassPanelClass)} style={{ left: toSuggestionsMenu.left, top: toSuggestionsMenu.top, width: toSuggestionsMenu.width, maxHeight: toSuggestionsMenu.maxHeight }} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
                           {contactsLoading ? (
                             <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
                           ) : (
@@ -2549,7 +2603,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                               return (
                                 <div className="py-1">
                                   {suggestions.map((c) => (
-                                    <button key={c.id} type="button" className="w-full px-3 py-2 text-left hover:bg-zinc-50" onMouseDown={(e) => {
+                                    <button key={c.id} type="button" className="w-full rounded-2xl px-3 py-2 text-left transition hover:bg-white/55" onMouseDown={(e) => {
                                       e.preventDefault();
                                       applyContactToCompose(c);
                                     }}>
@@ -2649,7 +2703,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 <div className="max-w-md">
                   <div className="text-lg font-semibold text-zinc-900">Choose an SMS thread</div>
                   <div className="mt-2 text-sm text-zinc-600">Pick a conversation from the thread list, or start a new text.</div>
-                  <button type="button" onClick={openSmsComposer} className="mt-4 rounded-2xl bg-[#007aff] px-4 py-2 text-sm font-semibold text-white hover:bg-[#006ae6]">New text</button>
                 </div>
               </div>
             </div>

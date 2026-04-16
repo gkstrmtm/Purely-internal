@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import {
@@ -18,14 +19,14 @@ import {
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
-import { IconServiceGlyph } from "@/app/portal/PortalIcons";
-import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
+import { IconEdit, IconEyeGlyph, IconGlobeGlyph, IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
+import { portalGlassButtonClass, portalGlassPanelClass } from "@/components/portalGlass";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
@@ -85,16 +86,19 @@ type NewsletterRow = {
   updatedAtIso: string;
 };
 
+type OpenNewsletterMenu = {
+  newsletterId: string;
+  left: number;
+  top: number;
+  maxHeight: number;
+};
+
 type FunnelBuilderDomain = {
   id: string;
   domain: string;
   status: "PENDING" | "VERIFIED";
   verifiedAt: string | null;
 };
-
-function classNames(...xs: Array<string | false | null | undefined>) {
-  return xs.filter(Boolean).join(" ");
-}
 
 function formatDate(value: string | null) {
   if (!value) return "";
@@ -282,6 +286,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [siteConfigName, setSiteConfigName] = useState("Newsletter site");
   const [siteConfigSlug, setSiteConfigSlug] = useState("");
   const [siteConfigDomain, setSiteConfigDomain] = useState("");
+  const [openNewsletterMenu, setOpenNewsletterMenu] = useState<OpenNewsletterMenu | null>(null);
   const lastSavedSiteConfigSigRef = useRef<string>("");
   const siteConfigSig = useMemo(() => {
     return JSON.stringify({
@@ -364,6 +369,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     if (primaryDomainStatus !== "VERIFIED") return null;
     return `https://${normalizedPrimaryDomain}`;
   }, [normalizedPrimaryDomain, primaryDomainStatus]);
+
+  const openNewsletterMenuItem = useMemo(() => {
+    if (!openNewsletterMenu) return null;
+    return newsletters.find((item) => item.id === openNewsletterMenu.newsletterId) ?? null;
+  }, [newsletters, openNewsletterMenu]);
 
   const customPublicBasePath = useMemo(() => {
     // Hosted pages exist for both external and internal newsletters.
@@ -505,6 +515,25 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     setNewsletters(newslettersCache[audience] ?? []);
   }, [audience, newslettersCache, settingsCache]);
 
+  useEffect(() => {
+    if (!openNewsletterMenu) return;
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenNewsletterMenu(null);
+    };
+
+    const onScrollOrResize = () => setOpenNewsletterMenu(null);
+
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [openNewsletterMenu]);
+
   const setAudienceAndRoute = useCallback(
     (next: AudienceTab) => {
       setAudience(next);
@@ -512,6 +541,32 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     },
     [basePath, router],
   );
+
+  const toggleNewsletterMenu = useCallback((newsletterId: string, element: HTMLElement) => {
+    setOpenNewsletterMenu((prev) => {
+      if (prev?.newsletterId === newsletterId) return null;
+
+      const rect = element.getBoundingClientRect();
+      const menuWidth = 224;
+      const viewportPad = 12;
+      const gap = 8;
+      const estimatedHeight = 200;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      const left = Math.max(viewportPad, Math.min(viewportWidth - menuWidth - viewportPad, rect.right - menuWidth));
+      const spaceBelow = viewportHeight - rect.bottom - gap - viewportPad;
+      const spaceAbove = rect.top - gap - viewportPad;
+      const placeDown = spaceBelow >= Math.min(estimatedHeight, 180) || spaceBelow >= spaceAbove;
+      const available = placeDown ? spaceBelow : spaceAbove;
+      const maxHeight = Math.max(120, Math.min(estimatedHeight, available));
+      const usedHeight = Math.min(estimatedHeight, maxHeight);
+      const rawTop = placeDown ? rect.bottom + gap : rect.top - gap - usedHeight;
+      const top = Math.max(viewportPad, Math.min(viewportHeight - viewportPad - usedHeight, rawTop));
+
+      return { newsletterId, left, top, maxHeight };
+    });
+  }, []);
 
   const setSidebarOverride = useSetPortalSidebarOverride();
   const newsletterSidebar = useMemo(() => {
@@ -1152,7 +1207,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-[color:var(--color-brand-mist)] to-white p-4 shadow-sm">
+              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-(--color-brand-mist) to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Total credits</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
               </div>
@@ -1179,7 +1234,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               {!isPaMobileApp ? (
                 <button
                   type="button"
-                  className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-opacity duration-100 hover:opacity-90"
+                  className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm transition-opacity duration-100 hover:opacity-90"
                   onClick={() => {
                     setComposerOpen(true);
                     setMode("ai");
@@ -1218,10 +1273,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                             ? "bg-amber-50 text-amber-700"
                             : "bg-zinc-100 text-zinc-700";
 
-                      const publicPath = siteHandle && n.status === "SENT"
-                        ? `${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${n.slug}`
-                        : null;
-
                       return (
                         <tr key={n.id} className="border-t border-zinc-200">
                           <td className="px-4 py-3">
@@ -1242,38 +1293,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           <td className="px-4 py-3 text-zinc-600">{formatDate(n.updatedAtIso)}</td>
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap items-center justify-end gap-2">
-                              {publicPath ? (
-                                <>
-                                  <Link
-                                    href={publicPath}
-                                    target="_blank"
-                                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors duration-100 hover:bg-zinc-50"
-                                  >
-                                    Preview
-                                  </Link>
-                                  <a
-                                    href={
-                                      customHostedBaseUrl
-                                        ? `${customHostedBaseUrl}${audience === "internal" ? "/internal-newsletters" : "/newsletters"}/${n.slug}`
-                                        : publicPath
-                                    }
-                                    target="_blank"
-                                    rel="noreferrer noopener"
-                                    className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95"
-                                  >
-                                    Live
-                                  </a>
-                                </>
-                              ) : null}
-
-                              <button
-                                type="button"
-                                onClick={() => void openDraft(n.id)}
-                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors duration-100 hover:bg-zinc-50"
-                              >
-                                {n.status === "SENT" ? "Edit hosted" : "Edit / preview"}
-                              </button>
-
                               {n.status === "READY" ? (
                                 <button
                                   type="button"
@@ -1283,6 +1302,24 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                                   Send now
                                 </button>
                               ) : null}
+
+                              <div className="relative flex justify-end" onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  aria-label="Newsletter actions"
+                                  className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-lg font-semibold text-zinc-700 hover:bg-zinc-50"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleNewsletterMenu(n.id, e.currentTarget);
+                                  }}
+                                >
+                                  <span className="inline-flex items-center gap-0.5" aria-hidden="true">
+                                    <span className="h-1 w-1 rounded-full bg-current" />
+                                    <span className="h-1 w-1 rounded-full bg-current" />
+                                    <span className="h-1 w-1 rounded-full bg-current" />
+                                  </span>
+                                </button>
+                              </div>
                             </div>
                           </td>
                         </tr>
@@ -1294,23 +1331,97 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             </div>
           </div>
 
+          {openNewsletterMenu && openNewsletterMenuItem && typeof document !== "undefined"
+            ? createPortal(
+                <div className="fixed inset-0 z-30" aria-hidden>
+                  <div className="absolute inset-0" onMouseDown={() => setOpenNewsletterMenu(null)} onTouchStart={() => setOpenNewsletterMenu(null)} />
+                  <div
+                    className={["fixed z-40 w-56 overflow-auto rounded-2xl p-1.5", portalGlassPanelClass].join(" ")}
+                    style={{ left: openNewsletterMenu.left, top: openNewsletterMenu.top, maxHeight: openNewsletterMenu.maxHeight }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                  >
+                    {(() => {
+                      const item = openNewsletterMenuItem;
+                      const previewPath = siteHandle && item.status === "SENT"
+                        ? `${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${item.slug}`
+                        : null;
+                      const livePath = item.status === "SENT"
+                        ? customHostedBaseUrl
+                          ? `${customHostedBaseUrl}${audience === "internal" ? "/internal-newsletters" : "/newsletters"}/${item.slug}`
+                          : previewPath
+                        : null;
+                      return (
+                        <>
+                          <button
+                            type="button"
+                            className={["w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80", portalGlassButtonClass].join(" ")}
+                            onClick={() => {
+                              setOpenNewsletterMenu(null);
+                              void openDraft(item.id);
+                            }}
+                          >
+                            <span className="inline-flex items-center gap-2">
+                              <IconEdit size={16} />
+                              <span>{item.status === "SENT" ? "Edit hosted" : "Edit"}</span>
+                            </span>
+                          </button>
+
+                          {previewPath ? (
+                            <button
+                              type="button"
+                              className={["mt-1 w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80", portalGlassButtonClass].join(" ")}
+                              onClick={() => {
+                                setOpenNewsletterMenu(null);
+                                window.open(previewPath, "_blank", "noopener,noreferrer");
+                              }}
+                            >
+                              <span className="inline-flex items-center gap-2">
+                                <IconEyeGlyph size={16} />
+                                <span>Preview</span>
+                              </span>
+                            </button>
+                          ) : null}
+
+                          {livePath ? (
+                            <button
+                              type="button"
+                              className={["mt-1 w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80", portalGlassButtonClass].join(" ")}
+                              onClick={() => {
+                                setOpenNewsletterMenu(null);
+                                window.open(livePath, "_blank", "noopener,noreferrer");
+                              }}
+                            >
+                              <span className="inline-flex items-center gap-2">
+                                <IconGlobeGlyph size={16} />
+                                <span>View live</span>
+                              </span>
+                            </button>
+                          ) : null}
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>,
+                document.body,
+              )
+            : null}
+
           {composerOpen ? (
             <div
-              className={classNames(
+              className={
                 mode === "manual"
-                  ? "fixed inset-0 z-9997 flex items-stretch justify-center px-0 pt-[var(--pa-modal-safe-top,0px)] pb-0 sm:px-4"
-                  : "fixed inset-0 z-50 flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center",
-                portalGlassBackdropClass,
-              )}
+                  ? "fixed inset-0 z-9997 flex items-stretch justify-center bg-black/40 px-0 pt-(--pa-modal-safe-top,0px) pb-0 sm:px-4"
+                  : "fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center"
+              }
               onMouseDown={() => setComposerOpen(false)}
             >
               <div
-                className={classNames(
+                className={
                   mode === "manual"
-                    ? "w-full h-[calc(100dvh-var(--pa-modal-safe-top,0px))] overflow-hidden shadow-xl sm:my-4 sm:max-w-5xl sm:max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-2rem)] sm:rounded-3xl"
-                    : "w-full max-w-5xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-hidden rounded-3xl",
-                  portalGlassPanelClass,
-                )}
+                    ? "w-full h-[calc(100dvh-var(--pa-modal-safe-top,0px))] overflow-hidden bg-white shadow-xl sm:my-4 sm:max-w-5xl sm:max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-2rem)] sm:rounded-3xl sm:border sm:border-zinc-200"
+                    : "w-full max-w-5xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
+                }
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 <div
@@ -1333,7 +1444,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     className={
                       "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition " +
                       (mode === "ai"
-                        ? "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90"
+                        ? "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90"
                         : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                     }
                   >
@@ -1357,7 +1468,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     onClick={() => setMode("manual")}
                     className={
                       "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition " +
-                      (mode === "manual" ? "bg-brand-ink text-white hover:opacity-95" : `${portalGlassButtonClass} text-zinc-700 hover:bg-white/80`)
+                      (mode === "manual" ? "bg-brand-ink text-white hover:opacity-95" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                     }
                   >
                     <span>Manual</span>
@@ -1371,7 +1482,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-xs font-semibold shadow-sm transition " +
                       (saving || !settings || !isDirty
                         ? "bg-zinc-200 text-zinc-600"
-                        : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-90")
+                        : "bg-(--color-brand-blue) text-white hover:opacity-90")
                     }
                   >
                     {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
@@ -1381,10 +1492,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     type="button"
                     onClick={() => setComposerOpen(false)}
                     aria-label="Close composer"
-                    className={classNames(
-                      "inline-flex h-10 w-10 items-center justify-center rounded-2xl text-base font-semibold text-zinc-500 transition-colors duration-100 hover:bg-white/80 hover:text-zinc-800",
-                      portalGlassButtonClass,
-                    )}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-100 hover:bg-zinc-50 hover:text-zinc-800"
                   >
                     ×
                   </button>
@@ -1430,7 +1538,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 </div>
               </div>
 
-              <div className={classNames("rounded-2xl p-4", portalGlassSectionClass)}>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-sm font-semibold text-zinc-900">Images & files</div>
                 <div className="mt-2 text-sm text-zinc-600">Upload, pick from the media library, or generate a royalty-free image suggestion.</div>
 
@@ -1595,7 +1703,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
                       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                         <a
-                          className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                          className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
                           href={manualImagePreview.sourcePage}
                           target="_blank"
                           rel="noreferrer"
@@ -1765,7 +1873,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       <button
                         type="button"
                         onClick={() => setAiStep("review")}
-                        className="rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90"
+                        className="rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90"
                       >
                         Skip to Review
                       </button>
@@ -1856,7 +1964,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         className={
                           "inline-flex cursor-pointer items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold transition " +
                           (settings?.channels?.email
-                            ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-mist)] text-brand-ink"
+                            ? "border-(--color-brand-blue) bg-(--color-brand-mist) text-brand-ink"
                             : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                         }
                       >
@@ -1872,7 +1980,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           aria-hidden="true"
                           className={
                             "h-2.5 w-2.5 rounded-full " +
-                            (settings?.channels?.email ? "bg-[color:var(--color-brand-blue)]" : "bg-zinc-300")
+                            (settings?.channels?.email ? "bg-(--color-brand-blue)" : "bg-zinc-300")
                           }
                         />
                         Email
@@ -1882,7 +1990,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         className={
                           "inline-flex cursor-pointer items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold transition " +
                           (settings?.channels?.sms
-                            ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-mist)] text-brand-ink"
+                            ? "border-(--color-brand-blue) bg-(--color-brand-mist) text-brand-ink"
                             : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                         }
                       >
@@ -1898,7 +2006,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           aria-hidden="true"
                           className={
                             "h-2.5 w-2.5 rounded-full " +
-                            (settings?.channels?.sms ? "bg-[color:var(--color-brand-blue)]" : "bg-zinc-300")
+                            (settings?.channels?.sms ? "bg-(--color-brand-blue)" : "bg-zinc-300")
                           }
                         />
                         SMS (link)
@@ -2093,7 +2201,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         {idx === arr.length - 1 ? (
                           <button
                             type="button"
-                            className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                            className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
                             onClick={() => {
                               const next = [...arr, ""];
                               setSettings((prev) => (prev ? { ...prev, topics: next } : prev));
@@ -2125,7 +2233,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         "rounded-2xl px-4 py-2 text-sm font-semibold shadow-sm transition " +
                         (saving || !settings || !isDirty
                           ? "bg-zinc-200 text-zinc-600"
-                          : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-90")
+                          : "bg-(--color-brand-blue) text-white hover:opacity-90")
                       }
                       disabled={saving || !settings || !isDirty}
                       onClick={saveSettings}
@@ -2143,7 +2251,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold " +
                         (generating || saving || !settings
                           ? "bg-zinc-200 text-zinc-600"
-                          : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90")
+                          : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90")
                       }
                     >
                       <svg
@@ -2236,7 +2344,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 {!showCreateTag ? (
                   <button
                     type="button"
-                    className="mt-2 text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                    className="mt-2 text-xs font-semibold text-(--color-brand-blue) hover:underline"
                     onClick={() => {
                       const suggestion = tagSearch.trim().slice(0, 60);
                       if (suggestion && !createTagName.trim()) setCreateTagName(suggestion);
@@ -2596,12 +2704,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       <span className="font-semibold text-zinc-600">Preview:</span> {publicBaseUrl}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <a
-                        href={`${basePath}/page-editor`}
-                        className="inline-flex items-center justify-center rounded-xl bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition-colors duration-100 hover:bg-zinc-900"
-                      >
-                        Edit page
-                      </a>
                       <button
                         type="button"
                         className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
@@ -2650,7 +2752,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         target="_blank"
                         rel="noreferrer noopener"
                         className={
-                          "rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white hover:opacity-95 " +
+                          "rounded-xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white hover:opacity-95 " +
                           (!livePublicBaseUrl ? "pointer-events-none opacity-60" : "")
                         }
                       >
@@ -2670,7 +2772,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           setSiteConfigOpen(true);
                         }}
                       >
-                        Edit site config
+                        Edit hosted pages
                       </button>
                     </div>
 
@@ -2714,17 +2816,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
       {draftOpen ? (
         <div
-          className={classNames(
-            "fixed inset-0 z-9997 flex items-stretch justify-center px-0 pt-[var(--pa-modal-safe-top,0px)] pb-0 sm:px-4 sm:pt-[calc(var(--pa-modal-safe-top,0px)+1rem)]",
-            portalGlassBackdropClass,
-          )}
+          className="fixed inset-0 z-9997 flex items-stretch justify-center bg-black/30 px-0 pt-(--pa-modal-safe-top,0px) pb-0 sm:px-4 sm:pt-[calc(var(--pa-modal-safe-top,0px)+1rem)]"
           onMouseDown={() => setDraftOpen(false)}
         >
           <div
-            className={classNames(
-              "w-full h-[calc(100dvh-var(--pa-modal-safe-top,0px))] overflow-y-auto p-4 shadow-xl sm:my-4 sm:max-w-5xl sm:max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-2rem)] sm:rounded-3xl",
-              portalGlassPanelClass,
-            )}
+            className="w-full h-[calc(100dvh-var(--pa-modal-safe-top,0px))] overflow-y-auto bg-white p-4 shadow-xl sm:my-4 sm:max-w-5xl sm:max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-2rem)] sm:rounded-3xl sm:border sm:border-zinc-200"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
@@ -2739,10 +2835,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <button
                 type="button"
                 aria-label="Close draft editor"
-                className={classNames(
-                  "inline-flex h-10 w-10 items-center justify-center rounded-2xl text-base font-semibold text-zinc-500 transition-colors duration-100 hover:bg-white/80 hover:text-zinc-800",
-                  portalGlassButtonClass,
-                )}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-100 hover:bg-zinc-50 hover:text-zinc-800"
                 onClick={() => setDraftOpen(false)}
                 disabled={draftSaving}
               >
@@ -2754,7 +2847,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">Loading…</div>
             ) : (
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                <div className={classNames("rounded-3xl p-4", portalGlassSectionClass)}>
+                <div className="rounded-3xl border border-zinc-200 bg-white p-4">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Draft fields</div>
 
                   {draftError ? (
@@ -2810,7 +2903,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     </div>
                   </div>
 
-                  <div className={classNames("mt-4 rounded-2xl p-3", portalGlassSectionClass)}>
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                     <div className="text-xs font-semibold text-zinc-700">Files & photos</div>
                     <div className="mt-2 grid gap-3 sm:grid-cols-2">
                       <div>
@@ -2838,14 +2931,14 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                             </button>
                           ) : null}
                         </div>
-                        <div className="mt-1 w-full rounded-2xl border border-white/35 bg-white/55 px-3 py-2 text-xs text-zinc-700 break-all">
+                        <div className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
                           {assetUrl ? assetFileName || assetUrl : "No file selected yet."}
                         </div>
                       </div>
                     </div>
 
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <label className={classNames("inline-flex cursor-pointer items-center justify-center rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}>
+                      <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
                         {assetBusy ? "Uploading…" : "Upload"}
                         <input
                           type="file"
@@ -2876,7 +2969,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
                       <button
                         type="button"
-                        className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
                         onClick={() => setAssetPickerOpen(true)}
                       >
                         Choose from media library
@@ -2930,7 +3023,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           href={`${customHostedBaseUrl}${audience === "internal" ? "/internal-newsletters" : "/newsletters"}/${draftSlug}`}
                           target="_blank"
                           rel="noreferrer noopener"
-                          className={classNames("rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}
+                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                         >
                           Open hosted
                         </a>
@@ -2946,7 +3039,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     ) : null}
                     <button
                       type="button"
-                      className={classNames("rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/80 disabled:opacity-60", portalGlassButtonClass)}
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
                       onClick={() => {
                         setDraftOpen(false);
                       }}
@@ -2965,7 +3058,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   </div>
                 </div>
 
-                <div className={classNames("rounded-3xl p-4", portalGlassSectionClass)}>
+                <div className="rounded-3xl border border-zinc-200 bg-white p-4">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Preview</div>
 
                   {siteHandle && draftSlug ? (
@@ -3113,7 +3206,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   <div className="text-xs text-zinc-500">Domains come from Funnel Builder → Settings → Custom domains.</div>
                   <Link
                     href={`${basePath}/app/services/funnel-builder/settings`}
-                    className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                    className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
                   >
                     Add / manage domains
                   </Link>
@@ -3132,7 +3225,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               </button>
               <button
                 type="button"
-                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
                 disabled={siteConfigBusy || siteConfigName.trim().length < 2 || !siteConfigDirty}
                 onClick={async () => {
                   const name = siteConfigName.trim().slice(0, 120);

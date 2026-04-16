@@ -12,14 +12,9 @@ import { resolveHostedFont } from "@/lib/portalHostedFonts";
 import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
 import { getHostedTheme } from "@/lib/hostedTheme";
 import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
-import { renderHostedCustomHtmlTemplate } from "@/lib/hostedPageRuntime";
-import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
-import { HostedBlogArchiveSection } from "@/components/hosted/HostedBlogArchiveSection";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-const BLOGS_ARCHIVE_TOKEN = "{{BLOGS_ARCHIVE}}";
 
 async function PendingVerification({ ownerId }: { ownerId: string }) {
   const [hostedBrandFont, hostedTheme] = await Promise.all([
@@ -178,24 +173,11 @@ export default async function CustomDomainBlogsIndexPage({
     select: { slug: true, title: true, excerpt: true, publishedAt: true, updatedAt: true },
   });
 
-  const hostedBlogsIndex = await (prisma as any).hostedPageDocument.findFirst({
-    where: { ownerId: site.ownerId, service: "BLOGS", pageKey: "blogs_index" },
-    orderBy: { updatedAt: "desc" },
-    select: { id: true, title: true, editorMode: true, blocksJson: true, customHtml: true },
-  });
-
   const brandName = (profile as any)?.businessName || site.name;
   const logoUrl = (profile as any)?.logoUrl || null;
 
   const themeStyle = theme.cssVars;
   const ctaBg = theme.ctaHex;
-  const hostedBlocks = coerceBlocksJson(hostedBlogsIndex?.blocksJson);
-  const hasHostedBlocks = Boolean(hostedBlogsIndex?.editorMode === "BLOCKS" && hostedBlocks.length);
-  const hasHostedCustomHtml = Boolean(
-    hostedBlogsIndex?.editorMode === "CUSTOM_HTML" && typeof hostedBlogsIndex?.customHtml === "string" && hostedBlogsIndex.customHtml.trim(),
-  );
-
-  const blogArchiveSection = <HostedBlogArchiveSection brandName={brandName} posts={posts} page={page} pageSize={take} basePath="/blogs" />;
 
   return (
     <div
@@ -224,49 +206,136 @@ export default async function CustomDomainBlogsIndexPage({
       <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" domain={host} ownerId={mapping.ownerId} pathOverride="/blogs" />
 
       <main>
-        {hasHostedCustomHtml ? (
-          renderHostedCustomHtmlTemplate({
-            html: hostedBlogsIndex.customHtml,
-            textTokens: {
-              BUSINESS_NAME: brandName,
-              PAGE_TITLE: "Blogs",
-              PAGE_DESCRIPTION: `The latest posts from ${brandName}.`,
-              SITE_HANDLE: host,
-            },
-            runtimeTokens: { [BLOGS_ARCHIVE_TOKEN]: blogArchiveSection },
-            fallback: blogArchiveSection,
-          })
-        ) : hasHostedBlocks ? (
-          <>
-            <div className="mx-auto max-w-6xl px-6 py-10">{renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "" })}</div>
-            {blogArchiveSection}
-          </>
-        ) : (
-          <>
-            <section style={{ backgroundColor: "var(--client-primary)" }}>
-              <div className="mx-auto max-w-6xl px-6 py-14">
-                <div className="max-w-3xl">
-                  <div className="font-brand text-4xl sm:text-5xl" style={{ color: "var(--client-on-primary)" }}>
-                    blogs
+        <section style={{ backgroundColor: "var(--client-primary)" }}>
+          <div className="mx-auto max-w-6xl px-6 py-14">
+            <div className="max-w-3xl">
+              <div className="font-brand text-4xl sm:text-5xl" style={{ color: "var(--client-on-primary)" }}>
+                blogs
+              </div>
+              <p className="mt-4 text-lg leading-relaxed" style={{ color: "var(--client-on-primary-muted)" }}>
+                The latest posts from {brandName}.
+              </p>
+              <div className="mt-8 flex flex-wrap items-center gap-3">
+                <Link
+                  href="/blogs"
+                  className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-base font-extrabold shadow-md"
+                  style={{ backgroundColor: ctaBg, color: "var(--client-on-accent)" }}
+                >
+                  browse posts
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-6 py-14">
+          <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
+            <div>
+              <div className="font-brand text-3xl" style={{ color: "var(--client-link)" }}>
+                latest posts
+              </div>
+              <p className="mt-2 max-w-2xl text-sm" style={{ color: "var(--client-muted)" }}>
+                Fresh updates and helpful ideas.
+              </p>
+
+              <div className="mt-8 grid gap-6">
+                {posts.length === 0 ? (
+                  <div className="rounded-3xl border p-8" style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-soft)" }}>
+                    <div className="text-lg font-semibold" style={{ color: "var(--client-text)" }}>
+                      New posts are coming soon.
+                    </div>
+                    <div className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
+                      Check back shortly.
+                    </div>
                   </div>
-                  <p className="mt-4 text-lg leading-relaxed" style={{ color: "var(--client-on-primary-muted)" }}>
-                    The latest posts from {brandName}.
-                  </p>
-                  <div className="mt-8 flex flex-wrap items-center gap-3">
+                ) : (
+                  posts.map((post) => (
                     <Link
-                      href="/blogs"
-                      className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-base font-extrabold shadow-md"
+                      key={post.slug}
+                      href={`/blogs/${post.slug}`}
+                      className="group rounded-3xl border p-7 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                      style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+                    >
+                      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--client-muted)" }}>
+                        {formatBlogDate(post.publishedAt ?? post.updatedAt)}
+                      </div>
+                      <div
+                        className="mt-2 font-brand text-2xl group-hover:underline"
+                        style={{ color: "var(--client-link)" }}
+                      >
+                        {post.title}
+                      </div>
+                      <div className="mt-3 text-sm leading-relaxed" style={{ color: "var(--client-muted)" }}>
+                        {post.excerpt}
+                      </div>
+                      <div className="mt-5 text-sm font-bold" style={{ color: "var(--client-link)" }}>
+                        read more
+                      </div>
+                    </Link>
+                  ))
+                )}
+              </div>
+
+              <div className="mt-10 flex items-center justify-between">
+                <Link
+                  href={page > 1 ? `/blogs?page=${page - 1}` : `/blogs`}
+                  className={`rounded-2xl border px-4 py-2 text-sm font-semibold ${
+                    page <= 1 ? "pointer-events-none opacity-50" : ""
+                  }`}
+                  style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
+                >
+                  newer
+                </Link>
+
+                <div className="text-xs font-semibold" style={{ color: "var(--client-muted)" }}>
+                  page {page}
+                </div>
+
+                <Link
+                  href={`/blogs?page=${page + 1}`}
+                  className={`rounded-2xl border px-4 py-2 text-sm font-semibold ${
+                    posts.length < take ? "pointer-events-none opacity-50" : ""
+                  }`}
+                  style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
+                >
+                  older
+                </Link>
+              </div>
+            </div>
+
+            <aside className="lg:pt-1">
+              <div
+                className="sticky top-6 rounded-3xl border p-7 shadow-sm"
+                style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+              >
+                <div className="font-brand text-2xl" style={{ color: "var(--client-link)" }}>
+                  about
+                </div>
+                <p className="mt-3 text-sm leading-relaxed" style={{ color: "var(--client-muted)" }}>
+                  {brandName} shares updates, guides, and helpful ideas here.
+                </p>
+
+                <div className="mt-6 rounded-2xl p-5" style={{ backgroundColor: "var(--client-soft)" }}>
+                  <div className="text-sm font-bold" style={{ color: "var(--client-text)" }}>
+                    want a blog like this?
+                  </div>
+                  <p className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
+                    This blog is hosted and managed by Purely Automation.
+                  </p>
+                  <div className="mt-4">
+                    <a
+                      href="https://purelyautomation.com"
+                      className="inline-flex items-center rounded-2xl px-4 py-2 text-sm font-extrabold shadow-sm"
                       style={{ backgroundColor: ctaBg, color: "var(--client-on-accent)" }}
                     >
-                      browse posts
-                    </Link>
+                      learn more
+                    </a>
                   </div>
                 </div>
               </div>
-            </section>
-            {blogArchiveSection}
-          </>
-        )}
+            </aside>
+          </div>
+        </section>
       </main>
 
       <footer className="border-t" style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}>

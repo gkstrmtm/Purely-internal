@@ -3,6 +3,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import {
+  dbHasCreditFunnelPageDraftHtmlColumn,
+  normalizeDraftHtml,
+  normalizeDraftHtmlList,
+  withDraftHtmlSelect,
+} from "@/lib/funnelPageDbCompat";
 import { consumeCredits } from "@/lib/credits";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
@@ -70,10 +76,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
   });
   if (!funnel) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
+  const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
+
   const pages = await prisma.creditFunnelPage.findMany({
     where: { funnelId },
     orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-    select: {
+    select: withDraftHtmlSelect({
       id: true,
       slug: true,
       title: true,
@@ -85,14 +93,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
       customChatJson: true,
       createdAt: true,
       updatedAt: true,
-    },
+    }, hasDraftHtml),
   });
 
   const settings = await prisma.creditFunnelBuilderSettings
     .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
     .catch(() => null);
 
-  const pagesWithSeo = pages.map((p) => ({
+  const pagesWithSeo = normalizeDraftHtmlList(pages).map((p) => ({
     ...p,
     seo: readFunnelPageSeo(settings?.dataJson ?? null, p.id),
   }));
@@ -118,6 +126,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     select: { id: true },
   });
   if (!funnel) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
+  const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
 
   const charged = await consumeCredits(auth.session.user.id, PORTAL_CREDIT_COSTS.funnelPageCreate);
   if (!charged.ok) {
@@ -154,7 +164,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       sortOrder,
       ...(globalHeaderBlock ? { blocksJson: [globalHeaderBlock] as any } : {}),
     },
-    select: {
+    select: withDraftHtmlSelect({
       id: true,
       slug: true,
       title: true,
@@ -166,8 +176,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       customChatJson: true,
       createdAt: true,
       updatedAt: true,
-    },
+    }, hasDraftHtml),
   });
 
-  return NextResponse.json({ ok: true, page });
+  return NextResponse.json({ ok: true, page: normalizeDraftHtml(page) });
 }

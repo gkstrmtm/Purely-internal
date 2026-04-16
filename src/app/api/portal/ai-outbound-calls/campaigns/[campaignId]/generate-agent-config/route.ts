@@ -8,6 +8,8 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { consumeCredits } from "@/lib/credits";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
+import { analyzeOutboundContextStrength, buildOutboundIntelligenceBrief } from "@/lib/portalAiOutboundIntelligence";
+import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -127,7 +129,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },
-    select: { id: true, name: true },
+    select: { id: true, name: true, voiceAgentConfigJson: true, chatAgentConfigJson: true },
   });
 
   if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
@@ -135,18 +137,58 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const kind = parsed.data.kind;
   const context = parsed.data.context;
   const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+  const existingConfig = parseVoiceAgentConfig(kind === "calls" ? campaign.voiceAgentConfigJson : campaign.chatAgentConfigJson);
+  const analysis = analyzeOutboundContextStrength({
+    campaignName: campaign.name,
+    kind,
+    businessContext,
+    freeformContext: context,
+    config: existingConfig,
+  });
+  const derivedBrief = buildOutboundIntelligenceBrief({
+    campaignName: campaign.name,
+    kind,
+    businessContext,
+    freeformContext: context,
+    config: existingConfig,
+  });
+
+  if (analysis.userExperienceMode === "require") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Add one line for what the offer is and one line for the exact next step you want. The rest can stay inferred from the profile.",
+        analysis,
+      },
+      { status: 400 },
+    );
+  }
 
   const system = [
     "You generate compact agent configuration JSON for an outbound automation product.",
     "Return ONLY valid JSON. No markdown, no commentary.",
     "JSON keys: firstMessage, goal, personality, tone, environment, guardRails.",
     "Keep it practical and safe. Avoid spammy language.",
+    "Optimize for users who are not good at prompting. Infer sensible defaults instead of expecting a perfect spec.",
+    "The config must make the agent feel restrained, conversational, and useful under interruption or ambiguity.",
+    "GuardRails should explicitly cover turn-taking: ask one question at a time, pause after questions, do not stack questions, handle busy/silence/interruption gracefully.",
+    "Infer the likely business model and outreach context from the prompt instead of assuming a generic local-service sales flow.",
+    "Make the config work across B2B, B2C, professional services, recruiting, healthcare-like, legal-like, technical, and existing-customer follow-up contexts when the prompt implies them.",
     "Use plain text; do not include code fences.",
   ].join("\n");
 
   const user = [
     `Campaign: ${campaign.name}`,
     businessContext ? businessContext : "",
+    [
+      `Context strength: ${analysis.status} (${analysis.score}/100).`,
+      `Summary: ${analysis.summary}`,
+      analysis.strengths.length ? `Strengths: ${analysis.strengths.join(" | ")}` : "",
+      analysis.gaps.length ? `Gaps: ${analysis.gaps.join(" | ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    `Derived background brief:\n${derivedBrief}`,
     `Agent kind: ${kind === "calls" ? "phone calls" : "SMS/email messaging"}`,
     "Context:",
     context,
@@ -157,6 +199,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     "- personality/tone: how it should sound.",
     "- environment: assumptions about business + workflow.",
     "- guardRails: hard rules (opt-out handling, compliance, no hallucinations, be concise).",
+    "- Treat this like outbound real-world communication, not a chatbot demo.",
+    "- Prefer the lowest-friction next step when the contact is busy, hesitant, silent, or only partly engaged.",
+    "- Do not make the user supply every edge case. Infer the likely ones from context.",
+    "- Infer relationship stage, likely objections, primary call-to-action, and the safest fallback path.",
+    "- Make sure the agent answers direct questions cleanly and does not keep pushing the script when the contact changes direction.",
+    "- Use the derived background brief to infer structure in the background, but do not invent specifics that are not actually supported.",
   ].join("\n");
 
   let raw = "";
@@ -173,7 +221,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   const extracted = extractFirstJsonObject(raw);
   const normalized = normalizeConfig(extracted);
-  if (normalized) return NextResponse.json({ ok: true, config: normalized });
+  if (normalized) return NextResponse.json({ ok: true, config: normalized, analysis });
 
   // Fallback: treat raw as a goal so the UI isn't blank.
   const fallbackGoal = String(raw || "").trim().slice(0, 6000);
@@ -182,6 +230,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     config: {
       goal: fallbackGoal || `${kind === "calls" ? "Call" : "Message"} contacts and move them toward a booked appointment.`,
     },
+    analysis,
     warning: "AI response was not valid JSON; returned a fallback goal.",
   });
 }

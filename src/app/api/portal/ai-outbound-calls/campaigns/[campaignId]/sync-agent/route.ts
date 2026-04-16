@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
+import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import {
   buildElevenLabsAgentPrompt,
   createElevenLabsAgent,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/elevenLabsConvai";
 import { resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
 import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
+import { buildOutboundIntelligenceBrief } from "@/lib/portalAiOutboundIntelligence";
 import { resolveToolIdsForKeys } from "@/lib/voiceAgentTools";
 
 export const runtime = "nodejs";
@@ -152,11 +154,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
       .catch(() => null),
     prisma.user.findUnique({ where: { id: ownerId }, select: { name: true } }).catch(() => null),
   ]);
+  const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+  const outboundBrief = buildOutboundIntelligenceBrief({
+    campaignName: campaign.name,
+    kind: "calls",
+    businessContext,
+    config,
+  });
 
   const prompt = buildElevenLabsAgentPrompt(config, {
     businessName: profile?.businessName || null,
     ownerName: ownerUser?.name || null,
-  });
+  }, { outboundBrief, kind: "calls" });
   const firstMessage = config.firstMessage.trim();
 
   const localConfigIsEmpty =

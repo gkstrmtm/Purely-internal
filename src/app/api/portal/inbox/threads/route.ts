@@ -9,9 +9,27 @@ import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const DEFAULT_TAKE = 80;
+const MAX_TAKE = 100;
+
 function parseChannel(v: string | null): "EMAIL" | "SMS" {
   const s = String(v ?? "").toLowerCase().trim();
   return s === "sms" ? "SMS" : "EMAIL";
+}
+
+function parseTake(v: string | null) {
+  const n = Number.parseInt(String(v ?? ""), 10);
+  if (!Number.isFinite(n)) return DEFAULT_TAKE;
+  return Math.max(20, Math.min(MAX_TAKE, n));
+}
+
+function parseCursor(url: URL) {
+  const id = String(url.searchParams.get("cursorId") ?? "").trim();
+  const lastMessageAtRaw = String(url.searchParams.get("cursorLastMessageAt") ?? "").trim();
+  if (!id || !lastMessageAtRaw) return null;
+  const lastMessageAt = new Date(lastMessageAtRaw);
+  if (Number.isNaN(lastMessageAt.getTime())) return null;
+  return { id, lastMessageAt };
 }
 
 function customerFriendlyError(err: unknown, channel: "EMAIL" | "SMS") {
@@ -59,15 +77,25 @@ export async function GET(req: Request) {
   const ownerId = auth.session.user.id;
   const url = new URL(req.url);
   const channel = parseChannel(url.searchParams.get("channel"));
+  const take = parseTake(url.searchParams.get("take"));
+  const cursor = parseCursor(url);
 
   // Avoid runtime failures if migrations haven't been applied yet.
   await ensurePortalInboxSchema();
 
   try {
-    const threads = (await (prisma as any).portalInboxThread.findMany({
-      where: { ownerId, channel },
-      orderBy: { lastMessageAt: "desc" },
-      take: 200,
+    const where: Record<string, unknown> = { ownerId, channel };
+    if (cursor) {
+      where.OR = [
+        { lastMessageAt: { lt: cursor.lastMessageAt } },
+        { lastMessageAt: cursor.lastMessageAt, id: { lt: cursor.id } },
+      ];
+    }
+
+    const rows = (await (prisma as any).portalInboxThread.findMany({
+      where,
+      orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
+      take: take + 1,
       select: {
         id: true,
         channel: true,
@@ -82,6 +110,9 @@ export async function GET(req: Request) {
         lastMessageSubject: true,
       },
     })) as any[];
+
+    const hasMore = rows.length > take;
+    const threads = hasMore ? rows.slice(0, take) : rows;
 
     // Repair: older threads may not have been linked to a contact.
     // Best-effort attach based on peerAddress so UI can show names.
@@ -170,7 +201,18 @@ export async function GET(req: Request) {
       contactTags: t.contactId ? tagsByContactId.get(String(t.contactId)) || [] : [],
     }));
 
-    return NextResponse.json({ ok: true, threads: withTags });
+    const lastThread = withTags[withTags.length - 1] ?? null;
+    const nextCursor = hasMore && lastThread
+      ? {
+          id: String(lastThread.id),
+          lastMessageAt:
+            lastThread.lastMessageAt instanceof Date
+              ? lastThread.lastMessageAt.toISOString()
+              : String(lastThread.lastMessageAt),
+        }
+      : null;
+
+    return NextResponse.json({ ok: true, threads: withTags, hasMore, nextCursor });
   } catch (e) {
     const friendly = customerFriendlyError(e, channel);
     return NextResponse.json({ ok: false, code: friendly.code, error: friendly.error }, { status: friendly.status });

@@ -804,6 +804,24 @@
 				"tmp/review-shots/capture_dev_retro_safe_portal_polish_collapsed.mjs"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "Debug: newsletter external route",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/debug_newsletter_capture.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: funnel editor loaded",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture_funnel_editor_loaded.mjs"
+			],
+			"isBackground": false
 		}
 	]
 }

@@ -4217,7 +4217,7 @@ export function PortalAiChatClient({
                         {!isWorking && threadBadge ? (
                           <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
                             <span className={classNames("inline-flex h-2 w-2 rounded-full", threadBadge.dotClassName)} />
-                            <span className={classNames("rounded-full border px-2 py-0.5", threadBadge.badgeClassName)} title={threadBadge.title}>{threadBadge.label}</span>
+                            <span className={classNames("rounded-full px-2 py-0.5", threadBadge.badgeClassName)} title={threadBadge.title}>{threadBadge.label}</span>
                           </div>
                         ) : null}
                         {!isWorking && !threadBadge && continuityBadge ? (
@@ -4324,7 +4324,7 @@ export function PortalAiChatClient({
                           {!isWorking && threadBadge ? (
                             <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
                               <span className={classNames("inline-flex h-2 w-2 rounded-full", threadBadge.dotClassName)} />
-                              <span className={classNames("rounded-full border px-2 py-0.5", threadBadge.badgeClassName)} title={threadBadge.title}>{threadBadge.label}</span>
+                              <span className={classNames("rounded-full px-2 py-0.5", threadBadge.badgeClassName)} title={threadBadge.title}>{threadBadge.label}</span>
                             </div>
                           ) : null}
                           {!isWorking && !threadBadge && continuityBadge ? (

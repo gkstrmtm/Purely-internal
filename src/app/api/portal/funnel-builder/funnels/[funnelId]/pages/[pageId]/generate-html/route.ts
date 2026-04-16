@@ -7,9 +7,20 @@ import type { CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
+import {
+  applyDraftHtmlWriteCompat,
+  dbHasCreditFunnelPageDraftHtmlColumn,
+  normalizeDraftHtml,
+  withDraftHtmlSelect,
+} from "@/lib/funnelPageDbCompat";
 import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { stripeGetWithKey } from "@/lib/stripeFetchWithKey.server";
 import { blocksToCustomHtmlDocument, escapeHtml } from "@/lib/funnelBlocksToCustomHtmlDocument";
+import {
+  createFunnelPageDraftUpdate,
+  createFunnelPageMirroredHtmlUpdate,
+  getFunnelPageCurrentHtml,
+} from "@/lib/funnelPageState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -103,6 +114,114 @@ function detectInteractiveIntent(text: string): {
   const wantsChatbot = /\b(chatbot|chat bot|live chat|website chat)\b/.test(s);
   const any = wantsShop || wantsCart || wantsCheckout || wantsCalendar || wantsChatbot;
   return { wantsShop, wantsCart, wantsCheckout, wantsCalendar, wantsChatbot, any };
+}
+
+function detectLocalStyleFixIntent(text: string): boolean {
+  const s = String(text || "").toLowerCase();
+  return /\b(contrast|readability|readable|legible|visibility|visible|hard to read|can'?t read|text isn'?t showing|text not showing|too light|too dark|washed out)\b/.test(s);
+}
+
+function detectExplicitBrandStylingIntent(text: string): boolean {
+  const s = String(text || "").toLowerCase();
+  return /\b(brand|branding|brand colors?|palette|rebrand|use our colors|match the brand|apply brand|brand refresh|match our style)\b/.test(s);
+}
+
+const vagueImprovementIntentPattern = new RegExp(
+  [
+    "\\bfix (this|it|that|the (page|design|button|buttons|colors?|text|header|nav|link|looks?|styling))",
+    "make (this|it|the page) (better|good|great|look good|nicer|cleaner|more professional)",
+    "improve (this|it|the (page|design|look|appearance|styling))",
+    "clean(?: this|\\s+the page|\\s+it)? up",
+    "looks? (bad|off|wrong|ugly|terrible|awful|amateurish|unprofessional|weird|broken|poor)",
+    "this (looks? bad|is off|is wrong|is broken|is bad|needs? work|isn'?t right|doesn'?t look right)",
+    "polish (this|it|the page)?",
+    "just fix (it|this|everything)",
+    "everything is (off|wrong|broken)",
+    "what'?s wrong with (the|this|it)",
+    "\\bupgrade\\b.*\\b(page|design|look)",
+    "\\b(overhaul|revamp)\\b",
+  ].join("|"),
+  "i",
+);
+
+function detectVagueImprovementIntent(text: string): boolean {
+  const s = String(text || "").toLowerCase();
+  // Catches: "fix this", "make this better", "improve", "clean this up", "looks bad",
+  // "polish", "this is off", "fix the buttons", "fix the colors", "this looks wrong",
+  // "make it look good", "upgrade", "the design is bad", "fix the design", etc.
+  return vagueImprovementIntentPattern.test(s);
+}
+
+function splitBusinessProfileContext(raw: string): { guidance: string; styling: string } {
+  const text = String(raw || "").trim();
+  if (!text) return { guidance: "", styling: "" };
+
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const guidanceLines: string[] = [];
+  const stylingLines: string[] = [];
+
+  for (const line of lines) {
+    if (!line.startsWith("- ")) continue;
+    if (/^-\s*Brand\s+(primary|secondary|accent|text|font)/i.test(line)) {
+      stylingLines.push(line);
+      continue;
+    }
+    guidanceLines.push(line);
+  }
+
+  return {
+    guidance: guidanceLines.length
+      ? [
+          "BUSINESS_PROFILE_GUIDANCE (business and audience context only; do not treat this as automatic styling instructions):",
+          ...guidanceLines,
+        ].join("\n")
+      : "",
+    styling: stylingLines.length
+      ? [
+          "BUSINESS_BRAND_STYLE (optional styling guidance; use only if the user clearly asks for branding or redesign and the result improves readability):",
+          ...stylingLines,
+        ].join("\n")
+      : "",
+  };
+}
+
+function buildAiResultMeta(opts: {
+  mode: "question" | "interactive-blocks" | "html-update";
+  hadCurrentHtml: boolean;
+  wantsDesignRedesign: boolean;
+  contextKeyCount: number;
+  contextMediaCount: number;
+}) {
+  const warnings: string[] = [];
+
+  if (opts.contextKeyCount === 0 && opts.contextMediaCount === 0) {
+    warnings.push("No extra context was attached, so this run relied on the current page and saved business profile only.");
+  }
+
+  if (!opts.hadCurrentHtml && opts.mode === "html-update") {
+    warnings.push("This run started from a fresh page document, so layout and offer detail may still need tightening.");
+  }
+
+  if (opts.hadCurrentHtml && opts.wantsDesignRedesign && opts.mode === "html-update") {
+    warnings.push("This was treated as a full redesign of the page HTML, not a small in-place patch.");
+  }
+
+  const summary =
+    opts.mode === "question"
+      ? "AI needs one missing detail before it can safely change the page."
+      : opts.mode === "interactive-blocks"
+        ? "Inserted working builder blocks for the requested interactive features and refreshed the page HTML snapshot."
+        : opts.hadCurrentHtml
+          ? opts.wantsDesignRedesign
+            ? "Reworked the current page into a fuller conversion-focused HTML document."
+            : "Updated the current page HTML from your prompt."
+          : "Generated a new hosted page HTML document from your prompt.";
+
+  return {
+    summary,
+    warnings,
+    at: new Date().toISOString(),
+  };
 }
 
 function normalizeAgentId(raw: unknown): string {
@@ -469,13 +588,34 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   if (!prompt) return NextResponse.json({ ok: false, error: "Prompt is required" }, { status: 400 });
 
   const currentHtmlFromClient = typeof body?.currentHtml === "string" ? body.currentHtml : null;
+  const wasBlocksExport = body?.wasBlocksExport === true;
+  const selectedRegion =
+    body?.selectedRegion && typeof body.selectedRegion === "object"
+      ? {
+          key: typeof body.selectedRegion.key === "string" ? body.selectedRegion.key.trim().slice(0, 120) : "",
+          label: typeof body.selectedRegion.label === "string" ? body.selectedRegion.label.trim().slice(0, 120) : "",
+          summary: typeof body.selectedRegion.summary === "string" ? body.selectedRegion.summary.trim().slice(0, 240) : "",
+          html: typeof body.selectedRegion.html === "string" ? body.selectedRegion.html : "",
+        }
+      : null;
   const attachments = coerceAttachments(body?.attachments);
   const contextKeys = coerceContextKeys(body?.contextKeys);
   const contextMedia = coerceContextMedia(body?.contextMedia);
+  const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
+  const allRegions: Array<{ key: string; label: string; summary: string }> = Array.isArray(body?.allRegions)
+    ? (body.allRegions as any[])
+        .filter((r) => r && typeof r === "object" && typeof r.key === "string" && r.key.trim())
+        .slice(0, 12)
+        .map((r) => ({
+          key: String(r.key).trim().slice(0, 120),
+          label: String(r.label || r.key).trim().slice(0, 120),
+          summary: String(r.summary || "").trim().slice(0, 240),
+        }))
+    : [];
 
   const page = await prisma.creditFunnelPage.findFirst({
     where: { id: pageId, funnelId, funnel: { ownerId: auth.session.user.id } },
-    select: {
+    select: withDraftHtmlSelect({
       id: true,
       slug: true,
       title: true,
@@ -484,9 +624,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       customChatJson: true,
       customHtml: true,
       funnel: { select: { id: true, slug: true, name: true } },
-    },
+    }, hasDraftHtml),
   });
   if (!page) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  const normalizedPage = normalizeDraftHtml(page);
+  const effectiveCurrentHtml =
+    (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : getFunnelPageCurrentHtml(page)).trim();
+  const wantsDesignRedesign = /\b(hero|proof strip|credibility strip|benefits?|testimonials?|cta|call to action|layout|design|redesign|premium|modern|landing page|sales page|polish|refresh)\b/i.test(prompt);
 
   const ownerId = auth.session.user.id;
   const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
@@ -518,7 +662,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       if (missingChatbot) parts.push("I can add a working chatbot widget, but I don't see an ElevenLabs chat agent ID for this account yet. What agent ID should I use?");
       const question = parts[0] ? parts[0].slice(0, 800) : "Which interactive block should I add (shop, calendar, or chatbot)?";
 
-      const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
+      const prevChat = Array.isArray(normalizedPage.customChatJson) ? (normalizedPage.customChatJson as any[]) : [];
       const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
       const assistantMsg = { role: "assistant", content: question, at: new Date().toISOString() };
       const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
@@ -540,12 +684,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         },
       });
 
-      return NextResponse.json({ ok: true, question, page: updated });
+      return NextResponse.json({
+        ok: true,
+        question,
+        aiResult: buildAiResultMeta({
+          mode: "question",
+          hadCurrentHtml: Boolean(effectiveCurrentHtml),
+          wantsDesignRedesign,
+          contextKeyCount: contextKeys.length,
+          contextMediaCount: contextMedia.length,
+        }),
+        page: updated,
+      });
     }
 
     const blocks = buildInteractiveBlocks({
-      funnelName: page.funnel.name,
-      pageTitle: page.title,
+      funnelName: normalizedPage.funnel.name,
+      pageTitle: normalizedPage.title,
       ownerId,
       stripeProducts: stripeProducts.ok ? (stripeProducts.products as any) : [],
       ...(calendarId ? { calendarId } : {}),
@@ -553,7 +708,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       intent,
     });
 
-    const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
+    const prevChat = Array.isArray(normalizedPage.customChatJson) ? (normalizedPage.customChatJson as any[]) : [];
     const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
     const assistantMsg = {
       role: "assistant",
@@ -565,21 +720,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
     const htmlSnapshot = blocksToCustomHtmlDocument({
       blocks,
-      pageId: page.id,
+      pageId: normalizedPage.id,
       ownerId,
       basePath,
-      title: page.title || page.funnel.name || "Funnel page",
+      title: normalizedPage.title || normalizedPage.funnel.name || "Funnel page",
     });
 
     const updated = await prisma.creditFunnelPage.update({
-      where: { id: page.id },
-      data: {
+      where: { id: normalizedPage.id },
+      data: applyDraftHtmlWriteCompat({
         editorMode: "BLOCKS",
         blocksJson: blocks as any,
-        customHtml: htmlSnapshot,
+        ...createFunnelPageMirroredHtmlUpdate(htmlSnapshot),
         customChatJson: nextChat,
-      },
-      select: {
+      }, hasDraftHtml),
+      select: withDraftHtmlSelect({
         id: true,
         slug: true,
         title: true,
@@ -588,10 +743,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         customHtml: true,
         customChatJson: true,
         updatedAt: true,
-      },
+      }, hasDraftHtml),
     });
 
-    return NextResponse.json({ ok: true, page: updated });
+    return NextResponse.json({
+      ok: true,
+      aiResult: buildAiResultMeta({
+        mode: "interactive-blocks",
+        hadCurrentHtml: Boolean(effectiveCurrentHtml),
+        wantsDesignRedesign,
+        contextKeyCount: contextKeys.length,
+        contextMediaCount: contextMedia.length,
+      }),
+      page: normalizeDraftHtml(updated),
+    });
   }
 
   const forms = await prisma.creditForm.findMany({
@@ -611,6 +776,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "Constraints:",
     "- Use plain HTML + inline <style>. No external JS/CSS, no frameworks.",
     "- Mobile-first, modern, clean styling.",
+    "- Keep the page naturally scrollable. Do not lock the page into viewport-height wrappers, body overflow hidden, or fake app-shell chrome unless the user explicitly asks for it.",
+    "- Avoid hardcoded device-width assumptions. Do not build around fixed 390px/430px phone shells or other narrow viewport hacks.",
+    "- Prefer normal document flow over fragile absolute or fixed positioning for major sections.",
     "- Use relative links (no /portal/* links).",
     "- Every CTA href must be real and usable. Never output placeholder URLs, example.com links, javascript: links, or empty '#'-only buttons.",
     "Integration:",
@@ -631,24 +799,45 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "- Avoid lorem ipsum, generic 'your company' copy, and weak filler sections.",
   ];
 
-  const effectiveCurrentHtml =
-    (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : page.customHtml || "").trim();
   const hasCurrentHtml = Boolean(effectiveCurrentHtml);
-  const wantsDesignRedesign = /\b(hero|proof strip|credibility strip|benefits?|testimonials?|cta|call to action|layout|design|redesign|premium|modern|landing page|sales page|polish|refresh)\b/i.test(prompt);
+  const hasSelectedRegion = Boolean(selectedRegion?.html && selectedRegion.html.trim());
+  const wantsLocalStyleFix = detectLocalStyleFixIntent(prompt);
+  const wantsVagueImprovement = detectVagueImprovementIntent(prompt);
+  const explicitBrandStylingIntent = detectExplicitBrandStylingIntent(prompt);
+  // Short ambiguous prompts (<= 7 words, no clear redesign keywords, existing HTML present) → design quality audit
+  const isAmbiguousShortPrompt = hasCurrentHtml && !wantsDesignRedesign && !wantsLocalStyleFix && !wantsVagueImprovement && prompt.split(/\s+/).filter(Boolean).length <= 7 && /^(fix|clean|improve|make|update|tweak|adjust|tighten|freshen|sharpen|help|do something|do it|do this|try|go|make it|can you|can we)/i.test(prompt);
+  // Design-quality audit: triggered by any request that says "fix this" / "improve" / contrast issues
+  // without explicitly asking for a full structural redesign. Fires a comprehensive design audit pass.
+  const wantsDesignQualityAudit = (wantsLocalStyleFix || wantsVagueImprovement || isAmbiguousShortPrompt) && !wantsDesignRedesign;
+  const allowBrandStyling = !wantsDesignQualityAudit && (wantsDesignRedesign || explicitBrandStylingIntent);
+  const profileContext = splitBusinessProfileContext(businessContext);
 
   const system = [
     ...baseSystem,
+    "When editing an existing page, treat CURRENT_HTML as the primary visual reference and preserve its overall visual system unless the user explicitly asks for broader redesign.",
+    "If the user asks to fix contrast, readability, or visibility, solve that with the smallest effective local style changes first. Prefer changing text color, overlays, local backgrounds, borders, or section-specific styles before changing the whole page palette.",
+    "Do not apply stored brand colors or fonts to the entire page, major section backgrounds, or core UI surfaces unless the user clearly asks for branding or redesign and that choice improves readability.",
     hasCurrentHtml
-      ? wantsDesignRedesign
-        ? "Redesign mode: You will be given CURRENT_HTML. Replace simplistic placeholder markup with a materially improved, polished landing page that fully satisfies the requested sections. Return the FULL updated HTML document."
-        : "Editing mode: You will be given CURRENT_HTML. Apply the user's instruction as a minimal change to CURRENT_HTML. Return the FULL updated HTML document."
+      ? wasBlocksExport
+        ? "Redesign mode: You will be given CURRENT_HTML auto-scaffolded from a block builder. Treat it only as a content and structure reference — ignore its default styling. Create a NEW, polished, fully-designed landing page from scratch that satisfies the user's request. Return the FULL HTML document."
+        : hasSelectedRegion
+          ? wantsDesignQualityAudit
+            ? "Region design-quality mode: You will be given CURRENT_HTML and SELECTED_REGION_HTML. Perform a design quality audit on SELECTED_REGION_HTML: fix ALL contrast failures, harmonize any colors that clash with the dominant page palette, make invisible or near-invisible text and elements legible, and ensure every CTA has clear contrast and a palette-compatible color. Preserve the region's layout and content. Return the FULL updated HTML document."
+            : wantsDesignRedesign
+            ? "Region redesign mode: You will be given CURRENT_HTML and SELECTED_REGION_HTML. Focus the redesign on SELECTED_REGION_HTML, keep the rest of CURRENT_HTML intact except for small supporting adjustments, and return the FULL updated HTML document."
+            : "Region editing mode: You will be given CURRENT_HTML and SELECTED_REGION_HTML. Apply the user's request to SELECTED_REGION_HTML while preserving the rest of CURRENT_HTML unless a small surrounding adjustment is required. Return the FULL updated HTML document."
+        : wantsDesignQualityAudit
+          ? "Design-quality mode: You will be given CURRENT_HTML. Perform a full design quality audit on the entire page. Fix ALL of the following issues you find: (1) any text/background combination with contrast below WCAG AA 4.5:1 for normal text or 3:1 for large text, (2) any button or CTA whose color clashes with the dominant page palette — identify the dominant palette and harmonize outliers, (3) any nav, header, label, link, or decorative text that is near-invisible due to low opacity, near-matching color, or missing color declaration, (4) any interactive element whose label has poor contrast against its own background. Preserve the page's layout, structure, content, and identity. Do not change copy, layout, or section order. Return the FULL updated HTML document."
+        : wantsDesignRedesign
+          ? "Redesign mode: You will be given CURRENT_HTML. Replace simplistic placeholder markup with a materially improved, polished landing page that fully satisfies the requested sections. Return the FULL updated HTML document."
+          : "Editing mode: You will be given CURRENT_HTML. Apply the user's instruction as a minimal, precise change to CURRENT_HTML. Return the FULL updated HTML document."
       : "Generation mode: Create a new HTML document from the user's instruction.",
-    wantsDesignRedesign
+    wasBlocksExport || wantsDesignRedesign
       ? "For design or redesign requests, produce a complete landing page with strong hierarchy, multiple clear sections, persuasive non-placeholder copy, polished spacing, and clear CTA treatment."
       : "",
   ].join("\n");
 
-  const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
+  const prevChat = Array.isArray(normalizedPage.customChatJson) ? (normalizedPage.customChatJson as any[]) : [];
   const attachmentsBlock = attachments.length
     ? [
         "",
@@ -713,6 +902,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
           "",
         ].join("\n")
       : "";
+    const selectedRegionBlock = hasSelectedRegion
+      ? [
+          "SELECTED_REGION:",
+          `- Label: ${selectedRegion?.label || "Region"}`,
+          selectedRegion?.summary ? `- Summary: ${selectedRegion.summary}` : "",
+          "```html",
+          clampText(selectedRegion?.html || "", 12000),
+          "```",
+          "",
+          "If the request is local to this region, make the change there and preserve the rest of the page.",
+          "",
+        ].filter(Boolean).join("\n")
+      : "";
+
+    const pageSectionsBlock = allRegions.length
+      ? [
+          "PAGE_SECTIONS (detected sections in the current page, for context):",
+          ...allRegions.map((r) => `- ${r.label}${r.summary ? `: ${r.summary}` : ""}`),
+          "",
+        ].join("\n")
+      : "";
 
     const imageUrls = [
       ...attachments
@@ -725,24 +935,56 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       .filter(Boolean)
       .slice(0, 8);
 
+    const pageEditContextBlock = [
+      "PAGE_EDIT_CONTEXT:",
+      "- CURRENT_HTML is the primary source of truth for the page's current visual system.",
+      wantsDesignQualityAudit
+        ? "- This is a design quality audit run. Fix ALL contrast failures, color clashes, and invisible elements across the whole page. Do not change layout, structure, or copy."
+        : wantsDesignRedesign
+        ? "- This is a full redesign request. Produce a materially improved page with strong hierarchy, polished sections, and conversion-focused copy."
+        : "- Keep the current styling, layout, and copy unless the request clearly asks for redesign or rebranding. Make only the changes needed to satisfy the user's instruction.",
+      allowBrandStyling
+        ? "- Business brand styling may be used selectively where it clearly improves the requested result without hurting readability."
+        : "- Stored business brand colors are not active styling instructions for this run. Judge color choices by what works for the existing page, not by stored brand values.",
+    ].join("\n");
+
+    const businessContextBlock = [
+      profileContext.guidance,
+      allowBrandStyling ? profileContext.styling : "",
+    ].filter(Boolean).join("\n\n");
+
     const userText = [
-      businessContext ? businessContext : "",
+      businessContextBlock,
       stripeProductsBlock,
-      `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
-      `Page: ${page.title} (slug: ${page.slug})`,
-      wantsDesignRedesign
+      pageEditContextBlock,
+      `Funnel: ${normalizedPage.funnel.name} (slug: ${normalizedPage.funnel.slug})`,
+      `Page: ${normalizedPage.title} (slug: ${normalizedPage.slug})`,
+      wantsDesignQualityAudit
+        ? [
+            "DESIGN_QUALITY_CHECKLIST (audit every item before writing output):",
+            "1. CONTRAST — Find every text/background pair. Fix any combination where the contrast ratio is below 4.5:1 for body text or 3:1 for headings/large text. This includes nav links, button labels, placeholder text, captions, and secondary/tertiary copy.",
+            "2. COLOR HARMONY — Identify the dominant palette from the existing page (e.g. if the hero and section backgrounds are warm brown/burgundy/earthy tones, that is the palette). Any buttons, links, or interactive elements using sharply contrasting hue families (e.g. bright purple buttons on a warm-tone page) must be replaced with a harmonious alternative that still has strong contrast and serves as a clear CTA.",
+            "3. INVISIBLE ELEMENTS — Find any nav items, header content, link text, labels, or decorative text that is near-invisible due to zero opacity, white-on-white, very light gray on white, or undeclared color inheriting a near-invisible ancestor color. Make every piece of UI text fully legible.",
+            "4. CTA LEGIBILITY — Every button and CTA must clearly read. Fix button text color if it does not contrast against the button's own background. Fix button background if it does not stand out enough from the section behind it.",
+            "5. SECTION BACKGROUNDS — Any section that currently has no background differentiation and uses default page background, where a subtle contrast would help structure the page, should receive a light background tint consistent with the existing palette.",
+            "Apply all of the above silently. Do not explain the changes in comments. Just return the fixed page.",
+          ].join("\n")
+        : wantsDesignRedesign
         ? [
             "DESIGN_BRIEF:",
             "- Treat this as a real conversion-focused redesign, not a placeholder patch.",
             "- Replace generic filler copy with concrete, persuasive copy tailored to the request and business context.",
             "- Include a strong hero, proof or credibility strip, benefits section, testimonial section, objection-handling section, and multiple clear CTAs.",
             "- Use modern visual hierarchy, section backgrounds, cards, spacing, contrast, and polished buttons so the page feels intentionally designed.",
+            "- Use business brand colors or fonts only where they fit the specific page and improve readability. Do not turn the whole page into a brand-color wash by default.",
             "- Make the above-the-fold section immediately credible and conversion-focused.",
             "- Ensure every CTA is clickable and points to a real destination.",
           ].join("\n")
         : "",
       "",
       currentHtmlBlock,
+      pageSectionsBlock,
+      selectedRegionBlock,
       prompt,
       contextBlock,
       contextMediaBlock,
@@ -771,7 +1013,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     const updated = await prisma.creditFunnelPage.update({
       where: { id: page.id },
       data: {
-        editorMode: "CUSTOM_HTML",
         customChatJson: nextChat,
       },
       select: {
@@ -785,7 +1026,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       },
     });
 
-    return NextResponse.json({ ok: true, question, page: updated });
+    return NextResponse.json({
+      ok: true,
+      question,
+      aiResult: buildAiResultMeta({
+        mode: "question",
+        hadCurrentHtml: Boolean(effectiveCurrentHtml),
+        wantsDesignRedesign,
+        contextKeyCount: contextKeys.length,
+        contextMediaCount: contextMedia.length,
+      }),
+      page: updated,
+    });
   }
 
   if (!html) return NextResponse.json({ ok: false, error: "AI returned empty HTML" }, { status: 502 });
@@ -819,14 +1071,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     : null;
   const nextChat = (assistantMsg ? [...prevChat, userMsg, assistantMsg] : [...prevChat, userMsg]).slice(-40);
 
+  const cleanHtml = sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html));
+
   const updated = await prisma.creditFunnelPage.update({
-    where: { id: page.id },
-    data: {
+    where: { id: normalizedPage.id },
+    data: applyDraftHtmlWriteCompat({
       editorMode: "CUSTOM_HTML",
-      customHtml: sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html)),
+      // Write AI output to draftHtml only — user must explicitly Publish to go live.
+      ...createFunnelPageDraftUpdate(cleanHtml),
       customChatJson: nextChat,
-    },
-    select: {
+    }, hasDraftHtml),
+    select: withDraftHtmlSelect({
       id: true,
       slug: true,
       title: true,
@@ -834,8 +1089,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       customHtml: true,
       customChatJson: true,
       updatedAt: true,
-    },
+    }, hasDraftHtml),
   });
 
-  return NextResponse.json({ ok: true, html: updated.customHtml, page: updated });
+  const normalizedUpdated = normalizeDraftHtml(updated);
+
+  return NextResponse.json({
+    ok: true,
+    html: getFunnelPageCurrentHtml(normalizedUpdated),
+    aiResult: buildAiResultMeta({
+      mode: "html-update",
+      hadCurrentHtml: Boolean(effectiveCurrentHtml),
+      wantsDesignRedesign,
+      contextKeyCount: contextKeys.length,
+      contextMediaCount: contextMedia.length,
+    }),
+    page: normalizedUpdated,
+  });
 }

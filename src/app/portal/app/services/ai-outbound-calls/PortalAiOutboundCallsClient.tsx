@@ -29,6 +29,7 @@ import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModa
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
+import { type OutboundContextReport } from "@/lib/portalAiOutboundIntelligence";
 import { DEFAULT_VOICE_AGENT_CONFIG, type VoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 
 type CampaignStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "ARCHIVED";
@@ -138,9 +139,10 @@ type ApiGenerateAgentConfigResponse =
       config: Partial<
         Pick<VoiceAgentConfig, "firstMessage" | "goal" | "personality" | "tone" | "environment" | "guardRails">
       >;
+      analysis?: OutboundContextReport;
       warning?: string;
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; analysis?: OutboundContextReport };
 
 type ApiEnrollMessageContactResponse =
   | { ok: true; enrolled: true; alreadySentFirstMessage: boolean; activatedCampaign?: boolean }
@@ -233,6 +235,24 @@ type ChatTestMessage = {
   createdAtIso: string;
 };
 
+const OUTBOUND_CALL_TEST_CASES = [
+  "Bad time / busy right now",
+  "Silence after the first question",
+  "Wrong person answers",
+  "Please just text me",
+  "Not interested",
+  "Interruption mid-pitch",
+] as const;
+
+const OUTBOUND_MESSAGE_TEST_CASES = [
+  "I'm busy right now.",
+  "Just text me the details.",
+  "How did you get my number?",
+  "Not interested.",
+  "Can you send pricing?",
+  "What exactly is this about?",
+] as const;
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -263,6 +283,66 @@ function badgeClass(kind: string) {
     default:
       return "bg-zinc-50 text-zinc-700 border-zinc-200";
   }
+}
+
+function contextStrengthBadgeClass(status?: OutboundContextReport["status"] | null) {
+  switch (status) {
+    case "strong":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "medium":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "weak":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    default:
+      return "border-zinc-200 bg-zinc-50 text-zinc-700";
+  }
+}
+
+function OutboundContextInsightCard(props: { report: OutboundContextReport | null }) {
+  const report = props.report;
+  if (!report) return null;
+
+  return (
+    <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className={classNames("rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em]", contextStrengthBadgeClass(report.status))}>
+          {report.status} context
+        </div>
+        <div className="text-[11px] font-semibold text-zinc-500">Score {report.score}/100</div>
+      </div>
+      <div className="mt-2 text-[12px] text-zinc-700">{report.summary}</div>
+      {report.strengths.length ? (
+        <div className="mt-3">
+          <div className="text-[11px] font-semibold text-zinc-700">What already covers this</div>
+          <div className="mt-1 space-y-1 text-[11px] text-zinc-600">
+            {report.strengths.map((item) => (
+              <div key={item}>{item}</div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {report.gaps.length ? (
+        <div className="mt-3">
+          <div className="text-[11px] font-semibold text-zinc-700">What still limits specificity</div>
+          <div className="mt-1 space-y-1 text-[11px] text-zinc-600">
+            {report.gaps.map((item) => (
+              <div key={item}>{item}</div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {report.recommendedPromptAdditions.length ? (
+        <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-2.5 text-[11px] text-zinc-700">
+          {report.userExperienceMode === "require" ? "Only add these two things:" : "If you want sharper output, add at most this:"}
+          <div className="mt-1 space-y-1">
+            {report.recommendedPromptAdditions.map((item) => (
+              <div key={item}>{item}</div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function formatTime(sec: number) {
@@ -829,6 +909,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
   const [callsGenerateContext, setCallsGenerateContext] = useState("");
   const [messagesGenerateContext, setMessagesGenerateContext] = useState("");
   const [generateBusy, setGenerateBusy] = useState(false);
+  const [callsContextReport, setCallsContextReport] = useState<OutboundContextReport | null>(null);
+  const [messagesContextReport, setMessagesContextReport] = useState<OutboundContextReport | null>(null);
 
   const [manualEnrollQuery, setManualEnrollQuery] = useState("");
   const [manualEnrollResults, setManualEnrollResults] = useState<ContactSearchResult[]>([]);
@@ -865,6 +947,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     setActivityRecent([]);
     setCallsGenerateContext("");
     setMessagesGenerateContext("");
+    setCallsContextReport(null);
+    setMessagesContextReport(null);
     setManualEnrollQuery("");
     setManualEnrollResults([]);
     setManualEnrollSelected(null);
@@ -1933,8 +2017,13 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       const json = (await res.json().catch(() => null)) as ApiGenerateAgentConfigResponse | null;
       if (!res.ok || !json || (json as any).ok !== true) {
+        if (kind === "calls") setCallsContextReport((json as any)?.analysis ?? null);
+        else setMessagesContextReport((json as any)?.analysis ?? null);
         throw new Error((json as any)?.error || "Failed to generate");
       }
+
+      if (kind === "calls") setCallsContextReport((json as any).analysis ?? null);
+      else setMessagesContextReport((json as any).analysis ?? null);
 
       const cfg = normalizeGeneratedAgentConfig((json as any).config || {});
       if (kind === "calls") {
@@ -3097,7 +3186,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         className={
                           "rounded-2xl border px-4 py-2 text-xs font-semibold transition " +
                           (settingsTab === "calls"
-                            ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white"
+                            ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white"
                             : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                         }
                       >
@@ -3109,7 +3198,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         className={
                           "rounded-2xl border px-4 py-2 text-xs font-semibold transition " +
                           (settingsTab === "messages"
-                            ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white"
+                            ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white"
                             : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                         }
                       >
@@ -3174,7 +3263,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 "rounded-2xl px-4 py-2 text-xs font-semibold",
                                 busy
                                   ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                                  : "bg-(--color-brand-blue) text-white hover:opacity-95",
                               )}
                               title="Sync calls agent"
                             >
@@ -3290,7 +3379,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 "rounded-xl px-3 py-2 text-xs font-semibold",
                                 busy || knowledgeBaseSyncBusy
                                   ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                                  : "bg-(--color-brand-blue) text-white hover:opacity-95",
                               )}
                             >
                               {knowledgeBaseSyncBusy ? "Syncing…" : "Sync knowledge base"}
@@ -3499,7 +3588,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
                                 busy || generateBusy
                                   ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90",
+                                  : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
                               )}
                             >
                               <svg
@@ -3520,11 +3609,15 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           </div>
                           <textarea
                             value={callsGenerateContext}
-                            onChange={(e) => setCallsGenerateContext(e.target.value)}
+                            onChange={(e) => {
+                              setCallsGenerateContext(e.target.value);
+                              setCallsContextReport(null);
+                            }}
                             rows={3}
                             placeholder="What do you sell, who are you targeting, what outcome do you want, any do/don'ts…"
                             className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           />
+                          <OutboundContextInsightCard report={callsContextReport} />
                         </div>
 
                         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -3802,6 +3895,9 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                               <div className="mt-1 text-[11px] text-zinc-600">
                                 This connects to your live calls agent so you can test voice behavior.
                               </div>
+                              <div className="mt-2 text-[11px] text-zinc-500">
+                                Check that turn-taking stays disciplined during: {OUTBOUND_CALL_TEST_CASES.join(" • ")}
+                              </div>
                             </div>
                             <button
                               type="button"
@@ -3877,7 +3973,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 "rounded-2xl px-4 py-2 text-xs font-semibold",
                                 busy
                                   ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                                  : "bg-(--color-brand-blue) text-white hover:opacity-95",
                               )}
                               title="Sync messages agent"
                             >
@@ -3968,7 +4064,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 "rounded-xl px-3 py-2 text-xs font-semibold",
                                 busy || messagesKnowledgeBaseSyncBusy
                                   ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                                  : "bg-(--color-brand-blue) text-white hover:opacity-95",
                               )}
                             >
                               {messagesKnowledgeBaseSyncBusy ? "Syncing…" : "Sync knowledge base"}
@@ -4164,7 +4260,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
                                 busy || generateBusy
                                   ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90",
+                                  : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
                               )}
                             >
                               <svg
@@ -4185,11 +4281,15 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           </div>
                           <textarea
                             value={messagesGenerateContext}
-                            onChange={(e) => setMessagesGenerateContext(e.target.value)}
+                            onChange={(e) => {
+                              setMessagesGenerateContext(e.target.value);
+                              setMessagesContextReport(null);
+                            }}
                             rows={3}
                             placeholder="What do you sell, who are you targeting, what outcome do you want, any do/don'ts…"
                             className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           />
+                          <OutboundContextInsightCard report={messagesContextReport} />
                         </div>
 
                         <div className="mt-4">
@@ -4428,6 +4528,25 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             )}
                           </div>
 
+                          <div className="mt-3">
+                            <div className="text-[11px] font-semibold text-zinc-700">Turn-taking checks</div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {OUTBOUND_MESSAGE_TEST_CASES.map((scenario) => (
+                                <button
+                                  key={scenario}
+                                  type="button"
+                                  onClick={() => setMessagesTestInput(scenario)}
+                                  className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                                >
+                                  {scenario}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="mt-2 text-[11px] text-zinc-500">
+                              The point here is to confirm the agent already stays paced, asks one thing at a time, and backs off cleanly when the contact is busy, resistant, or unclear.
+                            </div>
+                          </div>
+
                           <div className="mt-3 grid gap-2 sm:grid-cols-[1fr,auto]">
                             <textarea
                               value={messagesTestInput}
@@ -4592,7 +4711,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 disabled={busy}
                                 onChange={(e) => updateCampaign({ callOutcomeTagging: { enabled: e.target.checked } })}
                               />
-                              <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-disabled:opacity-60" />
+                              <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-disabled:opacity-60" />
                               <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-80" />
                             </span>
                           </label>
@@ -4882,7 +5001,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 disabled={busy}
                                 onChange={(e) => updateCampaign({ messageOutcomeTagging: { enabled: e.target.checked } })}
                               />
-                              <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-disabled:opacity-60" />
+                              <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-disabled:opacity-60" />
                               <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-80" />
                             </span>
                           </label>
