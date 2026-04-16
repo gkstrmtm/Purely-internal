@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass } from "@/components/portalGlass";
 import { buildPortalAiChatThreadHref } from "@/lib/portalAiChatThreadRefs";
 
 type VersionPayload = {
@@ -421,7 +422,10 @@ const defaultWidgetWelcomeMessage = (): SupportChatMessage => ({
 });
 
 const floatingToolsSecondaryButtonClass =
-  "rounded-2xl border border-transparent bg-white px-3 py-2 text-xs font-semibold text-zinc-500 transition-colors duration-100 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]";
+  [
+    "rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-500 transition-colors duration-100 hover:bg-white/80 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]",
+    portalGlassButtonClass,
+  ].join(" ");
 
 const floatingToolsPrimaryButtonClass =
   "rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60";
@@ -480,6 +484,10 @@ export function PortalFloatingTools() {
   }, [chatMessages]);
 
   const loadSuggestedSetupPreview = useCallback(async () => {
+    if (typeof pathname === "string" && pathname.includes("/page-editor")) {
+      setPageSuggestion(null);
+      return;
+    }
     const serviceSlug = inferSuggestedSetupServiceSlug(pathname);
     if (!serviceSlug) {
       setPageSuggestion(null);
@@ -593,14 +601,14 @@ export function PortalFloatingTools() {
   const hidden = forceHidden || profileHidden || (isSmallScreen && !isDashboardRoute && !isSettingsRoute && !chatOpen && !reportOpen);
   const moveDockToTopRight = false;
   const notePositionClass = moveDockToTopRight
-    ? "fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130103 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] sm:top-auto sm:right-4 sm:max-w-sm sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)]"
-    : "fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-130103 max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)]";
+    ? `fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130103 max-w-[calc(100vw-1.5rem)] rounded-2xl px-4 py-3 text-sm text-zinc-800 sm:top-auto sm:right-4 sm:max-w-sm sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] ${portalGlassPanelClass}`
+    : `fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-130103 max-w-sm rounded-2xl px-4 py-3 text-sm text-zinc-800 ${portalGlassPanelClass}`;
   const reportPanelPositionClass = moveDockToTopRight
-    ? "absolute right-3 top-[calc(env(safe-area-inset-top)+4rem)] w-[min(520px,calc(100vw-1.5rem))] rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl sm:top-auto sm:right-4 sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))]"
-    : "absolute bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 w-[min(520px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl";
+    ? `absolute right-3 top-[calc(env(safe-area-inset-top)+4rem)] w-[min(520px,calc(100vw-1.5rem))] rounded-3xl p-5 sm:top-auto sm:right-4 sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))] ${portalGlassPanelClass}`
+    : `absolute bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 w-[min(520px,calc(100vw-2rem))] rounded-3xl p-5 ${portalGlassPanelClass}`;
   const chatPanelPositionClass = moveDockToTopRight
-    ? "fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130101 w-[min(520px,calc(100vw-1.5rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl sm:right-4 sm:top-auto sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))]"
-    : "fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-130101 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl";
+    ? `fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130101 w-[min(520px,calc(100vw-1.5rem))] overflow-hidden rounded-3xl p-5 sm:right-4 sm:top-auto sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))] ${portalGlassPanelClass}`
+    : `fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-130101 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl p-5 ${portalGlassPanelClass}`;
   const dockPositionClass = moveDockToTopRight
     ? "fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130100 flex justify-end sm:top-auto sm:right-4 sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)]"
     : "fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-130100 flex justify-end";
@@ -1050,7 +1058,7 @@ export function PortalFloatingTools() {
         <div className="fixed inset-0 z-130102">
           <button
             type="button"
-            className="absolute inset-0 bg-black/30"
+            className={classNames("absolute inset-0", portalGlassBackdropClass)}
             aria-label="Close"
             onClick={() => (!sending ? setReportOpen(false) : null)}
           />
@@ -1077,7 +1085,7 @@ export function PortalFloatingTools() {
 
             <div className="mt-4">
               <textarea
-                className="min-h-30 w-full rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                className="min-h-30 w-full rounded-2xl border border-white/35 bg-white/55 p-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
                 placeholder="What happened? What did you expect?"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}

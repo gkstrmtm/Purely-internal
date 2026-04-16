@@ -1268,7 +1268,7 @@ export default function PortalReviewsClient() {
                   <div className="flex flex-wrap items-center justify-end gap-3">
                     <a
                       href={`${appBase}/services/reviews/page-editor`}
-                      className="inline-flex items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 transition hover:bg-sky-100"
+                      className="inline-flex items-center justify-center rounded-2xl bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-900"
                     >
                       Edit page
                     </a>
@@ -1697,7 +1697,7 @@ export default function PortalReviewsClient() {
                   <div className="flex flex-wrap items-center gap-2">
                     <a
                       href={`${appBase}/services/reviews/page-editor`}
-                      className="inline-flex items-center justify-center rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 transition-colors duration-100 hover:bg-sky-100"
+                      className="inline-flex items-center justify-center rounded-xl bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition-colors duration-100 hover:bg-zinc-900"
                     >
                       Edit page
                     </a>

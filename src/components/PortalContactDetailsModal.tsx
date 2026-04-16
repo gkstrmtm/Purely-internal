@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { normalizePortalContactCustomVarKey } from "@/lib/portalTemplateVars";
@@ -431,21 +432,23 @@ export function PortalContactDetailsModal(props: Props) {
   return (
     <div
       className={classNames(
-        "fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4",
+        "fixed inset-0 z-8000 flex items-start justify-center px-4",
         "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
         "sm:items-center",
+        portalGlassBackdropClass,
       )}
       style={{ zIndex: Number.isFinite(zIndex as number) ? (zIndex as number) : undefined }}
       onMouseDown={onClose}
     >
       <div
         className={classNames(
-          "flex w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl",
+          "flex w-full max-w-3xl flex-col overflow-hidden rounded-3xl",
           "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)]",
+          portalGlassPanelClass,
         )}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="shrink-0 border-b border-zinc-100 p-6">
+        <div className="shrink-0 border-b border-white/30 p-6">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-base font-semibold text-zinc-900">Contact details</div>
@@ -453,7 +456,7 @@ export function PortalContactDetailsModal(props: Props) {
             </div>
             <button
               type="button"
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+              className={classNames("rounded-xl px-3 py-2 text-sm font-semibold hover:bg-white/80", portalGlassButtonClass)}
               onClick={onClose}
             >
               Close
@@ -463,15 +466,15 @@ export function PortalContactDetailsModal(props: Props) {
 
         <div className="min-h-0 flex-1 overflow-y-auto p-6">
           {detailLoading ? (
-            <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">Loading…</div>
+            <div className={classNames("rounded-2xl p-4 text-sm text-zinc-600", portalGlassSectionClass)}>Loading…</div>
           ) : null}
 
           <div className={classNames("grid grid-cols-1 gap-4 sm:grid-cols-2", detailLoading ? "mt-6" : "")}>
-            <div className="min-w-0 rounded-2xl border border-zinc-200 p-4">
+            <div className={classNames("min-w-0 rounded-2xl p-4", portalGlassSectionClass)}>
             <div className="text-xs font-semibold text-zinc-600">Name</div>
             {editing ? (
               <input
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                className="mt-1 w-full rounded-xl border border-white/35 bg-white/55 px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-(--color-brand-blue)"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 placeholder="Full name"
@@ -484,7 +487,7 @@ export function PortalContactDetailsModal(props: Props) {
             <div className="mt-3 text-xs font-semibold text-zinc-600">Email</div>
             {editing ? (
               <input
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                className="mt-1 w-full rounded-xl border border-white/35 bg-white/55 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                 value={editEmail}
                 onChange={(e) => setEditEmail(e.target.value)}
                 placeholder="email@company.com"
@@ -497,7 +500,7 @@ export function PortalContactDetailsModal(props: Props) {
             <div className="mt-3 text-xs font-semibold text-zinc-600">Phone</div>
             {editing ? (
               <input
-                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                className="mt-1 w-full rounded-xl border border-white/35 bg-white/55 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                 value={editPhone}
                 onChange={(e) => setEditPhone(e.target.value)}
                 placeholder="+15551234567"
@@ -507,20 +510,20 @@ export function PortalContactDetailsModal(props: Props) {
               <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "N/A"}</div>
             )}
 
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+            <div className={classNames("mt-4 rounded-2xl p-3", portalGlassSectionClass)}>
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Template variables</div>
               <div className="mt-2 space-y-1 text-xs text-zinc-700">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-zinc-600">Name</span>
-                  <span className="max-w-full break-all rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.name}"}</span>
+                  <span className="max-w-full break-all rounded-lg border border-white/35 bg-white/55 px-2 py-1 font-mono">{"{contact.name}"}</span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-zinc-600">Email</span>
-                  <span className="max-w-full break-all rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.email}"}</span>
+                  <span className="max-w-full break-all rounded-lg border border-white/35 bg-white/55 px-2 py-1 font-mono">{"{contact.email}"}</span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-zinc-600">Phone</span>
-                  <span className="max-w-full break-all rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.phone}"}</span>
+                  <span className="max-w-full break-all rounded-lg border border-white/35 bg-white/55 px-2 py-1 font-mono">{"{contact.phone}"}</span>
                 </div>
               </div>
             </div>
@@ -532,7 +535,7 @@ export function PortalContactDetailsModal(props: Props) {
                   editCustomVarRows.map((row, idx) => (
                     <div key={`${idx}-${row.key}`} className="grid grid-cols-1 gap-2 sm:grid-cols-5">
                       <input
-                        className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                        className="sm:col-span-2 w-full rounded-xl border border-white/35 bg-white/55 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                         value={row.key}
                         onChange={(e) =>
                           setEditCustomVarRows((prev) => {
@@ -544,7 +547,7 @@ export function PortalContactDetailsModal(props: Props) {
                         placeholder="key (e.g. city)"
                       />
                       <input
-                        className="sm:col-span-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                        className="sm:col-span-3 w-full rounded-xl border border-white/35 bg-white/55 px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                         value={row.value}
                         onChange={(e) =>
                           setEditCustomVarRows((prev) => {
@@ -558,7 +561,7 @@ export function PortalContactDetailsModal(props: Props) {
                       <div className="sm:col-span-5 flex justify-end">
                         <button
                           type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                          className={classNames("rounded-xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
                           onClick={() => setEditCustomVarRows((prev) => prev.filter((_, i) => i !== idx))}
                         >
                           Remove
@@ -572,7 +575,7 @@ export function PortalContactDetailsModal(props: Props) {
 
                 <button
                   type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                  className={classNames("rounded-xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
                   onClick={() => setEditCustomVarRows((prev) => [...prev, { key: "", value: "" }].slice(0, 25))}
                 >
                   Add variable
@@ -626,7 +629,7 @@ export function PortalContactDetailsModal(props: Props) {
                   <>
                     <button
                       type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      className={classNames("rounded-xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
                       onClick={() => {
                         setEditing(false);
                         setEditName(detail?.name ?? "");

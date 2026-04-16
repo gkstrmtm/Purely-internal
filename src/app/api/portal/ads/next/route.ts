@@ -54,13 +54,22 @@ export async function GET(req: Request) {
   const ownerId = auth.session.user.id;
   const portalVariant = (((auth.session.user as any).portalVariant as PortalVariant | undefined) ?? "portal") as PortalVariant;
 
-  const campaign = await getNextPortalAdCampaignForOwner({
-    ownerId,
-    portalVariant,
-    placement,
-    path,
-    excludeCampaignIds,
-  });
+  if (path && /\/page-editor(?:$|\?|\/)/i.test(path)) {
+    return NextResponse.json({ ok: true, campaign: null, rewardStatus: null });
+  }
+
+  let campaign = null;
+  try {
+    campaign = await getNextPortalAdCampaignForOwner({
+      ownerId,
+      portalVariant,
+      placement,
+      path,
+      excludeCampaignIds,
+    });
+  } catch {
+    return NextResponse.json({ ok: true, campaign: null, rewardStatus: null });
+  }
 
   if (campaign?.id) {
     const userAgent = req.headers.get("user-agent");

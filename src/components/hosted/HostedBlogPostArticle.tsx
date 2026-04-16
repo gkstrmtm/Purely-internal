@@ -68,10 +68,10 @@ export function HostedBlogPostArticle({
 
       <div className="mt-12 rounded-3xl p-8" style={{ backgroundColor: "var(--client-soft)" }}>
         <div className="font-brand text-2xl" style={{ color: "var(--client-link)" }}>
-          Want this kind of consistency?
+          Keep reading
         </div>
         <p className="mt-3 text-sm leading-relaxed" style={{ color: "var(--client-muted)" }}>
-          This blog is hosted by Purely Automation.
+          Explore more articles, recent updates, and stories from the archive.
         </p>
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <Link
@@ -79,7 +79,7 @@ export function HostedBlogPostArticle({
             className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-base font-extrabold shadow-sm"
             style={{ backgroundColor: "var(--client-accent)", color: "var(--client-on-accent)" }}
           >
-            learn more
+            continue reading
           </Link>
           <Link
             href={blogsHref}

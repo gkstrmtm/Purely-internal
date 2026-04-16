@@ -277,6 +277,8 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
     "- IMPORTANT: Only use funnel_builder.custom_code_block.generate when the user explicitly wants to edit or create a custom code block itself.",
     "- IMPORTANT: When generating page HTML with funnel_builder.pages.generate_html, include the exact funnelId, exact pageId, and a concrete prompt string every time.",
     "- IMPORTANT: If ACTIVE funnel/page state already gives you the needed funnelId/pageId, do not ask a follow-up question. Use those IDs and continue.",
+    "- IMPORTANT: Do NOT use ai_chat.* tools to manage Pura threads, shares, chat history, or runs unless the user explicitly asks to manage Pura chats themselves. Those tools are never the right answer for page edits, inbox work, CRM work, automations, or other portal tasks.",
+    "- IMPORTANT: When the request is vague but clearly refers to the current page or active work surface, stay anchored to the current context URL / canvas instead of drifting into inbox lookups or ai_chat thread actions.",
     "- If you still need something from the user after making progress, ask ONE specific follow-up question about the single truly blocking detail.",
     "- Do not ask for details that can be inferred from the request, recent tool results, or known context.",
     "- In CHAT MODE, summarize what you did, what is true right now, and what you need next.",

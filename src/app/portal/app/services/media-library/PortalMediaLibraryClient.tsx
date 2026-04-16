@@ -736,7 +736,7 @@ export function PortalMediaLibraryClient() {
                           >
                             <div className="flex w-full items-start justify-between gap-3">
                               <div className="min-w-0 flex-1">
-                                <div className="line-clamp-2 wrap-break-word text-sm font-semibold leading-5 text-zinc-900">{it.fileName}</div>
+                                <div title={it.fileName} className="truncate text-sm font-semibold leading-5 text-zinc-900">{it.fileName}</div>
                                 <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
                                   <span className="font-mono">tag: {it.tag}</span>
                                   <span>•</span>
@@ -784,9 +784,6 @@ export function PortalMediaLibraryClient() {
                                   </div>
                                 )}
                               </div>
-                            </div>
-                            <div className="mt-auto inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
-                              {previewKind === "video" ? "Preview video" : previewKind === "image" ? "Preview image" : "Open file"}
                             </div>
                           </button>
                         );

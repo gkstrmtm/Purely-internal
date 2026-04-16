@@ -7,6 +7,7 @@ import type { PortalAgentActionKey } from "@/lib/portalAgentActions";
 import { tryParseScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
 import { getScheduledRecurrenceTimeZone, withScheduledRecurrenceMetadata } from "@/lib/portalAiChatScheduledRecurrence";
 import { getOwnerProfilePhoneE164 } from "@/lib/missedCallTextBack";
+import { absolutizeAssistantTextLinks } from "@/lib/portalAssistantLinks";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { planPuraActions } from "@/lib/puraPlanner";
 import { resolvePlanArgs } from "@/lib/puraResolver";
@@ -686,6 +687,7 @@ export async function processDuePortalAiChatScheduledMessages(
               "- Say what you did and the outcome in plain language.",
               "- If something failed, say what failed and the next step.",
               "- If you need more info, ask ONE specific question.",
+              "- Never output bare relative paths like /portal/app/... . If you mention a URL, always use the full https://purelyautomation.com/... absolute URL.",
             ].join("\n"),
             user: `Scheduled run results (JSON):\n${JSON.stringify(
               {
@@ -703,6 +705,8 @@ export async function processDuePortalAiChatScheduledMessages(
       } catch {
         assistantText = "";
       }
+
+      assistantText = absolutizeAssistantTextLinks(assistantText);
 
       if (assistantText.trim()) {
         await (prisma as any).portalAiChatMessage.create({

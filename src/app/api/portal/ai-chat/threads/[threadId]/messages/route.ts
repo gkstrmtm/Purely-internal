@@ -28,7 +28,7 @@ import { previewResultForPlanner, summarizeIdsFromArgs } from "@/lib/portalAgent
 import { resolvePlanArgs } from "@/lib/puraResolver";
 import { detectPuraDirectIntentSignals } from "@/lib/puraDirectIntentSignals";
 import { getPuraDirectActionPlan, getPuraDirectPrerequisiteMessage } from "@/lib/puraDirectIntentPlans";
-import { formatAssistantMarkdownLink } from "@/lib/portalAssistantLinks";
+import { absolutizeAssistantTextLinks, formatAssistantMarkdownLink } from "@/lib/portalAssistantLinks";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
 import { slugify } from "@/lib/slugify";
@@ -105,6 +105,7 @@ const SendMessageSchema = z
     chatMode: z.enum(["plan", "work"]).optional(),
     responseProfile: z.enum(PURA_AI_PROFILE_VALUES).optional(),
     attachments: z.array(AttachmentSchema).max(10).optional(),
+    contextKeys: z.array(z.string().trim().min(1).max(120)).max(8).optional(),
     clientTimeZone: z.string().trim().max(80).optional(),
     confirmToken: z.string().trim().min(1).max(200).optional(),
     choice: ChoiceSchema,
@@ -479,6 +480,129 @@ function parseRelativePortalUrl(raw: string | null | undefined) {
   } catch {
     return null;
   }
+}
+
+function describeDirectIntentSurface(opts: {
+  url?: string | null;
+  canvasUrl?: string | null;
+  contextKeys?: string[];
+}) {
+  const candidates = [opts.canvasUrl, opts.url];
+  for (const raw of candidates) {
+    const url = parseRelativePortalUrl(raw);
+    if (!url) continue;
+    const pageEditorMatch = /^\/portal\/app\/services\/(booking|newsletter|reviews|blogs)\/page-editor(?:\/|$)/i.exec(url.pathname || "");
+    if (pageEditorMatch?.[1]) {
+      const service = String(pageEditorMatch[1]).toLowerCase();
+      return `Current surface: ${service} hosted page editor. Treat vague design, rewrite, polish, clean-up, and premium-style requests as hosted page work for this service.`;
+    }
+  }
+
+  const normalizedContextKeys = Array.isArray(opts.contextKeys)
+    ? Array.from(new Set(opts.contextKeys.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean))).slice(0, 4)
+    : [];
+  const hostedContextService = normalizedContextKeys.find((value) => ["booking", "newsletter", "reviews", "blogs"].includes(value));
+  if (hostedContextService) {
+    return `Current selected portal context: ${hostedContextService}. Treat vague design, rewrite, polish, clean-up, and premium-style requests as hosted page work for this service.`;
+  }
+  if (normalizedContextKeys.length) {
+    return `Current selected portal context: ${normalizedContextKeys.join(", ")}. Prefer work in these areas when the request is vague.`;
+  }
+
+  return "";
+}
+
+function hasActivePortalWorkSurface(raw: string | null | undefined) {
+  const url = parseRelativePortalUrl(raw);
+  if (!url) return false;
+  const path = String(url.pathname || "").trim().toLowerCase();
+  if (!path) return false;
+  if (path === "/portal/app/ai-chat" || path === "/portal/app/ai-chat/") return false;
+  return path.startsWith("/portal/app/") || path.startsWith("/pura-preview/");
+}
+
+function hasRecentResolvableWorkTarget(threadContextValue: unknown) {
+  if (!threadContextValue || typeof threadContextValue !== "object" || Array.isArray(threadContextValue)) return false;
+  const ctx = threadContextValue as Record<string, unknown>;
+  if (hasActivePortalWorkSurface(typeof ctx.lastCanvasUrl === "string" ? ctx.lastCanvasUrl : null)) return true;
+  if (typeof ctx.lastWorkTitle === "string" && String(ctx.lastWorkTitle).trim()) return true;
+
+  const entityKeys = ["lastNewsletter", "lastBlogPost", "lastFunnel", "lastFunnelPage", "lastHostedPageDocument", "lastMediaFolder", "lastNurtureCampaign"];
+  return entityKeys.some((key) => {
+    const value = ctx[key];
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const id = typeof (value as Record<string, unknown>).id === "string" ? String((value as Record<string, unknown>).id).trim() : "";
+    const service = typeof (value as Record<string, unknown>).service === "string" ? String((value as Record<string, unknown>).service).trim() : "";
+    const pageKey = typeof (value as Record<string, unknown>).pageKey === "string" ? String((value as Record<string, unknown>).pageKey).trim() : "";
+    return Boolean(id || service || pageKey);
+  });
+}
+
+function looksLikeContextlessPolishPrompt(promptRaw: string) {
+  const prompt = String(promptRaw || "").trim().toLowerCase();
+  if (!prompt) return false;
+  if (prompt.length > 220) return false;
+
+  const hasEditVerb = /\b(clean(?:\s+this\s+up|\s+it\s+up|\s+up)?|polish|tighten|improve|refine|refresh|rewrite|revise|fix|upgrade|update|redo|make)\b/.test(prompt);
+  if (!hasEditVerb) return false;
+
+  const hasDeicticTarget = /\b(this|that|it|current|same)\b/.test(prompt);
+  if (!hasDeicticTarget) return false;
+
+  const explicitCrossSurfaceIntent = /\b(inbox|thread|threads|conversation|conversations|contact|contacts|task|tasks|review reply|receptionist|lead scraping|lead scrape|lead run|booking slots|availability this week)\b/.test(prompt);
+  if (explicitCrossSurfaceIntent) return false;
+
+  return /\b(make\s+(?:this|that|it)|clean\s+(?:this|that|it)?\s*up|polish\s+(?:this|that|it)|tighten\s+(?:this|that|it)|improve\s+(?:this|that|it)|refine\s+(?:this|that|it)|refresh\s+(?:this|that|it)|rewrite\s+(?:this|that|it)|revise\s+(?:this|that|it)|fix\s+(?:this|that|it)|update\s+(?:this|that|it))\b/.test(prompt);
+}
+
+function looksLikeDiscussAdvisoryCopyPrompt(promptRaw: string) {
+  const prompt = String(promptRaw || "").trim().toLowerCase();
+  if (!prompt) return false;
+
+  const asksForHelp = /\b(help me|can you help|brainstorm|suggest|give me|thoughts on|feedback on|ideas for)\b/.test(prompt);
+  const copyTarget = /\b(headline|subheadline|copy|messaging|cta|call to action)\b/.test(prompt);
+  const pageContext = /\b(funnel builder|landing page|sales page|page copy|hero section)\b/.test(prompt);
+  const explicitBuildAction = /\b(create|build|make|publish|go live|generate html|ship)\b/.test(prompt);
+
+  return asksForHelp && copyTarget && pageContext && !explicitBuildAction;
+}
+
+function buildDiscussAdvisoryCopyResponse(promptRaw: string) {
+  const prompt = String(promptRaw || "").trim().toLowerCase();
+  const wantsHeadline = /\bheadline|subheadline\b/.test(prompt);
+  const wantsLandingCopy = /\blanding page|page copy|copy|messaging\b/.test(prompt);
+
+  const lines = [
+    "Absolutely — keeping this in discuss mode, here’s the copy direction without making any portal changes.",
+  ];
+
+  if (wantsHeadline) {
+    lines.push(
+      "",
+      "Three headline directions:",
+      "1. Turn More Visitors Into Booked Calls With a Funnel That Makes the Next Step Obvious",
+      "2. A Clearer Funnel Builder Message That Helps Qualified Leads Say Yes Faster",
+      "3. Stop Losing Warm Traffic With a Landing Page That Clarifies the Offer Immediately",
+    );
+  }
+
+  if (wantsLandingCopy) {
+    lines.push(
+      "",
+      "Landing-page copy structure:",
+      "- Lead with the core outcome in one sentence, not the feature set.",
+      "- Follow with 3 short benefit bullets that explain speed, clarity, and the next result the visitor gets.",
+      "- Keep the CTA concrete and specific to the offer instead of generic language like ‘Learn more.’",
+      "- Add a short objection-handling section under the CTA so the page answers hesitation before the user leaves.",
+    );
+  }
+
+  lines.push(
+    "",
+    "If you want, I can next give you 3 tighter headline options, a subheadline, and a full hero section for this exact landing page.",
+  );
+
+  return lines.join("\n");
 }
 
 function extractFunnelBuilderEditorContextFromUrl(raw: string | null | undefined) {
@@ -4380,14 +4504,37 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         ? await extractTextContextFromAttachments({ ownerId, attachments, maxTotalChars: 8000 }).catch(() => "")
         : "";
 
-      const planningTextWithAttachments = attachmentTextContext
-        ? [effectivePlanningText, attachmentTextContext].filter(Boolean).join("\n").slice(0, 12_000)
-        : effectivePlanningText;
+      const selectedContextKeys = Array.from(
+        new Set(
+          (Array.isArray(parsed.data.contextKeys) ? parsed.data.contextKeys : [])
+            .map((value) => String(value || "").trim().slice(0, 120))
+            .filter(Boolean)
+            .slice(0, 8),
+        ),
+      );
+      const selectedContextBlock = selectedContextKeys.length
+        ? [
+            "SELECTED_PORTAL_CONTEXT (prefer these areas first if relevant):",
+            ...selectedContextKeys.map((value) => `- ${value}`),
+          ].join("\n")
+        : "";
+
+      const planningTextWithAttachments = [effectivePlanningText, selectedContextBlock, attachmentTextContext]
+        .filter(Boolean)
+        .join("\n\n")
+        .slice(0, 12_000);
 
       if (hasNewUserText && !isConfirmOnly && !didClickChoice) {
         const preflightPrompt = String(effectiveText || "").trim();
+        const rawUserPrompt = typeof parsed.data.text === "string" ? String(parsed.data.text).trim() : preflightPrompt;
         const preflightCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
-        const signals = detectPuraDirectIntentSignals(preflightPrompt, preflightCtx);
+        const directIntentSurfaceHint = describeDirectIntentSurface({
+          url: typeof parsed.data.url === "string" ? parsed.data.url : null,
+          canvasUrl: typeof parsed.data.canvasUrl === "string" ? parsed.data.canvasUrl : null,
+          contextKeys: selectedContextKeys,
+        });
+        const directIntentPrompt = [directIntentSurfaceHint, preflightPrompt].filter(Boolean).join("\n\n");
+        const signals = detectPuraDirectIntentSignals(directIntentPrompt, preflightCtx);
         const preflightSmsThreadMatch = signals.smsThreadWithName;
         const preflightInboxSearchQuery = signals.inboxSearchQuery;
         const preflightInboxSearchChannel = signals.inboxSearchChannel;
@@ -4406,6 +4553,47 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         const reviewReplyIntent = signals.reviewReplyIntent;
         const shouldSetWeekdayAvailability = signals.shouldSetWeekdayAvailability;
         const shouldAssessCrossSurfaceReadiness = signals.shouldAssessCrossSurfaceReadiness;
+        const hasExplicitActiveSurface = hasActivePortalWorkSurface(typeof parsed.data.canvasUrl === "string" ? parsed.data.canvasUrl : null)
+          || hasActivePortalWorkSurface(typeof parsed.data.url === "string" ? parsed.data.url : null);
+        const recentHostedPageDocument =
+          preflightCtx && typeof preflightCtx.lastHostedPageDocument === "object" && !Array.isArray(preflightCtx.lastHostedPageDocument)
+            ? (preflightCtx.lastHostedPageDocument as { service?: string | null; pageKey?: string | null; label?: string | null })
+            : null;
+        const shouldUseRecentHostedPageTarget =
+          looksLikeContextlessPolishPrompt(preflightPrompt) &&
+          !hasExplicitActiveSurface &&
+          !selectedContextKeys.length &&
+          Boolean(String(recentHostedPageDocument?.service || "").trim());
+        const shouldClarifyContextlessPolishTarget =
+          looksLikeContextlessPolishPrompt(preflightPrompt) &&
+          !hasExplicitActiveSurface &&
+          !selectedContextKeys.length &&
+          !hasRecentResolvableWorkTarget(preflightCtx);
+
+        const hasMutatingDirectPreflightIntent = Boolean(
+          signals.hostedPageUpdateTarget ||
+            signals.hostedPagePublishTarget ||
+            signals.hostedPageResetTarget ||
+            signals.hostedPageGenerateTarget ||
+            signals.newsletterCreateTitle ||
+            signals.shouldTightenLatestNewsletter ||
+            signals.shouldSendLatestNewsletter ||
+            signals.blogCreateTitle ||
+            signals.shouldPolishLatestBlog ||
+            signals.shouldPublishLatestBlog ||
+            signals.funnelCreateTitle ||
+            signals.shouldCreateLandingPage ||
+            signals.shouldGenerateLandingLayout ||
+            signals.shouldUpdateCurrentFunnelPage ||
+            signals.mediaFolderCreateTitle ||
+            signals.shouldImportToNamedMediaFolder ||
+            signals.reviewReplyIntent ||
+            signals.nurtureStepIntent ||
+            signals.leadRunIntent ||
+            signals.shouldUpdateBookingThankYou ||
+            signals.shouldSetWeekdayAvailability
+        );
+        const shouldSkipMutatingDirectPreflight = threadChatMode !== "work" && hasMutatingDirectPreflightIntent;
 
         const runDirectActionPlan = async (plan: { action: PortalAgentActionKey; traceTitle: string; args: Record<string, unknown> } | null) => {
           if (!plan) return null;
@@ -4751,7 +4939,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           contextPatch?: Record<string, unknown> | null;
         }) => {
           const canvasUrl = typeof opts.exec?.linkUrl === "string" ? String(opts.exec.linkUrl).trim().slice(0, 1200) : null;
-          const preflightAssistantText = typeof opts.exec?.assistantText === "string" ? String(opts.exec.assistantText).trim() : "";
+          const preflightAssistantText = typeof opts.exec?.assistantText === "string" ? absolutizeAssistantTextLinks(String(opts.exec.assistantText).trim()) : "";
           if (!preflightAssistantText) return null;
           const assistantMsg = await (prisma as any).portalAiChatMessage.create({
             data: {
@@ -4841,7 +5029,30 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           });
         };
 
-        const shouldBypassSimpleDirectPlan = Boolean(
+        if (threadChatMode !== "work" && looksLikeDiscussAdvisoryCopyPrompt(rawUserPrompt)) {
+          const advisoryResponse = await finalizePreflightResponse({
+            exec: { ok: true, assistantText: buildDiscussAdvisoryCopyResponse(rawUserPrompt) },
+            traceKey: "discuss.copy.advice",
+            traceTitle: "Discuss Copy Direction",
+            traceArgs: {},
+            promptText: rawUserPrompt,
+            contextActionKey: null,
+            suggestionActionKeys: [],
+          });
+          if (advisoryResponse) return advisoryResponse;
+        }
+
+        const hasHostedPageDirectIntent = Boolean(
+          signals.hostedPageUpdateTarget ||
+          signals.hostedPagePublishTarget ||
+          signals.hostedPageResetTarget ||
+          signals.hostedPageGenerateTarget ||
+          signals.hostedPagePreviewTarget ||
+          signals.hostedPageGetTarget ||
+          signals.hostedPageListService
+        );
+
+        const shouldBypassSimpleDirectPlan = !hasHostedPageDirectIntent && Boolean(
           signals.newsletterCreateTitle ||
           signals.blogCreateTitle ||
           shouldRunPreflightReviewSummary ||
@@ -4925,6 +5136,22 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             },
           });
           if (currentPageEditResponse) return currentPageEditResponse;
+        }
+
+        if (shouldUseRecentHostedPageTarget && recentHostedPageDocument) {
+          const service = String(recentHostedPageDocument.service || "").trim().toUpperCase();
+          if (service === "BOOKING" || service === "NEWSLETTER" || service === "REVIEWS" || service === "BLOGS") {
+            const recentHostedPageResponse = await runDirectActionPlan({
+              action: "hosted_pages.documents.generate_html",
+              traceTitle: "Generate Hosted Page HTML",
+              args: {
+                service,
+                ...(String(recentHostedPageDocument.pageKey || "").trim() ? { pageKey: String(recentHostedPageDocument.pageKey).trim() } : null),
+                prompt: preflightPrompt,
+              },
+            });
+            if (recentHostedPageResponse) return recentHostedPageResponse;
+          }
         }
 
         const bookingSettingsSurfaceUpdate = isBookingSettingsContextUrl(contextUrl)
@@ -5135,13 +5362,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           }
         }
 
-        const simpleDirectPlan = shouldBypassSimpleDirectPlan
+        const simpleDirectPlan = shouldBypassSimpleDirectPlan || shouldSkipMutatingDirectPreflight
           ? null
           : getPuraDirectActionPlan({ prompt: preflightPrompt, signals, threadContext: preflightCtx });
         const simpleDirectResponse = await runDirectActionPlan(simpleDirectPlan);
         if (simpleDirectResponse) return simpleDirectResponse;
 
-        const directPrerequisiteMessage = getPuraDirectPrerequisiteMessage({ signals, threadContext: preflightCtx });
+        const directPrerequisiteMessage = shouldSkipMutatingDirectPreflight ? null : getPuraDirectPrerequisiteMessage({ signals, threadContext: preflightCtx });
         if (directPrerequisiteMessage) {
           const prerequisiteResponse = await finalizePreflightResponse({
             exec: { ok: false, assistantText: directPrerequisiteMessage },
@@ -5153,6 +5380,23 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             suggestionActionKeys: [],
           });
           if (prerequisiteResponse) return prerequisiteResponse;
+        }
+
+        if (shouldClarifyContextlessPolishTarget) {
+          const clarifyMissingTargetResponse = await finalizePreflightResponse({
+            exec: {
+              ok: false,
+              assistantText:
+                "I can do that, but I need the target first. Tell me which page, draft, funnel page, or service area you want cleaned up so I stay on the right surface.",
+            },
+            traceKey: "direct.intent.prerequisite",
+            traceTitle: "Clarify Missing Work Target",
+            traceArgs: {},
+            promptText: preflightPrompt,
+            contextActionKey: null,
+            suggestionActionKeys: [],
+          });
+          if (clarifyMissingTargetResponse) return clarifyMissingTargetResponse;
         }
 
         if (signals.newsletterCreateTitle) {
@@ -7349,6 +7593,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                     "- Do NOT print raw JSON or field dumps.",
                     "- Do NOT use labels like 'Action:', 'Status:', 'Result:'.",
                     "- Never invent URLs, domains, or links. Only mention a link when linkUrl or canvasUrl is explicitly provided, and use that exact path/value.",
+                    "- Never output bare relative paths like /portal/app/... . If you mention a URL, always write the full https://purelyautomation.com/... absolute URL.",
                     "Content rules:",
                     "- Say what you did and the outcome in plain language.",
                     "- If something failed, say what failed and the next step.",
@@ -7374,6 +7619,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       } catch {
         assistantTextFinal = finalDirectMessage || "";
       }
+
+      assistantTextFinal = absolutizeAssistantTextLinks(assistantTextFinal);
 
       const assistantMsg = assistantTextFinal.trim()
         ? await (prisma as any).portalAiChatMessage.create({
@@ -7613,8 +7860,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         const canvasUrl = typeof (exec as any)?.linkUrl === "string" ? String((exec as any).linkUrl).trim().slice(0, 1200) : null;
         let assistantMsg = null;
-        const assistantText = typeof (exec as any)?.assistantText === "string" ? String((exec as any).assistantText).trim() : "";
-        const fallbackText = assistantText || buildHeuristicAssistantText(traceKey, (exec as any)?.result, canvasUrl);
+        const assistantText = typeof (exec as any)?.assistantText === "string" ? absolutizeAssistantTextLinks(String((exec as any).assistantText).trim()) : "";
+        const fallbackText = absolutizeAssistantTextLinks(assistantText || buildHeuristicAssistantText(traceKey, (exec as any)?.result, canvasUrl));
         if (fallbackText) {
           assistantMsg = await (prisma as any).portalAiChatMessage.create({
             data: {
@@ -7716,7 +7963,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         threadContext: fallbackThreadContext,
       });
 
-      const replyText = typeof reply === "string" ? reply.trim() : "";
+      const replyText = typeof reply === "string" ? absolutizeAssistantTextLinks(reply.trim()) : "";
       if (replyText) {
         if (heuristicFallbackAction && supportFallbackNoDataPattern.test(replyText)) {
           const heuristicAfterSupport = await tryHeuristicFallbackResponse();

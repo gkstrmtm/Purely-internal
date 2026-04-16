@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import GlassSurface from "@/components/GlassSurface";
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass } from "@/components/portalGlass";
 import { SignOutButton } from "@/components/SignOutButton";
 import { useToast } from "@/components/ToastProvider";
 import {
@@ -145,11 +146,13 @@ const DESKTOP_SIDEBAR_EXPANDED_WIDTH = "17.5rem";
 const DESKTOP_SIDEBAR_COLLAPSED_WIDTH = "4.75rem";
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
-  usePortalActiveTimeTracker();
-  usePuraCanvasUiBridgeResponder();
-
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const isHostedPageEditor = typeof pathname === "string" && pathname.includes("/page-editor");
+
+  usePortalActiveTimeTracker({ enabled: !isHostedPageEditor });
+  usePuraCanvasUiBridgeResponder();
+
   const toast = useToast();
   const embeddedFromQuery = searchParams?.get("embed") === "1" || searchParams?.get("pa_embed") === "1";
   const [embeddedSticky, setEmbeddedSticky] = useState(embeddedFromQuery);
@@ -454,6 +457,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const lastSeenPingRef = useRef<{ atMs: number; path: string } | null>(null);
 
   useEffect(() => {
+    if (isHostedPageEditor) return;
     const path = typeof pathname === "string" ? pathname : "";
     const search = searchParams ? searchParams.toString() : "";
     const fullPath = search ? `${path}?${search}` : path;
@@ -473,7 +477,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     }).catch(() => {
       // ignore
     });
-  }, [pathname, searchParams]);
+  }, [isHostedPageEditor, pathname, searchParams]);
 
   useEffect(() => {
     const tick = () => setNowMs(Date.now());
@@ -658,6 +662,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (isHostedPageEditor) {
+      setServiceStatuses(null);
+      return;
+    }
     let mounted = true;
     (async () => {
       const res = await fetch("/api/portal/services/status", { cache: "no-store" });
@@ -673,7 +681,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [isHostedPageEditor]);
 
   useEffect(() => {
     setShowGettingStartedHint(false);
@@ -801,6 +809,19 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const refreshAds = useCallback(
     async (opts: { placement: AdPlacement; reason: "path" | "focus" | "dismiss" }) => {
+      if (isHostedPageEditor) {
+        if (opts.placement === "SIDEBAR_BANNER") setSidebarCampaign(null);
+        if (opts.placement === "TOP_BANNER") setTopBannerCampaign(null);
+        if (opts.placement === "FULLSCREEN_REWARD") {
+          setRewardCampaign(null);
+          setRewardStatus(null);
+        }
+        if (opts.placement === "POPUP_CARD") {
+          setPopupCampaign(null);
+          setPopupCampaignPending(null);
+        }
+        return;
+      }
       const excludeIds = getExcludedCampaignIds(opts.placement);
       const url =
         `/api/portal/ads/next?placement=${opts.placement}&path=${encodeURIComponent(pathname || "")}` +
@@ -843,7 +864,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         setPopupCampaignPending(json.campaign ?? null);
       }
     },
-    [getExcludedCampaignIds, pathname],
+    [getExcludedCampaignIds, isHostedPageEditor, pathname],
   );
 
   useEffect(() => {
@@ -1309,6 +1330,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
     return (
       <PortalNavLink
+        key={s.slug}
         href={`${basePath}/app/services/${s.slug}`}
         className={classNames(
           "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-150",
@@ -1571,7 +1593,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   ))}
                 </div>
 
-                <div className="mt-6 border-t border-zinc-200 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
+                {!isHostedPageEditor ? <div className="mt-6 border-t border-zinc-200 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
                   <div className="flex items-center justify-end gap-2">
                     <GlassSurface {...portalGlassIconSurfaceProps} className="rounded-2xl">
                       <Link
@@ -1597,7 +1619,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     </GlassSurface>
                     <SignOutButton variant="sidebar" collapsed />
                   </div>
-                </div>
+                </div> : null}
               </div>
             </aside>
           </div>
@@ -1694,7 +1716,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           ["--pa-modal-safe-bottom" as any]: `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`,
         }}
       >
-        {isAiChat && !puraCanvasOpen ? (
+        {isAiChat && !puraCanvasOpen && !isHostedPageEditor ? (
         <div className="pointer-events-none fixed right-4 top-4 z-30 hidden lg:flex flex-col gap-2">
           <GlassSurface {...portalGlassIconSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl">
             <Link
@@ -1913,17 +1935,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             <span className="min-w-0 flex-1 truncate">Sales dashboard</span>
                             <span
                               className={classNames(
-                                "inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-[11px] font-semibold",
+                                "inline-flex h-6 min-w-6 items-center justify-center rounded-full px-2 text-[11px] font-semibold",
                                 dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
-                                  ? "border-brand-blue/25 bg-brand-blue/10 text-brand-blue"
-                                  : "border-zinc-200 bg-white text-zinc-500",
+                                  ? "bg-brand-blue/10 text-brand-blue"
+                                  : "bg-white text-zinc-500",
                               )}
                               aria-hidden
                             >
                               {dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG) ? "✓" : "+"}
                             </span>
                           </button>
-
                           {dashboardShortcutCandidates.map((svc) => {
                             const selected = dashboardQuickAccessEffective.includes(svc.slug);
                             return (
@@ -1960,10 +1981,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 <span className="min-w-0 flex-1 truncate">{svc.title}</span>
                                 <span
                                   className={classNames(
-                                    "inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-[11px] font-semibold",
-                                    selected
-                                      ? "border-brand-blue/25 bg-brand-blue/10 text-brand-blue"
-                                      : "border-zinc-200 bg-white text-zinc-500",
+                                    "inline-flex h-6 min-w-6 items-center justify-center rounded-full px-2 text-[11px] font-semibold",
+                                    selected ? "bg-brand-blue/10 text-brand-blue" : "bg-white text-zinc-500",
                                   )}
                                   aria-hidden
                                 >
@@ -2198,7 +2217,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
-            <div className="shrink-0 border-t border-zinc-200 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
+            {!isHostedPageEditor ? <div className="shrink-0 border-t border-zinc-200 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
               <div className="flex items-center justify-end gap-2">
                 <GlassSurface {...portalGlassIconSurfaceProps} className="rounded-2xl">
                   <Link
@@ -2224,7 +2243,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </GlassSurface>
                 <SignOutButton variant="sidebar" collapsed />
               </div>
-            </div>
+            </div> : null}
           </aside>
         </div>
 
@@ -2405,17 +2424,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         <span className="min-w-0 flex-1 truncate">Sales dashboard</span>
                         <span
                           className={classNames(
-                            "inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-[11px] font-semibold",
+                            "inline-flex h-6 min-w-6 items-center justify-center rounded-full px-2 text-[11px] font-semibold",
                             dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
-                              ? "border-brand-blue/25 bg-brand-blue/10 text-brand-blue"
-                              : "border-zinc-200 bg-white text-zinc-500",
+                              ? "bg-brand-blue/10 text-brand-blue"
+                              : "bg-white text-zinc-500",
                           )}
                           aria-hidden
                         >
                           {dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG) ? "✓" : "+"}
                         </span>
                       </button>
-
                       {dashboardShortcutCandidates.map((svc) => {
                         const selected = dashboardQuickAccessEffective.includes(svc.slug);
                         return (
@@ -2452,10 +2470,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             <span className="min-w-0 flex-1 truncate">{svc.title}</span>
                             <span
                               className={classNames(
-                                "inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-[11px] font-semibold",
-                                selected
-                                  ? "border-brand-blue/25 bg-brand-blue/10 text-brand-blue"
-                                  : "border-zinc-200 bg-white text-zinc-500",
+                                "inline-flex h-6 min-w-6 items-center justify-center rounded-full px-2 text-[11px] font-semibold",
+                                selected ? "bg-brand-blue/10 text-brand-blue" : "bg-white text-zinc-500",
                               )}
                               aria-hidden
                             >
@@ -2922,7 +2938,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </aside>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain">
-          <div className="pointer-events-none fixed inset-x-0 top-0 z-90 flex items-start justify-between px-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:hidden">
+          {!isHostedPageEditor ? <div className="pointer-events-none fixed inset-x-0 top-0 z-90 flex items-start justify-between px-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:hidden">
             <button
               type="button"
               onClick={() => setMobileOpen(true)}
@@ -2931,12 +2947,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             >
               <IconChevron />
             </button>
-          </div>
+          </div> : null}
 
           <main
             className={classNames(
               "min-h-0 min-w-0 flex-1 sm:transition-[padding] sm:duration-350 sm:ease-[cubic-bezier(0.22,1,0.36,1)]",
-              isAiChat
+              isHostedPageEditor
+                ? "p-0"
+                : isAiChat
                 ? "pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:p-0"
                 : "p-4 pb-4 pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:p-8 sm:pb-6 sm:pt-[calc(var(--pa-portal-topbar-height,0px)+2rem)]",
             )}
@@ -3008,7 +3026,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             ) : null}
 
             {children}
-            {!isAiChat ? (
+            {!isAiChat && !isHostedPageEditor ? (
               <div
                 aria-hidden
                 className="h-[calc(env(safe-area-inset-bottom)+5rem)] sm:h-[calc(env(safe-area-inset-bottom)+2rem)]"
@@ -3068,18 +3086,18 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           {rewardModalOpen ? (
             <div
-              className="fixed inset-0 z-9999 flex items-center justify-center bg-black/70 p-3 sm:p-6"
+              className={classNames("fixed inset-0 z-9999 flex items-center justify-center p-3 sm:p-6", portalGlassBackdropClass)}
               onMouseDown={() => {
                 if (rewardCredits > 0 && rewardRemainingSeconds > 0) setRewardConfirmExit(true);
                 else setRewardModalOpen(false);
               }}
             >
               <div
-                className="flex w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/10"
+                className={classNames("flex w-full max-w-5xl flex-col overflow-hidden rounded-3xl", portalGlassPanelClass)}
                 style={{ maxHeight: "100%" }}
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                <div className="shrink-0 border-b border-zinc-200 px-5 py-4">
+                <div className="shrink-0 border-b border-white/30 px-5 py-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -3118,7 +3136,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             `&path=${encodeURIComponent(pathname || "")}` +
                             `&to=${encodeURIComponent(rewardCampaign.creative.linkUrl)}`
                           }
-                          className="hidden rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:inline-flex"
+                          className={classNames("hidden rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-white/80 sm:inline-flex", portalGlassButtonClass)}
                           target="_blank"
                           rel="noreferrer"
                         >
@@ -3127,7 +3145,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       ) : null}
                       <button
                         type="button"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-transparent bg-white text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
+                        className={classNames(
+                          "inline-flex h-10 w-10 items-center justify-center rounded-full text-zinc-500 hover:bg-white/80 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]",
+                          portalGlassButtonClass,
+                        )}
                         onClick={() => {
                           if (rewardCredits > 0 && rewardRemainingSeconds > 0) setRewardConfirmExit(true);
                           else setRewardModalOpen(false);

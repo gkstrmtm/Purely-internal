@@ -178,6 +178,7 @@ export default async function ClientBlogPostPage(props: PageProps) {
   const themeStyle = theme.cssVars;
   const hostedBlocks = coerceBlocksJson(hostedBlogPostTemplate?.blocksJson);
   const hasHostedBlocks = Boolean(hostedBlogPostTemplate?.editorMode === "BLOCKS" && hostedBlocks.length);
+  const hasHostedPostBodyBlock = hostedBlocks.some((block) => block.type === "hostedBlogPostBody");
   const hasHostedCustomHtml = Boolean(
     hostedBlogPostTemplate?.editorMode === "CUSTOM_HTML" && typeof hostedBlogPostTemplate?.customHtml === "string" && hostedBlogPostTemplate.customHtml.trim(),
   );
@@ -240,8 +241,8 @@ export default async function ClientBlogPostPage(props: PageProps) {
           })
         ) : hasHostedBlocks ? (
           <>
-            <div className="px-6 pb-10">{renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "" })}</div>
-            {postArticle}
+            <div className="px-6 pb-10">{renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "", context: { hostedRuntimeBlocks: { blogPostBody: postArticle } } })}</div>
+            {!hasHostedPostBodyBlock ? postArticle : null}
           </>
         ) : (
           postArticle

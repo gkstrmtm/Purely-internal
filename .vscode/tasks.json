@@ -663,6 +663,147 @@
 				"node tmp/connect_meeting_preview.mjs > tmp/connect-preview.log 2>&1"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "Inspect: newsletter popup probe",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"/Users/jaylan/purely-automation/tmp/review-shots/probe-newsletter-state.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: hosted templates no reset",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/review-shots/capture-without-reset.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Validate: context key smoke",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/context_key_smoke_validation.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Validate: context key smoke file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/context_key_smoke_validation.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: pura service connectors focused",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/review-shots/capture_pura_service_connectors.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: pura service connectors focused v2",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"node tmp/review-shots/capture_pura_service_connectors.mjs && echo __RESULT__ && cat tmp/review-shots/pura-service-connectors/result.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: pura service connectors focused v3",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"node tmp/review-shots/capture_pura_service_connectors.mjs && echo __RESULT__ && cat tmp/review-shots/pura-service-connectors/result.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: pura service connectors focused v4",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"node tmp/review-shots/capture_pura_service_connectors.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Check: portal login endpoint",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"-e",
+				"fetch('http://127.0.0.1:3000/portal/api/login',{method:'POST',headers:{'content-type':'application/json','x-portal-variant':'portal'},body:JSON.stringify({email:'demo-full@purelyautomation.dev',password:'pura-demo-local'})}).then(async r=>{console.log('status',r.status);console.log(await r.text());}).catch(err=>{console.error(err);process.exit(1);})"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Check: portal login curl",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"curl -sS -o /tmp/pa_login_check.txt -w 'STATUS:%{http_code}\\n' -H 'content-type: application/json' -H 'x-portal-variant: portal' -d '{\"email\":\"demo-full@purelyautomation.dev\",\"password\":\"pura-demo-local\"}' http://127.0.0.1:3000/portal/api/login && echo __BODY__ && cat /tmp/pa_login_check.txt"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Check: portal login script",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/login_check.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Smoke: pura production after composer width fix",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"pura:production-smoke"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: composer popover geometry",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/measure_composer_popover.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: dev-retro safe portal polish",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/review-shots/capture_dev_retro_safe_portal_polish.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: dev-retro collapsed portal polish",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/review-shots/capture_dev_retro_safe_portal_polish_collapsed.mjs"
+			],
+			"isBackground": false
 		}
 	]
 }

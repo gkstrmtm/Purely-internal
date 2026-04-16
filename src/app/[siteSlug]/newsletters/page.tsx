@@ -161,14 +161,6 @@ export default async function ClientNewslettersIndexPage(props: PageProps) {
               </div>
             )}
           </Link>
-
-          <Link
-            href="/"
-            className="rounded-2xl px-4 py-2 text-sm font-bold shadow-sm"
-            style={{ backgroundColor: "var(--client-primary)", color: "var(--client-on-primary)" }}
-          >
-            powered by purely
-          </Link>
         </div>
       </header>
 
@@ -187,8 +179,9 @@ export default async function ClientNewslettersIndexPage(props: PageProps) {
           })
         ) : hasHostedBlocks ? (
           <>
-            <div className="mx-auto max-w-6xl px-6 py-10">{renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "" })}</div>
-            {newsletterArchive}
+            <div className="mx-auto max-w-6xl px-6 py-10">
+              {renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "", context: { hostedRuntimeBlocks: { newsletterArchive } } })}
+            </div>
           </>
         ) : (
           <>
@@ -217,9 +210,6 @@ export default async function ClientNewslettersIndexPage(props: PageProps) {
           <div className="flex items-center gap-4">
             <Link href={`/${siteHandle}/newsletters`} className="text-sm font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
               newsletters
-            </Link>
-            <Link href="/" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
-              purelyautomation.com
             </Link>
           </div>
         </div>

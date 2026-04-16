@@ -1,57 +1,15 @@
 import { prisma } from "@/lib/db";
+import { buildDashboardLayout, dashboardLayoutPresetForWidget, type DashboardLayoutItem, type DashboardWidgetId } from "@/lib/portalDashboardLayout";
 
 const SERVICE_SLUG = "dashboard";
 
 export type DashboardScope = "default" | "embedded";
 
-export type DashboardWidgetId =
-  | "hoursSaved"
-  | "billing"
-  | "stripeSales"
-  | "services"
-  | "mediaLibrary"
-  | "creditsRemaining"
-  | "creditsUsed"
-  | "blogGenerations"
-  | "blogCreditsUsed"
-  | "automationsRun"
-  | "successRate"
-  | "failures"
-  | "creditsRunway"
-  | "leadsCaptured"
-  | "reliabilitySummary"
-  | "aiCalls"
-  | "aiOutboundCalls"
-  | "missedCalls"
-  | "bookingsCreated"
-  | "reviewsCollected"
-  | "avgReviewRating"
-  | "newsletterSends"
-  | "nurtureEnrollments"
-  | "tasks"
-  | "inboxMessagesIn"
-  | "inboxMessagesOut"
-  | "leadsCreated"
-  | "contactsCreated"
-  | "leadScrapeRuns"
-  | "dailyActivity"
-  | "perfAiReceptionist"
-  | "perfMissedCallTextBack"
-  | "perfLeadScraping"
-  | "perfReviews";
+export type { DashboardLayoutItem, DashboardWidgetId } from "@/lib/portalDashboardLayout";
+export { buildDashboardLayout } from "@/lib/portalDashboardLayout";
 
 export type DashboardWidget = {
   id: DashboardWidgetId;
-};
-
-export type DashboardLayoutItem = {
-  i: DashboardWidgetId;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  minW?: number;
-  minH?: number;
 };
 
 export type PortalDashboardData = {
@@ -131,6 +89,8 @@ function normalizeInt(n: unknown, fallback: number) {
 const ALL_WIDGET_IDS: DashboardWidgetId[] = [
   "hoursSaved",
   "billing",
+  "puraAttention",
+  "activityPulse",
   "stripeSales",
   "services",
   "mediaLibrary",
@@ -172,53 +132,33 @@ export function isDashboardWidgetId(value: unknown): value is DashboardWidgetId 
 }
 
 function portalDefaultDashboard(): PortalDashboardData {
-  // 12-column grid. h is arbitrary “row units”.
+  const widgetIds: DashboardWidgetId[] = [
+    "hoursSaved",
+    "puraAttention",
+    "activityPulse",
+    "billing",
+    "stripeSales",
+    "creditsRunway",
+    "successRate",
+    "reliabilitySummary",
+    "dailyActivity",
+    "services",
+  ];
+
   return {
     version: 1,
-    widgets: [
-      { id: "hoursSaved" },
-      { id: "billing" },
-      { id: "stripeSales" },
-      { id: "creditsRemaining" },
-      { id: "creditsRunway" },
-      { id: "successRate" },
-      { id: "failures" },
-      { id: "dailyActivity" },
-      { id: "services" },
-    ],
-    layout: [
-      { i: "hoursSaved", x: 0, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
-      { i: "billing", x: 3, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
-      { i: "stripeSales", x: 6, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
-      { i: "creditsRemaining", x: 9, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
-
-      { i: "creditsRunway", x: 0, y: 8, w: 4, h: 10, minW: 3, minH: 8 },
-      { i: "successRate", x: 4, y: 8, w: 4, h: 10, minW: 3, minH: 8 },
-      { i: "failures", x: 8, y: 8, w: 4, h: 10, minW: 3, minH: 8 },
-
-      { i: "dailyActivity", x: 0, y: 18, w: 12, h: 22, minW: 6, minH: 16 },
-      { i: "services", x: 0, y: 40, w: 12, h: 14, minW: 6, minH: 10 },
-    ],
+    widgets: widgetIds.map((id) => ({ id })),
+    layout: buildDashboardLayout(widgetIds),
   };
 }
 
 function creditDefaultDashboard(): PortalDashboardData {
+  const widgetIds: DashboardWidgetId[] = ["hoursSaved", "creditsRemaining", "puraAttention", "activityPulse", "billing", "services"];
+
   return {
     version: 1,
-    widgets: [
-      { id: "hoursSaved" },
-      { id: "creditsRemaining" },
-      { id: "services" },
-      { id: "billing" },
-      { id: "dailyActivity" },
-    ],
-    layout: [
-      { i: "hoursSaved", x: 0, y: 0, w: 4, h: 8, minW: 3, minH: 6 },
-      { i: "creditsRemaining", x: 4, y: 0, w: 4, h: 8, minW: 3, minH: 6 },
-      { i: "billing", x: 8, y: 0, w: 4, h: 8, minW: 3, minH: 6 },
-      { i: "services", x: 0, y: 8, w: 5, h: 14, minW: 4, minH: 8 },
-      { i: "dailyActivity", x: 5, y: 8, w: 7, h: 14, minW: 6, minH: 10 },
-    ],
+    widgets: widgetIds.map((id) => ({ id })),
+    layout: buildDashboardLayout(widgetIds),
   };
 }
 
@@ -261,15 +201,22 @@ function parseDashboardJson(raw: unknown): PortalDashboardData {
   const widgetIds = new Set(widgets.map((w) => w.id));
   for (const id of REQUIRED_WIDGET_IDS) widgetIds.add(id);
 
-  const normalizedWidgets = ALL_WIDGET_IDS.filter((id) => widgetIds.has(id)).map((id) => ({ id }));
+  const normalizedWidgetIds = ALL_WIDGET_IDS.filter((id) => widgetIds.has(id));
+  const normalizedWidgets = normalizedWidgetIds.map((id) => ({ id }));
 
-  const layoutIds = new Set(layout.map((l) => l.i));
-  const nextLayout = layout.slice();
-  for (const w of normalizedWidgets) {
-    if (!layoutIds.has(w.id)) {
-      nextLayout.push({ i: w.id, x: 0, y: 9999, w: 6, h: 6, minW: 3, minH: 4 });
-    }
-  }
+  const nextLayout =
+    normalizedWidgetIds.length <= 3
+      ? buildDashboardLayout(normalizedWidgetIds)
+      : (() => {
+          const layoutIds = new Set(layout.map((l) => l.i));
+          const pending = layout.slice();
+          for (const w of normalizedWidgets) {
+            if (!layoutIds.has(w.id)) {
+              pending.push({ i: w.id, x: 0, y: 9999, ...dashboardLayoutPresetForWidget(w.id) });
+            }
+          }
+          return pending;
+        })();
 
   return {
     version: 1,
@@ -454,26 +401,7 @@ export async function addPortalDashboardWidget(
         i: widgetId,
         x: 0,
         y: 9999,
-        w:
-          widgetId === "services" || widgetId === "dailyActivity"
-            ? 12
-            : 6,
-        h:
-          widgetId === "services"
-            ? 10
-            : widgetId === "dailyActivity"
-              ? 12
-                : widgetId.startsWith("perf")
-                  ? 10
-                  : 6,
-        minW:
-          widgetId === "services" || widgetId === "dailyActivity"
-            ? 6
-            : 3,
-        minH:
-          widgetId === "dailyActivity" || widgetId.startsWith("perf")
-            ? 8
-            : 4,
+        ...dashboardLayoutPresetForWidget(widgetId),
       },
     ],
   };

@@ -15,6 +15,8 @@ import { SalesCheckoutButton } from "@/components/funnel/SalesCheckoutButton";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
 
+type HostedRuntimeBlockKind = "bookingApp" | "newsletterArchive" | "reviewsApp" | "blogsArchive" | "blogPostBody";
+
 export type BlockStyle = {
   textColor?: string;
   backgroundColor?: string;
@@ -188,6 +190,31 @@ export type CreditFunnelBlock =
       id: string;
       type: "calendarEmbed";
       props: { calendarId: string; height?: number; style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedBookingApp";
+      props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedNewsletterArchive";
+      props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedReviewsApp";
+      props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedBlogsArchive";
+      props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedBlogPostBody";
+      props: { style?: BlockStyle };
     }
   | {
       id: string;
@@ -809,6 +836,12 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
       continue;
     }
 
+    if (type === "hostedBookingApp" || type === "hostedNewsletterArchive" || type === "hostedReviewsApp" || type === "hostedBlogsArchive" || type === "hostedBlogPostBody") {
+      const style = coerceStyle(props?.style);
+      out.push({ id, type, props: { style } } as CreditFunnelBlock);
+      continue;
+    }
+
     if (type === "columns") {
       const rawColumns = Array.isArray(props?.columns) ? (props.columns as any[]) : null;
       const legacyLeftMarkdown = typeof props?.leftMarkdown === "string" ? props.leftMarkdown : "";
@@ -1048,6 +1081,7 @@ export function renderCreditFunnelBlocks({
     funnelPathBase?: string;
     funnelPageSlug?: string;
     previewDevice?: "desktop" | "mobile";
+    hostedRuntimeBlocks?: Partial<Record<HostedRuntimeBlockKind, React.ReactNode>>;
   };
   editor?: {
     enabled?: boolean;
@@ -1354,6 +1388,35 @@ export function renderCreditFunnelBlocks({
     };
   };
 
+  const renderHostedRuntimeBlock = (
+    block: CreditFunnelBlock,
+    kind: HostedRuntimeBlockKind,
+    title: string,
+    description: string,
+  ): React.ReactNode => {
+    const runtimeNode = context?.hostedRuntimeBlocks?.[kind];
+    const wrapper = wrapperStyle((block.props as any)?.style as BlockStyle | undefined);
+    const placeholder = React.createElement(
+      "div",
+      {
+        className: "rounded-[28px] border border-dashed border-zinc-300 bg-zinc-50 px-6 py-8 shadow-sm",
+      },
+      React.createElement("div", { className: "text-sm font-semibold text-zinc-900" }, title),
+      React.createElement("p", { className: "mt-2 max-w-2xl text-sm leading-6 text-zinc-600" }, isPreviewRender ? description : `${title} is configured for this hosted page.`),
+    );
+
+    return React.createElement(
+      "div",
+      {
+        key: block.id,
+        ...wrapProps(block.id),
+        style: { ...wrapper, ...(blockWrapStyle(block.id) || {}) },
+      },
+      renderMoveControls(block.id),
+      runtimeNode ?? placeholder,
+    );
+  };
+
   const editableTextProps = (
     block: CreditFunnelBlock,
     currentText: string,
@@ -1412,6 +1475,26 @@ export function renderCreditFunnelBlocks({
   const renderBlocksInner: (inner: CreditFunnelBlock[]) => React.ReactNode[] = (inner) =>
     inner.map((b) => {
       if (b.type === "page") return null;
+
+      if (b.type === "hostedBookingApp") {
+        return renderHostedRuntimeBlock(b, "bookingApp", "Booking", "Preview unavailable.");
+      }
+
+      if (b.type === "hostedNewsletterArchive") {
+        return renderHostedRuntimeBlock(b, "newsletterArchive", "Newsletter", "Preview unavailable.");
+      }
+
+      if (b.type === "hostedReviewsApp") {
+        return renderHostedRuntimeBlock(b, "reviewsApp", "Reviews", "Preview unavailable.");
+      }
+
+      if (b.type === "hostedBlogsArchive") {
+        return renderHostedRuntimeBlock(b, "blogsArchive", "Blogs", "Preview unavailable.");
+      }
+
+      if (b.type === "hostedBlogPostBody") {
+        return renderHostedRuntimeBlock(b, "blogPostBody", "Article", "Preview unavailable.");
+      }
 
       if (b.type === "salesCheckoutButton") {
         const pageId = typeof context?.funnelPageId === "string" ? context.funnelPageId : "";

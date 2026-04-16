@@ -19,6 +19,7 @@ import {
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
 import { IconServiceGlyph } from "@/app/portal/PortalIcons";
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
@@ -90,6 +91,10 @@ type FunnelBuilderDomain = {
   status: "PENDING" | "VERIFIED";
   verifiedAt: string | null;
 };
+
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
 
 function formatDate(value: string | null) {
   if (!value) return "";
@@ -1291,19 +1296,21 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
           {composerOpen ? (
             <div
-              className={
+              className={classNames(
                 mode === "manual"
-                  ? "fixed inset-0 z-9997 flex items-stretch justify-center bg-black/40 px-0 pt-[var(--pa-modal-safe-top,0px)] pb-0 sm:px-4"
-                  : "fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center"
-              }
+                  ? "fixed inset-0 z-9997 flex items-stretch justify-center px-0 pt-[var(--pa-modal-safe-top,0px)] pb-0 sm:px-4"
+                  : "fixed inset-0 z-50 flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center",
+                portalGlassBackdropClass,
+              )}
               onMouseDown={() => setComposerOpen(false)}
             >
               <div
-                className={
+                className={classNames(
                   mode === "manual"
-                    ? "w-full h-[calc(100dvh-var(--pa-modal-safe-top,0px))] overflow-hidden bg-white shadow-xl sm:my-4 sm:max-w-5xl sm:max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-2rem)] sm:rounded-3xl sm:border sm:border-zinc-200"
-                    : "w-full max-w-5xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
-                }
+                    ? "w-full h-[calc(100dvh-var(--pa-modal-safe-top,0px))] overflow-hidden shadow-xl sm:my-4 sm:max-w-5xl sm:max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-2rem)] sm:rounded-3xl"
+                    : "w-full max-w-5xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-hidden rounded-3xl",
+                  portalGlassPanelClass,
+                )}
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 <div
@@ -1350,7 +1357,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     onClick={() => setMode("manual")}
                     className={
                       "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition " +
-                      (mode === "manual" ? "bg-brand-ink text-white hover:opacity-95" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                      (mode === "manual" ? "bg-brand-ink text-white hover:opacity-95" : `${portalGlassButtonClass} text-zinc-700 hover:bg-white/80`)
                     }
                   >
                     <span>Manual</span>
@@ -1374,7 +1381,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     type="button"
                     onClick={() => setComposerOpen(false)}
                     aria-label="Close composer"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-100 hover:bg-zinc-50 hover:text-zinc-800"
+                    className={classNames(
+                      "inline-flex h-10 w-10 items-center justify-center rounded-2xl text-base font-semibold text-zinc-500 transition-colors duration-100 hover:bg-white/80 hover:text-zinc-800",
+                      portalGlassButtonClass,
+                    )}
                   >
                     ×
                   </button>
@@ -1420,7 +1430,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className={classNames("rounded-2xl p-4", portalGlassSectionClass)}>
                 <div className="text-sm font-semibold text-zinc-900">Images & files</div>
                 <div className="mt-2 text-sm text-zinc-600">Upload, pick from the media library, or generate a royalty-free image suggestion.</div>
 
@@ -2588,7 +2598,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     <div className="flex flex-wrap items-center gap-2">
                       <a
                         href={`${basePath}/page-editor`}
-                        className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900 transition-colors duration-100 hover:bg-sky-100"
+                        className="inline-flex items-center justify-center rounded-xl bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition-colors duration-100 hover:bg-zinc-900"
                       >
                         Edit page
                       </a>
@@ -2704,11 +2714,17 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
       {draftOpen ? (
         <div
-          className="fixed inset-0 z-9997 flex items-stretch justify-center bg-black/30 px-0 pt-[var(--pa-modal-safe-top,0px)] pb-0 sm:px-4 sm:pt-[calc(var(--pa-modal-safe-top,0px)+1rem)]"
+          className={classNames(
+            "fixed inset-0 z-9997 flex items-stretch justify-center px-0 pt-[var(--pa-modal-safe-top,0px)] pb-0 sm:px-4 sm:pt-[calc(var(--pa-modal-safe-top,0px)+1rem)]",
+            portalGlassBackdropClass,
+          )}
           onMouseDown={() => setDraftOpen(false)}
         >
           <div
-            className="w-full h-[calc(100dvh-var(--pa-modal-safe-top,0px))] overflow-y-auto bg-white p-4 shadow-xl sm:my-4 sm:max-w-5xl sm:max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-2rem)] sm:rounded-3xl sm:border sm:border-zinc-200"
+            className={classNames(
+              "w-full h-[calc(100dvh-var(--pa-modal-safe-top,0px))] overflow-y-auto p-4 shadow-xl sm:my-4 sm:max-w-5xl sm:max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-2rem)] sm:rounded-3xl",
+              portalGlassPanelClass,
+            )}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
@@ -2723,7 +2739,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <button
                 type="button"
                 aria-label="Close draft editor"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-100 hover:bg-zinc-50 hover:text-zinc-800"
+                className={classNames(
+                  "inline-flex h-10 w-10 items-center justify-center rounded-2xl text-base font-semibold text-zinc-500 transition-colors duration-100 hover:bg-white/80 hover:text-zinc-800",
+                  portalGlassButtonClass,
+                )}
                 onClick={() => setDraftOpen(false)}
                 disabled={draftSaving}
               >
@@ -2735,7 +2754,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">Loading…</div>
             ) : (
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                <div className={classNames("rounded-3xl p-4", portalGlassSectionClass)}>
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Draft fields</div>
 
                   {draftError ? (
@@ -2791,7 +2810,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     </div>
                   </div>
 
-                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className={classNames("mt-4 rounded-2xl p-3", portalGlassSectionClass)}>
                     <div className="text-xs font-semibold text-zinc-700">Files & photos</div>
                     <div className="mt-2 grid gap-3 sm:grid-cols-2">
                       <div>
@@ -2819,14 +2838,14 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                             </button>
                           ) : null}
                         </div>
-                        <div className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
+                        <div className="mt-1 w-full rounded-2xl border border-white/35 bg-white/55 px-3 py-2 text-xs text-zinc-700 break-all">
                           {assetUrl ? assetFileName || assetUrl : "No file selected yet."}
                         </div>
                       </div>
                     </div>
 
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50">
+                      <label className={classNames("inline-flex cursor-pointer items-center justify-center rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}>
                         {assetBusy ? "Uploading…" : "Upload"}
                         <input
                           type="file"
@@ -2857,7 +2876,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
                       <button
                         type="button"
-                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                        className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}
                         onClick={() => setAssetPickerOpen(true)}
                       >
                         Choose from media library
@@ -2911,7 +2930,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           href={`${customHostedBaseUrl}${audience === "internal" ? "/internal-newsletters" : "/newsletters"}/${draftSlug}`}
                           target="_blank"
                           rel="noreferrer noopener"
-                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                          className={classNames("rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}
                         >
                           Open hosted
                         </a>
@@ -2927,7 +2946,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     ) : null}
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                      className={classNames("rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/80 disabled:opacity-60", portalGlassButtonClass)}
                       onClick={() => {
                         setDraftOpen(false);
                       }}
@@ -2946,7 +2965,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   </div>
                 </div>
 
-                <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                <div className={classNames("rounded-3xl p-4", portalGlassSectionClass)}>
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Preview</div>
 
                   {siteHandle && draftSlug ? (

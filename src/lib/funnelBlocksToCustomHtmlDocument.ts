@@ -1,5 +1,11 @@
 import type { CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 
+const BOOKING_APP_TOKEN = "{{BOOKING_APP}}";
+const NEWSLETTER_ARCHIVE_TOKEN = "{{NEWSLETTER_ARCHIVE}}";
+const REVIEWS_APP_TOKEN = "{{REVIEWS_APP}}";
+const BLOGS_ARCHIVE_TOKEN = "{{BLOGS_ARCHIVE}}";
+const BLOG_POST_BODY_TOKEN = "{{BLOG_POST_BODY}}";
+
 export function escapeHtml(s: string) {
   return String(s || "")
     .replace(/&/g, "&amp;")
@@ -252,6 +258,31 @@ export function blocksToCustomHtmlDocument(opts: {
       if (!calendarId || !opts.ownerId) return "";
       const src = `/book/u/${encodeURIComponent(opts.ownerId)}/${encodeURIComponent(calendarId)}`;
       return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><iframe title=\"Booking\" src=\"${escapeHtmlAttr(src)}\" style=\"width:100%;height:${height}px;border:1px solid var(--pa-border);border-radius:16px;background:#fff\" sandbox=\"allow-forms allow-scripts allow-same-origin\"></iframe></div>`;
+    }
+
+    if (b.type === "hostedBookingApp") {
+      const cssInline = styleToCss((b.props as any)?.style);
+      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${BOOKING_APP_TOKEN}</div>`;
+    }
+
+    if (b.type === "hostedNewsletterArchive") {
+      const cssInline = styleToCss((b.props as any)?.style);
+      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${NEWSLETTER_ARCHIVE_TOKEN}</div>`;
+    }
+
+    if (b.type === "hostedReviewsApp") {
+      const cssInline = styleToCss((b.props as any)?.style);
+      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${REVIEWS_APP_TOKEN}</div>`;
+    }
+
+    if (b.type === "hostedBlogsArchive") {
+      const cssInline = styleToCss((b.props as any)?.style);
+      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${BLOGS_ARCHIVE_TOKEN}</div>`;
+    }
+
+    if (b.type === "hostedBlogPostBody") {
+      const cssInline = styleToCss((b.props as any)?.style);
+      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${BLOG_POST_BODY_TOKEN}</div>`;
     }
 
     if (b.type === "columns") {

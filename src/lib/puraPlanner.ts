@@ -166,6 +166,7 @@ function summarizeActiveThreadEntities(threadContext: unknown): string {
   add("custom domain", ctx.lastCustomDomain);
   add("blog post", ctx.lastBlogPost);
   add("newsletter", ctx.lastNewsletter);
+  add("hosted page document", (ctx as any).lastHostedPageDocument);
   add("media folder", ctx.lastMediaFolder);
   add("media item", ctx.lastMediaItem);
   add("task", ctx.lastTask);

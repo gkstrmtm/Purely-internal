@@ -86,6 +86,22 @@ function toAbsoluteUrl(origin: string | null | undefined, url: string): string {
   }
 }
 
+function extractExplicitAudienceOverride(promptRaw: string): string | null {
+  const prompt = String(promptRaw || "").trim();
+  if (!prompt) return null;
+  const patterns = [
+    /\bfor\s+(.+?)(?:,|\.|\band keep\b|\bkeep\b|\band tell\b|\btell\b|\bdo not\b|\bwithout\b|$)/i,
+    /\bspeaks? directly to\s+(.+?)(?:,|\.|\band\b|$)/i,
+    /\btarget(?:ed)?\s+at\s+(.+?)(?:,|\.|\band\b|$)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = prompt.match(pattern);
+    const value = match?.[1] ? String(match[1]).replace(/\s+/g, " ").trim() : "";
+    if (value && value.length >= 3) return value.slice(0, 140);
+  }
+  return null;
+}
+
 export async function generateHostedPageHtml(opts: {
   ownerId: string;
   documentId: string;
@@ -108,10 +124,13 @@ export async function generateHostedPageHtml(opts: {
     (typeof opts.currentHtml === "string" && opts.currentHtml.trim() ? opts.currentHtml : document.customHtml || "").trim();
   const hasCurrentHtml = Boolean(effectiveCurrentHtml);
   const generatorPrompt = getDefaultHostedPagePrompt(document.service, document);
+  const explicitAudienceOverride = extractExplicitAudienceOverride(prompt);
 
   const system = [
     "You generate a single self-contained HTML document for a hosted business page inside Purely Automation.",
     "If the request is ambiguous or missing key details, ask ONE concise follow-up question instead of guessing.",
+    "If the user explicitly gives a target audience, industry, offer, tone, or style direction, treat that as authoritative and proceed without asking them to reconfirm the same change.",
+    "Do not ask whether the business context should remain the same when the prompt already clearly says what audience or style to write for.",
     "Return EITHER:",
     "- A single ```html fenced block containing the full HTML document, OR",
     '- A single ```json fenced block: { "question": "..." }',
@@ -149,6 +168,9 @@ export async function generateHostedPageHtml(opts: {
     `Document title: ${document.title}`,
     `Document key: ${document.pageKey}`,
     `Current editor mode: ${document.editorMode}`,
+    explicitAudienceOverride
+      ? `EXPLICIT USER OVERRIDE: Target the page toward ${explicitAudienceOverride}. Treat this as the new audience/context for this request and do not ask the user to reconfirm it.`
+      : "",
     hasCurrentHtml ? ["CURRENT_HTML:", "```html", clampText(effectiveCurrentHtml, 24000), "```", ""].join("\n") : "",
     prompt,
     attachmentsBlock,

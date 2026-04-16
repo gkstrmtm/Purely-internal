@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { CSSProperties, ReactNode } from "react";
@@ -364,7 +363,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                   />
                 </svg>
               </span>
-              Verified by Purely
+              Verified reviews
             </div>
 
             <h1 className="mt-4 font-brand text-4xl sm:text-5xl" style={{ color: "var(--client-on-primary)" }}>
@@ -422,8 +421,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
   ) : hasHostedBlocks ? (
     <section style={{ backgroundColor: "var(--client-bg)" }}>
       <div className="mx-auto max-w-6xl px-6 py-14">
-        {renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "" })}
-        <div className="mt-10">{reviewsApp}</div>
+        {renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "", context: { hostedRuntimeBlocks: { reviewsApp } } })}
       </div>
     </section>
   ) : (
@@ -456,13 +454,9 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                 className="grid h-10 w-10 place-items-center rounded-xl border shadow-sm"
                 style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
               >
-                <Image
-                  src="/brand/purelylogo.png"
-                  alt=""
-                  width={22}
-                  height={22}
-                  className="h-5 w-5"
-                />
+                <span className="text-sm font-bold" style={{ color: "var(--client-link)" }}>
+                  {String(businessName || "R").trim().charAt(0).toUpperCase() || "R"}
+                </span>
               </div>
             )}
             <div className="min-w-0">
@@ -485,15 +479,6 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                 blogs
               </Link>
             ) : null}
-            <Link href="/" className="inline-flex items-center gap-3 rounded-xl px-3 py-2" aria-label="Purely Automation">
-              <Image
-                src="/brand/1.png"
-                alt="Purely Automation"
-                width={140}
-                height={44}
-                className="h-7 w-auto"
-              />
-            </Link>
           </div>
         </div>
       </header>
@@ -550,37 +535,6 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
               </div>
             ) : null}
 
-            <div
-              className="mt-14 rounded-3xl border p-8 shadow-sm"
-              style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
-            >
-              <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
-                <div>
-                  <div className="font-brand text-2xl" style={{ color: "var(--client-link)" }}>
-                    want a page like this?
-                  </div>
-                  <p className="mt-2 max-w-2xl text-sm" style={{ color: "var(--client-muted)" }}>
-                    Purely helps businesses collect reviews and publish a clean, verified page customers can trust.
-                  </p>
-                </div>
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <Link
-                    href="/portal/get-started"
-                    className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-base font-extrabold shadow-sm"
-                    style={{ backgroundColor: "var(--client-accent)", color: "var(--client-on-accent)" }}
-                  >
-                    get started
-                  </Link>
-                  <Link
-                    href="/#demo"
-                    className="inline-flex items-center justify-center rounded-2xl border px-6 py-3 text-base font-bold"
-                    style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-link)" }}
-                  >
-                    book a call
-                  </Link>
-                </div>
-              </div>
-            </div>
           </div>
         </section>
       </main>
@@ -600,9 +554,6 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                 blogs
               </Link>
             ) : null}
-            <Link href="/" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
-              purelyautomation.com
-            </Link>
           </div>
         </div>
       </footer>

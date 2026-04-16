@@ -236,8 +236,9 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
           })
         ) : hasHostedBlocks ? (
           <>
-            <div className="mx-auto max-w-6xl px-6 py-10">{renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "" })}</div>
-            {blogArchiveSection}
+            <div className="mx-auto max-w-6xl px-6 py-10">
+              {renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "", context: { hostedRuntimeBlocks: { blogsArchive: blogArchiveSection } } })}
+            </div>
           </>
         ) : (
           <>
@@ -271,20 +272,6 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm" style={{ color: "var(--client-muted)" }}>
             © {new Date().getFullYear()} {brandName}
-            <span className="ml-2" style={{ color: "var(--client-muted)" }}>
-              •
-            </span>
-            <span className="ml-2">
-              Powered by{" "}
-              <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
-                Purely Automation
-              </Link>
-            </span>
-          </div>
-          <div className="flex items-center gap-4">
-            <Link href="/" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
-              purelyautomation.com
-            </Link>
           </div>
         </div>
       </footer>

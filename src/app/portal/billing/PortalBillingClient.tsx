@@ -11,6 +11,7 @@ import { IconCopy } from "@/app/portal/PortalIcons";
 import { formatUsd } from "@/lib/pricing.shared";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { BuyCreditsModal } from "@/app/portal/billing/BuyCreditsModal";
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 
 const STRIPE_PUBLISHABLE_KEY = String(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "").trim();
 const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : null;
@@ -1285,15 +1286,17 @@ export function PortalBillingClient({
       {purchaseModal && !creditsOnly ? (
         <div
           className={[
-            "fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4",
+            "fixed inset-0 z-8000 flex items-start justify-center px-4",
             "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
             "sm:items-center",
+            portalGlassBackdropClass,
           ].join(" ")}
         >
           <div
             className={[
-              "w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl",
+              "w-full max-w-xl rounded-3xl p-6",
               "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto",
+              portalGlassPanelClass,
             ].join(" ")}
           >
             <div className="flex items-start justify-between gap-3">
@@ -1306,7 +1309,10 @@ export function PortalBillingClient({
               <button
                 type="button"
                 onClick={() => setPurchaseModal(null)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-transparent bg-white text-lg font-semibold leading-none text-zinc-700 hover:border-zinc-200 hover:bg-zinc-50 focus-visible:border-zinc-200 focus-visible:outline-none"
+                className={[
+                  "inline-flex h-10 w-10 items-center justify-center rounded-full text-lg font-semibold leading-none text-zinc-700 hover:bg-white/80 focus-visible:outline-none",
+                  portalGlassButtonClass,
+                ].join(" ")}
                 aria-label="Close"
               >
                 ×
@@ -1323,20 +1329,20 @@ export function PortalBillingClient({
 
               return (
                 <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className={["rounded-2xl p-4", portalGlassSectionClass].join(" ")}>
                     <div className="text-xs font-semibold text-zinc-500">Monthly</div>
                     <div className="mt-1 text-lg font-bold text-brand-ink">
                       {typeof monthlyCents === "number" ? formatMoney(monthlyCents, currency) : "N/A"}
                       <span className="text-sm font-semibold text-zinc-500">/mo</span>
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className={["rounded-2xl p-4", portalGlassSectionClass].join(" ")}>
                     <div className="text-xs font-semibold text-zinc-500">Setup fee</div>
                     <div className="mt-1 text-lg font-bold text-brand-ink">
                       {setupCents ? formatMoney(setupCents, currency) : "USD 0.00"}
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className={["rounded-2xl p-4", portalGlassSectionClass].join(" ")}>
                     <div className="text-xs font-semibold text-zinc-500">Usage-based</div>
                     <div className="mt-1 text-lg font-bold text-brand-ink">{usageBased ? "Yes" : "No"}</div>
                   </div>
@@ -1352,7 +1358,10 @@ export function PortalBillingClient({
               <button
                 type="button"
                 onClick={() => setPurchaseModal(null)}
-                className="rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                className={[
+                  "rounded-2xl px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80",
+                  portalGlassButtonClass,
+                ].join(" ")}
               >
                 Not now
               </button>
@@ -2144,7 +2153,7 @@ export function PortalBillingClient({
 
       {cancelModal ? (
         <div
-          className="fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4"
+          className={["fixed inset-0 z-8000 flex items-start justify-center px-4", portalGlassBackdropClass].join(" ")}
           onMouseDown={() => setCancelModal(null)}
           style={{
             paddingTop: "calc(var(--pa-modal-safe-top, 0px) + 16px)",
@@ -2152,7 +2161,7 @@ export function PortalBillingClient({
           }}
         >
           <div className="mx-auto w-full max-w-xl" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className={["max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl p-5", portalGlassPanelClass].join(" ")}>
               <div className="text-sm font-semibold text-zinc-900">
                 Cancel {cancelModal.title}
               </div>
@@ -2172,7 +2181,7 @@ export function PortalBillingClient({
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                      className={["rounded-2xl px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80", portalGlassButtonClass].join(" ")}
                       onClick={() => setCancelModal(null)}
                     >
                       Keep it
@@ -2196,7 +2205,7 @@ export function PortalBillingClient({
                     <input
                       value={cancelModal.typed}
                       onChange={(e) => setCancelModal({ ...cancelModal, typed: e.target.value })}
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                      className="w-full rounded-2xl border border-white/35 bg-white/55 px-3 py-2 text-sm outline-none focus:border-white/60"
                       placeholder="Type CANCEL"
                     />
                   </div>
@@ -2213,7 +2222,7 @@ export function PortalBillingClient({
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                      className={["rounded-2xl px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80", portalGlassButtonClass].join(" ")}
                       onClick={() => setCancelModal(null)}
                     >
                       Go back
@@ -2240,7 +2249,7 @@ export function PortalBillingClient({
 
       {creditsOnlyCancelModal ? (
         <div
-          className="fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4"
+          className={["fixed inset-0 z-8000 flex items-start justify-center px-4", portalGlassBackdropClass].join(" ")}
           onMouseDown={() => setCreditsOnlyCancelModal(null)}
           style={{
             paddingTop: "calc(var(--pa-modal-safe-top, 0px) + 16px)",
@@ -2248,7 +2257,7 @@ export function PortalBillingClient({
           }}
         >
           <div className="mx-auto w-full max-w-xl" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className={["max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl p-5", portalGlassPanelClass].join(" ")}>
               <div className="text-sm font-semibold text-zinc-900">Cancel credits-only billing</div>
               <div className="mt-1 text-sm text-zinc-600">
                 This immediately disables all portal services and prevents any credit-charging actions.
@@ -2262,7 +2271,7 @@ export function PortalBillingClient({
                 <input
                   value={creditsOnlyCancelModal.typed}
                   onChange={(e) => setCreditsOnlyCancelModal({ ...creditsOnlyCancelModal, typed: e.target.value })}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
+                  className="w-full rounded-2xl border border-white/35 bg-white/55 px-3 py-2 text-sm outline-none focus:border-white/60"
                   placeholder="Type CANCEL"
                 />
               </div>
@@ -2279,7 +2288,7 @@ export function PortalBillingClient({
               <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button
                   type="button"
-                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                  className={["rounded-2xl px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80", portalGlassButtonClass].join(" ")}
                   onClick={() => setCreditsOnlyCancelModal(null)}
                 >
                   Go back

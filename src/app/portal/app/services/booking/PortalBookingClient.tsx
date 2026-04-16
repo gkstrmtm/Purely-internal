@@ -39,7 +39,7 @@ import { useToast } from "@/components/ToastProvider";
 import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderTemplates";
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
-import { IconEyeGlyph, IconGlobeGlyph } from "@/app/portal/PortalIcons";
+import { IconEdit, IconEyeGlyph, IconGlobeGlyph } from "@/app/portal/PortalIcons";
 
 type BookingFormConfig = {
   version: 1;
@@ -1030,11 +1030,11 @@ export function PortalBookingClient() {
                 </span>
               </a>
               <a
-                href={`${appBase}/services/booking/page-editor`}
-                className={`block ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
+                href={selectedCalendarId ? `${appBase}/services/booking/page-editor?calendarId=${encodeURIComponent(selectedCalendarId)}` : `${appBase}/services/booking/page-editor`}
+                className="inline-flex items-center gap-2 rounded-2xl bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-900"
               >
                 <span className="flex items-center gap-2">
-                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconEyeGlyph size={18} /></span>
+                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconEdit size={18} /></span>
                   <span>Edit page</span>
                 </span>
               </a>
@@ -1043,7 +1043,7 @@ export function PortalBookingClient() {
         ) : null}
       </div>
     );
-  }, [appBase, liveBookingUrl, previewBookingUrl, topTab]);
+  }, [appBase, liveBookingUrl, previewBookingUrl, selectedCalendarId, topTab]);
 
   useEffect(() => {
     setSidebarOverride({

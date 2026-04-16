@@ -319,10 +319,10 @@ export function PortalBlogsClient({
             </a>
             <a
               href={`${currentAppBase(pathname)}/services/blogs/page-editor`}
-              className={`block ${portalSidebarButtonBaseClass} ${portalSidebarButtonInactiveClass}`}
+              className="inline-flex items-center gap-2 rounded-2xl bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-900"
             >
               <span className="flex items-center gap-2">
-                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconEyeGlyph size={18} /></span>
+                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconEdit size={18} /></span>
                 <span>Edit page</span>
               </span>
             </a>

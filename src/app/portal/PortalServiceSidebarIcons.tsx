@@ -51,8 +51,8 @@ export const portalSidebarBorderButtonActiveClass = portalSidebarButtonActiveCla
 
 export function portalSidebarIconChipClass(active: boolean) {
   return classNames(
-    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-all duration-100",
-    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100 group-hover:scale-105",
+    "pa-sidebar-icon-chip pa-sidebar-icon-chip--interactive inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-colors duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
+    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100",
   );
 }
 

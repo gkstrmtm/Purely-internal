@@ -84,7 +84,7 @@ import {
   updateHostedPageDocument,
 } from "@/lib/hostedPageDocuments";
 import { generateHostedPageHtml } from "@/lib/hostedPageGeneration";
-import { formatAssistantMarkdownLink, normalizeAssistantLinkUrl } from "@/lib/portalAssistantLinks";
+import { absolutizeAssistantTextLinks, formatAssistantMarkdownLink, normalizeAssistantLinkUrl } from "@/lib/portalAssistantLinks";
 import {
   getAppointmentReminderSettingsForCalendar,
   listAppointmentReminderEvents,
@@ -2335,7 +2335,7 @@ async function generateAssistantTextForActionResult(opts: {
 }): Promise<string> {
   const assistantLinkUrl = normalizeAssistantLinkUrl(opts.linkUrl ?? null);
   const deterministic = renderDeterministicAssistantTextForActionResult({ ...opts, linkUrl: assistantLinkUrl });
-  if (deterministic) return deterministic;
+  if (deterministic) return absolutizeAssistantTextLinks(deterministic);
 
   try {
     const system = [
@@ -2350,6 +2350,7 @@ async function generateAssistantTextForActionResult(opts: {
       "- If the action partially succeeded or needs follow-up, say that plainly.",
       "- Do not mention internal IDs unless the user must paste one.",
       "- If a linkUrl is provided, include ONE markdown link CTA.",
+      "- Never output bare relative paths like /portal/app/... . If you mention a URL, always write the full https://purelyautomation.com/... absolute URL.",
       "- Do not say 'all set' or similar unless the result clearly shows success.",
       "- No JSON output.",
     ].join("\n");
@@ -2366,7 +2367,7 @@ async function generateAssistantTextForActionResult(opts: {
 
     const user = `Action execution result (JSON):\n${safeJsonForPrompt(payload)}`;
     const out = String(await generateText({ system, user })).trim();
-    return out ? out.slice(0, 12000) : "";
+    return out ? absolutizeAssistantTextLinks(out.slice(0, 12000)) : "";
   } catch {
     return "";
   }
@@ -2493,6 +2494,25 @@ function summarizeHostedPageEditableSurface(document: any): string[] {
   }
 }
 
+function humanizeHostedPageKey(pageKeyRaw: unknown): string {
+  const pageKey = String(pageKeyRaw || "").trim().toLowerCase();
+  if (!pageKey) return "";
+  const parts = pageKey
+    .split(/[_-]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`);
+  return parts.join(" ");
+}
+
+function hostedPageDocumentLabel(document: any): string {
+  const rawTitle = String(document?.title || "").trim();
+  const fallback = humanizeHostedPageKey(document?.pageKey) || "Hosted page";
+  const title = rawTitle && !/^[a-z0-9_-]+$/i.test(rawTitle) ? rawTitle : fallback;
+  if (/\b(page|template)\b/i.test(title)) return title;
+  return `${title} page`;
+}
+
 function decodeHostedPageSummaryEntities(value: string): string {
   return value
     .replace(/&nbsp;/gi, " ")
@@ -2530,11 +2550,13 @@ function extractHostedPageCallToActionLabels(html: string, limit = 3): string[] 
   const regex = /<(a|button)\b[^>]*>([\s\S]*?)<\/(a|button)>/gi;
   const out: string[] = [];
   const seen = new Set<string>();
+  const ctaPattern = /\b(book|schedule|start|get|join|sign up|signup|subscribe|contact|learn more|read|view|download|call|claim|request|send)\b/i;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(html)) && out.length < limit) {
     const text = normalizeHostedPageSummaryText(match[2] || "", 60);
     if (!text || seen.has(text)) continue;
-    if (!/(book|schedule|start|get|join|sign up|signup|subscribe|contact|learn more|read|view|download|call|claim|request|send)/i.test(text)) continue;
+    if (!ctaPattern.test(text)) continue;
+    if (/^(facebook|instagram|linkedin|youtube|x|twitter)$/i.test(text)) continue;
     seen.add(text);
     out.push(text);
   }
@@ -2542,51 +2564,48 @@ function extractHostedPageCallToActionLabels(html: string, limit = 3): string[] 
 }
 
 function summarizeGeneratedHostedPageHtml(htmlRaw: string): string[] {
+  const cleanSummaryValue = (value: string | null | undefined) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const cleaned = raw.replace(/\{\{[A-Z0-9_]+\}\}/g, "").replace(/\s+/g, " ").trim();
+    if (!cleaned) return "";
+    if (/^(newsletter|reviews|review|booking|blog|blogs)$/i.test(cleaned)) return "";
+    if (/\b(for|with|to|of|on|at|from|about|into|over|after|before|the|a|an|your|my|our)$/i.test(cleaned)) return "";
+    if (cleaned.length < 5) return "";
+    return cleaned;
+  };
+
   const html = String(htmlRaw || "").trim();
   if (!html) return [];
 
   const lines: string[] = [];
   const sectionCount = (html.match(/<section\b/gi) || []).length;
   const formCount = (html.match(/<form\b/gi) || []).length;
-  const headline = extractHostedPageHtmlTexts(html, "h1", 1)[0] || "";
+  const headline = cleanSummaryValue(extractHostedPageHtmlTexts(html, "h1", 1)[0] || "");
   const secondaryHeadings = [...extractHostedPageHtmlTexts(html, "h2", 3), ...extractHostedPageHtmlTexts(html, "h3", 2)]
+    .map((value) => cleanSummaryValue(value))
+    .filter(Boolean)
     .filter((value, index, arr) => arr.indexOf(value) === index)
     .slice(0, 3);
-  const ctaLabels = extractHostedPageCallToActionLabels(html, 3);
-  const runtimeTokens = Array.from(new Set((html.match(/\{\{[A-Z0-9_]+\}\}/g) || []).map((value) => String(value).trim()))).slice(0, 4);
+  const ctaLabels = extractHostedPageCallToActionLabels(html, 3).map((value) => cleanSummaryValue(value)).filter(Boolean);
 
   const structureBits: string[] = [];
   if (sectionCount > 0) structureBits.push(`${sectionCount} sections`);
   if (ctaLabels.length > 0) structureBits.push(`${ctaLabels.length} primary CTA${ctaLabels.length === 1 ? "" : "s"}`);
   if (formCount > 0) structureBits.push(`${formCount} form${formCount === 1 ? "" : "s"}`);
-  if (structureBits.length) lines.push(`Detected structure: ${structureBits.join(", ")}`);
-  if (headline) lines.push(`Main headline: ${headline}`);
-  if (secondaryHeadings.length) lines.push(`Key sections: ${secondaryHeadings.join(" · ")}`);
-  if (ctaLabels.length) lines.push(`Primary calls to action: ${ctaLabels.join(", ")}`);
-  if (runtimeTokens.length) lines.push(`Live runtime tokens kept in place: ${runtimeTokens.join(", ")}`);
+  if (headline) lines.push(`Headline: ${headline}`);
+  if (secondaryHeadings.length) lines.push(`Sections: ${secondaryHeadings.join(", ")}`);
+  if (ctaLabels.length) lines.push(`Main CTA${ctaLabels.length === 1 ? "" : "s"}: ${ctaLabels.join(", ")}`);
+  if (!lines.length && structureBits.length) lines.push(`Updated structure: ${structureBits.join(", ")}.`);
 
-  const designSignals: string[] = [];
-  if (/linear-gradient|gradient/gi.test(html)) designSignals.push("gradient styling");
-  if (/box-shadow|shadow\s*:/gi.test(html)) designSignals.push("elevated card surfaces");
-  if (/grid-template-columns|minmax\(|display\s*:\s*grid/gi.test(html)) designSignals.push("responsive grid layout");
-  if (/testimonial|what clients say|what customers say|★★★★★|stars?/gi.test(html)) designSignals.push("social proof section");
-  if (/faq|frequently asked/gi.test(html)) designSignals.push("FAQ block");
-  if (/\{\{BOOKING_APP\}\}/.test(html)) designSignals.push("live booking embed");
-  if (/\{\{NEWSLETTER_ARCHIVE\}\}/.test(html)) designSignals.push("newsletter archive embed");
-  if (/\{\{REVIEWS_APP\}\}/.test(html)) designSignals.push("live reviews embed");
-  if (/\{\{BLOGS_ARCHIVE\}\}/.test(html)) designSignals.push("blog archive embed");
-  if (/\{\{BLOG_POST_BODY\}\}/.test(html)) designSignals.push("blog post body slot");
-  if (designSignals.length) lines.push(`Design signals: ${Array.from(new Set(designSignals)).slice(0, 4).join(", ")}`);
-
-  return lines.slice(0, 5);
+  return lines.slice(0, 3);
 }
 
 function renderHostedPageDocumentBullet(document: any, extra: string[] = []): string {
-  const title = String(document?.title || document?.pageKey || "Hosted page").trim() || "Hosted page";
-  const pageKey = String(document?.pageKey || "").trim();
-  const status = String(document?.status || "DRAFT").trim().toUpperCase() || "DRAFT";
+  const title = hostedPageDocumentLabel(document);
+  const status = String(document?.status || "DRAFT").trim().toLowerCase() || "draft";
   const mode = hostedPageModeDisplay(document?.editorMode);
-  const lines = [`- ${title}${pageKey ? ` (${pageKey})` : ""} — ${status}, ${mode}`];
+  const lines = [`- ${title}, ${status}, ${mode}`];
   for (const value of extra.filter(Boolean)) lines.push(`  - ${value}`);
   return lines.join("\n");
 }
@@ -2628,12 +2647,10 @@ function renderDeterministicHostedPageAssistantText(opts: {
     const multi = Array.isArray((result as any).documents) ? ((result as any).documents as any[]) : [];
 
     if (document && previewData) {
-      const tokens = Array.isArray(previewData.runtimeTokens) ? previewData.runtimeTokens.filter((value: unknown) => typeof value === "string" && String(value).trim()) : [];
       const liveDataLines = summarizeHostedPageLiveData(previewData);
       return [
-        `Here’s the hosted page preview for ${hostedPageServiceDisplay(document.service)}:`,
+        `Here’s what is live for the ${hostedPageServiceDisplay(document.service)} hosted page right now:`,
         renderHostedPageDocumentBullet(document, [
-          tokens.length ? `Runtime tokens: ${tokens.join(", ")}` : "",
           ...liveDataLines,
           ...summarizeHostedPageEditableSurface(document),
         ]),
@@ -2649,9 +2666,7 @@ function renderDeterministicHostedPageAssistantText(opts: {
           const entryDocument = entry?.document && typeof entry.document === "object" ? entry.document : null;
           const entryPreview = entry?.previewData && typeof entry.previewData === "object" ? entry.previewData : null;
           if (!entryDocument || !entryPreview) return "";
-          const tokens = Array.isArray(entryPreview.runtimeTokens) ? entryPreview.runtimeTokens.filter((value: unknown) => typeof value === "string" && String(value).trim()) : [];
           return renderHostedPageDocumentBullet(entryDocument, [
-            tokens.length ? `Runtime tokens: ${tokens.join(", ")}` : "",
             ...summarizeHostedPageLiveData(entryPreview),
             ...summarizeHostedPageEditableSurface(entryDocument),
           ]);
@@ -2676,8 +2691,8 @@ function renderDeterministicHostedPageAssistantText(opts: {
     if (typeof (opts.args as any).slug === "string") changed.push(`Slug: ${String((opts.args as any).slug).trim() || "cleared"}`);
     if (typeof (opts.args as any).status === "string" && String((opts.args as any).status).trim()) changed.push(`Status: ${String((opts.args as any).status).trim().toUpperCase()}`);
     if (typeof (opts.args as any).editorMode === "string" && String((opts.args as any).editorMode).trim()) changed.push(`Editor mode: ${hostedPageModeDisplay((opts.args as any).editorMode)}`);
-    if (typeof (opts.args as any).customHtml === "string") changed.push(`Custom HTML length: ${String((opts.args as any).customHtml).length} characters`);
-    if (Array.isArray((opts.args as any).blocksJson)) changed.push(`Blocks: ${((opts.args as any).blocksJson as unknown[]).length}`);
+    if (typeof (opts.args as any).customHtml === "string") changed.push("Custom HTML updated");
+    if (Array.isArray((opts.args as any).blocksJson)) changed.push(`Blocks updated: ${((opts.args as any).blocksJson as unknown[]).length}`);
     return [
       `I updated the hosted page for ${hostedPageServiceDisplay(document.service)}.`,
       renderHostedPageDocumentBullet(document, changed.length ? changed : ["The requested document fields were updated."]),
@@ -2720,21 +2735,21 @@ function renderDeterministicHostedPageAssistantText(opts: {
     const promptSummary = prompt.length > 160 ? `${prompt.slice(0, 157).trim()}...` : prompt;
     if (question) {
       return [
-        `I need one more detail before I generate the hosted page for ${hostedPageServiceDisplay(document.service)}.`,
+        `I need one more detail before I rewrite the ${hostedPageServiceDisplay(document.service)} hosted page.`,
         question,
-        renderHostedPageDocumentBullet(document, [promptSummary ? `Requested direction: ${promptSummary}` : ""]),
+        renderHostedPageDocumentBullet(document, [promptSummary ? `Requested update: ${promptSummary}` : ""]),
         assistantLink("Open Hosted Page Editor", opts.linkUrl, "\n\n"),
       ]
         .filter(Boolean)
         .join("\n\n");
     }
     return [
-      `I generated fresh hosted HTML for ${hostedPageServiceDisplay(document.service)}.`,
+      `I refreshed the ${hostedPageServiceDisplay(document.service)} hosted page.`,
+      promptSummary ? `Focused the update on: ${promptSummary}` : "",
       renderHostedPageDocumentBullet(document, [
-        promptSummary ? `Applied direction: ${promptSummary}` : "",
         ...summarizeGeneratedHostedPageHtml(html),
-        `Custom HTML length: ${html.length} characters`,
       ]),
+      "If you want, I can keep refining the headline, layout, offer, or main CTA next.",
       assistantLink("Open Hosted Page Editor", opts.linkUrl, "\n\n"),
     ]
       .filter(Boolean)
@@ -30328,6 +30343,29 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
           lastFunnelPage: { id: pageId, label, funnelId },
           ...(activeFunnelPage ? { activeFunnelPage } : {}),
           ...(bookingCalendarId ? { lastBookingCalendar: { id: bookingCalendarId, label: "Booking calendar" } } : {}),
+        };
+      }
+    }
+
+    if (
+      action === "hosted_pages.documents.get" ||
+      action === "hosted_pages.documents.update" ||
+      action === "hosted_pages.documents.generate_html" ||
+      action === "hosted_pages.documents.publish" ||
+      action === "hosted_pages.documents.reset_to_default" ||
+      action === "hosted_pages.documents.preview_data"
+    ) {
+      const document = (json as any).document && typeof (json as any).document === "object" ? (json as any).document : null;
+      const service = String(document?.service || (args as any)?.service || "").trim().toUpperCase();
+      const pageKey = cleanId(document?.pageKey || (args as any)?.pageKey || "");
+      const label = String(document?.title || pageKey || `${service || "Hosted"} page`).trim().slice(0, 120);
+      if (service && ["BOOKING", "NEWSLETTER", "REVIEWS", "BLOGS"].includes(service)) {
+        return {
+          lastHostedPageDocument: {
+            service: service as "BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS",
+            pageKey: pageKey || null,
+            label: label || `${service} page`,
+          },
         };
       }
     }

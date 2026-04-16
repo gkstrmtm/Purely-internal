@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
 import { IconEdit, IconFunnel, IconSearch } from "@/app/portal/PortalIcons";
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { SignatureDisplay } from "@/components/SignatureDisplay";
 import { SignaturePad } from "@/components/SignaturePad";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
@@ -2585,9 +2586,10 @@ export function PortalPeopleContactsClient() {
       {importOpen ? (
         <div
           className={classNames(
-            "fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4",
+            "fixed inset-0 z-8000 flex items-start justify-center px-4",
             "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
             "sm:items-center",
+            portalGlassBackdropClass,
           )}
         >
           <div
@@ -2596,8 +2598,9 @@ export function PortalPeopleContactsClient() {
             aria-label="Add contacts"
             data-overlay-root="true"
             className={classNames(
-              "w-full max-w-3xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl",
+              "w-full max-w-3xl rounded-3xl p-5",
               "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto",
+              portalGlassPanelClass,
             )}
           >
             <div className="flex items-start justify-between gap-3">
@@ -2614,7 +2617,10 @@ export function PortalPeopleContactsClient() {
                 type="button"
                 onClick={() => setImportOpen(false)}
                 aria-label="Close add contacts"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg font-semibold text-zinc-800 hover:bg-zinc-50"
+                className={classNames(
+                  "inline-flex h-10 w-10 items-center justify-center rounded-full text-lg font-semibold text-zinc-800 hover:bg-white/80",
+                  portalGlassButtonClass,
+                )}
               >
                 ×
               </button>
@@ -2644,7 +2650,7 @@ export function PortalPeopleContactsClient() {
             </div>
 
             {addMode === "manual" ? (
-              <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
+              <div className={classNames("mt-4 rounded-3xl p-4", portalGlassSectionClass)}>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <label className="block">
                     <div className="text-xs font-semibold text-zinc-700">Name</div>
@@ -2761,14 +2767,14 @@ export function PortalPeopleContactsClient() {
                           <div className="mb-2 flex flex-wrap items-center gap-2">
                             <button
                               type="button"
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              className={classNames("rounded-xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
                               onClick={() => manualSignatureFileInputRef.current?.click()}
                             >
                               Upload image
                             </button>
                             <button
                               type="button"
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              className={classNames("rounded-xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
                               onClick={() => setManualSignature("")}
                             >
                               Clear
@@ -2838,7 +2844,7 @@ export function PortalPeopleContactsClient() {
                     </div>
 
                     {manualCreateTagOpen ? (
-                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className={classNames("mt-3 rounded-2xl p-3", portalGlassSectionClass)}>
                         <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                           <input
@@ -2870,7 +2876,7 @@ export function PortalPeopleContactsClient() {
                         <div className="mt-2 flex items-center justify-between gap-3">
                           <button
                             type="button"
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                            className={classNames("rounded-xl px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}
                             onClick={() => {
                               setManualCreateTagOpen(false);
                               setManualCreateTagName("");

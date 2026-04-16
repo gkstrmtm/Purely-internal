@@ -95,10 +95,10 @@ export function HostedBlogArchiveSection({
 
             <div className="mt-6 rounded-2xl p-5" style={{ backgroundColor: "var(--client-soft)" }}>
               <div className="text-sm font-bold" style={{ color: "var(--client-text)" }}>
-                want a blog like this?
+                what you will find here
               </div>
               <p className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
-                This blog is hosted and managed by Purely Automation.
+                New posts, practical updates, and useful ideas from {brandName}.
               </p>
             </div>
           </div>

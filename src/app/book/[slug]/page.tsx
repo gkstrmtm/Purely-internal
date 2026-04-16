@@ -67,8 +67,9 @@ export default async function PublicBookingPage({
   if (hasHostedBlocks) {
     return (
       <div className="min-h-screen bg-[#f8fafc]">
-        <div className="mx-auto max-w-6xl px-6 py-10">{renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "" })}</div>
-        {bookingApp}
+        <div className="mx-auto max-w-6xl px-6 py-10">
+          {renderCreditFunnelBlocks({ blocks: hostedBlocks, basePath: "", context: { hostedRuntimeBlocks: { bookingApp } } })}
+        </div>
       </div>
     );
   }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { portalGlassButtonClass, portalGlassPanelClass } from "@/components/portalGlass";
 import { BASE_POPUP_Z_INDEX, popupZIndexForAnchor } from "@/components/popupLayering";
 
 export type PortalMultiSelectOption = {
@@ -130,7 +131,7 @@ export function PortalMultiSelectDropdown(props: {
     const menu = (
       <div
         ref={menuRef}
-        className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
+        className={classNames("overflow-hidden rounded-2xl", portalGlassPanelClass)}
         style={{
           position: portal ? "fixed" : ("absolute" as any),
           zIndex: menuZIndex,
@@ -143,12 +144,12 @@ export function PortalMultiSelectDropdown(props: {
           e.stopPropagation();
         }}
       >
-        <div className="border-b border-zinc-100 p-2">
+        <div className="border-b border-white/30 p-2">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder={placeholder || "Search…"}
-            className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
+            className="h-9 w-full rounded-xl border border-white/35 bg-white/55 px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -160,7 +161,10 @@ export function PortalMultiSelectDropdown(props: {
           {showAddCustom ? (
             <button
               type="button"
-              className="mt-2 w-full rounded-xl bg-(--color-brand-blue) px-3 py-2 text-left text-sm font-semibold text-white hover:opacity-95"
+              className={classNames(
+                "mt-2 w-full rounded-xl bg-(--color-brand-blue) px-3 py-2 text-left text-sm font-semibold text-white hover:opacity-95",
+                portalGlassButtonClass,
+              )}
               onClick={() => addCustom()}
             >
               Add “{normalizeValue(q)}”
@@ -265,7 +269,8 @@ export function PortalMultiSelectDropdown(props: {
         type="button"
         disabled={disabled}
         className={classNames(
-          "flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50",
+          "flex w-full items-center justify-between gap-2 rounded-2xl border border-white/35 bg-white/70 px-3 py-2 text-sm text-zinc-900 hover:bg-white/80",
+          !disabled && portalGlassButtonClass,
           disabled && "cursor-not-allowed opacity-60",
         )}
         onClick={() => {
@@ -298,7 +303,7 @@ export function PortalMultiSelectDropdown(props: {
             return (
               <span
                 key={v}
-                className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-700"
+                className="inline-flex items-center gap-1 rounded-full border border-white/35 bg-white/65 px-2 py-1 text-xs text-zinc-700 backdrop-blur-xl"
               >
                 <span className="max-w-60 truncate font-semibold">{label}</span>
                 <button

@@ -3,6 +3,7 @@
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 
 export type PortalMediaPickItem = {
@@ -114,7 +115,7 @@ export function PortalMediaPickerModal({
     return (
       <div className="fixed inset-0" style={{ zIndex: baseZ }} aria-hidden>
         <div
-          className="absolute inset-0 bg-black/30"
+          className={classNames("absolute inset-0", portalGlassBackdropClass)}
           onMouseDown={onClose}
           onTouchStart={onClose}
         />
@@ -131,13 +132,14 @@ export function PortalMediaPickerModal({
         >
           <div
             className={classNames(
-              "flex w-[min(720px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl",
+              "flex w-[min(720px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl",
               "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-var(--pa-portal-embed-footer-offset,0px)-2rem)]",
+              portalGlassPanelClass,
             )}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
           >
-            <div className="shrink-0 border-b border-zinc-100 p-5">
+            <div className="shrink-0 border-b border-white/30 p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-zinc-900">{title || "Media library"}</div>
@@ -150,9 +152,9 @@ export function PortalMediaPickerModal({
                   type="button"
                   className={classNames(
                     "inline-flex h-10 w-10 items-center justify-center rounded-2xl",
-                    "border border-transparent bg-white text-zinc-500",
-                    "hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700",
+                    "text-zinc-500 hover:bg-white/80 hover:text-zinc-700",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300",
+                    portalGlassButtonClass,
                   )}
                   onClick={onClose}
                   aria-label="Close"
@@ -168,7 +170,7 @@ export function PortalMediaPickerModal({
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Search by filename or tag…"
-                className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
+                className="h-10 w-full rounded-2xl border border-white/35 bg-white/55 px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
               />
 
               {error ? (
@@ -184,7 +186,7 @@ export function PortalMediaPickerModal({
                       const isImg = it.mimeType.startsWith("image/");
                       const isVideo = it.mimeType.startsWith("video/");
                       return (
-                        <div key={it.id} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                        <div key={it.id} className={classNames("flex items-center justify-between gap-3 rounded-2xl p-3", portalGlassSectionClass)}>
                           <div className="flex min-w-0 items-center gap-3">
                             {isImg && it.previewUrl ? (
                               /* eslint-disable-next-line @next/next/no-img-element */
@@ -231,7 +233,7 @@ export function PortalMediaPickerModal({
                     })}
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
+                  <div className="rounded-2xl border border-dashed border-white/35 bg-white/40 p-6 text-sm text-zinc-600 backdrop-blur-xl">
                     No files found.
                   </div>
                 )}

@@ -32,7 +32,7 @@ export function PortalThemeClient({
   children: ReactNode;
 }) {
   const [activeMode, setActiveMode] = useState<PortalThemeMode>(preferredMode);
-  const [deviceTheme, setDeviceTheme] = useState<"light" | "dark">(() => resolveTheme("device"));
+  const [deviceTheme, setDeviceTheme] = useState<"light" | "dark">("light");
   const [transitionsReady, setTransitionsReady] = useState(false);
   const effectiveMode = activeMode;
   const resolvedTheme = effectiveMode === "device" ? deviceTheme : effectiveMode;

@@ -19,17 +19,21 @@ export async function GET() {
   const ownerId = auth.session.user.id;
   const portalVariant = (auth.session.user as any).portalVariant;
 
-  const result = await getPortalServiceStatusesForOwner({
-    ownerId,
-    fallbackEmail: auth.session.user.email,
-    portalVariant,
-  });
+  try {
+    const result = await getPortalServiceStatusesForOwner({
+      ownerId,
+      fallbackEmail: auth.session.user.email,
+      portalVariant,
+    });
 
-  return NextResponse.json({
-    ok: true,
-    ownerId: result.ownerId,
-    billingModel: result.billingModel,
-    entitlements: result.entitlements,
-    statuses: result.statuses,
-  });
+    return NextResponse.json({
+      ok: true,
+      ownerId: result.ownerId,
+      billingModel: result.billingModel,
+      entitlements: result.entitlements,
+      statuses: result.statuses,
+    });
+  } catch {
+    return NextResponse.json({ ok: false, error: "Temporarily unavailable", statuses: null }, { status: 200 });
+  }
 }

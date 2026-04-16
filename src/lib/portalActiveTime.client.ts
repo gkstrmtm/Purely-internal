@@ -7,6 +7,7 @@ type Options = {
   heartbeatMs?: number;
   idleThresholdMs?: number;
   maxDtSec?: number;
+  enabled?: boolean;
 };
 
 function clampInt(n: unknown, min: number, max: number): number {
@@ -45,12 +46,14 @@ export function usePortalActiveTimeTracker(opts?: Options) {
   const heartbeatMs = clampInt(opts?.heartbeatMs, 5000, 60000);
   const idleThresholdMs = clampInt(opts?.idleThresholdMs, 5000, 5 * 60 * 1000);
   const maxDtSec = clampInt(opts?.maxDtSec, 1, 60);
+  const enabled = opts?.enabled !== false;
 
   const lastActivityAtRef = useRef<number>(0);
   const lastFlushAtRef = useRef<number>(0);
   const mountedRef = useRef(false);
 
   useEffect(() => {
+    if (!enabled) return;
     mountedRef.current = true;
     const start = Date.now();
     lastActivityAtRef.current = start;
@@ -121,5 +124,5 @@ export function usePortalActiveTimeTracker(opts?: Options) {
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("pagehide", onPageHide);
     };
-  }, [endpoint, heartbeatMs, idleThresholdMs, maxDtSec]);
+  }, [enabled, endpoint, heartbeatMs, idleThresholdMs, maxDtSec]);
 }
