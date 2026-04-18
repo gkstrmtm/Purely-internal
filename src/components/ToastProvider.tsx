@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useMemo, useRef, useStat
 
 import { AppModal } from "@/components/AppModal";
 import { IconCopy } from "@/app/portal/PortalIcons";
+import { portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 
 type ToastKind = "error" | "success" | "info";
 
@@ -80,7 +81,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              className={classNames("inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(String(errorDetailsMessage || ""));
@@ -98,12 +99,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
               onClick={() => setErrorDetailsOpen(false)}
             >
-              Close
+              ×
             </button>
           </div>
         }
       >
-        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+        <div className={classNames("rounded-2xl p-4", portalGlassSectionClass)}>
           <pre className="whitespace-pre-wrap wrap-break-word text-xs text-zinc-800">{String(errorDetailsMessage || "")}</pre>
         </div>
       </AppModal>
@@ -114,12 +115,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             <div
               key={t.id}
               className={classNames(
-                "pa-portal-toast pointer-events-auto rounded-2xl border px-4 py-3 text-sm shadow-lg backdrop-blur",
+                "pa-portal-toast pointer-events-auto rounded-2xl px-4 py-3 text-sm",
+                portalGlassPanelClass,
                 t.kind === "error"
-                  ? "pa-portal-toast--error border-rose-200 bg-rose-50/95 text-rose-900"
+                  ? "pa-portal-toast--error bg-rose-50/90 text-rose-900"
                   : t.kind === "success"
-                    ? "pa-portal-toast--success border-emerald-200 bg-emerald-50/95 text-emerald-900"
-                    : "pa-portal-toast--info border-zinc-200 bg-white/95 text-zinc-900",
+                    ? "pa-portal-toast--success bg-emerald-50/90 text-emerald-900"
+                    : "pa-portal-toast--info bg-white/90 text-zinc-900",
               )}
               role="status"
               aria-live="polite"

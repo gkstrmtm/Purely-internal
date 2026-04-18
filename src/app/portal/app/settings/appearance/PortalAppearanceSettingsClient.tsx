@@ -80,6 +80,11 @@ export function PortalAppearanceSettingsClient() {
   const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const voicePreviewUrlRef = useRef<string | null>(null);
   const themeRequestIdRef = useRef(0);
+  const toastRef = useRef(toast);
+
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   const themeOptions = useMemo(
     () => [
@@ -122,7 +127,7 @@ export function PortalAppearanceSettingsClient() {
     const res = await fetch("/api/portal/profile", { cache: "no-store" }).catch(() => null as any);
     const json = (res ? ((await res.json().catch(() => null)) as ProfileResponse | null) : null) ?? null;
     if (!res?.ok || !json?.user) {
-      toast.error(json?.error || "Unable to load appearance settings");
+      toastRef.current.error(json?.error || "Unable to load appearance settings");
       setLoading(false);
       return;
     }
@@ -142,7 +147,7 @@ export function PortalAppearanceSettingsClient() {
     setSavedHideFloatingTools(nextHideFloatingTools);
     syncFloatingToolsPreference(nextHideFloatingTools);
     setLoading(false);
-  }, [normalizeDefaultLoginPathValue, syncFloatingToolsPreference, toast]);
+  }, [normalizeDefaultLoginPathValue, syncFloatingToolsPreference]);
 
   const loadVoiceLibrary = useCallback(async () => {
     if (!voiceAgentApiKeyConfigured) return;
@@ -384,7 +389,7 @@ export function PortalAppearanceSettingsClient() {
             <PortalListboxDropdown<string>
               value={selectedVoiceId}
               onChange={(voiceId) => setSelectedVoiceId(String(voiceId || "").trim())}
-              disabled={loading || voiceLibraryLoading}
+              disabled={loading}
               placeholder={voiceLibraryLoading ? "Loading voices…" : "Use service default"}
               options={[
                 { value: "", label: "Use service default", hint: "" },
@@ -438,7 +443,6 @@ export function PortalAppearanceSettingsClient() {
                 );
               }}
               className="mt-2 z-50"
-              buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
             />
             <div className="mt-2 text-xs text-zinc-500">
               {selectedVoiceMeta

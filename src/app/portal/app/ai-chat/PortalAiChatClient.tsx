@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -284,6 +284,8 @@ type RunLedgerEntry = {
   workTitle?: string | null;
   canvasUrl?: string | null;
   summaryText?: string | null;
+  aiSummaryText?: string | null;
+  aiSummaryGeneratedAt?: string | null;
   assistantMessageId?: string | null;
   scheduledMessageId?: string | null;
   createdAt: string;
@@ -356,6 +358,11 @@ type ComposerScheduleSuggestion = {
   match: ComposerPhraseMatch | null;
 };
 
+type ComposerConnectedHighlight = {
+  service: PortalService;
+  match: ComposerPhraseMatch;
+};
+
 type DictationPlaybackState = {
   messageId: string;
   audios: HTMLAudioElement[];
@@ -388,9 +395,7 @@ function createEmptyThreadDraftState(): ThreadDraftState {
   };
 }
 
-const PORTAL_CONTEXT_SERVICES = PORTAL_SERVICES.filter(
-  (service) => !service.hidden && (!service.variants?.length || service.variants.includes("portal")),
-);
+const PORTAL_CONTEXT_SERVICES = PORTAL_SERVICES.filter((service) => !service.hidden);
 
 const COMPOSER_SERVICE_KEYWORDS: Record<string, string[]> = {
   "funnel-builder": [
@@ -510,8 +515,7 @@ function buildVisibleContextBadges(opts: {
   for (const slug of normalizeContextServiceSlugs(opts.contextKeys)) {
     const service = findPortalContextService(slug);
     if (!service) continue;
-    const matchedPhrase = findComposerServiceMatchedPhrase(opts.text, service);
-    const label = String(matchedPhrase || service.title).trim();
+    const label = String(service.title || "").trim();
     const key = `service:${label.toLowerCase()}`;
     if (!label || seen.has(key)) continue;
     seen.add(key);
@@ -642,7 +646,60 @@ function findComposerScheduleSuggestion(inputRaw: string): ComposerScheduleSugge
   };
 }
 
-function measureComposerMatchAnchor(composer: HTMLElement) {
+function measureComposerMatchAnchor(
+  composer: HTMLElement | HTMLTextAreaElement,
+  range?: { start: number; end: number } | null,
+) {
+  if (composer instanceof HTMLTextAreaElement) {
+    const value = composer.value || "";
+    const start = Math.max(0, Math.min(range?.start ?? 0, value.length));
+    const end = Math.max(start, Math.min(range?.end ?? start, value.length));
+    if (end <= start) {
+      return {
+        left: composer.clientWidth / 2,
+        top: 0,
+      };
+    }
+
+    const computed = window.getComputedStyle(composer);
+    const mirror = document.createElement("div");
+    mirror.setAttribute("aria-hidden", "true");
+    mirror.style.position = "fixed";
+    mirror.style.left = "-9999px";
+    mirror.style.top = "0";
+    mirror.style.visibility = "hidden";
+    mirror.style.pointerEvents = "none";
+    mirror.style.boxSizing = "border-box";
+    mirror.style.width = `${composer.clientWidth}px`;
+    mirror.style.padding = computed.padding;
+    mirror.style.border = "0";
+    mirror.style.font = computed.font;
+    mirror.style.fontKerning = computed.fontKerning;
+    mirror.style.fontFeatureSettings = computed.fontFeatureSettings;
+    mirror.style.fontVariationSettings = computed.fontVariationSettings;
+    mirror.style.letterSpacing = computed.letterSpacing;
+    mirror.style.lineHeight = computed.lineHeight;
+    mirror.style.textAlign = computed.textAlign;
+    mirror.style.textTransform = computed.textTransform;
+    mirror.style.textIndent = computed.textIndent;
+    mirror.style.tabSize = computed.tabSize;
+    mirror.style.whiteSpace = "pre-wrap";
+    mirror.style.overflowWrap = "break-word";
+
+    const before = document.createTextNode(value.slice(0, start));
+    const marker = document.createElement("span");
+    marker.textContent = value.slice(start, end) || "\u200b";
+    const after = document.createTextNode(value.slice(end) || "\u200b");
+    mirror.append(before, marker, after);
+    document.body.appendChild(mirror);
+
+    const left = marker.offsetLeft + marker.offsetWidth / 2 - composer.scrollLeft;
+    const top = marker.offsetTop - composer.scrollTop;
+
+    document.body.removeChild(mirror);
+    return { left, top };
+  }
+
   const marker = composer.querySelector<HTMLElement>("[data-composer-match-anchor='true']");
   if (!marker) {
     return {
@@ -666,7 +723,14 @@ function normalizeComposerPlainText(value: string) {
     .replace(/\u200b/g, "");
 }
 
-function getComposerSelectionOffsets(root: HTMLElement): { start: number; end: number } | null {
+function getComposerSelectionOffsets(root: HTMLElement | HTMLTextAreaElement): { start: number; end: number } | null {
+  if (root instanceof HTMLTextAreaElement) {
+    return {
+      start: root.selectionStart ?? 0,
+      end: root.selectionEnd ?? root.selectionStart ?? 0,
+    };
+  }
+
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
   const range = selection.getRangeAt(0);
@@ -686,7 +750,12 @@ function getComposerSelectionOffsets(root: HTMLElement): { start: number; end: n
   };
 }
 
-function setComposerSelectionOffsets(root: HTMLElement, start: number, end = start) {
+function setComposerSelectionOffsets(root: HTMLElement | HTMLTextAreaElement, start: number, end = start) {
+  if (root instanceof HTMLTextAreaElement) {
+    root.setSelectionRange(start, end);
+    return;
+  }
+
   const selection = window.getSelection();
   if (!selection) return;
 
@@ -729,7 +798,16 @@ function setComposerSelectionOffsets(root: HTMLElement, start: number, end = sta
 
 function renderComposerInlineText(
   value: string,
-  ranges: Array<{ start: number; end: number; key: string; isAnchor?: boolean }>,
+  ranges: Array<{
+    start: number;
+    end: number;
+    key: string;
+    isAnchor?: boolean;
+    interactive?: boolean;
+    className?: string;
+    style?: CSSProperties;
+    onClick?: () => void;
+  }>,
 ) {
   if (!value) return null;
 
@@ -739,15 +817,34 @@ function renderComposerInlineText(
     const start = Math.max(0, Math.min(range.start, value.length));
     const end = Math.max(start, Math.min(range.end, value.length));
     if (cursor < start) nodes.push(value.slice(cursor, start));
-    nodes.push(
-      <span
-        key={`${range.key}:${index}:${start}:${end}`}
-        data-composer-match-anchor={range.isAnchor ? "true" : undefined}
-        className="font-semibold text-brand-blue"
-      >
-        {value.slice(start, end)}
-      </span>,
-    );
+    const text = value.slice(start, end);
+    const className = range.className || "text-brand-blue";
+    if (range.interactive) {
+      nodes.push(
+        <button
+          key={`${range.key}:${index}:${start}:${end}`}
+          type="button"
+          data-composer-match-anchor={range.isAnchor ? "true" : undefined}
+          className={`pointer-events-auto rounded-lg bg-transparent p-0 text-left align-baseline ${className}`}
+          style={range.style}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => range.onClick?.()}
+        >
+          {text}
+        </button>,
+      );
+    } else {
+      nodes.push(
+        <span
+          key={`${range.key}:${index}:${start}:${end}`}
+          data-composer-match-anchor={range.isAnchor ? "true" : undefined}
+          className={className}
+          style={range.style}
+        >
+          {text}
+        </span>,
+      );
+    }
     cursor = end;
   });
   if (cursor < value.length) nodes.push(value.slice(cursor));
@@ -1159,22 +1256,21 @@ function MessageBubble({
       ) : null}
 
       {!isUser && !isThinking && msg.runTrace?.steps?.length ? (
-        <div
-          className="mt-3 rounded-2xl border border-zinc-200 bg-white/70 px-3 py-2 text-zinc-700"
-        >
-          <div className="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+        <div className={classNames("mt-3 rounded-2xl px-3 py-2", runTraceCardTone(msg.runTrace.steps).cardClassName)}>
+          <div className={classNames("flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-wide", runTraceCardTone(msg.runTrace.steps).headerClassName)}>
             <span>{msg.runTrace.workTitle || "Pura work trace"}</span>
             <span>{msg.runTrace.steps.length} step{msg.runTrace.steps.length === 1 ? "" : "s"}</span>
           </div>
-          <div className="mt-2 space-y-1.5">
-            {msg.runTrace.steps.slice(0, 4).map((step, idx) => (
-              <div key={`${step.key}-${idx}`} className="flex items-start gap-2 text-[12px] leading-5">
-                <span className={classNames("mt-1.25 inline-block h-2 w-2 shrink-0 rounded-full", step.ok ? "bg-emerald-500" : "bg-amber-500")} />
-                <span className="text-zinc-700">{step.title || step.key}</span>
-              </div>
-            ))}
+          <div className="mt-2 space-y-2">
+            {msg.runTrace.steps.slice(0, 4).map((step, idx) => {
+              return (
+                <div key={`${step.key}-${idx}`} className="rounded-2xl px-3 py-2.5 text-[12px] leading-5">
+                  <span className={classNames("block min-w-0 font-medium", runTraceCardTone(msg.runTrace.steps).textClassName)}>{step.title || step.key}</span>
+                </div>
+              );
+            })}
             {msg.runTrace.steps.length > 4 ? (
-              <div className="pl-4 text-[11px] text-zinc-500">
+              <div className={classNames("pl-4 text-[11px]", runTraceCardTone(msg.runTrace.steps).moreClassName)}>
                 +{msg.runTrace.steps.length - 4} more step{msg.runTrace.steps.length - 4 === 1 ? "" : "s"}
               </div>
             ) : null}
@@ -1635,7 +1731,7 @@ function UnresolvedRunCard({ unresolvedRun, onContinue, onOpenCanvas, sending }:
         {onOpenCanvas ? (
           <button
             type="button"
-            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+            className={classNames(frostedBlueButtonClassName(), "text-xs")}
             onClick={onOpenCanvas}
           >
             Open related page
@@ -1678,7 +1774,7 @@ function NextStepCard({ nextStepContext, onContinue, onOpenCanvas, sending }: { 
         {onOpenCanvas ? (
           <button
             type="button"
-            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+            className={classNames(frostedBlueButtonClassName(), "text-xs")}
             onClick={onOpenCanvas}
           >
             Open related page
@@ -1701,7 +1797,241 @@ function NextStepCard({ nextStepContext, onContinue, onOpenCanvas, sending }: { 
   );
 }
 
-function WorkingMemoryCard({
+type ActivityView =
+  | { kind: "list" }
+  | { kind: "run"; runId: string }
+  | { kind: "thread-memory" };
+
+function threadMemorySignature(memory: WorkingMemory | null | undefined): string {
+  if (!memory) return "";
+  const summary = String(memory.threadSummary || "").trim();
+  const updatedAt = String(memory.threadSummaryUpdatedAt || "").trim();
+  const runs = memory.recentRuns
+    .map((run) => [run.assistantMessageId || "", run.at || "", run.workTitle || "", run.steps.map((step) => `${step.key}:${step.title}:${step.ok ? 1 : 0}`).join("|")].join("::"))
+    .join("~~");
+  return `${updatedAt}##${summary}##${runs}`;
+}
+
+function activityStatusPillClass(statusRaw: string | null | undefined, active = false) {
+  if (active) return "bg-blue-50 text-brand-blue";
+  const status = String(statusRaw || "").trim().toLowerCase();
+  if (status === "running") return "bg-blue-50 text-brand-blue";
+  if (status === "completed") return "bg-emerald-50 text-emerald-800";
+  if (status === "interrupted") return "bg-zinc-100 text-zinc-700";
+  if (status === "partial" || status === "needs_input") return "bg-amber-50 text-amber-900";
+  return "bg-red-50 text-red-800";
+}
+
+function traceStepTone(ok: boolean) {
+  return ok
+    ? {
+        cardClassName: "bg-emerald-100 text-emerald-800",
+        textClassName: "text-emerald-900",
+      }
+    : {
+        cardClassName: "bg-red-50 text-red-800",
+        textClassName: "text-red-900",
+      };
+}
+
+function runTraceCardTone(steps: RunTraceStep[]) {
+  const total = steps.length;
+  const okCount = steps.filter((step) => step.ok).length;
+  if (!total || okCount === total) {
+    return {
+      cardClassName: "bg-emerald-100/95 text-emerald-900",
+      headerClassName: "text-emerald-800",
+      textClassName: "text-emerald-900",
+      moreClassName: "text-emerald-800/80",
+    };
+  }
+  if (!okCount) {
+    return {
+      cardClassName: "bg-red-50 text-red-900",
+      headerClassName: "text-red-800",
+      textClassName: "text-red-900",
+      moreClassName: "text-red-800/80",
+    };
+  }
+  return {
+    cardClassName: "bg-amber-50/95 text-amber-900",
+    headerClassName: "text-amber-800",
+    textClassName: "text-amber-900",
+    moreClassName: "text-amber-800/80",
+  };
+}
+
+function PuraMarkdownBlock({ text, className }: { text: string; className?: string }) {
+  const value = String(text || "").trim();
+  if (!value) return null;
+  return (
+    <div className={classNames("prose prose-sm max-w-none wrap-break-word prose-zinc prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-headings:mb-2 prose-headings:mt-3 prose-code:rounded prose-code:bg-white/70 prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.92em] prose-code:before:content-none prose-code:after:content-none prose-pre:rounded-2xl prose-pre:bg-zinc-950 prose-pre:text-zinc-50", className)}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a({ href, children }: { href?: string; children?: ReactNode }) {
+            const safe = safeHref(String(href || ""));
+            if (!safe) return <span>{children}</span>;
+            const external = /^https?:\/\//i.test(safe);
+            return (
+              <a
+                href={safe}
+                target={external ? "_blank" : undefined}
+                rel={external ? "noreferrer noopener" : undefined}
+                className="font-semibold text-brand-blue underline underline-offset-2"
+              >
+                {children}
+              </a>
+            );
+          },
+          p({ children }: { children?: ReactNode }) {
+            return <p className="my-2 first:mt-0 last:mb-0">{children}</p>;
+          },
+          ul({ children }: { children?: ReactNode }) {
+            return <ul className="my-2 list-disc pl-5">{children}</ul>;
+          },
+          ol({ children }: { children?: ReactNode }) {
+            return <ol className="my-2 list-decimal pl-5">{children}</ol>;
+          },
+          li({ children }: { children?: ReactNode }) {
+            return <li className="my-1">{children}</li>;
+          },
+          h1({ children }: { children?: ReactNode }) {
+            return <h1 className="text-base font-semibold text-zinc-900">{children}</h1>;
+          },
+          h2({ children }: { children?: ReactNode }) {
+            return <h2 className="text-sm font-semibold text-zinc-900">{children}</h2>;
+          },
+          h3({ children }: { children?: ReactNode }) {
+            return <h3 className="text-sm font-semibold text-zinc-900">{children}</h3>;
+          },
+        }}
+      >
+        {value}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function frostedBlueButtonClassName(size: "compact" | "regular" = "regular") {
+  return classNames(
+    "inline-flex items-center justify-center gap-1 rounded-2xl bg-[rgba(29,78,216,0.12)] text-brand-blue backdrop-blur-md shadow-[0_10px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]",
+    size === "compact" ? "px-2 py-1 text-[11px] font-semibold" : "px-3 py-2 text-sm font-semibold",
+  );
+}
+
+function conciseActivitySummary(raw: string | null | undefined): string | null {
+  const normalized = String(raw || "")
+    .replace(/\[[^\]]+\]\(([^)]+)\)/g, "$1")
+    .replace(/^[#>*\-\s]+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return null;
+
+  const firstSentence = normalized.match(/^(.{1,220}?[.!?])(\s|$)/)?.[1]?.trim() || normalized.slice(0, 220).trim();
+  return firstSentence || null;
+}
+
+function activityStepTone(statusRaw: string | null | undefined, ok: boolean) {
+  if (ok) {
+    return {
+      cardClassName: "bg-emerald-100 text-emerald-800 shadow-[0_8px_24px_rgba(16,185,129,0.08)]",
+      textClassName: "text-emerald-900",
+      pillClassName: "bg-white/55 text-emerald-800",
+      label: "OK",
+    };
+  }
+
+  const status = String(statusRaw || "").trim().toLowerCase();
+  if (status === "needs_input" || status === "interrupted" || status === "partial" || status === "running") {
+    return {
+      cardClassName: "bg-amber-50/95 text-amber-950 shadow-[0_8px_24px_rgba(245,158,11,0.12)]",
+      textClassName: "text-amber-900",
+      pillClassName: "bg-amber-600/10 text-amber-800",
+      label: status === "needs_input" ? "Needs input" : status === "running" ? "Working" : "Paused",
+    };
+  }
+
+  return {
+    cardClassName: "bg-red-50 text-red-800 shadow-[0_8px_24px_rgba(244,63,94,0.1)]",
+    textClassName: "text-red-900",
+    pillClassName: "bg-white/60 text-red-800",
+    label: "Failed",
+  };
+}
+
+function summarizeRunForActivity(run: RunLedgerEntry): string {
+  const aiSummary = String(run.aiSummaryText || "").trim();
+  if (aiSummary) return aiSummary;
+
+  const title = String(run.workTitle || "Pura run").trim() || "Pura run";
+  const recap = conciseActivitySummary(run.summaryText);
+  const totalSteps = run.steps.length;
+  const completedSteps = run.steps.filter((step) => step.ok).length;
+  const failedSteps = Math.max(0, totalSteps - completedSteps);
+  const topSteps = run.steps
+    .map((step) => String(step.title || step.key || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const parts: string[] = [];
+  const status = String(run.status || "completed").trim().toLowerCase();
+  if (status === "completed") {
+    parts.push(recap && !textsLookEquivalent(recap, title) ? `All set. ${recap}` : `${title} is wrapped up.`);
+  } else if (status === "running") {
+    parts.push(`Still working on ${title}.`);
+  } else if (status === "needs_input") {
+    parts.push(`I got part of ${title} done, and I need one more detail to keep going.`);
+  } else if (status === "interrupted") {
+    parts.push(`I made progress on ${title}, then the run paused before it could finish.`);
+  } else if (status === "partial") {
+    parts.push(`I made a solid start on ${title}, and there is still a bit left to finish.`);
+  } else if (status === "failed") {
+    parts.push(`I hit a snag while working on ${title}.`);
+  } else {
+    parts.push(`${formatRunStatusLabel(run.status)}: ${title}.`);
+  }
+
+  if (recap && !textsLookEquivalent(recap, title) && status !== "completed") {
+    parts.push(recap);
+  }
+
+  if (totalSteps > 0) {
+    if (failedSteps > 0) {
+      parts.push(`${completedSteps} of ${totalSteps} step${totalSteps === 1 ? " is" : "s are"} done so far.`);
+    } else {
+      parts.push(`All ${totalSteps} step${totalSteps === 1 ? " is" : "s are"} complete.`);
+    }
+  }
+
+  if (topSteps.length) {
+    parts.push(`Main pieces: ${topSteps.join(", ")}.`);
+  }
+
+  return parts.join(" ");
+}
+
+function ThreadMemoryUpdatedCard({
+  memory,
+  onOpen,
+}: {
+  memory: WorkingMemory;
+  onOpen: () => void;
+}) {
+  const updatedLabel = memory.threadSummaryUpdatedAt ? formatLocalDateTime(new Date(memory.threadSummaryUpdatedAt)) : null;
+  return (
+    <button
+      type="button"
+      className="inline-flex max-w-fit items-center gap-3 rounded-3xl bg-[rgba(29,78,216,0.12)] px-4 py-3 text-left text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]"
+      onClick={onOpen}
+    >
+      <span className="text-sm font-semibold text-brand-blue">Thread Memory updated</span>
+      {updatedLabel ? <span className="text-[11px] font-medium text-brand-blue/70">{updatedLabel}</span> : null}
+    </button>
+  );
+}
+
+function ThreadMemoryDetail({
   memory,
   unresolvedRun,
   nextStepContext,
@@ -1720,25 +2050,27 @@ function WorkingMemoryCard({
   const updatedLabel = fmtShortTime(memory.threadSummaryUpdatedAt);
 
   return (
-    <div className="rounded-3xl border border-zinc-200 bg-white/90 px-4 py-3 text-zinc-800 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
+    <div className="rounded-3xl bg-[rgba(29,78,216,0.12)] px-4 py-4 text-zinc-800 shadow-[0_8px_24px_rgba(29,78,216,0.14)]">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
-          <ThinkingDots />
-          <span>Working memory</span>
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-brand-blue/80">
+          <span>Thread Memory</span>
         </div>
-        {updatedLabel ? <div className="text-[11px] font-medium text-zinc-400">Updated {updatedLabel}</div> : null}
+        {updatedLabel ? <div className="text-[11px] font-medium text-brand-blue/70">Updated {updatedLabel}</div> : null}
       </div>
-      {summary ? <div className="mt-2 text-sm leading-6 text-zinc-700">{summary}</div> : null}
-      {statusLine ? <div className="mt-2 text-xs font-medium text-zinc-600">{statusLine}</div> : null}
+      {summary ? <PuraMarkdownBlock text={summary} className="mt-2 text-zinc-800" /> : null}
+      {statusLine ? <div className="mt-2 text-xs font-medium text-brand-blue/80">{statusLine}</div> : null}
       {recentRuns.length ? (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-4 space-y-2">
           {recentRuns.map((run, index) => {
             const label = run.workTitle?.trim() || run.steps[run.steps.length - 1]?.title?.trim() || `Recent work ${index + 1}`;
             const subtitle = run.steps.length ? `${run.steps.length} step${run.steps.length === 1 ? "" : "s"}` : null;
             return (
-              <div key={`${run.assistantMessageId || run.at || index}:${label}`} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                <div className="text-xs font-semibold text-zinc-800">{label}</div>
-                {subtitle ? <div className="mt-0.5 text-[11px] text-zinc-500">{subtitle}</div> : null}
+              <div key={`${run.assistantMessageId || run.at || index}:${label}`} className="rounded-2xl bg-white/65 px-3 py-2.5">
+                <div className="text-xs font-semibold text-zinc-900">{label}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-600">
+                  {subtitle ? <span>{subtitle}</span> : null}
+                  {run.at ? <span>{fmtShortTime(run.at)}</span> : null}
+                </div>
               </div>
             );
           })}
@@ -1832,7 +2164,7 @@ export function PortalAiChatClient({
     return clientTimeZone ? ({ "x-client-timezone": clientTimeZone } as Record<string, string>) : ({} as Record<string, string>);
   }, [clientTimeZone]);
 
-  const inputRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const pendingComposerSelectionRef = useRef<{ start: number; end: number } | null>(null);
 
   const resizeInput = useCallback(() => {
@@ -1860,9 +2192,10 @@ export function PortalAiChatClient({
     if (!composer) return;
     composer.focus();
     const nextSelection = selection === "end"
-      ? { start: normalizeComposerPlainText(composer.innerText || "").length, end: normalizeComposerPlainText(composer.innerText || "").length }
+      ? { start: normalizeComposerPlainText(composer.value || "").length, end: normalizeComposerPlainText(composer.value || "").length }
       : selection;
     pendingComposerSelectionRef.current = nextSelection;
+    setComposerSelectionSnapshot(nextSelection);
     requestAnimationFrame(() => {
       const currentComposer = inputRef.current;
       const pendingSelection = pendingComposerSelectionRef.current;
@@ -2025,10 +2358,20 @@ export function PortalAiChatClient({
   const [attachMenu, setAttachMenu] = useState<FixedMenuStyle | null>(null);
   const [attachMenuAnchorRect, setAttachMenuAnchorRect] = useState<DOMRect | null>(null);
   const attachMenuRef = useRef<HTMLDivElement | null>(null);
+  const attachMenuButtonRef = useRef<HTMLButtonElement | null>(null);
   const composerTextareaWrapRef = useRef<HTMLDivElement | null>(null);
   const composerSuggestionPopoverRef = useRef<HTMLDivElement | null>(null);
-  const [dismissedComposerPopoverSignature, setDismissedComposerPopoverSignature] = useState<string | null>(null);
+  const composerDisconnectPopoverRef = useRef<HTMLDivElement | null>(null);
+  const [dismissedComposerPopoverSignatures, setDismissedComposerPopoverSignatures] = useState<string[]>([]);
   const [composerSuggestionPopoverLayout, setComposerSuggestionPopoverLayout] = useState<{ left: number; arrowLeft: number } | null>(null);
+  const [composerDisconnectPopover, setComposerDisconnectPopover] = useState<{
+    slug: string;
+    title: string;
+    anchorLeft: number;
+  } | null>(null);
+  const [composerDisconnectPopoverLayout, setComposerDisconnectPopoverLayout] = useState<{ left: number; arrowLeft: number } | null>(null);
+  const [composerSelectionSnapshot, setComposerSelectionSnapshot] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
+  const [composerScrollSnapshot, setComposerScrollSnapshot] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
 
   const [threadMenu, setThreadMenu] = useState<FixedMenuStyle | null>(null);
   const [threadMenuAnchorRect, setThreadMenuAnchorRect] = useState<DOMRect | null>(null);
@@ -2110,8 +2453,10 @@ export function PortalAiChatClient({
   const [scheduledEditing, setScheduledEditing] = useState<Record<string, { sendAtLocal: string; repeatEvery: string; repeatUnit: RepeatUnit }>>({});
   const [scheduledSavingIds, setScheduledSavingIds] = useState<Set<string>>(() => new Set());
   const [runsOpen, setRunsOpen] = useState(false);
+  const [activityView, setActivityView] = useState<ActivityView>({ kind: "list" });
   const [runsLoading, setRunsLoading] = useState(false);
   const [runLedgerRows, setRunLedgerRows] = useState<RunLedgerEntry[]>([]);
+  const [acknowledgedThreadMemoryById, setAcknowledgedThreadMemoryById] = useState<Record<string, string>>(() => ({}));
 
   const [shareOpen, setShareOpen] = useState(false);
   const [shareThread, setShareThread] = useState<Thread | null>(null);
@@ -2126,6 +2471,7 @@ export function PortalAiChatClient({
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const forceScrollToBottomRef = useRef(false);
+  const pendingInitialThreadScrollRef = useRef<string | null>(null);
   const shouldStickToBottomRef = useRef(true);
   const manualScrollHoldUntilRef = useRef(0);
   const touchStartYRef = useRef<number | null>(null);
@@ -2145,6 +2491,7 @@ export function PortalAiChatClient({
   const activeThreadKey = activeThreadId ?? DRAFT_THREAD_KEY;
   const activeThread = useMemo(() => (activeThreadId ? threads.find((thread) => thread.id === activeThreadId) ?? null : null), [activeThreadId, threads]);
   const messages = useMemo(() => messagesByThread[activeThreadKey] ?? [], [activeThreadKey, messagesByThread]);
+  const latestMessageId = useMemo(() => messages[messages.length - 1]?.id ?? null, [messages]);
   const activeLiveStatus = activeThreadId ? threadLiveStatusById[activeThreadId] ?? null : null;
   const activeUnresolvedRun = activeThreadId ? threadUnresolvedRunById[activeThreadId] ?? null : null;
   const activeNextStepContext = activeThreadId ? threadNextStepContextById[activeThreadId] ?? null : null;
@@ -2236,17 +2583,19 @@ export function PortalAiChatClient({
     if (!activeRunId) return null;
     return sortedRunLedgerRows.find((row) => row.runId === activeRunId) || null;
   }, [activeLiveStatus?.runId, sortedRunLedgerRows]);
+  const selectedActivityRun = useMemo(() => {
+    if (activityView.kind !== "run") return null;
+    return sortedRunLedgerRows.find((row) => row.id === activityView.runId) || null;
+  }, [activityView, sortedRunLedgerRows]);
   const showActiveLiveProgressCard = useMemo(() => {
     if (!activeThreadId || !activeLiveStatus) return false;
     return sending || hasThinkingMessage || regenerating || Boolean(runningActionKey) || Boolean(activeLiveStatus.label);
   }, [activeLiveStatus, activeThreadId, hasThinkingMessage, regenerating, runningActionKey, sending]);
-  const showWorkingMemoryCard = useMemo(() => {
-    if (!activeThreadId || !activeWorkingMemory) return false;
-    const hasSummary = Boolean(activeWorkingMemory.threadSummary?.trim());
-    const hasHistory = activeWorkingMemory.recentRuns.length >= 2;
-    if (activeUnresolvedRun || activeNextStepContext || showActiveLiveProgressCard) return false;
-    return messages.length >= 6 && (hasSummary || hasHistory);
-  }, [activeNextStepContext, activeThreadId, activeUnresolvedRun, activeWorkingMemory, messages.length, showActiveLiveProgressCard]);
+  const activeThreadMemorySignature = useMemo(() => threadMemorySignature(activeWorkingMemory), [activeWorkingMemory]);
+  const showThreadMemoryNotice = useMemo(() => {
+    if (!activeThreadId || !activeWorkingMemory || !activeThreadMemorySignature) return false;
+    return acknowledgedThreadMemoryById[activeThreadId] !== activeThreadMemorySignature;
+  }, [acknowledgedThreadMemoryById, activeThreadId, activeThreadMemorySignature, activeWorkingMemory]);
   const workStatusLabel = useMemo(() => {
     if (liveWorkStatusLabel) return liveWorkStatusLabel;
     if (regenerating && regeneratingTarget?.messageId) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Reworking that response" : "Redoing that response");
@@ -2254,6 +2603,30 @@ export function PortalAiChatClient({
     if (sending || hasThinkingMessage) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Working on it" : "Thinking it through");
     return null;
   }, [effectiveChatMode, hasThinkingMessage, inferredWorkStatusLabel, liveWorkStatusLabel, regenerating, regeneratingTarget?.messageId, runningActionKey, sending]);
+
+  const closeActivityModal = useCallback(() => {
+    setRunsOpen(false);
+    setActivityView({ kind: "list" });
+  }, []);
+
+  const acknowledgeActiveThreadMemory = useCallback(() => {
+    if (!activeThreadId || !activeThreadMemorySignature) return;
+    setAcknowledgedThreadMemoryById((prev) => {
+      if (prev[activeThreadId] === activeThreadMemorySignature) return prev;
+      return { ...prev, [activeThreadId]: activeThreadMemorySignature };
+    });
+  }, [activeThreadId, activeThreadMemorySignature]);
+
+  const openThreadMemoryActivity = useCallback(() => {
+    acknowledgeActiveThreadMemory();
+    setActivityView({ kind: "thread-memory" });
+    setRunsOpen(true);
+  }, [acknowledgeActiveThreadMemory]);
+
+  useEffect(() => {
+    if (runsOpen) return;
+    setActivityView({ kind: "list" });
+  }, [runsOpen]);
 
   const latestAssistantMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -2516,6 +2889,23 @@ export function PortalAiChatClient({
     el.scrollTo({ top: targetTop, behavior: "auto" });
   }, [syncShouldStickToBottom]);
 
+  const completeInitialThreadScroll = useCallback((threadId: string) => {
+    if (typeof window === "undefined") {
+      if (activeThreadIdRef.current === threadId) {
+        scrollToBottom(true);
+        pendingInitialThreadScrollRef.current = null;
+      }
+      return;
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (activeThreadIdRef.current !== threadId) return;
+        scrollToBottom(true);
+        pendingInitialThreadScrollRef.current = null;
+      });
+    });
+  }, [scrollToBottom]);
+
   const handleChatScroll = useCallback(() => {
     syncShouldStickToBottom();
   }, [syncShouldStickToBottom]);
@@ -2671,6 +3061,10 @@ export function PortalAiChatClient({
         pendingThreadIdsRef.current.delete(threadId);
         applyThreadContextSnapshot(threadId, json?.threadContext);
         requestAnimationFrame(() => {
+          if (pendingInitialThreadScrollRef.current === threadId) {
+            completeInitialThreadScroll(threadId);
+            return;
+          }
           if (forceScrollToBottomRef.current || shouldStickToBottomRef.current) {
             scrollToBottom(forceScrollToBottomRef.current);
           }
@@ -2824,7 +3218,10 @@ export function PortalAiChatClient({
 
   const selectThread = useCallback(
     (threadId: string) => {
+      pendingInitialThreadScrollRef.current = threadId;
       forceScrollToBottomRef.current = true;
+      shouldStickToBottomRef.current = true;
+      manualScrollHoldUntilRef.current = 0;
       setThreadLoading(threadId, true);
       activeThreadIdRef.current = threadId;
       setActiveThreadId(threadId);
@@ -2839,9 +3236,14 @@ export function PortalAiChatClient({
   useEffect(() => {
     if (!forceScrollToBottomRef.current) return;
     if (messagesLoading) return;
+    if (!activeThreadId) return;
     forceScrollToBottomRef.current = false;
+    if (pendingInitialThreadScrollRef.current === activeThreadId) {
+      completeInitialThreadScroll(activeThreadId);
+      return;
+    }
     requestAnimationFrame(() => scrollToBottom(true));
-  }, [activeThreadId, messagesLoading, messages.length, scrollToBottom]);
+  }, [activeThreadId, completeInitialThreadScroll, messagesLoading, messages.length, scrollToBottom]);
 
   useEffect(() => {
     void loadThreads();
@@ -4541,15 +4943,18 @@ export function PortalAiChatClient({
     const h = el.getBoundingClientRect().height;
     if (!Number.isFinite(h) || h <= 0) return;
 
+    const liveAnchorRect = attachMenuButtonRef.current?.getBoundingClientRect() || attachMenuAnchorRect;
+
     const next = computeFixedMenuStyle({
-      rect: attachMenuAnchorRect,
+      rect: liveAnchorRect,
       width: 260,
       estHeight: h,
       alignX: "left",
       minHeight: 120,
-      gapPx: 4,
+      gapPx: 12,
     });
     if (Math.abs(next.top - attachMenu.top) > 2 || Math.abs(next.left - attachMenu.left) > 2) {
+      setAttachMenuAnchorRect(liveAnchorRect);
       setAttachMenu(next);
     }
   }, [attachMenu, attachMenuAnchorRect]);
@@ -4660,21 +5065,124 @@ export function PortalAiChatClient({
 
   const composerScheduleSuggestion = useMemo(() => findComposerScheduleSuggestion(input), [input]);
 
+  const composerCaretOffset = useMemo(
+    () => Math.max(0, Math.min(composerSelectionSnapshot.end ?? 0, input.length)),
+    [composerSelectionSnapshot.end, input.length],
+  );
+
+  const composerScheduleSuggestionSignature = useMemo(() => {
+    const phrase = String(composerScheduleSuggestion?.matchedPhrase || "").trim().toLowerCase();
+    return phrase ? `schedule:${phrase}` : null;
+  }, [composerScheduleSuggestion]);
+
+  const composerSuggestedContextEntriesWithSignature = useMemo(
+    () => composerSuggestedContextEntries.map((entry) => ({
+      ...entry,
+      signature: `suggested:${entry.service.slug}:${String(entry.matchedPhrase || entry.service.title || "").trim().toLowerCase()}`,
+    })),
+    [composerSuggestedContextEntries],
+  );
+
+  const composerActiveTrigger = useMemo(() => {
+    const candidates = [
+      ...composerSuggestedContextEntriesWithSignature.map((entry) => ({
+        kind: "service" as const,
+        signature: entry.signature,
+        start: entry.match?.start ?? -1,
+        end: entry.match?.end ?? -1,
+        priority: entry.match?.priority ?? 0,
+      })),
+      ...(composerScheduleSuggestion && composerScheduleSuggestionSignature
+        ? [{
+            kind: "schedule" as const,
+            signature: composerScheduleSuggestionSignature,
+            start: composerScheduleSuggestion.match?.start ?? -1,
+            end: composerScheduleSuggestion.match?.end ?? -1,
+            priority: composerScheduleSuggestion.match?.priority ?? 0,
+          }]
+        : []),
+    ].filter((entry) => entry.start >= 0 && entry.end > entry.start);
+
+    if (!candidates.length) return null;
+
+    const ranked = [...candidates]
+      .map((entry) => {
+        const distance = composerCaretOffset < entry.start
+          ? entry.start - composerCaretOffset
+          : composerCaretOffset > entry.end
+            ? composerCaretOffset - entry.end
+            : 0;
+        return { ...entry, distance };
+      })
+      .filter((entry) => entry.distance <= 1)
+      .sort((a, b) => {
+        if (a.distance !== b.distance) return a.distance - b.distance;
+        if (b.priority !== a.priority) return b.priority - a.priority;
+        if (a.start !== b.start) return a.start - b.start;
+        return a.end - b.end;
+      });
+
+    return ranked[0] ?? null;
+  }, [composerCaretOffset, composerScheduleSuggestion, composerScheduleSuggestionSignature, composerSuggestedContextEntriesWithSignature]);
+
+  const composerConnectedHighlights = useMemo(() => {
+    const matches = selectedContextServices
+      .map((service) => ({ service, match: findComposerServiceMatch(input, service) }))
+      .filter((entry): entry is ComposerConnectedHighlight => Boolean(entry.match))
+      .sort((a, b) => {
+        if (a.match.start !== b.match.start) return a.match.start - b.match.start;
+        if (b.match.end !== a.match.end) return b.match.end - a.match.end;
+        return b.match.priority - a.match.priority;
+      });
+
+    const accepted: ComposerConnectedHighlight[] = [];
+    let lastEnd = -1;
+    matches.forEach((entry) => {
+      if (entry.match.start < lastEnd) return;
+      accepted.push(entry);
+      lastEnd = entry.match.end;
+    });
+    return accepted;
+  }, [input, selectedContextServices]);
+
+  const visibleComposerSuggestedContextEntries = useMemo(
+    () => composerSuggestedContextEntriesWithSignature.filter((entry) => {
+      if (!composerActiveTrigger || composerActiveTrigger.kind !== "service") return false;
+      if (dismissedComposerPopoverSignatures.includes(entry.signature)) return false;
+      return entry.match?.start === composerActiveTrigger.start && entry.match?.end === composerActiveTrigger.end;
+    }),
+    [composerActiveTrigger, composerSuggestedContextEntriesWithSignature, dismissedComposerPopoverSignatures],
+  );
+
+  const visibleComposerScheduleSuggestion = useMemo(() => {
+    if (!composerScheduleSuggestion) return null;
+    if (!composerActiveTrigger || composerActiveTrigger.kind !== "schedule") return null;
+    if (composerScheduleSuggestion.match?.start !== composerActiveTrigger.start || composerScheduleSuggestion.match?.end !== composerActiveTrigger.end) return null;
+    if (composerScheduleSuggestionSignature && dismissedComposerPopoverSignatures.includes(composerScheduleSuggestionSignature)) return null;
+    return composerScheduleSuggestion;
+  }, [composerActiveTrigger, composerScheduleSuggestion, composerScheduleSuggestionSignature, dismissedComposerPopoverSignatures]);
+
+  const activeComposerPopoverSignatures = useMemo(() => {
+    const next = visibleComposerSuggestedContextEntries.map((entry) => entry.signature);
+    if (composerScheduleSuggestionSignature && visibleComposerScheduleSuggestion) next.unshift(composerScheduleSuggestionSignature);
+    return next;
+  }, [composerScheduleSuggestionSignature, visibleComposerScheduleSuggestion, visibleComposerSuggestedContextEntries]);
+
   const composerTriggerHighlightRanges = useMemo(() => {
     const matches = [
-      ...composerSuggestedContextEntries.map(({ service, match }) => ({
+      ...visibleComposerSuggestedContextEntries.map(({ service, match }) => ({
         key: service.slug,
         start: match?.start ?? -1,
         end: match?.end ?? -1,
         priority: match?.priority ?? 0,
       })),
-      ...(composerScheduleSuggestion?.match
+      ...(visibleComposerScheduleSuggestion?.match
         ? [
             {
               key: "schedule-task",
-              start: composerScheduleSuggestion.match.start,
-              end: composerScheduleSuggestion.match.end,
-              priority: composerScheduleSuggestion.match.priority,
+              start: visibleComposerScheduleSuggestion.match.start,
+              end: visibleComposerScheduleSuggestion.match.end,
+              priority: visibleComposerScheduleSuggestion.match.priority,
             },
           ]
         : []),
@@ -4699,30 +5207,34 @@ export function PortalAiChatClient({
       lastEnd = item.end;
     });
     return accepted;
-  }, [composerScheduleSuggestion, composerSuggestedContextEntries]);
+  }, [visibleComposerScheduleSuggestion, visibleComposerSuggestedContextEntries]);
 
   const composerContextPopoverSignature = useMemo(() => {
-    const suggestedSignature = composerSuggestedContextEntries.map(({ service, matchedPhrase }) => `suggested:${service.slug}:${matchedPhrase || ""}`);
-    const scheduleSignature = composerScheduleSuggestion?.matchedPhrase ? [`schedule:${composerScheduleSuggestion.matchedPhrase}`] : [];
+    const suggestedSignature = visibleComposerSuggestedContextEntries.map(({ signature }) => signature);
+    const scheduleSignature = composerScheduleSuggestionSignature && visibleComposerScheduleSuggestion ? [composerScheduleSuggestionSignature] : [];
     return [...scheduleSignature, ...suggestedSignature].join("|");
-  }, [composerScheduleSuggestion, composerSuggestedContextEntries]);
+  }, [composerScheduleSuggestionSignature, visibleComposerScheduleSuggestion, visibleComposerSuggestedContextEntries]);
 
   const showComposerContextPopover = Boolean(
     !isEditing &&
       composerContextPopoverSignature &&
-      composerContextPopoverSignature !== dismissedComposerPopoverSignature &&
-      (composerSuggestedContextEntries.length || composerScheduleSuggestion),
+      activeComposerPopoverSignatures.length &&
+      !composerDisconnectPopover,
   );
 
   const attachMenuServiceOptions = useMemo(() => {
     const bySlug = new Map<string, PortalService>();
     for (const service of selectedContextServices) bySlug.set(service.slug, service);
     for (const suggestion of composerServiceSuggestions) bySlug.set(suggestion.service.slug, suggestion.service);
-    for (const service of PORTAL_CONTEXT_SERVICES) {
-      if (bySlug.size >= 6) break;
+    const remainingServices = [...PORTAL_CONTEXT_SERVICES].sort((a, b) => {
+      if (a.slug === "funnel-builder") return 1;
+      if (b.slug === "funnel-builder") return -1;
+      return a.title.localeCompare(b.title);
+    });
+    for (const service of remainingServices) {
       bySlug.set(service.slug, service);
     }
-    return Array.from(bySlug.values()).slice(0, 6);
+    return Array.from(bySlug.values());
   }, [composerServiceSuggestions, selectedContextServices]);
 
   useLayoutEffect(() => {
@@ -4731,13 +5243,15 @@ export function PortalAiChatClient({
       return;
     }
 
+    const anchorRange = composerTriggerHighlightRanges.find((range) => range.isAnchor) || composerTriggerHighlightRanges[0];
+
     const measure = () => {
       const composer = inputRef.current;
       const wrap = composerTextareaWrapRef.current;
       const popover = composerSuggestionPopoverRef.current;
       if (!composer || !wrap) return;
 
-      const anchor = measureComposerMatchAnchor(composer);
+      const anchor = measureComposerMatchAnchor(composer, anchorRange);
       const wrapRect = wrap.getBoundingClientRect();
       const popoverWidth = popover?.getBoundingClientRect().width || 240;
       const left = Math.max(8, Math.min(anchor.left - popoverWidth / 2, wrapRect.width - popoverWidth - 8));
@@ -4751,12 +5265,50 @@ export function PortalAiChatClient({
       window.cancelAnimationFrame(rafId);
       window.removeEventListener("resize", measure);
     };
-  }, [composerSuggestedContextEntries, composerTriggerHighlightRanges.length, input, showComposerContextPopover]);
+  }, [composerSuggestedContextEntries, composerTriggerHighlightRanges, input, showComposerContextPopover]);
+
+  useLayoutEffect(() => {
+    if (!composerDisconnectPopover) {
+      setComposerDisconnectPopoverLayout(null);
+      return;
+    }
+
+    const measure = () => {
+      const wrap = composerTextareaWrapRef.current;
+      const popover = composerDisconnectPopoverRef.current;
+      if (!wrap) return;
+      const wrapRect = wrap.getBoundingClientRect();
+      const popoverWidth = popover?.getBoundingClientRect().width || 240;
+      const left = Math.max(8, Math.min(composerDisconnectPopover.anchorLeft - popoverWidth / 2, wrapRect.width - popoverWidth - 8));
+      const arrowLeft = Math.max(18, Math.min(composerDisconnectPopover.anchorLeft - left, popoverWidth - 18));
+      setComposerDisconnectPopoverLayout({ left, arrowLeft });
+    };
+
+    const rafId = window.requestAnimationFrame(measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", measure);
+    };
+  }, [composerDisconnectPopover]);
 
   useEffect(() => {
-    if (composerContextPopoverSignature) return;
-    if (dismissedComposerPopoverSignature) setDismissedComposerPopoverSignature(null);
-  }, [composerContextPopoverSignature, dismissedComposerPopoverSignature]);
+    if (!composerDisconnectPopover) return;
+    const stillVisible = composerConnectedHighlights.some((entry) => entry.service.slug === composerDisconnectPopover.slug);
+    if (!stillVisible) setComposerDisconnectPopover(null);
+  }, [composerConnectedHighlights, composerDisconnectPopover]);
+
+  useEffect(() => {
+    setDismissedComposerPopoverSignatures((prev) => {
+      if (!prev.length) return prev;
+      const active = new Set([
+        ...composerSuggestedContextEntriesWithSignature.map((entry) => entry.signature),
+        ...(composerScheduleSuggestionSignature ? [composerScheduleSuggestionSignature] : []),
+      ]);
+      const next = prev.filter((signature) => active.has(signature));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [composerScheduleSuggestionSignature, composerSuggestedContextEntriesWithSignature]);
 
   useEffect(() => {
     if (!showWelcomeComposer) return;
@@ -4771,6 +5323,10 @@ export function PortalAiChatClient({
   useLayoutEffect(() => {
     const composer = inputRef.current;
     if (!composer) return;
+    const domValue = normalizeComposerPlainText(composer.value || "");
+    if (domValue !== input) {
+      composer.value = input;
+    }
     resizeInput();
     const pendingSelection = pendingComposerSelectionRef.current;
     if (pendingSelection && document.activeElement === composer) {
@@ -4863,7 +5419,7 @@ export function PortalAiChatClient({
         : "Message";
 
   const composerInputClass =
-    "relative z-10 min-h-11 w-full min-w-0 overflow-y-auto rounded-3xl bg-transparent px-4 py-3 text-sm leading-5 text-zinc-900 focus:outline-none whitespace-pre-wrap break-words";
+    "relative z-10 min-h-11 w-full min-w-0 overflow-y-auto rounded-3xl bg-transparent px-4 py-3 text-sm leading-5 text-transparent caret-zinc-900 focus:outline-none whitespace-pre-wrap break-words";
 
   const canSendComposerMessage = Boolean((input || "").trim() || pendingAttachments.length) && !sending;
 
@@ -4871,6 +5427,7 @@ export function PortalAiChatClient({
     (slug: string) => {
       const normalizedSlug = String(slug || "").trim();
       if (!normalizedSlug || !findPortalContextService(normalizedSlug)) return;
+      setComposerDisconnectPopover((current) => (current?.slug === normalizedSlug ? null : current));
       setThreadDraftState(activeThreadKey, (prev) => {
         const next = new Set(normalizeContextServiceSlugs(prev.contextServiceSlugs));
         const adding = !next.has(normalizedSlug);
@@ -4894,11 +5451,22 @@ export function PortalAiChatClient({
     [activeThreadKey, setThreadDraftState],
   );
 
+  const openComposerDisconnectPopover = useCallback((highlight: ComposerConnectedHighlight) => {
+    const composer = inputRef.current;
+    if (!composer) return;
+    const anchor = measureComposerMatchAnchor(composer, { start: highlight.match.start, end: highlight.match.end });
+    setComposerDisconnectPopover({
+      slug: highlight.service.slug,
+      title: highlight.service.title,
+      anchorLeft: anchor.left,
+    });
+  }, []);
+
   const openScheduleTaskFromComposer = useCallback(() => {
-    setDismissedComposerPopoverSignature(composerContextPopoverSignature || null);
+    setDismissedComposerPopoverSignatures((prev) => Array.from(new Set([...prev, ...activeComposerPopoverSignatures])));
     setScheduleTaskText(String(input || "").trim());
     setScheduleTaskOpen(true);
-  }, [composerContextPopoverSignature, input]);
+  }, [activeComposerPopoverSignatures, input]);
 
   const composerInner = (
     <>
@@ -4957,6 +5525,7 @@ export function PortalAiChatClient({
         <div className="flex items-end gap-2">
         <div className="relative">
           <button
+            ref={attachMenuButtonRef}
             type="button"
             className={classNames(
               composerControlButtonClass,
@@ -4971,7 +5540,7 @@ export function PortalAiChatClient({
               }
               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
               setAttachMenuAnchorRect(rect);
-              setAttachMenu(computeFixedMenuStyle({ rect, width: 260, estHeight: 140, alignX: "left", minHeight: 120, gapPx: 4 }));
+              setAttachMenu(computeFixedMenuStyle({ rect, width: 280, estHeight: 264, alignX: "left", minHeight: 204, gapPx: 12 }));
             }}
             aria-label="Add attachment"
             title="Add attachment"
@@ -5020,34 +5589,34 @@ export function PortalAiChatClient({
                   style={{ background: "rgba(219,234,254,0.46)", boxShadow: "none" }}
                 >
                   <div className="flex min-w-0 items-center gap-1.5 rounded-[22px] bg-[rgba(219,234,254,0.62)] px-1.5 py-1 backdrop-blur-[2px]">
-                    {composerScheduleSuggestion ? (
+                    {visibleComposerScheduleSuggestion ? (
                       <button
                         key="schedule-task"
                         type="button"
                         className="inline-flex items-center rounded-2xl bg-transparent px-2.5 py-1.5 text-xs font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
                         onClick={openScheduleTaskFromComposer}
                         title="Schedule this task"
-                        aria-label={`Schedule ${composerScheduleSuggestion.matchedPhrase || "this task"}`}
+                        aria-label={`Schedule ${visibleComposerScheduleSuggestion.matchedPhrase || "this task"}`}
                       >
                         Schedule this task
                       </button>
                     ) : null}
-                    {composerSuggestedContextEntries.map(({ service, matchedPhrase }) => (
+                    {visibleComposerSuggestedContextEntries.map(({ service }) => (
                       <button
                         key={service.slug}
                         type="button"
                         className="inline-flex items-center rounded-2xl bg-transparent px-2.5 py-1.5 text-xs font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
                         onClick={() => toggleDraftServiceContext(service.slug)}
                         title={`Connect ${service.title}`}
-                        aria-label={`Connect ${matchedPhrase || service.title}`}
+                        aria-label={`Connect ${service.title}`}
                       >
-                        {`Connect ${matchedPhrase || service.title}?`}
+                        {`Connect ${service.title}?`}
                       </button>
                     ))}
                     <button
                       type="button"
                       className="inline-flex h-7 w-7 items-center justify-center rounded-2xl bg-transparent text-sm font-semibold text-zinc-500 transition-opacity duration-150 hover:opacity-80"
-                      onClick={() => setDismissedComposerPopoverSignature(composerContextPopoverSignature)}
+                      onClick={() => setDismissedComposerPopoverSignatures((prev) => Array.from(new Set([...prev, ...activeComposerPopoverSignatures])))}
                       aria-label="Dismiss connect popover"
                       title="Dismiss"
                     >
@@ -5082,31 +5651,138 @@ export function PortalAiChatClient({
               </div>
             </div>
           ) : null}
+          {composerDisconnectPopover ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-[calc(100%+14px)] z-40">
+              <div
+                ref={composerDisconnectPopoverRef}
+                className="absolute bottom-0 max-w-[calc(100%-12px)]"
+                style={{ left: composerDisconnectPopoverLayout?.left ?? Math.max(6, composerDisconnectPopover.anchorLeft - 120) }}
+              >
+                <GlassSurface
+                  width="fit-content"
+                  height="auto"
+                  borderRadius={24}
+                  borderWidth={0.04}
+                  blur={7}
+                  displace={0.22}
+                  distortionScale={-72}
+                  redOffset={0}
+                  greenOffset={2}
+                  blueOffset={6}
+                  backgroundOpacity={0.16}
+                  saturation={1.05}
+                  brightness={46}
+                  opacity={0.985}
+                  mixBlendMode="soft-light"
+                  className="pointer-events-auto rounded-3xl"
+                  style={{ background: "rgba(219,234,254,0.46)", boxShadow: "none" }}
+                >
+                  <div className="flex min-w-0 items-center gap-1.5 rounded-[22px] bg-[rgba(219,234,254,0.62)] px-1.5 py-1 backdrop-blur-[2px]">
+                    <button
+                      type="button"
+                      className="inline-flex items-center rounded-2xl bg-transparent px-2.5 py-1.5 text-xs font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
+                      onClick={() => {
+                        toggleDraftServiceContext(composerDisconnectPopover.slug);
+                        setComposerDisconnectPopover(null);
+                      }}
+                      title={`Disconnect ${composerDisconnectPopover.title}`}
+                      aria-label={`Disconnect ${composerDisconnectPopover.title}`}
+                    >
+                      {`Disconnect ${composerDisconnectPopover.title}?`}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-2xl bg-transparent text-sm font-semibold text-zinc-500 transition-opacity duration-150 hover:opacity-80"
+                      onClick={() => setComposerDisconnectPopover(null)}
+                      aria-label="Dismiss disconnect popover"
+                      title="Dismiss"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </GlassSurface>
+                <div
+                  className="pointer-events-none absolute top-full z-10 -translate-y-[30%] drop-shadow-[0_10px_24px_rgba(37,99,235,0.16)]"
+                  style={{ left: composerDisconnectPopoverLayout?.arrowLeft ?? 28 }}
+                >
+                  <GlassSurface
+                    width={18}
+                    height={18}
+                    borderRadius={4}
+                    borderWidth={0.04}
+                    blur={7}
+                    displace={0.22}
+                    distortionScale={-72}
+                    redOffset={0}
+                    greenOffset={2}
+                    blueOffset={6}
+                    backgroundOpacity={0.16}
+                    saturation={1.05}
+                    brightness={46}
+                    opacity={0.985}
+                    mixBlendMode="soft-light"
+                    className="rounded-sm rotate-45 opacity-[0.88] ring-1 ring-[rgba(191,219,254,0.65)]"
+                    style={{ background: "rgba(219,234,254,0.46)", boxShadow: "none" }}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
           <div className={composerTextareaShellClass}>
             {!input ? (
               <div className="pointer-events-none absolute inset-x-0 top-0 z-0 px-4 py-3 text-sm leading-5 text-zinc-400">{composerPlaceholder}</div>
             ) : null}
-            <div
+            {input ? (
+              <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden rounded-3xl">
+                <div
+                  className="px-4 py-3 text-sm leading-5 text-zinc-900 whitespace-pre-wrap wrap-break-word"
+                  style={{ transform: `translate(${-composerScrollSnapshot.left}px, ${-composerScrollSnapshot.top}px)` }}
+                >
+                  {renderComposerInlineText(
+                    input,
+                    composerConnectedHighlights.map((highlight, index) => ({
+                      key: `connected:${highlight.service.slug}:${index}`,
+                      start: highlight.match.start,
+                      end: highlight.match.end,
+                      interactive: true,
+                      className: "text-brand-blue underline underline-offset-[0.16em] hover:bg-[rgba(191,219,254,0.32)]",
+                      style: { textShadow: "0.0125em 0 0 currentColor, -0.0125em 0 0 currentColor" },
+                      onClick: () => openComposerDisconnectPopover(highlight),
+                    })),
+                  )}
+                </div>
+              </div>
+            ) : null}
+            <textarea
               ref={inputRef}
-              contentEditable={!sending}
-              suppressContentEditableWarning
               role="textbox"
               aria-label={isEditing ? "Edit message" : "Message Pura"}
               aria-multiline="true"
               data-composer-input="true"
               className={composerInputClass}
-              onInput={(e) => {
-                const nextValue = normalizeComposerPlainText(e.currentTarget.innerText || "");
-                pendingComposerSelectionRef.current = getComposerSelectionOffsets(e.currentTarget);
+              value={input}
+              disabled={sending}
+              rows={1}
+              onChange={(e) => {
+                const nextValue = normalizeComposerPlainText(e.currentTarget.value || "");
+                const nextSelection = getComposerSelectionOffsets(e.currentTarget) || { start: 0, end: 0 };
+                pendingComposerSelectionRef.current = nextSelection;
+                setComposerSelectionSnapshot(nextSelection);
+                setComposerDisconnectPopover(null);
                 setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: nextValue }));
                 requestAnimationFrame(() => {
                   resizeInput();
                 });
               }}
-              onPaste={(e) => {
-                e.preventDefault();
-                const text = e.clipboardData?.getData("text/plain") || "";
-                document.execCommand("insertText", false, text);
+              onSelect={(e) => {
+                const nextSelection = getComposerSelectionOffsets(e.currentTarget) || { start: 0, end: 0 };
+                pendingComposerSelectionRef.current = nextSelection;
+                setComposerSelectionSnapshot(nextSelection);
+                setComposerDisconnectPopover(null);
+              }}
+              onClick={() => setComposerDisconnectPopover(null)}
+              onScroll={(e) => {
+                setComposerScrollSnapshot({ left: e.currentTarget.scrollLeft, top: e.currentTarget.scrollTop });
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
@@ -5115,9 +5791,8 @@ export function PortalAiChatClient({
                 }
               }}
               spellCheck
-            >
-              {renderComposerInlineText(input, composerTriggerHighlightRanges)}
-            </div>
+              style={{ resize: "none" }}
+            />
           </div>
         </div>
 
@@ -5192,112 +5867,162 @@ export function PortalAiChatClient({
       {attachMenu ? (
         <div
           ref={attachMenuRef}
-          className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+          className="fixed z-12045"
           style={{ left: attachMenu.left, top: attachMenu.top, width: attachMenu.width, maxHeight: attachMenu.maxHeight }}
           onMouseDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
         >
-          <button
-            type="button"
-            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-            onClick={() => {
-              setAttachMenu(null);
-              fileInputRef.current?.click();
-            }}
+          <GlassSurface
+            width="100%"
+            height="auto"
+            borderRadius={26}
+            borderWidth={0.04}
+            blur={8}
+            displace={0.22}
+            distortionScale={-72}
+            redOffset={0}
+            greenOffset={2}
+            blueOffset={6}
+            backgroundOpacity={0.2}
+            saturation={1.05}
+            brightness={46}
+            opacity={0.985}
+            mixBlendMode="soft-light"
+            className="rounded-3xl border border-[rgba(96,165,250,0.2)] shadow-[0_18px_44px_rgba(37,99,235,0.16),0_10px_28px_rgba(15,23,42,0.14)]"
+            style={{ background: "rgba(219,234,254,0.56)", boxShadow: "none" }}
           >
-            Upload from device
-          </button>
-          <button
-            type="button"
-            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-            onClick={() => {
-              setAttachMenu(null);
-              setMediaPickerOpen(true);
-            }}
-          >
-            Add from media library
-          </button>
-          <button
-            type="button"
-            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-            onClick={() => {
-              setAttachMenu(null);
-              setScheduleTaskText("");
-              setScheduleTaskOpen(true);
-            }}
-          >
-            Schedule task
-          </button>
-          <div className="border-t border-zinc-100 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Attach service context</div>
-          {attachMenuServiceOptions.map((service) => {
-            const selected = selectedContextServiceSlugs.includes(service.slug);
-            return (
+            <div
+              className="overflow-auto rounded-3xl bg-[linear-gradient(180deg,rgba(239,246,255,0.5),rgba(255,255,255,0.24))] p-1.5 backdrop-blur-[2px]"
+              style={{ maxHeight: attachMenu.maxHeight }}
+            >
               <button
-                key={service.slug}
                 type="button"
-                className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                className="w-full rounded-xl px-3 py-3 text-left text-sm font-semibold text-brand-ink transition-colors hover:bg-[rgba(219,234,254,0.5)]"
                 onClick={() => {
-                  toggleDraftServiceContext(service.slug);
                   setAttachMenu(null);
+                  fileInputRef.current?.click();
                 }}
               >
-                {selected ? `Remove ${service.title} context` : `Use ${service.title} context`}
+                Upload from device
               </button>
-            );
-          })}
+              <button
+                type="button"
+                className="mt-1 w-full rounded-xl px-3 py-3 text-left text-sm font-semibold text-brand-ink transition-colors hover:bg-[rgba(219,234,254,0.5)]"
+                onClick={() => {
+                  setAttachMenu(null);
+                  setMediaPickerOpen(true);
+                }}
+              >
+                Add from media library
+              </button>
+              <button
+                type="button"
+                className="mt-1 w-full rounded-xl px-3 py-3 text-left text-sm font-semibold text-brand-ink transition-colors hover:bg-[rgba(219,234,254,0.5)]"
+                onClick={() => {
+                  setAttachMenu(null);
+                  setScheduleTaskText("");
+                  setScheduleTaskOpen(true);
+                }}
+              >
+                Schedule task
+              </button>
+              <div className="mt-2 border-t border-[rgba(191,219,254,0.7)] px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Connect</div>
+              {attachMenuServiceOptions.map((service) => {
+                const selected = selectedContextServiceSlugs.includes(service.slug);
+                return (
+                  <button
+                    key={service.slug}
+                    type="button"
+                    className={classNames(
+                      "mt-1 w-full rounded-xl px-3 py-3 text-left text-sm font-semibold transition-colors",
+                      selected
+                        ? "bg-[rgba(29,78,216,0.22)] text-brand-blue"
+                        : "text-brand-ink hover:bg-[rgba(219,234,254,0.5)]",
+                    )}
+                    onClick={() => {
+                      toggleDraftServiceContext(service.slug);
+                    }}
+                    aria-pressed={selected}
+                  >
+                    <span className="block min-w-0 truncate">{service.title}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </GlassSurface>
         </div>
       ) : null}
 
       {scheduleTaskOpen ? (
         <div
-          className="fixed inset-0 z-12060 flex items-end justify-center bg-black/30 p-4 sm:items-center"
+          className="fixed inset-0 z-12060 flex items-end justify-center bg-[rgba(15,23,42,0.22)] p-4 sm:items-center"
           onMouseDown={() => setScheduleTaskOpen(false)}
           onTouchStart={() => setScheduleTaskOpen(false)}
           aria-hidden
         >
-          <div
-            className="w-full max-w-xl rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl"
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Schedule task"
+          <GlassSurface
+            width="min(100%, 40rem)"
+            height="auto"
+            borderRadius={28}
+            borderWidth={0}
+            blur={8}
+            displace={0.24}
+            distortionScale={-78}
+            redOffset={0}
+            greenOffset={2}
+            blueOffset={6}
+            backgroundOpacity={0.18}
+            saturation={1.06}
+            brightness={48}
+            opacity={0.99}
+            mixBlendMode="soft-light"
+            className="w-full max-w-xl rounded-[28px]"
+            style={{ background: "rgba(219,234,254,0.42)", boxShadow: "none" }}
           >
-            <div className="text-base font-semibold text-zinc-900">Schedule task</div>
-            <div className="mt-1 text-sm text-zinc-600">Describe what should run and when (plain English).</div>
+            <div
+              className="w-full rounded-[28px] bg-[linear-gradient(180deg,rgba(239,246,255,0.58),rgba(255,255,255,0.32))] p-4"
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Schedule task"
+            >
+              <div className="text-base font-semibold text-zinc-900">Schedule task</div>
+              <div className="mt-1 text-sm text-zinc-600">Describe what should run and when.</div>
 
-            <textarea
-              className="mt-3 h-28 w-full resize-none rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
-              placeholder="Example: Every day Monday through Friday at 9am, send a text to the contact Chester with a unique good-morning message to get started."
-              value={scheduleTaskText}
-              onChange={(e) => setScheduleTaskText(e.target.value)}
-              autoFocus
-            />
+              <textarea
+                className="mt-3 h-28 w-full resize-none rounded-2xl border border-[rgba(191,219,254,0.72)] bg-[rgba(255,255,255,0.72)] px-3 py-2 text-sm text-zinc-900 outline-none backdrop-blur-[2px] focus:border-[rgba(29,78,216,0.28)] focus:ring-2 focus:ring-[rgba(29,78,216,0.14)]"
+                placeholder="Example: Every weekday at 9am, send Chester a unique good-morning text to get the conversation started."
+                value={scheduleTaskText}
+                onChange={(e) => setScheduleTaskText(e.target.value)}
+                autoFocus
+              />
 
-            <div className="mt-3 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                onClick={() => setScheduleTaskOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
-                disabled={!scheduleTaskText.trim() || sending}
-                onClick={() => {
-                  const t = scheduleTaskText.trim();
-                  setScheduleTaskOpen(false);
-                  if (!t) return;
-                  setScheduledOpen(true);
-                  void send(t).then(() => loadScheduled());
-                }}
-              >
-                Schedule
-              </button>
+              <div className="mt-3 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-2xl border border-[rgba(191,219,254,0.7)] bg-[rgba(255,255,255,0.72)] px-3 py-2 text-sm font-semibold text-zinc-800 backdrop-blur-[2px] hover:bg-[rgba(255,255,255,0.84)]"
+                  onClick={() => setScheduleTaskOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded-2xl bg-[rgba(29,78,216,0.92)] px-3 py-2 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(29,78,216,0.18)] hover:bg-[rgba(29,78,216,0.98)] disabled:opacity-50"
+                  disabled={!scheduleTaskText.trim() || sending}
+                  onClick={() => {
+                    const t = scheduleTaskText.trim();
+                    setScheduleTaskOpen(false);
+                    if (!t) return;
+                    setScheduledOpen(true);
+                    void send(t).then(() => loadScheduled());
+                  }}
+                >
+                  Schedule
+                </button>
+              </div>
             </div>
-          </div>
+          </GlassSurface>
         </div>
       ) : null}
 
@@ -5695,7 +6420,7 @@ export function PortalAiChatClient({
                             </div>
                           </div>
                         )}
-                        {m.role === "assistant" && Array.isArray(m.followUpSuggestions) && m.followUpSuggestions.length ? (
+                        {m.role === "assistant" && m.id === latestMessageId && Array.isArray(m.followUpSuggestions) && m.followUpSuggestions.length ? (
                           <div className="mt-2 flex flex-wrap gap-2">
                             {m.followUpSuggestions.map((suggestion) => (
                               <button
@@ -5723,9 +6448,9 @@ export function PortalAiChatClient({
                     />
                   </div>
                 ) : null}
-                {showWorkingMemoryCard && activeWorkingMemory ? (
+                {showThreadMemoryNotice && activeWorkingMemory ? (
                   <div className="mt-3">
-                    <WorkingMemoryCard memory={activeWorkingMemory} unresolvedRun={activeUnresolvedRun} nextStepContext={activeNextStepContext} />
+                    <ThreadMemoryUpdatedCard memory={activeWorkingMemory} onOpen={openThreadMemoryActivity} />
                   </div>
                 ) : null}
                 {!showActiveLiveProgressCard && activeUnresolvedRun ? (
@@ -5796,7 +6521,7 @@ export function PortalAiChatClient({
                 <div className="pointer-events-auto flex flex-col items-end gap-2">
                   {!canvasOpen && Boolean(canvasUrl) ? (
                     <button
-                      className="inline-flex h-10 items-center gap-1 rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white shadow-[0_10px_24px_rgba(0,0,0,0.12)] hover:opacity-95 lg:hidden"
+                      className={classNames(frostedBlueButtonClassName(), "h-10 px-3 py-2 text-xs font-bold lg:hidden")}
                       title="Open canvas"
                       onClick={() => openLatestCanvas({ modal: false })}
                     >
@@ -5828,7 +6553,10 @@ export function PortalAiChatClient({
                       <button
                         type="button"
                         className="inline-flex h-10 items-center rounded-2xl bg-[rgba(255,255,255,0.62)] px-3 text-xs font-semibold text-zinc-700 backdrop-blur-[2px] hover:bg-[rgba(255,255,255,0.72)]"
-                        onClick={() => setRunsOpen(true)}
+                        onClick={() => {
+                          setActivityView({ kind: "list" });
+                          setRunsOpen(true);
+                        }}
                       >
                         Activity
                       </button>
@@ -5845,7 +6573,7 @@ export function PortalAiChatClient({
                 </div>
                 <button
                   type="button"
-                  className="shrink-0 rounded-xl border border-brand-blue/20 bg-brand-blue px-2 py-1 font-semibold text-white hover:opacity-95"
+                  className={classNames(frostedBlueButtonClassName("compact"), "shrink-0")}
                   onClick={() => openCanvasInNewTab(canvasUrl)}
                 >
                   Open
@@ -5871,7 +6599,7 @@ export function PortalAiChatClient({
 
         {!canvasOpen && Boolean(canvasUrl) ? (
           <button
-            className="hidden lg:absolute lg:right-0 lg:top-32 lg:z-30 lg:inline-flex lg:h-10 lg:items-center lg:gap-1 lg:rounded-l-2xl lg:rounded-r-none lg:border lg:border-brand-blue/20 lg:bg-brand-blue lg:px-3 lg:py-2 lg:text-xs lg:font-bold lg:text-white lg:shadow-[0_10px_24px_rgba(0,0,0,0.12)] hover:opacity-95"
+            className="hidden lg:absolute lg:right-0 lg:top-32 lg:z-30 lg:inline-flex lg:h-10 lg:items-center lg:gap-1 lg:rounded-l-2xl lg:rounded-r-none lg:border lg:border-[rgba(29,78,216,0.18)] lg:bg-[rgba(29,78,216,0.12)] lg:px-3 lg:py-2 lg:text-xs lg:font-bold lg:text-brand-blue lg:backdrop-blur-md lg:shadow-[0_10px_24px_rgba(29,78,216,0.14)] lg:hover:bg-[rgba(29,78,216,0.18)]"
             title="Open canvas"
             onClick={() => openLatestCanvas({ modal: false })}
           >
@@ -5907,7 +6635,7 @@ export function PortalAiChatClient({
                   <div className="flex items-center gap-2">
                     <a
                       href={canvasUrl}
-                      className="rounded-xl border border-brand-blue/20 bg-brand-blue px-2 py-1 text-xs font-semibold text-white hover:opacity-95"
+                      className={frostedBlueButtonClassName("compact")}
                       target="_blank"
                       rel="noreferrer noopener"
                     >
@@ -5956,129 +6684,184 @@ export function PortalAiChatClient({
 
       <AppModal
         open={runsOpen}
-        title="Recent runs"
-        description="Inspect recent work Pura completed for this chat."
-        onClose={() => setRunsOpen(false)}
+        title="Activity"
+        description="Inspect recent work and thread memory for this chat."
+        onClose={closeActivityModal}
+        headerActions={
+          <>
+            {activityView.kind !== "list" ? (
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-white text-lg font-semibold text-zinc-700 shadow-[0_8px_24px_rgba(15,23,42,0.08)] transition-colors duration-150 hover:bg-zinc-50"
+                aria-label="Back"
+                onClick={() => setActivityView({ kind: "list" })}
+              >
+                ←
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]"
+              onClick={() => {
+                acknowledgeActiveThreadMemory();
+                setActivityView({ kind: "thread-memory" });
+              }}
+            >
+              Thread Memory
+            </button>
+          </>
+        }
         widthClassName="w-[min(900px,calc(100vw-32px))]"
         closeVariant="x"
         hideHeaderDivider
       >
         {runsLoading ? (
           <div className="text-sm text-zinc-600">Loading…</div>
-        ) : !sortedRunLedgerRows.length ? (
-          <div className="text-sm text-zinc-600">No runs yet for this chat.</div>
         ) : (
-          <div className="space-y-3">
-            {sortedRunLedgerRows.map((run) => {
-              const isActiveRun = Boolean(activeRunLedgerRow && activeRunLedgerRow.id === run.id);
-              return (
-              <div key={run.id} className={classNames("rounded-3xl border bg-white p-4", isActiveRun ? "border-brand-blue/30 shadow-[0_0_0_1px_rgba(37,99,235,0.08)]" : "border-zinc-200")}>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-zinc-900">{run.workTitle || "Pura run"}</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                      {isActiveRun ? <span className="rounded-full border border-brand-blue/20 bg-blue-50 px-2 py-0.5 font-semibold text-brand-blue">Active</span> : null}
-                      <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(run.triggerKind)}</span>
-                      <span className={classNames(
-                        "rounded-full border px-2 py-0.5",
-                        run.status === "running"
-                          ? "border-brand-blue/20 bg-blue-50 text-brand-blue"
-                          : run.status === "completed"
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                          : run.status === "interrupted"
-                            ? "border-zinc-300 bg-zinc-100 text-zinc-700"
-                          : run.status === "partial" || run.status === "needs_input"
-                            ? "border-amber-200 bg-amber-50 text-amber-900"
-                            : "border-red-200 bg-red-50 text-red-800",
-                      )}>
-                        {formatRunStatusLabel(run.status)}
-                      </span>
-                      <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Started: {formatLocalDateTime(new Date(run.createdAt))}</span>
-                      {run.completedAt ? (
-                        <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Completed: {formatLocalDateTime(new Date(run.completedAt))}</span>
-                      ) : null}
+          <div>
+            {activityView.kind === "thread-memory" ? (
+              activeWorkingMemory ? (
+                <ThreadMemoryDetail memory={activeWorkingMemory} unresolvedRun={activeUnresolvedRun} nextStepContext={activeNextStepContext} />
+              ) : (
+                <div className="text-sm text-zinc-600">No thread memory yet. Keep chatting to form a thread memory.</div>
+              )
+            ) : activityView.kind === "run" ? (
+              selectedActivityRun ? (
+                <div className="rounded-3xl border border-brand-blue/20 bg-white p-4 shadow-[0_0_0_1px_rgba(37,99,235,0.08)]">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-900">{selectedActivityRun.workTitle || "Pura run"}</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                        {Boolean(activeRunLedgerRow && activeRunLedgerRow.id === selectedActivityRun.id) ? <span className={classNames("rounded-full px-2 py-0.5 font-semibold", activityStatusPillClass("running", true))}>Active</span> : null}
+                        <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(selectedActivityRun.triggerKind)}</span>
+                        <span className={classNames("rounded-full px-2 py-0.5", activityStatusPillClass(selectedActivityRun.status))}>{formatRunStatusLabel(selectedActivityRun.status)}</span>
+                        <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Started: {formatLocalDateTime(new Date(selectedActivityRun.createdAt))}</span>
+                        {selectedActivityRun.completedAt ? <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Completed: {formatLocalDateTime(new Date(selectedActivityRun.completedAt))}</span> : null}
+                      </div>
                     </div>
-                    {run.summaryText ? <div className="mt-2 line-clamp-3 text-sm text-zinc-600">{run.summaryText}</div> : null}
-                  </div>
-                  {run.canvasUrl ? (
-                    <div className="shrink-0">
+                    {selectedActivityRun.canvasUrl ? (
                       <button
                         type="button"
-                        className="rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
-                        onClick={() => openInCanvas(run.canvasUrl!)}
+                        className={frostedBlueButtonClassName()}
+                        onClick={() => openInCanvas(selectedActivityRun.canvasUrl!)}
                       >
                         Open work
                       </button>
+                    ) : null}
+                  </div>
+
+                  {selectedActivityRun.summaryText || selectedActivityRun.steps.length || selectedActivityRun.workTitle ? (
+                    <div className="mt-4 rounded-2xl bg-zinc-50 px-4 py-3">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Summary</div>
+                      <PuraMarkdownBlock text={summarizeRunForActivity(selectedActivityRun)} className="text-zinc-700" />
+                    </div>
+                  ) : null}
+
+                  {selectedActivityRun.steps.length ? (
+                    <div className="mt-4 rounded-2xl bg-zinc-50 px-4 py-3">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Steps</div>
+                      <div className="space-y-3">
+                        {selectedActivityRun.steps.map((step, idx) => {
+                          const tone = activityStepTone(selectedActivityRun.status, step.ok);
+                          return (
+                            <div key={`${selectedActivityRun.id}:${step.key}:${idx}`} className={classNames("flex items-start justify-between gap-3 rounded-2xl px-3 py-3", tone.cardClassName)}>
+                              <div className={classNames("min-w-0 flex-1 text-sm", tone.textClassName)}>
+                                <PuraMarkdownBlock text={step.title || step.key} className={tone.textClassName} />
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <span className={classNames("rounded-full px-2 py-0.5 text-[11px] font-semibold", tone.pillClassName)}>{tone.label}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {selectedActivityRun.followUpSuggestions?.length ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {selectedActivityRun.followUpSuggestions.map((suggestion) => (
+                        <button
+                          key={`${selectedActivityRun.id}:${suggestion}`}
+                          type="button"
+                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                          onClick={() => {
+                            closeActivityModal();
+                            void send(suggestion);
+                          }}
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {selectedActivityRun.status === "needs_input" || selectedActivityRun.status === "interrupted" || selectedActivityRun.status === "failed" ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {(selectedActivityRun.status === "needs_input" || selectedActivityRun.status === "interrupted") ? (
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-brand-blue/20 bg-blue-50 px-3 py-2 text-xs font-semibold text-brand-blue hover:bg-blue-100"
+                          onClick={() => {
+                            closeActivityModal();
+                            void send(selectedActivityRun.status === "needs_input" ? "Continue this chat and ask me only for the missing input you actually need." : "Continue this chat from where you left off and finish the remaining work.");
+                          }}
+                        >
+                          {selectedActivityRun.status === "needs_input" ? "Continue" : "Resume"}
+                        </button>
+                      ) : null}
+                      {selectedActivityRun.status === "failed" ? (
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                          onClick={() => {
+                            closeActivityModal();
+                            void send("Retry the last failed work in this chat, fix the issue, and keep going until it is done.");
+                          }}
+                        >
+                          Retry
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
-                {run.steps.length ? (
-                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
-                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Steps</div>
-                    <div className="space-y-2">
-                      {run.steps.slice(0, 8).map((step, idx) => (
-                        <div key={`${run.id}:${step.key}:${idx}`} className="flex items-center justify-between gap-3 text-sm">
-                          <div className="min-w-0 truncate text-zinc-700">{step.title || step.key}</div>
-                          <div className="flex items-center gap-2">
-                            <span className={classNames("rounded-full px-2 py-0.5 text-[11px] font-semibold", step.ok ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-700")}>{step.ok ? "OK" : "Failed"}</span>
-                            {step.linkUrl ? (
-                              <button type="button" className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100" onClick={() => openInCanvas(step.linkUrl!)}>
-                                Open
-                              </button>
-                            ) : null}
-                          </div>
+              ) : (
+                <div className="text-sm text-zinc-600">That run is no longer available.</div>
+              )
+            ) : !sortedRunLedgerRows.length ? (
+              <div className="text-sm text-zinc-600">No runs yet for this chat.</div>
+            ) : (
+              <div className="space-y-3">
+                {sortedRunLedgerRows.map((run) => {
+                  const isActiveRun = Boolean(activeRunLedgerRow && activeRunLedgerRow.id === run.id);
+                  const stepsPreview = run.steps.length ? `${run.steps.length} step${run.steps.length === 1 ? "" : "s"}` : null;
+                  return (
+                    <button
+                      key={run.id}
+                      type="button"
+                      className={classNames("block w-full rounded-3xl border bg-white p-4 text-left transition-colors hover:bg-zinc-50", isActiveRun ? "border-brand-blue/30 shadow-[0_0_0_1px_rgba(37,99,235,0.08)]" : "border-zinc-200")}
+                      onClick={() => setActivityView({ kind: "run", runId: run.id })}
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-zinc-900">{run.workTitle || "Pura run"}</div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                          {isActiveRun ? <span className={classNames("rounded-full px-2 py-0.5 font-semibold", activityStatusPillClass("running", true))}>Active</span> : null}
+                          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(run.triggerKind)}</span>
+                          <span className={classNames("rounded-full px-2 py-0.5", activityStatusPillClass(run.status))}>{formatRunStatusLabel(run.status)}</span>
+                          {stepsPreview ? <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{stepsPreview}</span> : null}
+                          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Started: {formatLocalDateTime(new Date(run.createdAt))}</span>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                {run.followUpSuggestions?.length ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {run.followUpSuggestions.map((suggestion) => (
-                      <button
-                        key={`${run.id}:${suggestion}`}
-                        type="button"
-                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
-                        onClick={() => {
-                          setRunsOpen(false);
-                          void send(suggestion);
-                        }}
-                      >
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                {run.status === "needs_input" || run.status === "interrupted" || run.status === "failed" ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {(run.status === "needs_input" || run.status === "interrupted") ? (
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-brand-blue/20 bg-blue-50 px-3 py-2 text-xs font-semibold text-brand-blue hover:bg-blue-100"
-                        onClick={() => {
-                          setRunsOpen(false);
-                          void send(run.status === "needs_input" ? "Continue this chat and ask me only for the missing input you actually need." : "Continue this chat from where you left off and finish the remaining work.");
-                        }}
-                      >
-                        {run.status === "needs_input" ? "Continue" : "Resume"}
-                      </button>
-                    ) : null}
-                    {run.status === "failed" ? (
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
-                        onClick={() => {
-                          setRunsOpen(false);
-                          void send("Retry the last failed work in this chat, fix the issue, and keep going until it is done.");
-                        }}
-                      >
-                        Retry
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
+                        {run.summaryText || run.steps.length || run.workTitle ? (
+                          <div className="mt-3 max-h-24 overflow-hidden text-sm text-zinc-600">
+                            <PuraMarkdownBlock text={summarizeRunForActivity(run)} className="text-zinc-600" />
+                          </div>
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
-            );})}
+            )}
           </div>
         )}
       </AppModal>

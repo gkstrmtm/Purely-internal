@@ -149,7 +149,7 @@ export function PortalMultiSelectDropdown(props: {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder={placeholder || "Search…"}
-            className="h-9 w-full rounded-xl border border-white/35 bg-white/55 px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
+            className="h-9 w-full rounded-xl bg-white/55 px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -269,7 +269,7 @@ export function PortalMultiSelectDropdown(props: {
         type="button"
         disabled={disabled}
         className={classNames(
-          "flex w-full items-center justify-between gap-2 rounded-2xl border border-white/35 bg-white/70 px-3 py-2 text-sm text-zinc-900 hover:bg-white/80",
+          "flex w-full items-center justify-between gap-2 rounded-2xl bg-white/70 px-3 py-2 text-sm text-zinc-900 hover:bg-white/80",
           !disabled && portalGlassButtonClass,
           disabled && "cursor-not-allowed opacity-60",
         )}
@@ -303,7 +303,7 @@ export function PortalMultiSelectDropdown(props: {
             return (
               <span
                 key={v}
-                className="inline-flex items-center gap-1 rounded-full border border-white/35 bg-white/65 px-2 py-1 text-xs text-zinc-700 backdrop-blur-xl"
+                className="inline-flex items-center gap-1 rounded-full bg-white/65 px-2 py-1 text-xs text-zinc-700 backdrop-blur-xl"
               >
                 <span className="max-w-60 truncate font-semibold">{label}</span>
                 <button

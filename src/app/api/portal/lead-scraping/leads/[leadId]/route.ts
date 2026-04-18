@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,18 @@ const patchSchema = z
       .max(200)
       .optional()
       .transform((v) => (v === "" ? null : v)),
+    phone: z
+      .string()
+      .trim()
+      .max(60)
+      .optional()
+      .transform((v) => (v === "" ? null : v)),
+    website: z
+      .string()
+      .trim()
+      .max(400)
+      .optional()
+      .transform((v) => (v === "" ? null : v)),
     tag: z
       .string()
       .trim()
@@ -34,9 +47,18 @@ const patchSchema = z
       .optional()
       .transform((v) => (v === "" ? null : v)),
   })
-  .refine((v) => v.starred !== undefined || v.email !== undefined || v.tag !== undefined || v.tagColor !== undefined, {
-    message: "No changes provided",
-  })
+  .refine(
+    (v) =>
+      v.starred !== undefined ||
+      v.email !== undefined ||
+      v.phone !== undefined ||
+      v.website !== undefined ||
+      v.tag !== undefined ||
+      v.tagColor !== undefined,
+    {
+      message: "No changes provided",
+    },
+  )
   .refine(
     (v) => {
       if (v.email === undefined || v.email === null) return true;
@@ -74,11 +96,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ leadId: strin
     return NextResponse.json({ ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
   }
 
+  const hasLeadEmailColumn =
+    parsed.data.email === undefined
+      ? false
+      : await dbHasPublicColumn({ tableNames: ["PortalLead", "portalLead"], columnName: "email" }).catch(() => false);
+
   const updated = await prisma.portalLead.updateMany({
     where: { id: leadId.data, ownerId },
     data: {
       ...(parsed.data.starred !== undefined ? { starred: parsed.data.starred } : {}),
-      ...(parsed.data.email !== undefined ? { email: parsed.data.email } : {}),
+      ...(parsed.data.email !== undefined && hasLeadEmailColumn ? { email: parsed.data.email } : {}),
+      ...(parsed.data.phone !== undefined ? { phone: parsed.data.phone } : {}),
+      ...(parsed.data.website !== undefined ? { website: parsed.data.website } : {}),
       ...(parsed.data.tag !== undefined ? { tag: parsed.data.tag } : {}),
       ...(parsed.data.tagColor !== undefined ? { tagColor: parsed.data.tagColor } : {}),
     },

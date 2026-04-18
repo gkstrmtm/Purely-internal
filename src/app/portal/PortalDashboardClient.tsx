@@ -33,7 +33,7 @@ const dashboardPrimaryButtonClass =
   "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95";
 
 const dashboardSecondaryButtonClass =
-  "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink transition-colors duration-100 hover:border-zinc-300 hover:bg-zinc-50";
+  "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50";
 
 const dashboardEditPrimaryButtonClass =
   "rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60";

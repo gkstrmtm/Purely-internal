@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import {
@@ -20,9 +21,11 @@ import {
 } from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { useToast } from "@/components/ToastProvider";
-import { IconCopy, IconEdit } from "@/app/portal/PortalIcons";
+import { portalGlassButtonClass } from "@/components/portalGlass";
+import { IconCopy, IconEdit, IconEyeGlyph, IconGlobeGlyph } from "@/app/portal/PortalIcons";
 import { hostedFunnelPath, hostedFormPath } from "@/lib/publicHostedKeys";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 import { CreditFormTemplatePreview } from "@/components/CreditFormTemplatePreview";
@@ -86,8 +89,67 @@ type FormSettingsDialog = {
   status: CreditForm["status"];
 } | null;
 
+type FunnelSettingsDialog = {
+  id: string;
+  name: string;
+  slug: string;
+  status: CreditFunnel["status"];
+  domain: string;
+} | null;
+
+type FixedMenuAnchor = {
+  anchorId: string;
+  rect: { top: number; right: number; bottom: number; left: number };
+};
+
+type FixedMenuStyle = {
+  anchorId: string;
+  top: number;
+  left: number;
+  maxHeight: number;
+};
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function FixedPortalMenu({
+  open,
+  menuRef,
+  style,
+  children,
+}: {
+  open: boolean;
+  menuRef: RefObject<HTMLDivElement | null>;
+  style: FixedMenuStyle | null;
+  children: ReactNode;
+}) {
+  if (!open || typeof document === "undefined") return null;
+
+  return createPortal(
+    <LiquidGlassPopupSurface
+      ref={menuRef}
+      className={classNames("fixed z-120 w-56 overflow-hidden", style ? "opacity-100" : "pointer-events-none opacity-0")}
+      style={style ? { top: style.top, left: style.left, maxHeight: style.maxHeight } : { visibility: "hidden" }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+    >
+      {children}
+    </LiquidGlassPopupSurface>,
+    document.body,
+  );
+}
+
+async function fetchJsonWithTimeout<T>(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 15000): Promise<T | null> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(input, { ...init, signal: controller.signal }).catch(() => null as any);
+    if (!res?.ok) return null;
+    return ((await res.json().catch(() => null)) as T | null) ?? null;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 function funnelStatusLabel(
@@ -102,10 +164,10 @@ function funnelStatusLabel(
 
 function statusPillClass(label: string) {
   const s = String(label || "").trim().toUpperCase();
-  if (s === "LIVE" || s === "ACTIVE") return "border-green-200 bg-green-50 text-green-800";
-  if (s === "PENDING") return "border-amber-200 bg-amber-50 text-amber-900";
-  if (s === "ARCHIVED") return "border-zinc-200 bg-zinc-50 text-zinc-500";
-  return "border-zinc-200 bg-zinc-50 text-zinc-700";
+  if (s === "LIVE" || s === "ACTIVE") return "bg-green-50 text-green-800";
+  if (s === "PENDING") return "bg-amber-50 text-amber-900";
+  if (s === "ARCHIVED") return "bg-zinc-50 text-zinc-500";
+  return "bg-zinc-50 text-zinc-700";
 }
 
 function DotsIcon({ className }: { className?: string }) {
@@ -260,8 +322,11 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [busy, setBusy] = useState(false);
 
   const [funnelDeleteBusy, setFunnelDeleteBusy] = useState<Record<string, boolean>>({});
+  const [funnelSaveBusy, setFunnelSaveBusy] = useState<Record<string, boolean>>({});
   const [formDeleteBusy, setFormDeleteBusy] = useState<Record<string, boolean>>({});
   const [formSaveBusy, setFormSaveBusy] = useState<Record<string, boolean>>({});
+  const [funnelSettingsDialog, setFunnelSettingsDialog] = useState<FunnelSettingsDialog>(null);
+  const [funnelSettingsError, setFunnelSettingsError] = useState<string | null>(null);
   const [formSettingsDialog, setFormSettingsDialog] = useState<FormSettingsDialog>(null);
   const [formSettingsError, setFormSettingsError] = useState<string | null>(null);
 
@@ -303,92 +368,72 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [openFunnelMenuId, setOpenFunnelMenuId] = useState<string | null>(null);
   const funnelMenuRootRef = useRef<HTMLDivElement | null>(null);
   const funnelMenuElRef = useRef<HTMLDivElement | null>(null);
-  const [funnelMenuStyle, setFunnelMenuStyle] = useState<
-    | { anchorId: string; top: number; left: number; maxHeight: number; placement: "up" | "down" }
-    | null
-  >(null);
+  const [funnelMenuAnchor, setFunnelMenuAnchor] = useState<FixedMenuAnchor | null>(null);
+  const [funnelMenuStyle, setFunnelMenuStyle] = useState<FixedMenuStyle | null>(null);
 
   const [openFormMenuId, setOpenFormMenuId] = useState<string | null>(null);
   const formMenuRootRef = useRef<HTMLDivElement | null>(null);
   const formMenuElRef = useRef<HTMLDivElement | null>(null);
-  const [formMenuStyle, setFormMenuStyle] = useState<
-    | { anchorId: string; top: number; left: number; maxHeight: number; placement: "up" | "down" }
-    | null
-  >(null);
+  const [formMenuAnchor, setFormMenuAnchor] = useState<FixedMenuAnchor | null>(null);
+  const [formMenuStyle, setFormMenuStyle] = useState<FixedMenuStyle | null>(null);
 
   useLayoutEffect(() => {
-    if (!openFunnelMenuId) {
+    if (!openFunnelMenuId || !funnelMenuAnchor || funnelMenuAnchor.anchorId !== openFunnelMenuId) {
       setFunnelMenuStyle(null);
       return;
     }
 
-    const root = funnelMenuRootRef.current;
     const menu = funnelMenuElRef.current;
-    const btn = root?.querySelector('button[aria-label="Funnel actions"]') as HTMLButtonElement | null;
-    if (!root || !menu || !btn) return;
+    if (!menu) return;
 
-    const btnRect = btn.getBoundingClientRect();
+    const btnRect = funnelMenuAnchor.rect;
     const menuRect = menu.getBoundingClientRect();
 
     const VIEWPORT_PAD = 12;
-    const GAP = 8;
+    const GAP = 4;
     const viewportW = window.innerWidth;
     const viewportH = window.innerHeight;
 
-    const spaceBelow = viewportH - btnRect.bottom - GAP - VIEWPORT_PAD;
-    const spaceAbove = btnRect.top - GAP - VIEWPORT_PAD;
+    const menuWidth = Math.max(224, Math.round(menuRect.width) || 224);
+    const menuHeight = Math.max(120, Math.round(menuRect.height) || 120);
+    const spaceBelow = Math.max(120, viewportH - btnRect.bottom - GAP - VIEWPORT_PAD);
+    const maxHeight = Math.min(menuHeight, spaceBelow);
+    const usedHeight = Math.min(menuHeight, maxHeight);
 
-    const placement: "up" | "down" = spaceBelow >= Math.min(menuRect.height, 240) || spaceBelow >= spaceAbove ? "down" : "up";
-    const available = placement === "down" ? spaceBelow : spaceAbove;
-    const maxHeight = Math.max(80, Math.min(menuRect.height, available));
-    const usedHeight = Math.min(menuRect.height, maxHeight);
+    const left = Math.min(Math.max(VIEWPORT_PAD, btnRect.left), viewportW - VIEWPORT_PAD - menuWidth);
+    const top = Math.min(btnRect.bottom + GAP, viewportH - VIEWPORT_PAD - usedHeight);
 
-    let top =
-      placement === "down" ? btnRect.bottom + GAP : btnRect.top - GAP - usedHeight;
-    let left = btnRect.right - menuRect.width;
-
-    left = Math.min(Math.max(VIEWPORT_PAD, left), viewportW - VIEWPORT_PAD - menuRect.width);
-    top = Math.min(Math.max(VIEWPORT_PAD, top), viewportH - VIEWPORT_PAD - usedHeight);
-
-    setFunnelMenuStyle({ anchorId: openFunnelMenuId, top, left, maxHeight, placement });
-  }, [openFunnelMenuId]);
+    setFunnelMenuStyle({ anchorId: openFunnelMenuId, top, left, maxHeight });
+  }, [funnelMenuAnchor, openFunnelMenuId]);
 
   useLayoutEffect(() => {
-    if (!openFormMenuId) {
+    if (!openFormMenuId || !formMenuAnchor || formMenuAnchor.anchorId !== openFormMenuId) {
       setFormMenuStyle(null);
       return;
     }
 
-    const root = formMenuRootRef.current;
     const menu = formMenuElRef.current;
-    const btn = root?.querySelector('button[aria-label="Form actions"]') as HTMLButtonElement | null;
-    if (!root || !menu || !btn) return;
+    if (!menu) return;
 
-    const btnRect = btn.getBoundingClientRect();
+    const btnRect = formMenuAnchor.rect;
     const menuRect = menu.getBoundingClientRect();
 
     const VIEWPORT_PAD = 12;
-    const GAP = 8;
+    const GAP = 4;
     const viewportW = window.innerWidth;
     const viewportH = window.innerHeight;
 
-    const spaceBelow = viewportH - btnRect.bottom - GAP - VIEWPORT_PAD;
-    const spaceAbove = btnRect.top - GAP - VIEWPORT_PAD;
+    const menuWidth = Math.max(224, Math.round(menuRect.width) || 224);
+    const menuHeight = Math.max(120, Math.round(menuRect.height) || 120);
+    const spaceBelow = Math.max(120, viewportH - btnRect.bottom - GAP - VIEWPORT_PAD);
+    const maxHeight = Math.min(menuHeight, spaceBelow);
+    const usedHeight = Math.min(menuHeight, maxHeight);
 
-    const placement: "up" | "down" = spaceBelow >= Math.min(menuRect.height, 240) || spaceBelow >= spaceAbove ? "down" : "up";
-    const available = placement === "down" ? spaceBelow : spaceAbove;
-    const maxHeight = Math.max(80, Math.min(menuRect.height, available));
-    const usedHeight = Math.min(menuRect.height, maxHeight);
+    const left = Math.min(Math.max(VIEWPORT_PAD, btnRect.left), viewportW - VIEWPORT_PAD - menuWidth);
+    const top = Math.min(btnRect.bottom + GAP, viewportH - VIEWPORT_PAD - usedHeight);
 
-    let top =
-      placement === "down" ? btnRect.bottom + GAP : btnRect.top - GAP - usedHeight;
-    let left = btnRect.right - menuRect.width;
-
-    left = Math.min(Math.max(VIEWPORT_PAD, left), viewportW - VIEWPORT_PAD - menuRect.width);
-    top = Math.min(Math.max(VIEWPORT_PAD, top), viewportH - VIEWPORT_PAD - usedHeight);
-
-    setFormMenuStyle({ anchorId: openFormMenuId, top, left, maxHeight, placement });
-  }, [openFormMenuId]);
+    setFormMenuStyle({ anchorId: openFormMenuId, top, left, maxHeight });
+  }, [formMenuAnchor, openFormMenuId]);
 
   const loadStripeStatus = useCallback(async () => {
     setStripeStatusBusy(true);
@@ -415,12 +460,17 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   useEffect(() => {
     if (!openFunnelMenuId) return;
 
-    const close = () => setOpenFunnelMenuId(null);
+    const close = () => {
+      setOpenFunnelMenuId(null);
+      setFunnelMenuAnchor(null);
+    };
 
     const onDown = (ev: MouseEvent) => {
       const root = funnelMenuRootRef.current;
+      const menu = funnelMenuElRef.current;
       const target = ev.target;
       if (root && target && target instanceof Node && root.contains(target)) return;
+      if (menu && target && target instanceof Node && menu.contains(target)) return;
       close();
     };
 
@@ -443,12 +493,17 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   useEffect(() => {
     if (!openFormMenuId) return;
 
-    const close = () => setOpenFormMenuId(null);
+    const close = () => {
+      setOpenFormMenuId(null);
+      setFormMenuAnchor(null);
+    };
 
     const onDown = (ev: MouseEvent) => {
       const root = formMenuRootRef.current;
+      const menu = formMenuElRef.current;
       const target = ev.target;
       if (root && target && target instanceof Node && root.contains(target)) return;
+      if (menu && target && target instanceof Node && menu.contains(target)) return;
       close();
     };
 
@@ -535,23 +590,20 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   }, []);
 
   const loadFunnels = useCallback(async () => {
-    const res = await fetch("/api/portal/funnel-builder/funnels", { cache: "no-store" });
-    const json = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load funnels");
+    const json = (await fetchJsonWithTimeout<any>("/api/portal/funnel-builder/funnels", { cache: "no-store" }, 20000)) as any;
+    if (!json || json.ok !== true) throw new Error(json?.error || "Failed to load funnels");
     setFunnels(Array.isArray(json.funnels) ? json.funnels : []);
   }, []);
 
   const loadForms = useCallback(async () => {
-    const res = await fetch("/api/portal/funnel-builder/forms", { cache: "no-store" });
-    const json = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load forms");
+    const json = (await fetchJsonWithTimeout<any>("/api/portal/funnel-builder/forms", { cache: "no-store" }, 20000)) as any;
+    if (!json || json.ok !== true) throw new Error(json?.error || "Failed to load forms");
     setForms(Array.isArray(json.forms) ? json.forms : []);
   }, []);
 
   const loadDomains = useCallback(async () => {
-    const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" });
-    const json = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load domains");
+    const json = (await fetchJsonWithTimeout<any>("/api/portal/funnel-builder/domains", { cache: "no-store" }, 20000)) as any;
+    if (!json || json.ok !== true) throw new Error(json?.error || "Failed to load domains");
     setDomains(Array.isArray(json.domains) ? json.domains : []);
   }, []);
 
@@ -633,6 +685,42 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       }
     },
     [formSaveBusy, loadForms, toast],
+  );
+
+  const patchFunnel = useCallback(
+    async (
+      funnel: CreditFunnel,
+      data: Partial<Pick<CreditFunnel, "slug" | "status" | "name">> & { domain?: string | null },
+    ) => {
+      if (funnelSaveBusy[funnel.id]) return false;
+      setFunnelSaveBusy((m) => ({ ...m, [funnel.id]: true }));
+      try {
+        const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnel.id)}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update funnel");
+
+        setFunnels((prev) => {
+          if (!prev) return prev;
+          return prev.map((row) => (row.id === funnel.id ? { ...row, ...json.funnel } : row));
+        });
+        return true;
+      } catch (e) {
+        toast.error((e as any)?.message ? String((e as any).message) : "Failed to update funnel");
+        try {
+          await loadFunnels();
+        } catch {
+          // ignore
+        }
+        return false;
+      } finally {
+        setFunnelSaveBusy((m) => ({ ...m, [funnel.id]: false }));
+      }
+    },
+    [funnelSaveBusy, loadFunnels, toast],
   );
 
   const copyText = useCallback(async (text: string) => {
@@ -864,13 +952,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   useEffect(() => {
     let mounted = true;
     void (async () => {
-      try {
-        await Promise.all([loadFunnels(), loadForms()]);
-        if (!mounted) return;
-        await loadDomains();
-      } catch (e) {
-        if (!mounted) return;
-        toast.error((e as any)?.message ? String((e as any).message) : "Failed to load funnel builder data");
+      const [funnelsResult, formsResult, domainsResult] = await Promise.allSettled([loadFunnels(), loadForms(), loadDomains()]);
+      if (!mounted) return;
+
+      const firstError = [funnelsResult, formsResult, domainsResult].find((result) => result.status === "rejected") as PromiseRejectedResult | undefined;
+      if (firstError) {
+        toast.error(firstError.reason instanceof Error ? firstError.reason.message : "Failed to load funnel builder data");
       }
     })();
     return () => {
@@ -1018,6 +1105,119 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       />
 
       <AppModal
+        open={!!funnelSettingsDialog}
+        title="Funnel settings"
+        description="Manage the funnel slug, domain, and status from the funnels list."
+        onClose={() => {
+          setFunnelSettingsDialog(null);
+          setFunnelSettingsError(null);
+        }}
+        widthClassName="w-[min(560px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-colors duration-150 hover:border-zinc-300 hover:bg-zinc-50"
+              onClick={() => {
+                setFunnelSettingsDialog(null);
+                setFunnelSettingsError(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-blue-700"
+              onClick={() => {
+                const current = funnelSettingsDialog;
+                if (!current) return;
+                const normalized = normalizeSlug(current.slug);
+                if (!normalized) {
+                  setFunnelSettingsError("Slug is required.");
+                  return;
+                }
+                const base = (funnels || []).find((item) => item.id === current.id);
+                if (!base) {
+                  setFunnelSettingsDialog(null);
+                  return;
+                }
+                void (async () => {
+                  const ok = await patchFunnel(base, {
+                    slug: normalized,
+                    status: current.status,
+                    domain: current.domain || null,
+                  });
+                  if (ok) {
+                    setFunnelSettingsDialog(null);
+                    setFunnelSettingsError(null);
+                    toast.success("Funnel updated.");
+                  }
+                })();
+              }}
+            >
+              Save
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <label className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
+            <input
+              value={funnelSettingsDialog?.slug || ""}
+              onChange={(e) => {
+                setFunnelSettingsError(null);
+                setFunnelSettingsDialog((prev) => (prev ? { ...prev, slug: e.target.value } : prev));
+              }}
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900"
+            />
+          </label>
+
+          <label className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Domain</div>
+            <PortalListboxDropdown
+              value={funnelSettingsDialog?.domain || ""}
+              disabled={!domains}
+              options={funnelDomainOptions}
+              onChange={(value) => {
+                setFunnelSettingsError(null);
+                setFunnelSettingsDialog((prev) => (prev ? { ...prev, domain: value ? String(value) : "" } : prev));
+              }}
+              className="mt-1 w-full"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition-colors duration-150 hover:border-zinc-300 hover:bg-zinc-50"
+              placeholder="Default (not assigned)"
+            />
+          </label>
+
+          <label className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Status</div>
+            <PortalListboxDropdown
+              value={funnelSettingsDialog?.status || "DRAFT"}
+              onChange={(value) =>
+                setFunnelSettingsDialog((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        status: value === "ACTIVE" || value === "ARCHIVED" ? value : "DRAFT",
+                      }
+                    : prev,
+                )
+              }
+              options={[
+                { value: "DRAFT", label: "Draft" },
+                { value: "ACTIVE", label: "Live" },
+                { value: "ARCHIVED", label: "Archived" },
+              ]}
+              className="mt-1 w-full"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition-colors duration-150 hover:border-zinc-300 hover:bg-zinc-50"
+            />
+          </label>
+
+          {funnelSettingsError ? <div className="text-sm font-semibold text-red-700">{funnelSettingsError}</div> : null}
+        </div>
+      </AppModal>
+
+      <AppModal
         open={!!formSettingsDialog}
         title="Form settings"
         description="Manage the form slug and status from the forms list."
@@ -1112,7 +1312,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Funnel Builder</h1>
+          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">{tab === "forms" ? "Forms" : tab === "funnels" ? "Funnels" : "Funnel Builder"}</h1>
           <p className="mt-1 text-sm text-zinc-600">Convert more traffic into leads and booked calls.</p>
         </div>
       </div>
@@ -1145,59 +1345,13 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               const liveUrlLabel = assignedDomainClean ? "Custom domain URL" : "Hosted URL";
 
               return (
-                <div key={f.id} className="rounded-3xl border border-zinc-200 bg-white p-6">
-                  <div className="text-base font-semibold text-brand-ink">{f.name}</div>
-                  <div className="mt-1 text-sm text-zinc-600">/{f.slug}</div>
-
-                <div className="mt-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Domain</div>
-                  <div className="mt-1 flex flex-col gap-2">
-                    <PortalListboxDropdown
-                      value={String(f.assignedDomain || "")}
-                      disabled={!!funnelDomainBusy[f.id] || !domains}
-                      options={funnelDomainOptions}
-                      onChange={(v) => patchFunnelDomain(f, v ? v : null)}
-                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
-                      placeholder="Default (not assigned)"
-                    />
-
-                    <div className="text-xs text-zinc-600">
-                      {liveUrlLabel}:{" "}
-                      <span className={classNames("font-mono", assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? "text-zinc-400" : "text-zinc-700")}>
-                        {assignedDomainClean
-                          ? isLocalPreview
-                            ? `${platformTargetHost || ""}/domain-router/${assignedDomainClean}/${f.slug}`
-                            : `https://${assignedDomainClean}/${f.slug}`
-                          : toPurelyHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`)}
-                      </span>
-                      {assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? (
-                        <span
-                          className="ml-2 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700"
-                          title="This domain isn’t verified yet (DNS not pointing here or still propagating)."
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
-                          Pending DNS
-                        </span>
-                      ) : null}
+                <div key={f.id} className="flex h-74 flex-col rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_12px_32px_rgba(15,23,42,0.04)]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-base font-semibold text-brand-ink">{f.name}</div>
+                      <div className="mt-1 truncate text-sm text-zinc-600">/{f.slug}</div>
                     </div>
-                  </div>
-                </div>
-
-                  <div className="mt-4 flex items-center justify-between gap-3">
-                    {(() => {
-                      const label = funnelStatusLabel(f, assignedDomainStatus);
-                      return (
-                        <span
-                          className={classNames(
-                            "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
-                            statusPillClass(label),
-                          )}
-                        >
-                          {label}
-                        </span>
-                      );
-                    })()}
-                    <div className="relative">
+                    <div className="relative shrink-0">
                       <div
                         ref={openFunnelMenuId === f.id ? funnelMenuRootRef : undefined}
                         className="relative"
@@ -1208,25 +1362,29 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            setOpenFunnelMenuId((prev) => (prev === f.id ? null : f.id));
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setOpenFunnelMenuId((prev) => {
+                              if (prev === f.id) {
+                                setFunnelMenuAnchor(null);
+                                return null;
+                              }
+                              setFunnelMenuAnchor({
+                                anchorId: f.id,
+                                rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left },
+                              });
+                              return f.id;
+                            });
                           }}
-                          className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition-colors duration-150 hover:bg-zinc-50"
+                          className={classNames("grid h-9 w-9 place-items-center rounded-xl text-zinc-700 transition-colors duration-150 hover:bg-white/80", portalGlassButtonClass)}
                         >
                           <DotsIcon className="h-5 w-5" />
                         </button>
 
                         {openFunnelMenuId === f.id ? (
-                          <div
-                            ref={funnelMenuElRef}
-                            className={classNames(
-                              "fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl",
-                              funnelMenuStyle?.anchorId === f.id ? "opacity-100" : "pointer-events-none opacity-0",
-                            )}
-                            style={
-                              funnelMenuStyle?.anchorId === f.id
-                                ? { top: funnelMenuStyle.top, left: funnelMenuStyle.left, maxHeight: funnelMenuStyle.maxHeight }
-                                : undefined
-                            }
+                          <FixedPortalMenu
+                            open
+                            menuRef={funnelMenuElRef}
+                            style={funnelMenuStyle?.anchorId === f.id ? funnelMenuStyle : null}
                           >
                             <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                               Actions
@@ -1236,7 +1394,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               <Link
                                 href={`${basePath}/app/services/funnel-builder/funnels/${encodeURIComponent(f.id)}/edit`}
                                 target="_blank"
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
+                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-100 hover:bg-white/16"
                                 onClick={() => setOpenFunnelMenuId(null)}
                                 aria-label="Edit"
                                 title="Edit"
@@ -1244,15 +1402,18 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 <span className="inline-flex items-center" aria-hidden="true">
                                   <IconEdit size={16} />
                                 </span>
-                                <span className="sr-only">Edit</span>
+                                <span>Edit</span>
                               </Link>
 
                               <Link
                                 href={toPurelyHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`)}
                                 target="_blank"
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-zinc-50"
+                                className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-white/16"
                                 onClick={() => setOpenFunnelMenuId(null)}
                               >
+                                <span className="inline-flex items-center" aria-hidden="true">
+                                  <IconEyeGlyph size={16} />
+                                </span>
                                 Preview
                               </Link>
 
@@ -1260,14 +1421,17 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 <Link
                                   href={liveHref}
                                   target="_blank"
-                                  className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-zinc-50"
+                                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-white/16"
                                   onClick={() => setOpenFunnelMenuId(null)}
                                 >
+                                  <span className="inline-flex items-center" aria-hidden="true">
+                                    <IconGlobeGlyph size={16} />
+                                  </span>
                                   Live
                                 </Link>
                               ) : (
                                 <div
-                                  className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400"
+                                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400"
                                   title={
                                     f.status !== "ACTIVE"
                                       ? "Set this funnel to Live to enable the live link."
@@ -1276,38 +1440,41 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                         : "Live link is currently unavailable."
                                   }
                                 >
+                                  <span className="inline-flex items-center" aria-hidden="true">
+                                    <IconGlobeGlyph size={16} />
+                                  </span>
                                   Live
                                 </div>
                               )}
 
-                              <div className="my-2 h-px bg-zinc-100" />
+                              <div className="my-2 h-px bg-white/40" />
 
-                              {f.status !== "ARCHIVED" ? (
-                                <button
-                                  type="button"
-                                  disabled={!!funnelStatusBusy[f.id]}
-                                  onClick={() => {
-                                    const next = f.status === "ACTIVE" ? "DRAFT" : "ACTIVE";
-                                    void (async () => {
-                                      const ok = await patchFunnelStatus(f, next);
-                                      if (ok) setOpenFunnelMenuId(null);
-                                    })();
-                                  }}
-                                  className={classNames(
-                                    "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors duration-100 hover:bg-zinc-50",
-                                    f.status === "ACTIVE" ? "text-zinc-700" : "text-green-700",
-                                    funnelStatusBusy[f.id] ? "opacity-60" : "",
-                                  )}
-                                >
-                                  {f.status === "ACTIVE" ? "Set status: Draft" : "Set status: Live"}
-                                </button>
-                              ) : (
-                                <div className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400">
-                                  Status: Archived
-                                </div>
-                              )}
+                              <button
+                                type="button"
+                                disabled={!!funnelSaveBusy[f.id]}
+                                onClick={() => {
+                                  setFunnelSettingsError(null);
+                                  setFunnelSettingsDialog({
+                                    id: f.id,
+                                    name: f.name,
+                                    slug: f.slug,
+                                    status: f.status,
+                                    domain: String(f.assignedDomain || ""),
+                                  });
+                                  setOpenFunnelMenuId(null);
+                                }}
+                                className={classNames(
+                                  "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-700 transition-colors duration-100 hover:bg-white/16",
+                                  funnelSaveBusy[f.id] ? "opacity-60" : "",
+                                )}
+                              >
+                                <span className="inline-flex items-center" aria-hidden="true">
+                                  <IconSidebarSettings className="h-4 w-4" />
+                                </span>
+                                Settings
+                              </button>
 
-                              <div className="my-2 h-px bg-zinc-100" />
+                              <div className="my-2 h-px bg-white/40" />
 
                               <button
                                 type="button"
@@ -1318,17 +1485,59 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                   setOpenFunnelMenuId(null);
                                 }}
                                 className={classNames(
-                                  "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-colors duration-100 hover:bg-zinc-50",
+                                  "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-colors duration-100 hover:bg-red-500/10",
                                   funnelDeleteBusy[f.id] ? "opacity-60" : "",
                                 )}
                               >
                                 Delete
                               </button>
                             </div>
-                          </div>
+                          </FixedPortalMenu>
                         ) : null}
                       </div>
                     </div>
+                  </div>
+                  <div className="mt-4 flex-1 rounded-2xl bg-zinc-50 px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">URL</div>
+                    <div className="mt-1 text-xs text-zinc-700">
+                      <span className="font-mono">
+                        {assignedDomainClean
+                          ? isLocalPreview
+                            ? `${platformTargetHost || ""}/domain-router/${assignedDomainClean}/${f.slug}`
+                            : `https://${assignedDomainClean}/${f.slug}`
+                          : toPurelyHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`)}
+                      </span>
+                    </div>
+                    {assignedDomainClean ? (
+                      <div className="mt-2 flex items-center gap-2 text-[11px] font-semibold text-zinc-600">
+                        <span className="inline-flex items-center rounded-full bg-white px-2 py-1 text-zinc-700">{assignedDomainClean}</span>
+                        {assignedDomainStatus !== "VERIFIED" ? (
+                          <span className="inline-flex items-center gap-1 text-amber-700" title="This domain isn’t verified yet.">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+                            Pending DNS
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="mt-2 text-[11px] text-zinc-500">Hosted on the default Purely URL.</div>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    {(() => {
+                      const label = funnelStatusLabel(f, assignedDomainStatus);
+                      return (
+                        <span
+                          className={classNames(
+                            "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                            statusPillClass(label),
+                          )}
+                        >
+                          {label}
+                        </span>
+                      );
+                    })()}
+                    <div className="text-[11px] text-zinc-500">{liveUrlLabel}</div>
                   </div>
                 </div>
               );
@@ -1359,24 +1568,13 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             </button>
 
             {(forms || []).map((f) => (
-              <div key={f.id} className="rounded-3xl border border-zinc-200 bg-white p-6">
-                <div className="text-base font-semibold text-brand-ink">{f.name}</div>
-                <div className="mt-1 text-sm text-zinc-600">/{f.slug}</div>
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  {(() => {
-                    const label = f.status === "ACTIVE" ? "LIVE" : f.status === "ARCHIVED" ? "ARCHIVED" : "DRAFT";
-                    return (
-                      <span
-                        className={classNames(
-                          "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
-                          statusPillClass(label),
-                        )}
-                      >
-                        {label}
-                      </span>
-                    );
-                  })()}
-                  <div className="relative">
+              <div key={f.id} className="flex h-50 flex-col rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_12px_32px_rgba(15,23,42,0.04)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-base font-semibold text-brand-ink">{f.name}</div>
+                    <div className="mt-1 truncate text-sm text-zinc-600">/{f.slug}</div>
+                  </div>
+                  <div className="relative shrink-0">
                     <div ref={openFormMenuId === f.id ? formMenuRootRef : undefined} className="relative">
                       <button
                         type="button"
@@ -1384,32 +1582,36 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          setOpenFormMenuId((prev) => (prev === f.id ? null : f.id));
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setOpenFormMenuId((prev) => {
+                            if (prev === f.id) {
+                              setFormMenuAnchor(null);
+                              return null;
+                            }
+                            setFormMenuAnchor({
+                              anchorId: f.id,
+                              rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left },
+                            });
+                            return f.id;
+                          });
                         }}
-                        className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition-colors duration-150 hover:bg-zinc-50"
+                        className={classNames("grid h-9 w-9 place-items-center rounded-xl text-zinc-700 transition-colors duration-150 hover:bg-white/80", portalGlassButtonClass)}
                       >
                         <DotsIcon className="h-5 w-5" />
                       </button>
 
                       {openFormMenuId === f.id ? (
-                        <div
-                          ref={formMenuElRef}
-                          className={classNames(
-                            "fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl",
-                            formMenuStyle?.anchorId === f.id ? "opacity-100" : "pointer-events-none opacity-0",
-                          )}
-                          style={
-                            formMenuStyle?.anchorId === f.id
-                              ? { top: formMenuStyle.top, left: formMenuStyle.left, maxHeight: formMenuStyle.maxHeight }
-                              : undefined
-                          }
+                        <FixedPortalMenu
+                          open
+                          menuRef={formMenuElRef}
+                          style={formMenuStyle?.anchorId === f.id ? formMenuStyle : null}
                         >
                           <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Actions</div>
                           <div className="px-2 pb-2">
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-white/16"
                               onClick={() => setOpenFormMenuId(null)}
                               aria-label="Edit"
                               title="Edit"
@@ -1417,26 +1619,32 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               <span className="inline-flex items-center" aria-hidden="true">
                                 <IconEdit size={16} />
                               </span>
-                              <span className="sr-only">Edit</span>
+                              <span>Edit</span>
                             </Link>
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/responses`}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-zinc-50"
+                              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-white/16"
                               onClick={() => setOpenFormMenuId(null)}
                             >
+                              <span className="inline-flex h-4 w-4 items-center justify-center" aria-hidden="true">
+                                <IconForms className="h-4 w-4" />
+                              </span>
                               Responses
                             </Link>
                             <Link
-                                href={getFormLiveHref(f.slug, f.id) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
+                              href={getFormLiveHref(f.slug, f.id) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-zinc-50"
+                              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-white/16"
                               onClick={() => setOpenFormMenuId(null)}
                             >
+                              <span className="inline-flex items-center" aria-hidden="true">
+                                <IconEyeGlyph size={16} />
+                              </span>
                               Preview
                             </Link>
 
-                            <div className="my-2 h-px bg-zinc-100" />
+                            <div className="my-2 h-px bg-white/40" />
 
                             <button
                               type="button"
@@ -1447,11 +1655,14 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 setOpenFormMenuId(null);
                               }}
                               className={classNames(
-                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-700 transition-colors duration-150 hover:bg-zinc-50",
+                                "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-700 transition-colors duration-150 hover:bg-white/16",
                                 formSaveBusy[f.id] ? "opacity-60" : "",
                               )}
                             >
-                              Slug & status
+                              <span className="inline-flex items-center" aria-hidden="true">
+                                <IconSidebarSettings className="h-4 w-4" />
+                              </span>
+                              Settings
                             </button>
 
                             <button
@@ -1463,17 +1674,33 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 setOpenFormMenuId(null);
                               }}
                               className={classNames(
-                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-colors duration-150 hover:bg-zinc-50",
+                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-colors duration-150 hover:bg-red-500/10",
                                 formDeleteBusy[f.id] ? "opacity-60" : "",
                               )}
                             >
                               Delete
                             </button>
                           </div>
-                        </div>
+                        </FixedPortalMenu>
                       ) : null}
                     </div>
                   </div>
+                </div>
+                <div className="mt-auto flex items-center justify-between gap-3 pt-4">
+                  {(() => {
+                    const label = f.status === "ACTIVE" ? "LIVE" : f.status === "ARCHIVED" ? "ARCHIVED" : "DRAFT";
+                    return (
+                      <span
+                        className={classNames(
+                            "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+                          statusPillClass(label),
+                        )}
+                      >
+                        {label}
+                      </span>
+                    );
+                  })()}
+                  <div className="text-[11px] text-zinc-500">Form</div>
                 </div>
               </div>
             ))}

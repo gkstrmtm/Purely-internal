@@ -1281,26 +1281,28 @@ export function PortalFloatingTools() {
                   Show
                 </button>
               </GlassSurface>
-              <GlassSurface {...floatingToolsGlassSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl shadow-lg">
-                <button
-                  type="button"
-                  className="relative grid h-11 w-11 place-items-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-800 backdrop-blur-[2px] transition-all duration-100 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)]"
-                  onClick={() => persistMinimized(false)}
-                  aria-label="Open chat and report tools"
-                >
-                  {pageSuggestion ? <span className="absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full bg-brand-pink ring-2 ring-white" /> : null}
-                  <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path
-                        d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </span>
-                </button>
-              </GlassSurface>
+              <div className="relative z-130140 h-11 w-11 overflow-visible">
+                {pageSuggestion ? <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-130150 h-3.5 w-3.5 rounded-full bg-brand-pink ring-[2.5px] ring-white shadow-[0_0_0_1px_rgba(255,255,255,0.72),0_8px_18px_rgba(244,114,182,0.52)]" /> : null}
+                <GlassSurface {...floatingToolsGlassSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl shadow-lg">
+                  <button
+                    type="button"
+                    className="grid h-11 w-11 place-items-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-800 backdrop-blur-[2px] transition-all duration-100 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)]"
+                    onClick={() => persistMinimized(false)}
+                    aria-label="Open chat and report tools"
+                  >
+                    <span className="relative z-10 grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path
+                          d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                </GlassSurface>
+              </div>
             </div>
           ) : (
             <div className="group flex items-center justify-end gap-2">
@@ -1314,14 +1316,14 @@ export function PortalFloatingTools() {
                   Hide
                 </button>
               </GlassSurface>
-              <GlassSurface {...floatingToolsGlassSurfaceProps} width="auto" height={44} borderRadius={22} className="pointer-events-auto rounded-full shadow-lg">
+              <GlassSurface {...floatingToolsGlassSurfaceProps} width="auto" height={44} borderRadius={22} className="pointer-events-auto overflow-visible rounded-full shadow-lg">
                 <button
                   type="button"
                   className="relative flex h-11 items-center gap-2 rounded-full bg-[rgba(255,255,255,0.62)] px-3 py-2 text-xs font-semibold text-zinc-800 backdrop-blur-[2px] transition-colors duration-100 hover:bg-[rgba(255,255,255,0.72)]"
                   onClick={() => persistMinimized(false)}
                   aria-label="Open tools"
                 >
-                  {pageSuggestion ? <span className="absolute right-2 top-1.5 h-2.5 w-2.5 rounded-full bg-brand-pink" /> : null}
+                  {pageSuggestion ? <span className="absolute right-1.5 top-1 z-20 h-2.5 w-2.5 rounded-full bg-brand-pink ring-2 ring-white shadow-[0_0_0_1px_rgba(255,255,255,0.65),0_4px_12px_rgba(244,114,182,0.42)]" /> : null}
                   <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                       <path
@@ -1342,7 +1344,7 @@ export function PortalFloatingTools() {
             ref={toolsCardRef}
             className="w-[min(320px,calc(100vw-2rem))]"
           >
-            <GlassSurface {...floatingToolsGlassSurfaceProps} width="100%" height="auto" borderRadius={24} className="rounded-3xl shadow-2xl">
+            <GlassSurface {...floatingToolsGlassSurfaceProps} width="100%" height="auto" borderRadius={24} className="overflow-visible rounded-3xl shadow-2xl">
               <div className="w-full rounded-3xl bg-[rgba(255,255,255,0.62)] p-4 backdrop-blur-[2px]">
                 <div className="mb-3 h-1.5 w-14 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(29,78,216,0.25))]" />
                 <div className="flex items-start justify-between gap-3">

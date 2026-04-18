@@ -16,6 +16,10 @@ import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass
 const STRIPE_PUBLISHABLE_KEY = String(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "").trim();
 const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : null;
 
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
+
 type BillingStatus = { configured: boolean };
 
 type BillingInfoResponse =
@@ -1997,7 +2001,7 @@ export function PortalBillingClient({
                               e.stopPropagation();
                               toggleServiceMenu(s.slug, e.currentTarget);
                             }}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
+                            className={classNames(portalGlassButtonClass, "inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80 disabled:opacity-60")}
                             aria-label="Service actions"
                           >
                             ⋯
@@ -2011,7 +2015,7 @@ export function PortalBillingClient({
                                 onTouchStart={() => setServiceMenu(null)}
                               />
                               <div
-                                className="fixed z-40 w-48 overflow-auto rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg"
+                                className={classNames(portalGlassPanelClass, "fixed z-40 w-48 overflow-auto rounded-2xl p-1.5 shadow-lg")}
                                 style={{ left: serviceMenu.left, top: serviceMenu.top, maxHeight: serviceMenu.maxHeight }}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onTouchStart={(e) => e.stopPropagation()}
@@ -2020,7 +2024,7 @@ export function PortalBillingClient({
                                 !creditsOnly && s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
                                   <button
                                     type="button"
-                                    className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                                    className={classNames(portalGlassButtonClass, "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-white/80")}
                                     onClick={() => openPurchaseModal(s.entitlementKey as any, s.title)}
                                   >
                                     Enable…
@@ -2031,7 +2035,7 @@ export function PortalBillingClient({
                               ) : state === "needs_setup" ? (
                                 <button
                                   type="button"
-                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                                  className={classNames(portalGlassButtonClass, "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-white/80")}
                                   onClick={() => router.push(setupHrefForService(s.slug, label), { scroll: false })}
                                 >
                                   {setupActionLabelForService(s.slug, label)}…
@@ -2043,7 +2047,7 @@ export function PortalBillingClient({
                                   type="button"
                                   disabled={busy || actionBusy !== null}
                                   onClick={() => void setServiceLifecycle(s.slug, "resume")}
-                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                                  className={classNames(portalGlassButtonClass, "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-white/80 disabled:opacity-60")}
                                 >
                                   Resume service
                                 </button>
@@ -2052,7 +2056,7 @@ export function PortalBillingClient({
                                   type="button"
                                   disabled={!canLifecycleManage || busy || actionBusy !== null}
                                   onClick={() => void setServiceLifecycle(s.slug, "pause")}
-                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                                  className={classNames(portalGlassButtonClass, "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-white/80 disabled:opacity-60")}
                                 >
                                   Pause service
                                 </button>

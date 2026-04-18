@@ -97,15 +97,7 @@ export function BuyCreditsModal({
       hideHeaderDivider
       hideFooterDivider
       footer={
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <button
-            type="button"
-            className="rounded-2xl bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-            onClick={onClose}
-            disabled={busy}
-          >
-            Cancel
-          </button>
+        <div className="flex justify-end">
           <button
             type="button"
             className={classNames(

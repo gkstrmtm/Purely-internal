@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { InlineSpinner } from "@/components/InlineSpinner";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
+import { portalGlassButtonClass } from "@/components/portalGlass";
 
 type RangeKey = "today" | "7d" | "30d" | "90d" | "all";
 
@@ -109,6 +111,18 @@ type SalesReportPayload =
 type MediaStatsPayload =
   | { ok: true; itemsCount: number; foldersCount: number }
   | { ok: false; error?: string };
+
+async function fetchJsonWithTimeout<T>(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 15000): Promise<T | null> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(input, { ...init, signal: controller.signal }).catch(() => null as any);
+    if (!res?.ok) return null;
+    return ((await res.json().catch(() => null)) as T | null) ?? null;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
 
 type ServiceKey =
   | "all"
@@ -284,7 +298,7 @@ function toneClasses(tone: StatTone) {
         bar: "bg-[linear-gradient(90deg,rgba(29,78,216,0.92),rgba(29,78,216,0.22))]",
         ring: "ring-1 ring-[color:rgba(29,78,216,0.16)]",
         pill: "bg-[color:rgba(29,78,216,0.10)] text-[color:var(--color-brand-blue)]",
-        icon: "border-[color:rgba(29,78,216,0.20)] bg-[color:rgba(29,78,216,0.10)] text-[color:rgba(29,78,216,0.95)]",
+        icon: "bg-[color:rgba(29,78,216,0.10)] text-[color:rgba(29,78,216,0.95)]",
         softBg: "bg-[color:rgba(29,78,216,0.04)]",
       };
     case "pink":
@@ -292,7 +306,7 @@ function toneClasses(tone: StatTone) {
         bar: "bg-[linear-gradient(90deg,rgba(251,113,133,0.92),rgba(251,113,133,0.18))]",
         ring: "ring-1 ring-[color:rgba(251,113,133,0.16)]",
         pill: "bg-[color:rgba(251,113,133,0.14)] text-[color:var(--color-brand-pink)]",
-        icon: "border-[color:rgba(251,113,133,0.22)] bg-[color:rgba(251,113,133,0.14)] text-[color:rgba(251,113,133,0.95)]",
+        icon: "bg-[color:rgba(251,113,133,0.14)] text-[color:rgba(251,113,133,0.95)]",
         softBg: "bg-[color:rgba(251,113,133,0.05)]",
       };
     case "emerald":
@@ -300,7 +314,7 @@ function toneClasses(tone: StatTone) {
         bar: "bg-[linear-gradient(90deg,rgba(16,185,129,0.88),rgba(16,185,129,0.18))]",
         ring: "ring-1 ring-[color:rgba(16,185,129,0.14)]",
         pill: "bg-emerald-50 text-emerald-700",
-        icon: "border-emerald-200 bg-emerald-50 text-emerald-700",
+        icon: "bg-emerald-50 text-emerald-700",
         softBg: "bg-[color:rgba(16,185,129,0.05)]",
       };
     case "violet":
@@ -308,7 +322,7 @@ function toneClasses(tone: StatTone) {
         bar: "bg-[linear-gradient(90deg,rgba(124,58,237,0.92),rgba(124,58,237,0.18))]",
         ring: "ring-1 ring-[color:rgba(124,58,237,0.16)]",
         pill: "bg-[color:rgba(124,58,237,0.10)] text-[color:rgba(124,58,237,0.95)]",
-        icon: "border-[color:rgba(124,58,237,0.20)] bg-[color:rgba(124,58,237,0.10)] text-[color:rgba(124,58,237,0.95)]",
+        icon: "bg-[color:rgba(124,58,237,0.10)] text-[color:rgba(124,58,237,0.95)]",
         softBg: "bg-[color:rgba(124,58,237,0.05)]",
       };
     case "amber":
@@ -316,7 +330,7 @@ function toneClasses(tone: StatTone) {
         bar: "bg-[linear-gradient(90deg,rgba(245,158,11,0.92),rgba(245,158,11,0.18))]",
         ring: "ring-1 ring-[color:rgba(245,158,11,0.18)]",
         pill: "bg-[color:rgba(245,158,11,0.12)] text-[color:rgba(180,83,9,0.95)]",
-        icon: "border-[color:rgba(245,158,11,0.22)] bg-[color:rgba(245,158,11,0.12)] text-[color:rgba(180,83,9,0.95)]",
+        icon: "bg-[color:rgba(245,158,11,0.12)] text-[color:rgba(180,83,9,0.95)]",
         softBg: "bg-[color:rgba(245,158,11,0.06)]",
       };
     case "slate":
@@ -324,7 +338,7 @@ function toneClasses(tone: StatTone) {
         bar: "bg-[linear-gradient(90deg,rgba(100,116,139,0.92),rgba(100,116,139,0.22))]",
         ring: "ring-1 ring-[color:rgba(100,116,139,0.14)]",
         pill: "bg-slate-50 text-slate-700",
-        icon: "border-slate-200 bg-slate-50 text-slate-700",
+        icon: "bg-slate-50 text-slate-700",
         softBg: "bg-slate-50",
       };
     case "ink":
@@ -333,7 +347,7 @@ function toneClasses(tone: StatTone) {
         bar: "bg-[linear-gradient(90deg,rgba(51,65,85,0.92),rgba(51,65,85,0.22))]",
         ring: "ring-1 ring-[color:rgba(51,65,85,0.14)]",
         pill: "bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
-        icon: "border-[color:rgba(51,65,85,0.16)] bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
+        icon: "bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
         softBg: "bg-zinc-50",
       };
   }
@@ -389,7 +403,7 @@ function StatCard({
       <div className="flex items-center justify-between gap-3">
         <div className="text-xs font-semibold text-zinc-500">{label}</div>
         {icon ? (
-          <div className={classNames("inline-flex items-center justify-center rounded-xl border p-2", t.icon)} aria-hidden="true">
+          <div className={classNames("inline-flex items-center justify-center rounded-xl p-2", t.icon)} aria-hidden="true">
             {icon}
           </div>
         ) : (
@@ -463,6 +477,25 @@ function ServicePerfCard({
   );
 }
 
+function computeReportingMenuStyle(anchor: HTMLButtonElement): CSSProperties {
+  const rect = anchor.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  const padding = 12;
+  const gap = 4;
+  const width = Math.min(224, vw - padding * 2);
+  const left = Math.min(Math.max(rect.left, padding), vw - padding - width);
+
+  const spaceBelow = vh - rect.bottom - padding - gap;
+  const spaceAbove = rect.top - padding - gap;
+  const preferDown = spaceBelow >= 220 || spaceBelow >= spaceAbove;
+
+  return preferDown
+    ? { left, top: rect.bottom + gap, width, maxHeight: Math.max(160, spaceBelow) }
+    : { left, bottom: vh - rect.top + gap, width, maxHeight: Math.max(160, spaceAbove) };
+}
+
 function MenuButton({
   id,
   openId,
@@ -487,7 +520,7 @@ function MenuButton({
   const anchorRef = useRef<HTMLButtonElement | null>(null);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) {
       setMenuStyle(null);
       return;
@@ -496,24 +529,7 @@ function MenuButton({
     const recompute = () => {
       const anchor = anchorRef.current;
       if (!anchor) return;
-      const rect = anchor.getBoundingClientRect();
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-
-      const padding = 12;
-      const gap = 8;
-      const width = Math.min(224, vw - padding * 2);
-      const left = Math.min(Math.max(rect.right - width, padding), vw - padding - width);
-
-      const spaceBelow = vh - rect.bottom - padding - gap;
-      const spaceAbove = rect.top - padding - gap;
-      const preferDown = spaceBelow >= 220 || spaceBelow >= spaceAbove;
-
-      setMenuStyle(
-        preferDown
-          ? { left, top: rect.bottom + gap, width, maxHeight: Math.max(160, spaceBelow) }
-          : { left, bottom: vh - rect.top + gap, width, maxHeight: Math.max(160, spaceAbove) },
-      );
+      setMenuStyle(computeReportingMenuStyle(anchor));
     };
 
     let raf = 0;
@@ -544,23 +560,32 @@ function MenuButton({
       <button
         ref={anchorRef}
         type="button"
-        className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-        onClick={() => setOpenId(open ? null : id)}
+        className={classNames("rounded-xl px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}
+        onClick={() => {
+          if (open) {
+            setOpenId(null);
+            return;
+          }
+          const anchor = anchorRef.current;
+          if (anchor) setMenuStyle(computeReportingMenuStyle(anchor));
+          setOpenId(id);
+        }}
         aria-label="More"
       >
         ⋯
       </button>
 
-      {open ? (
-        <div
-          className="fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg"
-          style={menuStyle ?? undefined}
+      {open && menuStyle ? (
+        <LiquidGlassPopupSurface
+          className="fixed z-40 w-56 overflow-hidden border border-[rgba(96,165,250,0.2)] p-1.5 shadow-[0_18px_44px_rgba(37,99,235,0.16),0_10px_28px_rgba(15,23,42,0.14)]"
+          contentClassName="rounded-[22px] bg-[linear-gradient(180deg,rgba(239,246,255,0.34),rgba(255,255,255,0.14))]"
+          style={menuStyle}
         >
           <button
             type="button"
             className={classNames(
-              "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold",
-              addDisabled ? "cursor-not-allowed bg-zinc-50 text-zinc-400" : "text-brand-ink hover:bg-zinc-50",
+              "w-full rounded-xl px-3 py-2 text-left text-sm font-semibold transition-colors",
+              addDisabled ? "cursor-not-allowed text-zinc-400" : "text-brand-ink hover:bg-[rgba(219,234,254,0.5)]",
             )}
             disabled={Boolean(addDisabled)}
             onClick={() => {
@@ -573,7 +598,7 @@ function MenuButton({
           {isPlainNonEmptyString(goToHref) && isPlainNonEmptyString(goToLabel) ? (
             <button
               type="button"
-              className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
+              className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-zinc-700 transition-colors hover:bg-[rgba(219,234,254,0.42)]"
               onClick={() => {
                 setOpenId(null);
                 window.location.href = goToHref;
@@ -582,7 +607,7 @@ function MenuButton({
               Go to {goToLabel}
             </button>
           ) : null}
-        </div>
+        </LiquidGlassPopupSurface>
       ) : null}
     </div>
   );
@@ -666,15 +691,16 @@ export function PortalReportingClient() {
     setError(null);
 
     try {
-      const [repRes, twilioRes, statsRes, salesStatusRes] = await Promise.all([
-        fetch(`/api/portal/reporting?range=${encodeURIComponent(nextRange)}`, { cache: "no-store" }),
-        fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any),
-        fetch("/api/portal/media/stats", { cache: "no-store" }).catch(() => null as any),
-        fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any),
-      ]);
+      const requiredController = new AbortController();
+      const requiredTimeout = window.setTimeout(() => requiredController.abort(), 60000);
+      const repRes = await fetch(`/api/portal/reporting?range=${encodeURIComponent(nextRange)}`, {
+        cache: "no-store",
+        signal: requiredController.signal,
+      }).catch(() => null as any);
+      window.clearTimeout(requiredTimeout);
 
-      if (!repRes.ok) {
-        const body = (await repRes.json().catch(() => ({}))) as { error?: string };
+      if (!repRes?.ok) {
+        const body = (await repRes?.json?.().catch(() => ({}))) as { error?: string };
         setError(body?.error ?? "Unable to load reporting");
         if (isFirstLoad) setData(null);
         return;
@@ -688,31 +714,33 @@ export function PortalReportingClient() {
       }
 
       setData(rep);
+      hasLoadedOnceRef.current = true;
 
-      if (statsRes?.ok) {
-        const stats = (await statsRes.json().catch(() => null)) as MediaStatsPayload | null;
-        if (stats) setMediaStats(stats);
-      }
+      void (async () => {
+        const [stats, twilioBody, salesStatusBody] = await Promise.all([
+          fetchJsonWithTimeout<MediaStatsPayload>("/api/portal/media/stats", { cache: "no-store" }, 15000),
+          fetchJsonWithTimeout<{ ok?: boolean; twilio?: TwilioMasked }>("/api/portal/integrations/twilio", { cache: "no-store" }, 15000),
+          fetchJsonWithTimeout<SalesIntegrationStatusPayload>("/api/portal/integrations/sales-reporting", { cache: "no-store" }, 15000),
+        ]);
 
-      if (twilioRes?.ok) {
-        const body = (await twilioRes.json().catch(() => ({}))) as { ok?: boolean; twilio?: TwilioMasked };
-        setTwilio(body?.twilio ?? null);
-      } else if (isFirstLoad) {
-        setTwilio(null);
-      }
+        if (stats) {
+          setMediaStats(stats);
+        } else if (isFirstLoad) {
+          setMediaStats(null);
+        }
 
-      if (salesStatusRes?.ok) {
-        const body = (await salesStatusRes.json().catch(() => null)) as SalesIntegrationStatusPayload | null;
-        if (body?.ok) {
-          setSalesStatus(body);
-          const anyConnected = Boolean(body?.providers && Object.values(body.providers).some((p) => Boolean(p?.configured)));
+        if (twilioBody) {
+          setTwilio(twilioBody.twilio ?? null);
+        } else if (isFirstLoad) {
+          setTwilio(null);
+        }
+
+        if (salesStatusBody?.ok) {
+          setSalesStatus(salesStatusBody);
+          const anyConnected = Boolean(salesStatusBody.providers && Object.values(salesStatusBody.providers).some((provider) => Boolean(provider?.configured)));
           if (anyConnected) {
-            const salesRes = await fetch("/api/portal/reporting/sales?range=30d", { cache: "no-store" }).catch(() => null as any);
-            if (salesRes?.ok) {
-              setSalesReport(((await salesRes.json().catch(() => null)) as SalesReportPayload | null) ?? null);
-            } else if (isFirstLoad) {
-              setSalesReport(null);
-            }
+            const sales = await fetchJsonWithTimeout<SalesReportPayload>("/api/portal/reporting/sales?range=30d", { cache: "no-store" }, 15000);
+            setSalesReport(sales);
           } else {
             setSalesReport(null);
           }
@@ -720,12 +748,7 @@ export function PortalReportingClient() {
           setSalesStatus(null);
           setSalesReport(null);
         }
-      } else if (isFirstLoad) {
-        setSalesStatus(null);
-        setSalesReport(null);
-      }
-
-      hasLoadedOnceRef.current = true;
+      })();
     } finally {
       setLoading(false);
       setRefreshing(false);

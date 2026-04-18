@@ -4,6 +4,7 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { normalizePortalAiChatRunRecord } from "@/lib/portalAiChatRunLedger";
+import { backfillPortalAiChatRunAiSummaries } from "@/lib/portalAiChatRunSummary";
 import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   }
 
+  await backfillPortalAiChatRunAiSummaries({
+    ownerId,
+    threadId,
+    responseProfile: (thread.contextJson as any)?.responseProfile,
+    limit: 10,
+  });
+
   const rows = await (prisma as any).portalAiChatRun.findMany({
     where: { ownerId, threadId },
     orderBy: [{ createdAt: "desc" }],
@@ -44,6 +52,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
       workTitle: true,
       canvasUrl: true,
       summaryText: true,
+      aiSummaryText: true,
+      aiSummaryGeneratedAt: true,
       assistantMessageId: true,
       scheduledMessageId: true,
       createdAt: true,

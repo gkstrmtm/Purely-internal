@@ -23,8 +23,11 @@ import { PortalListboxDropdown, type PortalListboxOption } from "@/components/Po
 import { AppModal } from "@/components/AppModal";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { useToast } from "@/components/ToastProvider";
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { LEAD_OUTBOUND_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+
+const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(" ");
 
 const TAG_COLORS = [
   "#0EA5E9", // sky
@@ -546,14 +549,20 @@ export function PortalLeadScrapingClient() {
   const [leadMutating, setLeadMutating] = useState(false);
   const [deleteForeverLeadId, setDeleteForeverLeadId] = useState<string | null>(null);
   const [leadEmailDraft, setLeadEmailDraft] = useState("");
+  const [leadEmailEditorOpen, setLeadEmailEditorOpen] = useState(false);
+  const [leadPhoneDraft, setLeadPhoneDraft] = useState("");
+  const [leadPhoneEditorOpen, setLeadPhoneEditorOpen] = useState(false);
+  const [leadWebsiteDraft, setLeadWebsiteDraft] = useState("");
+  const [leadWebsiteEditorOpen, setLeadWebsiteEditorOpen] = useState(false);
   const [leadTagDraft, setLeadTagDraft] = useState("");
   const [leadTagColorDraft, setLeadTagColorDraft] = useState("#111827");
+  const [createLeadTagOpen, setCreateLeadTagOpen] = useState(false);
 
   const selectedTagPickValue = useMemo(() => {
     const key = leadTagDraft.trim().toLowerCase();
-    if (!key) return "__custom";
+    if (!key) return "";
     const found = tagOptions.find((o) => o.label.trim().toLowerCase() === key);
-    return found ? found.label : "__custom";
+    return found ? found.label : "";
   }, [leadTagDraft, tagOptions]);
 
   const [outboundBusy, setOutboundBusy] = useState(false);
@@ -1399,14 +1408,52 @@ export function PortalLeadScrapingClient() {
   useEffect(() => {
     if (!activeLead) return;
     setLeadEmailDraft(activeLead.email ?? "");
+    setLeadEmailEditorOpen(false);
+    setLeadPhoneDraft(activeLead.phone ?? "");
+    setLeadPhoneEditorOpen(false);
+    setLeadWebsiteDraft(activeLead.website ?? "");
+    setLeadWebsiteEditorOpen(false);
     setLeadTagDraft(activeLead.tag ?? "");
     const defaultColor = "#111827";
     setLeadTagColorDraft(isHexColor(activeLead.tagColor || "") ? (activeLead.tagColor as string) : defaultColor);
   }, [activeLead]);
 
+  async function saveLeadEmail() {
+    if (!activeLead) return;
+    const nextEmail = leadEmailDraft.trim();
+    const saved = await patchLead(activeLead.id, { email: nextEmail || null });
+    if (!saved) return;
+    setLeadEmailEditorOpen(false);
+  }
+
+  async function saveLeadPhone() {
+    if (!activeLead) return;
+    const nextPhone = leadPhoneDraft.trim();
+    const saved = await patchLead(activeLead.id, { phone: nextPhone || null });
+    if (!saved) return;
+    setLeadPhoneEditorOpen(false);
+  }
+
+  async function saveLeadWebsite() {
+    if (!activeLead) return;
+    const nextWebsiteRaw = leadWebsiteDraft.trim();
+    const nextWebsite = nextWebsiteRaw && !/^https?:\/\//i.test(nextWebsiteRaw) ? `https://${nextWebsiteRaw}` : nextWebsiteRaw;
+    const saved = await patchLead(activeLead.id, { website: nextWebsite || null });
+    if (!saved) return;
+    setLeadWebsiteDraft(nextWebsite);
+    setLeadWebsiteEditorOpen(false);
+  }
+
   async function patchLead(
     leadId: string,
-    patch: { starred?: boolean; email?: string | null; tag?: string | null; tagColor?: string | null },
+    patch: {
+      starred?: boolean;
+      email?: string | null;
+      phone?: string | null;
+      website?: string | null;
+      tag?: string | null;
+      tagColor?: string | null;
+    },
   ) {
     setLeadMutating(true);
     setError(null);
@@ -1423,7 +1470,7 @@ export function PortalLeadScrapingClient() {
 
     if (!res.ok) {
       setError(getApiError(body) ?? "Failed to update lead");
-      return;
+      return false;
     }
 
     setLeads((prev) =>
@@ -1434,6 +1481,8 @@ export function PortalLeadScrapingClient() {
                 ...l,
                 ...(patch.starred !== undefined ? { starred: patch.starred } : {}),
                 ...(patch.email !== undefined ? { email: patch.email } : {}),
+                ...(patch.phone !== undefined ? { phone: patch.phone } : {}),
+                ...(patch.website !== undefined ? { website: patch.website } : {}),
                 ...(patch.tag !== undefined ? { tag: patch.tag } : {}),
                 ...(patch.tagColor !== undefined ? { tagColor: patch.tagColor } : {}),
               }
@@ -1441,6 +1490,7 @@ export function PortalLeadScrapingClient() {
         ),
       ),
     );
+    return true;
   }
 
   async function deleteLeadForever(leadId: string) {
@@ -1474,6 +1524,24 @@ export function PortalLeadScrapingClient() {
     setComposeOpen(false);
     setStatus("Deleted");
     window.setTimeout(() => setStatus(null), 1500);
+  }
+
+  function createLeadTagPreset() {
+    const label = leadTagDraft.trim().slice(0, 60);
+    if (!label) {
+      toast.error("Enter a tag name");
+      return;
+    }
+    const color = isHexColor(leadTagColorDraft) ? leadTagColorDraft : "#111827";
+    setSettings((prev) => {
+      const next = prev ? { ...prev } : ({ version: 3 } as LeadScrapingSettings);
+      const current = Array.isArray(next.tagPresets) ? next.tagPresets : [];
+      const filtered = current.filter((item) => item.label.trim().toLowerCase() !== label.toLowerCase());
+      return { ...next, tagPresets: [...filtered, { label, color }] };
+    });
+    setLeadTagDraft(label);
+    setLeadTagColorDraft(color);
+    setCreateLeadTagOpen(false);
   }
 
   function renderOutboundEditor(opts?: { outerClassName?: string; accent?: "blue" | "pink" | "ink" }) {
@@ -3140,7 +3208,7 @@ export function PortalLeadScrapingClient() {
       )}
 
       {leadOpen && activeLead ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+        <div className={classNames("fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center", portalGlassBackdropClass)}>
           <button
             type="button"
             className="absolute inset-0"
@@ -3153,26 +3221,32 @@ export function PortalLeadScrapingClient() {
               type="button"
               onClick={() => setLeadIndex((i) => Math.max(0, i - 1))}
               disabled={leadIndex <= 0}
-              className="absolute -left-3 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-sm transition-transform duration-150 hover:-translate-y-[55%] hover:bg-zinc-50 disabled:opacity-40 sm:flex"
+              className={classNames(
+                "absolute -left-14 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full text-zinc-700 transition-transform duration-150 hover:-translate-y-[55%] disabled:opacity-40 sm:inline-flex",
+                portalGlassButtonClass,
+              )}
               aria-label="Previous lead"
             >
-              ←
+              <span className="inline-flex h-full w-full items-center justify-center text-lg font-semibold leading-none">←</span>
             </button>
             <button
               type="button"
               onClick={() => setLeadIndex((i) => Math.min(leads.length - 1, i + 1))}
               disabled={leadIndex >= leads.length - 1}
-              className="absolute -right-3 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-40 sm:flex"
+              className={classNames(
+                "absolute -right-14 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full text-zinc-700 transition-transform duration-150 hover:-translate-y-[55%] disabled:opacity-40 sm:inline-flex",
+                portalGlassButtonClass,
+              )}
               aria-label="Next lead"
             >
-              →
+              <span className="inline-flex h-full w-full items-center justify-center text-lg font-semibold leading-none">→</span>
             </button>
 
-            <div className="relative max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+            <div className={classNames("relative max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl p-6", portalGlassPanelClass)}>
               <button
                 type="button"
                 onClick={closeLead}
-                className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent bg-white text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
+                className={classNames("absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full text-zinc-500 hover:bg-white/80 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]", portalGlassButtonClass)}
                 aria-label="Close"
               >
                 ✕
@@ -3184,7 +3258,7 @@ export function PortalLeadScrapingClient() {
               </div>
 
               {activeLead.contactId ? (
-                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className={classNames("mt-3 rounded-2xl p-4", portalGlassSectionClass)}>
                   <div className="text-xs font-semibold text-zinc-600">Contact tags</div>
                   <div className="mt-2">
                     <ContactTagsEditor
@@ -3198,34 +3272,82 @@ export function PortalLeadScrapingClient() {
               ) : null}
 
               <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className={classNames("rounded-2xl p-4", portalGlassSectionClass)}>
                   <div className="text-xs font-semibold text-zinc-600">Phone</div>
-                  <div className="mt-1 text-sm text-zinc-900">{activeLead.phone ?? "N/A"}</div>
+                  {activeLead.phone && !leadPhoneEditorOpen ? (
+                    <div className="mt-1 text-sm text-zinc-900">{activeLead.phone}</div>
+                  ) : leadPhoneEditorOpen ? (
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        value={leadPhoneDraft}
+                        onChange={(e) => setLeadPhoneDraft(e.target.value)}
+                        placeholder="Add phone to enable SMS sends"
+                        className={classNames("w-full rounded-xl px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-500", portalGlassButtonClass)}
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void saveLeadPhone()}
+                        disabled={leadMutating || !leadPhoneDraft.trim()}
+                        className="shrink-0 rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-sm font-semibold text-brand-blue shadow-[0_12px_24px_rgba(29,78,216,0.12)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setLeadPhoneEditorOpen(true)}
+                        disabled={leadMutating}
+                        className="inline-flex items-center gap-2 rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-sm font-semibold text-brand-blue shadow-[0_12px_24px_rgba(29,78,216,0.12)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+                      >
+                        <span className="text-base leading-none">+</span>
+                        <span>Add</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className={classNames("rounded-2xl p-4", portalGlassSectionClass)}>
                   <div className="text-xs font-semibold text-zinc-600">Email</div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <input
-                      value={leadEmailDraft}
-                      onChange={(e) => setLeadEmailDraft(e.target.value)}
-                      placeholder="Add email to enable email sends"
-                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
-                      autoComplete="off"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => patchLead(activeLead.id, { email: leadEmailDraft.trim() || null })}
-                      disabled={leadMutating}
-                      className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                    >
-                      Save
-                    </button>
-                  </div>
+                  {activeLead.email && !leadEmailEditorOpen ? (
+                    <div className="mt-1 text-sm text-zinc-900">{activeLead.email}</div>
+                  ) : leadEmailEditorOpen ? (
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        value={leadEmailDraft}
+                        onChange={(e) => setLeadEmailDraft(e.target.value)}
+                        placeholder="Add email to enable email sends"
+                        className={classNames("w-full rounded-xl px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-500", portalGlassButtonClass)}
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void saveLeadEmail()}
+                        disabled={leadMutating || !leadEmailDraft.trim()}
+                        className="shrink-0 rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-sm font-semibold text-brand-blue shadow-[0_12px_24px_rgba(29,78,216,0.12)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setLeadEmailEditorOpen(true)}
+                        disabled={leadMutating}
+                        className="inline-flex items-center gap-2 rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-sm font-semibold text-brand-blue shadow-[0_12px_24px_rgba(29,78,216,0.12)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+                      >
+                        <span className="text-base leading-none">+</span>
+                        <span>Add</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className={classNames("rounded-2xl p-4", portalGlassSectionClass)}>
                   <div className="text-xs font-semibold text-zinc-600">Website</div>
-                  <div className="mt-1 wrap-break-word text-sm text-zinc-900">
-                    {activeLead.website ? (
+                  {activeLead.website && !leadWebsiteEditorOpen ? (
+                    <div className="mt-1 wrap-break-word text-sm text-zinc-900">
                       <a
                         href={activeLead.website}
                         target="_blank"
@@ -3235,14 +3357,42 @@ export function PortalLeadScrapingClient() {
                       >
                         {activeLead.website}
                       </a>
-                    ) : (
-                      "N/A"
-                    )}
-                  </div>
+                    </div>
+                  ) : leadWebsiteEditorOpen ? (
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        value={leadWebsiteDraft}
+                        onChange={(e) => setLeadWebsiteDraft(e.target.value)}
+                        placeholder="Add website"
+                        className={classNames("w-full rounded-xl px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-500", portalGlassButtonClass)}
+                        autoComplete="off"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void saveLeadWebsite()}
+                        disabled={leadMutating || !leadWebsiteDraft.trim()}
+                        className="shrink-0 rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-sm font-semibold text-brand-blue shadow-[0_12px_24px_rgba(29,78,216,0.12)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setLeadWebsiteEditorOpen(true)}
+                        disabled={leadMutating}
+                        className="inline-flex items-center gap-2 rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-sm font-semibold text-brand-blue shadow-[0_12px_24px_rgba(29,78,216,0.12)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+                      >
+                        <span className="text-base leading-none">+</span>
+                        <span>Add</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
+              <div className={classNames("mt-3 rounded-2xl p-4", portalGlassSectionClass)}>
                 <div className="text-xs font-semibold text-zinc-600">Tag</div>
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-6 sm:items-end">
                   <label className="block sm:col-span-3">
@@ -3250,65 +3400,46 @@ export function PortalLeadScrapingClient() {
                     <PortalListboxDropdown
                       value={selectedTagPickValue}
                       onChange={(v) => {
-                        if (v === "__custom") return;
+                        if (v === "__new_tag__") {
+                          setCreateLeadTagOpen(true);
+                          return;
+                        }
                         const found = tagOptions.find((o) => o.label === v);
                         if (!found) return;
                         setLeadTagDraft(found.label);
                         setLeadTagColorDraft(found.color);
+                        void patchLead(activeLead.id, {
+                          tag: found.label,
+                          tagColor: found.color,
+                        });
                       }}
                       options={[
-                        { value: "__custom", label: "Custom / type below" },
+                        { value: "", label: "Select a tag…", disabled: true },
                         ...tagOptions.map((o) => ({ value: o.label, label: o.label })),
+                        { value: "__new_tag__", label: "New tag…" },
                       ]}
                       className="mt-1 w-full"
-                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                      buttonClassName={classNames("flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm hover:bg-white/80 focus-visible:ring-2 focus-visible:ring-zinc-300", portalGlassButtonClass)}
                     />
                   </label>
-
-                  <label className="block sm:col-span-3">
-                    <div className="text-xs font-medium text-zinc-700">Label</div>
-                    <input
-                      value={leadTagDraft}
-                      onChange={(e) => setLeadTagDraft(e.target.value)}
-                      placeholder="e.g. New"
-                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
-                      autoComplete="off"
-                    />
-                  </label>
-
-                  <div className="sm:col-span-6">
-                    <div className="text-xs font-medium text-zinc-700">Color</div>
-                    <div className="mt-2">
-                      <ColorSwatches value={leadTagColorDraft} onChange={setLeadTagColorDraft} />
+                  {leadTagDraft.trim() ? (
+                    <div className="sm:col-span-6 flex items-center justify-start">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLeadTagDraft("");
+                          setLeadTagColorDraft("#111827");
+                          void patchLead(activeLead.id, { tag: null, tagColor: null });
+                        }}
+                        disabled={leadMutating}
+                        className={classNames("inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-white/80 disabled:opacity-60", portalGlassButtonClass)}
+                      >
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: leadTagColorDraft || "#111827" }} />
+                        <span>{leadTagDraft}</span>
+                        <span className="text-zinc-400">✕</span>
+                      </button>
                     </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      patchLead(activeLead.id, {
-                        tag: leadTagDraft.trim() || null,
-                        tagColor: leadTagDraft.trim() ? leadTagColorDraft : null,
-                      })
-                    }
-                    disabled={leadMutating}
-                    className="sm:col-span-6 shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                  >
-                    Save
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLeadTagDraft("");
-                      setLeadTagColorDraft("#111827");
-                      void patchLead(activeLead.id, { tag: null, tagColor: null });
-                    }}
-                    disabled={leadMutating}
-                    className="sm:col-span-6 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                  >
-                    Clear tag
-                  </button>
+                  ) : null}
                 </div>
               </div>
 
@@ -3318,12 +3449,24 @@ export function PortalLeadScrapingClient() {
                 </div>
               ) : null}
 
-              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteForeverLeadId(activeLead.id);
+                  }}
+                  disabled={leadMutating}
+                  className="inline-flex items-center justify-center rounded-2xl bg-red-50 px-5 py-3 text-sm font-semibold text-red-600 hover:bg-red-100 disabled:opacity-60"
+                >
+                  Delete forever
+                </button>
+
+                <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
                 <button
                   type="button"
                   onClick={() => patchLead(activeLead.id, { starred: !activeLead.starred })}
                   disabled={leadMutating}
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  className={classNames("inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80 disabled:opacity-60", portalGlassButtonClass)}
                 >
                   {activeLead.starred ? "★ Starred" : "☆ Star"}
                 </button>
@@ -3333,7 +3476,7 @@ export function PortalLeadScrapingClient() {
                     type="button"
                     onClick={() => setLeadApproved(activeLead.id, !Boolean(activeLeadApprovedAt))}
                     disabled={outboundBusy}
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    className={classNames("inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80 disabled:opacity-60", portalGlassButtonClass)}
                   >
                     {activeLeadApprovedAt ? "Unapprove" : "Approve"}
                   </button>
@@ -3371,23 +3514,14 @@ export function PortalLeadScrapingClient() {
                 <button
                   type="button"
                   onClick={openCompose}
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  className={classNames("inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80", portalGlassButtonClass)}
                 >
                   Email / SMS
                 </button>
+                </div>
+              </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDeleteForeverLeadId(activeLead.id);
-                  }}
-                  disabled={leadMutating}
-                  className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-5 py-3 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                >
-                  Delete forever
-                </button>
-
-                <div className="text-xs text-zinc-500 sm:ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
                   {activeLeadApprovedAt ? (
                     <span className="whitespace-nowrap">Approved: {safeFormatDateTime(activeLeadApprovedAt)}</span>
                   ) : null}
@@ -3397,10 +3531,52 @@ export function PortalLeadScrapingClient() {
                   <span className="whitespace-nowrap">
                     {leadIndex + 1} / {leads.length}
                   </span>
-                </div>
               </div>
 
               <div className="mt-3 flex items-center gap-2 sm:hidden">
+
+              <AppModal
+                open={createLeadTagOpen}
+                title="Create new tag"
+                description="Create a lead tag and then assign it from the dropdown."
+                onClose={() => setCreateLeadTagOpen(false)}
+                widthClassName="w-[min(540px,calc(100vw-32px))]"
+                closeVariant="x"
+                footer={
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      className={classNames("rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
+                      onClick={() => setCreateLeadTagOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                      onClick={createLeadTagPreset}
+                    >
+                      Create
+                    </button>
+                  </div>
+                }
+              >
+                <div className="grid grid-cols-1 gap-3">
+                  <input
+                    value={leadTagDraft}
+                    onChange={(e) => setLeadTagDraft(e.target.value)}
+                    placeholder="Tag name"
+                    className="w-full rounded-xl bg-white/80 px-3 py-2 text-sm outline-none"
+                    autoComplete="off"
+                  />
+                  <div>
+                    <div className="text-xs font-medium text-zinc-700">Color</div>
+                    <div className="mt-2 rounded-2xl bg-white/45 px-3 py-3">
+                      <ColorSwatches value={leadTagColorDraft} onChange={setLeadTagColorDraft} />
+                    </div>
+                  </div>
+                </div>
+              </AppModal>
                 <button
                   type="button"
                   onClick={() => setLeadIndex((i) => Math.max(0, i - 1))}

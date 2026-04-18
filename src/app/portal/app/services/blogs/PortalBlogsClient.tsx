@@ -18,12 +18,14 @@ import {
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { InlineSpinner } from "@/components/InlineSpinner";
+import { portalGlassButtonClass } from "@/components/portalGlass";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
@@ -39,6 +41,8 @@ import {
   savePreviewBlogSite,
 } from "@/lib/portalBlogsPreview.client";
 import { IconEdit, IconEyeGlyph, IconGlobeGlyph, IconServiceGlyph } from "@/app/portal/PortalIcons";
+
+const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(" ");
 
 export type BlogsTab = "posts" | "automation" | "settings";
 function currentAppBase(pathname: string | null | undefined) {
@@ -1162,7 +1166,7 @@ export function PortalBlogsClient({
                               <button
                                 type="button"
                                 aria-label="Post actions"
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-lg font-semibold text-zinc-700 hover:bg-zinc-50"
+                                className={classNames("inline-flex h-9 w-9 items-center justify-center rounded-2xl text-lg font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   togglePostMenu(p.id, e.currentTarget);
@@ -1383,7 +1387,7 @@ export function PortalBlogsClient({
 
                   window.location.href = `${appBase}/services/blogs/${json.postId}`;
                 }}
-                className="inline-flex w-full items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 px-5 py-3 text-sm font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-60"
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-sky-100 px-5 py-3 text-sm font-semibold text-sky-900 hover:bg-sky-200 disabled:opacity-60"
               >
                 {generatingNow ? "Generating…" : "Generate next post now"}
               </button>
@@ -1778,8 +1782,8 @@ export function PortalBlogsClient({
         ? createPortal(
             <div className="fixed inset-0 z-30" aria-hidden>
               <div className="absolute inset-0" onMouseDown={() => setOpenPostMenu(null)} onTouchStart={() => setOpenPostMenu(null)} />
-              <div
-                className="fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+              <LiquidGlassPopupSurface
+                className="fixed z-40 w-56 p-1.5"
                 style={{ left: openPostMenu.left, top: openPostMenu.top, maxHeight: openPostMenu.maxHeight }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
@@ -1797,7 +1801,7 @@ export function PortalBlogsClient({
                     <>
                       <button
                         type="button"
-                        className="w-full px-4 py-3 text-left text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                        className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-white/16"
                         onClick={() => {
                           setOpenPostMenu(null);
                           window.location.href = `${appBase}/services/blogs/${p.id}`;
@@ -1805,19 +1809,19 @@ export function PortalBlogsClient({
                         aria-label="Edit"
                         title="Edit"
                       >
-                        <span className="inline-flex items-center" aria-hidden="true">
+                        <span className="inline-flex items-center gap-2" aria-hidden="true">
                           <IconEdit size={16} />
+                          <span>Edit</span>
                         </span>
-                        <span className="sr-only">Edit</span>
                       </button>
 
                       <button
                         type="button"
                         disabled={!canViewLive}
-                        className={
-                          "w-full px-4 py-3 text-left text-sm font-semibold hover:bg-zinc-50 " +
+                        className={classNames(
+                          "w-full rounded-xl px-4 py-3 text-left text-sm font-semibold transition-colors duration-150 hover:bg-white/16",
                           (canViewLive ? "text-zinc-900" : "text-zinc-400")
-                        }
+                        )}
                         onClick={() => {
                           if (!canViewLive || !livePath) return;
                           setOpenPostMenu(null);
@@ -1832,7 +1836,7 @@ export function PortalBlogsClient({
 
                       <button
                         type="button"
-                        className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                        className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                         onClick={() => {
                           setOpenPostMenu(null);
                           setConfirm({
@@ -1848,7 +1852,7 @@ export function PortalBlogsClient({
 
                       <button
                         type="button"
-                        className="w-full px-4 py-3 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                        className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-rose-700 transition-colors duration-150 hover:bg-rose-500/10"
                         onClick={() => {
                           setOpenPostMenu(null);
                           setConfirm({ kind: "delete", postId: p.id, title: p.title || "Untitled" });
@@ -1859,7 +1863,7 @@ export function PortalBlogsClient({
                     </>
                   );
                 })()}
-              </div>
+              </LiquidGlassPopupSurface>
             </div>,
             document.body,
           )

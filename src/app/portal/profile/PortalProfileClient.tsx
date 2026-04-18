@@ -23,7 +23,7 @@ import {
   type SalesReportingProviderKey,
 } from "@/lib/salesReportingProviders";
 import { SuggestedSetupSection } from "./SuggestedSetupSection";
-import { IconChevron, IconCopy, IconEyeGlyph, IconEyeOffGlyph } from "@/app/portal/PortalIcons";
+import { IconChevron, IconCopy, IconEdit, IconEyeGlyph, IconEyeOffGlyph } from "@/app/portal/PortalIcons";
 
 type Me = {
   ok?: boolean;
@@ -227,6 +227,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const [mailboxError, setMailboxError] = useState<string | null>(null);
   const [mailboxNote, setMailboxNote] = useState<string | null>(null);
   const [mailboxLocalPart, setMailboxLocalPart] = useState<string>("");
+  const [mailboxEditorOpen, setMailboxEditorOpen] = useState(false);
 
   const [twilioMasked, setTwilioMasked] = useState<TwilioMasked | null>(null);
   // Twilio webhooks are auto-provisioned on connect; UI does not display URLs.
@@ -355,7 +356,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     | "twilio"
     | "salesReporting"
     | "apiKeys"
-    | "businessEmail"
     | "businessInfo";
   const [pendingAdvancedScrollTarget, setPendingAdvancedScrollTarget] = useState<AdvancedScrollTarget | null>(null);
 
@@ -364,7 +364,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const twilioRef = useRef<HTMLDivElement | null>(null);
   const salesReportingRef = useRef<HTMLDivElement | null>(null);
   const apiKeysRef = useRef<HTMLDivElement | null>(null);
-  const businessEmailRef = useRef<HTMLDivElement | null>(null);
   const businessInfoRef = useRef<HTMLDivElement | null>(null);
 
   const ADVANCED_SCROLL_OFFSET_PX = 96;
@@ -393,8 +392,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
               ? salesReportingRef.current
               : pendingAdvancedScrollTarget === "apiKeys"
                 ? apiKeysRef.current
-              : pendingAdvancedScrollTarget === "businessEmail"
-                ? businessEmailRef.current
                 : pendingAdvancedScrollTarget === "businessInfo"
                   ? businessInfoRef.current
                   : null;
@@ -951,6 +948,10 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     return true;
   }, [mailbox, mailboxLocalPart]);
 
+  useEffect(() => {
+    if (!mailbox?.canChange) setMailboxEditorOpen(false);
+  }, [mailbox?.canChange]);
+
   const twilioHasPendingChanges = useMemo(() => {
     const nextFrom = twilioFromNumber.trim();
     const currentFrom = String(twilioMasked?.fromNumberE164 || "").trim();
@@ -1471,15 +1472,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
                     >
                       API keys
-                    </button>
-                  ) : null}
-                  {showBusinessSections && portalMe?.ok === true ? (
-                    <button
-                      type="button"
-                      onClick={() => requestAdvancedScroll("businessEmail")}
-                      className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
-                    >
-                      Business email
                     </button>
                   ) : null}
                   {showBusinessSections && canViewBusinessInfo ? (
@@ -2417,86 +2409,83 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
               {showBusinessSections && canViewBusinessInfo ? (
                 <div ref={businessInfoRef} className="scroll-mt-24">
-                  <PortalSettingsSection
-                    title="Business info"
-                    description="Update your business details and branding anytime."
-                    accent="pink"
-                    collapsible={false}
-                    dotClassName="hidden"
-                    variant={sectionVariant}
-                  >
                     <BusinessProfileForm
                       embedded
                       readOnly={!canEditBusinessInfo}
                       onSaved={() => setNotice("Business info saved.")}
+                      businessEmailContent={
+                        portalMe?.ok === true ? (
+                          <div className="space-y-3">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-600">Business email</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-900">
+                                <span>
+                                  {mailboxLoading
+                                    ? "Loading…"
+                                    : mailbox?.emailAddress
+                                      ? mailbox.emailAddress
+                                      : "Business email unavailable."}
+                                </span>
+                                {mailbox?.emailAddress ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void copyText(mailbox.emailAddress)}
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-2xl text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900"
+                                    aria-label="Copy business email"
+                                    title="Copy"
+                                  >
+                                    <IconCopy size={16} />
+                                  </button>
+                                ) : null}
+                                {mailbox?.canChange && canEditBusinessInfo && !mailboxEditorOpen ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setMailboxEditorOpen(true)}
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-2xl text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900"
+                                    aria-label="Edit business email"
+                                    title="Edit"
+                                  >
+                                    <IconEdit size={16} />
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            {mailboxNote ? <div className="text-sm text-emerald-700">{mailboxNote}</div> : null}
+                            {mailboxError ? <div className="text-sm text-red-700">{mailboxError}</div> : null}
+
+                            {mailbox?.canChange && canEditBusinessInfo && mailboxEditorOpen ? (
+                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                                <input
+                                  value={mailboxLocalPart}
+                                  onChange={(e) => setMailboxLocalPart(e.target.value)}
+                                  className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 font-mono text-sm outline-none focus:border-zinc-300"
+                                  placeholder="your-business"
+                                  autoComplete="off"
+                                />
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setMailboxEditorOpen(false)}
+                                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                                  >
+                                    Done
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void saveMailboxOnce()}
+                                    disabled={!canSaveMailbox || mailboxSaving}
+                                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+                                  >
+                                    {mailboxSaving ? "Saving…" : canSaveMailbox ? "Save" : "Saved"}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null
+                      }
                     />
-                  </PortalSettingsSection>
-                </div>
-              ) : null}
-
-              {showBusinessSections && portalMe?.ok === true ? (
-                <div ref={businessEmailRef} className="scroll-mt-24">
-                  <PortalSettingsSection
-                    title="Business email"
-                    description="Your managed @purelyautomation.com email address (used for inbox sending + receiving)."
-                    accent="pink"
-                    collapsible={false}
-                    dotClassName="hidden"
-                    variant={sectionVariant}
-                  >
-                    <div className="space-y-3">
-                      {mailboxNote ? (
-                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{mailboxNote}</div>
-                      ) : null}
-
-                      {mailboxError ? (
-                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{mailboxError}</div>
-                      ) : null}
-
-                      {mailboxLoading ? (
-                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Loading…</div>
-                      ) : null}
-
-                      {mailbox ? (
-                        <CopyRow label="Business email" value={mailbox.emailAddress} />
-                      ) : mailboxLoading ? null : (
-                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Business email unavailable.</div>
-                      )}
-
-                      {mailbox?.canChange ? (
-                        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                          <div className="text-sm font-semibold text-zinc-900">Change email name (one time)</div>
-                          <div className="mt-1 text-sm text-zinc-600">
-                            Pick the part before <span className="font-mono">@purelyautomation.com</span>. We’ll normalize spaces/symbols.
-                          </div>
-
-                          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                            <div className="sm:col-span-2">
-                              <label className="text-xs font-semibold text-zinc-600">Email name</label>
-                              <input
-                                value={mailboxLocalPart}
-                                onChange={(e) => setMailboxLocalPart(e.target.value)}
-                                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-sm outline-none focus:border-zinc-300"
-                                placeholder="your-business"
-                                autoComplete="off"
-                              />
-                            </div>
-                            <div className="sm:col-span-1 sm:flex sm:items-end">
-                              <button
-                                type="button"
-                                onClick={() => void saveMailboxOnce()}
-                                disabled={!canSaveMailbox || mailboxSaving}
-                                className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
-                              >
-                                {mailboxSaving ? "Saving…" : canSaveMailbox ? "Save" : "Saved"}
-                              </button>
-                            </div>
-                          </div>
-                          <div className="mt-3 text-xs text-zinc-500">After saving, this will be locked.</div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </PortalSettingsSection>
                 </div>
               ) : null}
             </div>
@@ -2514,17 +2503,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
             hideHeaderDivider
             hideFooterDivider
             footer={
-              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
-                <button
-                  type="button"
-                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
-                  onClick={() => {
-                    setApiKeyModalOpen(false);
-                    resetApiKeyComposer();
-                  }}
-                >
-                  Cancel
-                </button>
+              <div className="flex justify-end">
                 <button
                   type="button"
                   onClick={() => void createApiKey()}

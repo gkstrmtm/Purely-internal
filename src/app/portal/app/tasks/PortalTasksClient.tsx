@@ -12,6 +12,7 @@ import {
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass } from "@/components/portalGlass";
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 
@@ -251,7 +252,7 @@ export function PortalTasksClient() {
                     <button
                       type="button"
                       onClick={() => setDeleteTaskId(task.id)}
-                      className="rounded-xl border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100"
+                      className="rounded-xl bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-600 hover:bg-red-100"
                     >
                       Delete
                     </button>
@@ -356,7 +357,7 @@ export function PortalTasksClient() {
                       <button
                         type="button"
                         onClick={() => setDeleteTaskId(t.id)}
-                        className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                        className="rounded-2xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-100"
                       >
                         Delete
                       </button>
@@ -372,8 +373,8 @@ export function PortalTasksClient() {
       ) : null}
 
       {createOpen ? (
-        <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center" role="dialog" aria-modal="true" data-overlay-root="true">
-          <div className="w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+        <div className={classNames("fixed inset-0 z-9998 flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center", portalGlassBackdropClass)} role="dialog" aria-modal="true" data-overlay-root="true">
+          <div className={classNames("w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl p-5 shadow-xl", portalGlassPanelClass)}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-base font-semibold text-zinc-900">Create task</div>
@@ -383,7 +384,7 @@ export function PortalTasksClient() {
                 type="button"
                 onClick={() => setCreateOpen(false)}
                 aria-label="Close create task"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg font-semibold text-zinc-800 hover:bg-zinc-50"
+                className={classNames("inline-flex h-10 w-10 items-center justify-center rounded-full text-lg font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
               >
                 ×
               </button>
@@ -414,20 +415,13 @@ export function PortalTasksClient() {
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setCreateOpen(false)}
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
                 disabled={creating || !title.trim()}
                 onClick={() => createTask()}
                 className={classNames(
                   "rounded-2xl px-4 py-2 text-sm font-semibold",
                   creating || !title.trim()
                     ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
-                    : "bg-(--color-brand-blue) text-white hover:brightness-95",
+                    : "bg-[rgba(29,78,216,0.12)] text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]",
                 )}
               >
                 {creating ? "Creating…" : "Create"}
@@ -438,15 +432,15 @@ export function PortalTasksClient() {
       ) : null}
 
       {pendingDeleteTask ? (
-        <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center" role="dialog" aria-modal="true" data-overlay-root="true">
-          <div className="w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+        <div className={classNames("fixed inset-0 z-9998 flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center", portalGlassBackdropClass)} role="dialog" aria-modal="true" data-overlay-root="true">
+          <div className={classNames("w-full max-w-md rounded-3xl p-5 shadow-xl", portalGlassPanelClass)}>
             <div className="text-base font-semibold text-zinc-900">Delete task?</div>
             <div className="mt-2 text-sm text-zinc-600">This removes “{pendingDeleteTask.title}” permanently.</div>
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setDeleteTaskId(null)}
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                className={classNames("rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]", portalGlassButtonClass)}
               >
                 Cancel
               </button>
@@ -457,7 +451,7 @@ export function PortalTasksClient() {
                   setDeleteTaskId(null);
                   await deleteTask(taskId);
                 }}
-                className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                className="rounded-2xl bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-100"
               >
                 Delete
               </button>

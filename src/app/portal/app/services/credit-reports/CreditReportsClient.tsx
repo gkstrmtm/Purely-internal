@@ -7,6 +7,7 @@ import { IconFunnel } from "@/app/portal/PortalIcons";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
 import { useToast } from "@/components/ToastProvider";
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { creditScopeLabel, extractCreditInquiryDate, type CreditReportSnapshot, type CreditScope } from "@/lib/creditReports";
 
 type ContactLite = { id: string; name: string; email: string | null };
@@ -152,7 +153,10 @@ function computeFixedMenuStyle(rect: DOMRect, width = 288, estHeight = 320): Fix
 const BUTTON_MOTION_CLASS = "transition-colors duration-150 focus-visible:outline-none";
 const PRIMARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:opacity-60`;
 const SECONDARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60`;
-const ICON_BUTTON_CLASS = "inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60";
+const ICON_BUTTON_CLASS = classNames(
+  "inline-flex h-10 w-10 items-center justify-center rounded-2xl text-base font-semibold text-zinc-500 transition-colors duration-150 hover:bg-white/80 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60",
+  portalGlassButtonClass,
+);
 
 function reportRoutesFor(pathname: string | null) {
   const current = String(pathname || "");
@@ -1166,8 +1170,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           </section>
 
           {priorityItemOpen ? (
-            <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => setPriorityItemOpen(null)}>
-              <div className="my-auto w-full max-w-2xl rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Report item actions" data-overlay-root="true">
+            <div className={classNames("fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4", portalGlassBackdropClass)} onMouseDown={() => setPriorityItemOpen(null)}>
+              <div className={classNames("my-auto w-full max-w-2xl rounded-4xl p-6 sm:p-7", portalGlassPanelClass)} onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Report item actions" data-overlay-root="true">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="text-lg font-semibold text-zinc-900">{priorityItemOpen.label}</div>
@@ -1189,7 +1193,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   ) : null}
                 </div>
 
-                <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-4">
+                <div className={classNames("mt-5 rounded-3xl p-4", portalGlassSectionClass)}>
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Item details</div>
                     <div className="text-xs text-zinc-500">Updated {new Date(priorityItemOpen.updatedAt).toLocaleString()}</div>
@@ -1198,7 +1202,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   {readReviewDetails(priorityItemOpen.detailsJson).length ? (
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       {readReviewDetails(priorityItemOpen.detailsJson).map((entry) => (
-                        <div key={entry.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                        <div key={entry.key} className={classNames("rounded-2xl px-3 py-3", portalGlassSectionClass)}>
                           <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{entry.key}</div>
                           <div className="mt-2 text-sm text-zinc-800 wrap-break-word">{entry.value}</div>
                         </div>

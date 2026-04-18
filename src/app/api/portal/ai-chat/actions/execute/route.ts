@@ -5,6 +5,7 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { persistPortalAiChatRun } from "@/lib/portalAiChatRunLedger";
+import { ensurePortalAiChatRunAiSummary } from "@/lib/portalAiChatRunSummary";
 import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 import {
   PortalAgentActionKeySchema,
@@ -127,6 +128,14 @@ export async function POST(req: Request) {
     summaryText: typeof assistantMessage?.text === "string" ? assistantMessage.text : null,
     followUpSuggestions,
     completedAt: new Date(),
+  });
+
+  await ensurePortalAiChatRunAiSummary({
+    ownerId,
+    threadId,
+    assistantMessageId: runTrace.assistantMessageId,
+    triggerKind: "assistant_action",
+    responseProfile: (thread.contextJson as any)?.responseProfile,
   });
 
   return NextResponse.json({

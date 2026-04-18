@@ -5,13 +5,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 
 import styles from "./PortalInboxClient.module.css";
 import { AppModal } from "@/components/AppModal";
+import GlassSurface from "@/components/GlassSurface";
 import { InlineSpinner } from "@/components/InlineSpinner";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
-import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
+import { type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalContactDetailsModal } from "@/components/PortalContactDetailsModal";
 import { useToast } from "@/components/ToastProvider";
-import { portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
+import { portalGlassButtonClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { DateTimePicker } from "@/components/DateTimePicker";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
@@ -25,7 +27,7 @@ import {
   portalSidebarIconToneNeutralClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
-import { IconEdit, IconFunnel, IconInboxGlyph, IconSchedule, IconSearch, IconSend, IconServiceGlyph } from "@/app/portal/PortalIcons";
+import { IconEdit, IconFunnel, IconInboxGlyph, IconSchedule, IconSearch, IconSend, IconSendHover, IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { normalizePhoneForStorage } from "@/lib/phone";
 import { normalizePortalContactCustomVarKey, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
@@ -116,6 +118,22 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+const inboxLiquidGlassSurfaceProps = {
+  borderWidth: 0.04,
+  blur: 7,
+  displace: 0.22,
+  distortionScale: -72,
+  redOffset: 0,
+  greenOffset: 2,
+  blueOffset: 6,
+  backgroundOpacity: 0.16,
+  saturation: 1.05,
+  brightness: 46,
+  opacity: 0.985,
+  mixBlendMode: "soft-light" as const,
+  style: { background: "rgba(255,255,255,0.46)", boxShadow: "none" },
+};
+
 type FixedMenuStyle = { left: number; top: number; width: number; maxHeight: number };
 
 function computeFixedMenuStyle(opts: {
@@ -126,7 +144,7 @@ function computeFixedMenuStyle(opts: {
   minHeight?: number;
 }) {
   const VIEWPORT_PAD = 12;
-  const GAP = 8;
+  const GAP = 4;
   const viewportW = window.innerWidth;
   const viewportH = window.innerHeight;
 
@@ -252,6 +270,26 @@ const inboxSoftBlueActiveClass =
 
 const inboxSoftBlueToggleTrackActiveClass =
   "bg-[rgba(29,78,216,0.18)] shadow-[0_8px_24px_rgba(29,78,216,0.14)]";
+
+const inboxSidebarPrimaryButtonClass =
+  "inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white transition-all duration-100 hover:scale-[1.01] hover:opacity-95 disabled:opacity-60";
+
+const inboxPuraSendButtonClass =
+  "group inline-flex items-center justify-center rounded-2xl bg-brand-blue text-white transition-all duration-100 hover:scale-105 hover:opacity-95 disabled:cursor-default disabled:opacity-60 disabled:hover:scale-100";
+
+function SendButtonGlyph({ enabled }: { enabled: boolean }) {
+  if (!enabled) return <IconSend size={18} />;
+  return (
+    <>
+      <span className="group-hover:hidden">
+        <IconSend size={18} />
+      </span>
+      <span className="hidden group-hover:inline">
+        <IconSendHover size={18} />
+      </span>
+    </>
+  );
+}
 
 function mergeUniqueThreads(current: Thread[], incoming: Thread[]) {
   const seen = new Set(current.map((thread) => thread.id));
@@ -582,6 +620,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
 
+  const canSendComposeMessage = Boolean(composeTo.trim()) && (Boolean(composeBody.trim()) || composeAttachments.length > 0);
+
   const anyInlineMenuOpen = Boolean(emailSearchMenu || emailFiltersMenu || smsFiltersMenu || toSuggestionsMenu || smsMoreMenu || emailAttachMenu);
   useEffect(() => {
     if (!anyInlineMenuOpen) return;
@@ -599,7 +639,11 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       if (e.key === "Escape") closeAll();
     };
 
-    const onScrollOrResize = () => closeAll();
+    const onScrollOrResize = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('[data-inline-menu-root="true"]')) return;
+      closeAll();
+    };
 
     window.addEventListener("keydown", onKey);
     window.addEventListener("scroll", onScrollOrResize, true);
@@ -713,16 +757,28 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     return base;
   }, [knownContactCustomVarKeys]);
 
-  const smsComposeRef = useRef<HTMLInputElement | null>(null);
+  const smsComposeRef = useRef<HTMLTextAreaElement | null>(null);
   const emailSubjectRef = useRef<HTMLInputElement | null>(null);
   const emailBodyRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const clearConversationForCompose = useCallback(() => {
-    setActiveThreadId(null);
-    setMessages([]);
-    setScheduledMessages([]);
-    setLoadingMessages(false);
+  const resizeSmsComposeInput = useCallback(() => {
+    const el = smsComposeRef.current;
+    if (!el || typeof window === "undefined") return;
+    el.style.height = "auto";
+    const computed = window.getComputedStyle(el);
+    const lineHeight = Number.parseFloat(computed.lineHeight) || 20;
+    const paddingTop = Number.parseFloat(computed.paddingTop) || 0;
+    const paddingBottom = Number.parseFloat(computed.paddingBottom) || 0;
+    const maxLines = 5;
+    const maxHeight = lineHeight * maxLines + paddingTop + paddingBottom;
+    const nextHeight = Math.max(44, Math.min(el.scrollHeight, maxHeight));
+    el.style.height = `${nextHeight}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }, []);
+
+  useEffect(() => {
+    resizeSmsComposeInput();
+  }, [composeBody, resizeSmsComposeInput, smsSheetOpen, activeThreadId, tab, isDesktop]);
 
   const openSearchMenu = useCallback((target: HTMLElement | null) => {
     if (!target) return;
@@ -759,25 +815,26 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setEmailAttachMenu(null);
     setEmailSearchMenu(null);
     setThreadSearch("");
-    clearConversationForCompose();
     if (!loadPersistedEmailDraft()) {
       setComposeTo("");
       setComposeSubject("");
       setComposeBody("");
     }
     setComposeAttachments([]);
-  }, [clearConversationForCompose, loadPersistedEmailDraft]);
+  }, [loadPersistedEmailDraft]);
 
   const openSmsComposer = useCallback(() => {
     setSmsSheetOpen(!isDesktop);
     setActiveThreadId(null);
-    clearConversationForCompose();
+    setMessages([]);
+    setScheduledMessages([]);
+    setLoadingMessages(false);
     setComposeTo("");
     setComposeBody("");
     setComposeAttachments([]);
     setSmsMoreMenu(null);
     setToSuggestionsMenu(null);
-  }, [clearConversationForCompose, isDesktop]);
+  }, [isDesktop]);
 
   async function ensureContactsLoaded() {
     if (contacts || contactsLoading) return;
@@ -875,7 +932,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setComposeAttachments([]);
     if (tab === "email") setComposeSubject("");
     setComposeBody("");
-    clearConversationForCompose();
+    setActiveThreadId(null);
+    setMessages([]);
+    setScheduledMessages([]);
+    setLoadingMessages(false);
 
     const threadId = findThreadIdForContact(tab, contact);
     if (threadId) {
@@ -1408,9 +1468,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     const to = composeTo.trim();
     const body = composeBody.trim();
     const subject = composeSubject.trim();
+    const sendThreadId = tab === "email" && emailComposerOpen ? null : activeThreadId;
 
     const recipients = splitComposeRecipients(to);
-    if (activeThreadId && recipients.length > 1) {
+    if (sendThreadId && recipients.length > 1) {
       setError("Bulk send can’t be done inside a thread. Clear the active thread and try again.");
       return { ok: false };
     }
@@ -1430,7 +1491,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         subject: tab === "email" ? subject : undefined,
         body,
         attachmentIds: composeAttachments.map((a) => a.id),
-        ...(activeThreadId ? { threadId: activeThreadId } : {}),
+        ...(sendThreadId ? { threadId: sendThreadId } : {}),
         ...(opts?.sendAt ? { sendAt: opts.sendAt } : {}),
       }),
     });
@@ -1456,7 +1517,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       toast.success(`Sent to ${sentCount} recipients${suffix}`);
     }
 
-    const threadId = typeof json.threadId === "string" ? json.threadId : activeThreadId;
+    const threadId = typeof json.threadId === "string" ? json.threadId : sendThreadId;
 
     setComposeBody("");
     setComposeAttachments([]);
@@ -1687,7 +1748,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           <button
             type="button"
             onClick={openEmailComposer}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#007aff] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#006ae6]"
+            className={inboxSidebarPrimaryButtonClass}
           >
             <span className="text-white">+</span>
             <span>New email</span>
@@ -1696,7 +1757,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           <button
             type="button"
             onClick={openSmsComposer}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[#007aff] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#006ae6]"
+            className={inboxSidebarPrimaryButtonClass}
           >
             <span className="text-white">+</span>
             <span>New text</span>
@@ -1821,8 +1882,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   }, [inboxSidebar, setSidebarOverride]);
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
-      <PortalBackToOnboardingLink />
+    <div className="-mx-4 flex h-full min-h-0 w-auto min-w-0 flex-col overflow-hidden sm:-mx-8">
+      <div className="shrink-0 px-4 sm:px-8">
+        <PortalBackToOnboardingLink />
+      </div>
       <PortalVariablePickerModal
         open={variablePickerOpen}
         variables={variablePickerVariables}
@@ -1864,8 +1927,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         }}
       />
 
-      <div className="mt-4 flex justify-center">
-        <div className="flex w-full items-center gap-3 lg:max-w-xl">
+      <div className="mt-0 flex w-full shrink-0 items-start">
+        <div className="flex w-full items-center gap-3">
             <div className="relative min-w-0 flex-1">
                 <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
                   <IconSearch size={18} />
@@ -1894,22 +1957,23 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 {tab === "email" && emailSearchMenu ? (
                   <>
                     <div className="fixed inset-0 z-30" onMouseDown={() => setEmailSearchMenu(null)} onTouchStart={() => setEmailSearchMenu(null)} aria-hidden />
-                    <div
-                      className={classNames("fixed z-40 overflow-auto rounded-2xl px-1 py-1", portalGlassPanelClass)}
+                    <LiquidGlassPopupSurface
+                      data-inline-menu-root="true"
+                      className="fixed z-40 overflow-hidden"
                       style={{ left: emailSearchMenu.left, top: emailSearchMenu.top, width: emailSearchMenu.width, maxHeight: emailSearchMenu.maxHeight }}
                       onMouseDown={(e) => e.stopPropagation()}
                       onTouchStart={(e) => e.stopPropagation()}
                     >
-                      <div className="border-b border-white/40 px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                      <div className="relative border-b border-white/30 px-4 py-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
                         {threadSearch.trim() ? "Matches" : "Recent searches"}
                       </div>
-                      <div className="py-2">
+                      <div className="relative py-2">
                         {emailSearchSuggestions.length ? (
                           emailSearchSuggestions.map((item) => (
                             <button
                               key={item.key}
                               type="button"
-                              className="w-full rounded-2xl px-4 py-3 text-left transition hover:bg-white/55"
+                              className="w-full rounded-2xl px-4 py-3 text-left transition hover:bg-white/16"
                               onMouseDown={(e) => {
                                 e.preventDefault();
                                 setThreadSearch(item.query);
@@ -1929,7 +1993,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           <div className="px-4 py-3 text-sm text-zinc-600">No matching conversations.</div>
                         )}
                       </div>
-                    </div>
+                    </LiquidGlassPopupSurface>
                   </>
                 ) : null}
             </div>
@@ -1938,14 +2002,15 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 {tab === "email" && emailFiltersMenu ? (
                   <>
                     <div className="fixed inset-0 z-30" onMouseDown={() => setEmailFiltersMenu(null)} onTouchStart={() => setEmailFiltersMenu(null)} aria-hidden />
-                    <div
-                      className={classNames("fixed z-40 w-80 overflow-auto rounded-3xl", portalGlassPanelClass)}
+                    <LiquidGlassPopupSurface
+                      data-inline-menu-root="true"
+                      className="fixed z-40 w-80 overflow-hidden"
                       style={{ left: emailFiltersMenu.left, top: emailFiltersMenu.top, maxHeight: emailFiltersMenu.maxHeight }}
                       onMouseDown={(e) => e.stopPropagation()}
                       onTouchStart={(e) => e.stopPropagation()}
                     >
-                      <div className="border-b border-white/40 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
-                      <div className="space-y-4 px-4 py-4">
+                      <div className="relative border-b border-white/30 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                      <div className="relative space-y-4 overflow-y-auto px-4 py-4" style={{ maxHeight: emailFiltersMenu.maxHeight }}>
                         <label className="block">
                           <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Who</div>
                           <input value={emailSearchWho} onChange={(e) => setEmailSearchWho(e.target.value)} className={classNames("mt-1 w-full rounded-2xl px-3 py-2 text-sm text-zinc-900 outline-none transition", portalGlassSectionClass)} placeholder="Contact or recipient" />
@@ -2017,16 +2082,23 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           Clear filters
                         </button>
                       </div>
-                    </div>
+                    </LiquidGlassPopupSurface>
                   </>
                 ) : null}
 
                 {tab === "sms" && smsFiltersMenu ? (
                   <>
                     <div className="fixed inset-0 z-30" onMouseDown={() => setSmsFiltersMenu(null)} onTouchStart={() => setSmsFiltersMenu(null)} aria-hidden />
-                    <div className={classNames("fixed z-40 overflow-auto rounded-3xl", portalGlassPanelClass)} style={{ left: smsFiltersMenu.left, top: smsFiltersMenu.top, width: smsFiltersMenu.width, maxHeight: smsFiltersMenu.maxHeight }} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
-                      <div className="border-b border-white/40 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
-                      <div className="px-4 py-4">
+                    <LiquidGlassPopupSurface
+                      data-inline-menu-root="true"
+                      className="fixed z-40 overflow-hidden border border-white/40"
+                      contentClassName="rounded-[28px] bg-[linear-gradient(180deg,rgba(255,255,255,0.2),rgba(255,255,255,0.08))]"
+                      style={{ left: smsFiltersMenu.left, top: smsFiltersMenu.top, width: smsFiltersMenu.width, maxHeight: smsFiltersMenu.maxHeight }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                    >
+                        <div className="relative border-b border-white/40 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                        <div className="relative overflow-y-auto px-4 py-4" style={{ maxHeight: smsFiltersMenu.maxHeight }}>
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Date</div>
                         <div className="mt-2 grid grid-cols-2 gap-2">
                           {([ { key: "any" as const, label: "Any time" }, { key: "7d" as const, label: "Last 7 days" }, { key: "30d" as const, label: "Last 30 days" }, { key: "90d" as const, label: "Last 90 days" } ] satisfies Array<{ key: DateFilter; label: string }>).map((opt) => (
@@ -2042,8 +2114,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                             <span className={classNames("block h-6 w-6 translate-x-0.5 rounded-full bg-white shadow transition", smsIncomingOnly && "translate-x-[1.4rem]")} />
                           </button>
                         </div>
-                      </div>
-                    </div>
+                        </div>
+                    </LiquidGlassPopupSurface>
                   </>
                 ) : null}
 
@@ -2160,9 +2232,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         </div>
       ) : null}
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:h-[calc(100vh-var(--pa-portal-topbar-height,0px)-11rem)] lg:min-h-[68vh] lg:grid-cols-12">
+      <div className="mt-1 grid min-h-0 flex-1 grid-cols-1 gap-4 pb-0 lg:grid-cols-12">
         {/* Left panel: thread list */}
-        {!emailComposerOpen ? (
+        <>
           <div
             className={classNames(
               "flex min-h-0 flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12 lg:h-full lg:min-h-0 lg:hidden",
@@ -2178,7 +2250,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   {tab === "email" ? (
                     <button
                       type="button"
-                      className="rounded-xl bg-[#007aff] px-3 py-2 text-xs font-semibold text-white hover:bg-[#006ae6]"
+                      className="rounded-xl bg-brand-blue px-3 py-2 text-xs font-semibold text-white transition-all duration-100 hover:opacity-95"
                       onClick={openEmailComposer}
                     >
                       + New email
@@ -2297,13 +2369,13 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             </div>
           )}
           </div>
-        ) : null}
+        </>
 
         {/* Right panel: conversation view */}
-        {!emailComposerOpen && tab === "email" ? (
+        {tab === "email" ? (
           <div
             className={classNames(
-              "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12 lg:h-full lg:min-h-0",
+              "overflow-hidden rounded-none border border-zinc-200 bg-white lg:col-span-12 lg:h-full lg:min-h-0 lg:border-x lg:border-b lg:border-t-0",
               !activeThreadId ? "hidden lg:block" : "",
             )}
           >
@@ -2333,22 +2405,32 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   {activeThread ? (
                     <button
                       type="button"
-                      className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                      className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
                       onClick={openContactModalForActiveThread}
                     >
+                      <IconEdit size={14} />
                       {activeThread.contactId ? "Edit contact" : "Add contact"}
                     </button>
                   ) : null}
                 </div>
 
-                {activeThread?.contactId ? (
+                {activeThread?.contactId && Array.isArray(activeThread.contactTags) && activeThread.contactTags.length ? (
                   <div className="mt-2">
-                    <ContactTagsEditor
-                      compact
-                      contactId={activeThread.contactId}
-                      tags={Array.isArray(activeThread.contactTags) ? activeThread.contactTags : []}
-                      onChange={(next) => updateThreadTags(activeThread.id, next)}
-                    />
+                    <div className="flex flex-wrap gap-2">
+                      {activeThread.contactTags.map((tag) => (
+                        <span
+                          key={tag.id}
+                          className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold"
+                          style={{
+                            backgroundColor: tag.color ? `${tag.color}20` : "#0f172a12",
+                            borderColor: tag.color ? `${tag.color}40` : "#0f172a22",
+                            color: tag.color || "#0f172a",
+                          }}
+                        >
+                          {tag.name}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -2436,20 +2518,22 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               </div>
 
               {activeThread ? (
-                <div className="border-t border-zinc-100 bg-white p-4">
+                <div className="shrink-0 border-t border-zinc-100 bg-white px-4 pb-0 pt-4">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <div className="text-xs font-semibold text-zinc-700">Reply</div>
                   </div>
-                  <textarea
-                    ref={emailBodyRef}
-                    value={composeBody}
-                    onChange={(e) => setComposeBody(e.target.value)}
-                    rows={4}
-                    placeholder="Type your reply…"
-                    className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                  />
+                  <div className="lg:pr-24">
+                    <textarea
+                      ref={emailBodyRef}
+                      value={composeBody}
+                      onChange={(e) => setComposeBody(e.target.value)}
+                      rows={4}
+                      placeholder="Type your reply…"
+                      className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                    />
+                  </div>
                   {composeAttachments.length ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
+                    <div className="mt-2 flex flex-wrap gap-2 lg:pr-24">
                       {composeAttachments.map((a) => (
                         <div key={a.id} className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1">
                           <div className="max-w-55 truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
@@ -2468,7 +2552,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   ) : null}
                   <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="text-xs text-zinc-500">Replying to {activeThread.peerAddress}</div>
-                    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+                    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end lg:pr-24">
                       <button
                         type="button"
                         onClick={() => openVariablePicker("email_body")}
@@ -2476,20 +2560,62 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       >
                         Insert variable
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => emailFileRef.current?.click()}
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
-                      >
-                        Upload
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setMediaPickerOpen(true)}
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
-                      >
-                        Add from media library
-                      </button>
+                      <div className="relative">
+                        {emailAttachMenu ? (
+                          <>
+                            <div
+                              className="fixed inset-0 z-12041"
+                              onMouseDown={() => setEmailAttachMenu(null)}
+                              onTouchStart={() => setEmailAttachMenu(null)}
+                              aria-hidden
+                            />
+                            <LiquidGlassPopupSurface
+                              data-inline-menu-root="true"
+                              className="fixed z-12045 overflow-hidden"
+                              style={{ left: emailAttachMenu.left, top: emailAttachMenu.top, width: emailAttachMenu.width, maxHeight: emailAttachMenu.maxHeight }}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onTouchStart={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                                onClick={() => {
+                                  setEmailAttachMenu(null);
+                                  emailFileRef.current?.click();
+                                }}
+                              >
+                                Upload
+                              </button>
+                              <button
+                                type="button"
+                                className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                                onClick={() => {
+                                  setEmailAttachMenu(null);
+                                  setMediaPickerOpen(true);
+                                }}
+                              >
+                                Add from media library
+                              </button>
+                            </LiquidGlassPopupSurface>
+                          </>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            if (emailAttachMenu) {
+                              setEmailAttachMenu(null);
+                              return;
+                            }
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setEmailAttachMenu(computeFixedMenuStyle({ rect, width: 256, estHeight: 160, alignX: "left", minHeight: 120 }));
+                          }}
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-brand-ink hover:bg-zinc-50"
+                          aria-label="Media options"
+                          aria-expanded={emailAttachMenu ? true : undefined}
+                        >
+                          <IconServiceGlyph slug="media-library" />
+                        </button>
+                      </div>
                       <input
                         ref={emailFileRef}
                         type="file"
@@ -2517,13 +2643,13 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       <button
                         type="button"
                         onClick={() => void onSend()}
-                        disabled={sending}
+                        disabled={!canSendComposeMessage || sending || uploading}
                         className={classNames(
-                          "w-full rounded-2xl bg-[#007aff] px-5 py-2 text-sm font-semibold text-white hover:bg-[#006ae6] sm:w-auto",
-                          sending && "opacity-60",
+                          inboxPuraSendButtonClass,
+                          "h-10 w-full px-5 sm:w-auto",
                         )}
                       >
-                        {sending ? "Sending…" : uploading ? "Uploading…" : "Send"}
+                        {sending ? "Sending…" : uploading ? "Uploading…" : <SendButtonGlyph enabled={canSendComposeMessage} />}
                       </button>
                     </div>
                   </div>
@@ -2535,7 +2661,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
         {!emailComposerOpen && tab === "sms" ? (
           isDesktop ? (
-            <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-12 lg:h-full lg:min-h-0">
+            <div className="overflow-hidden rounded-none border border-zinc-200 bg-white lg:col-span-12 lg:h-full lg:min-h-0 lg:border-x lg:border-b lg:border-t-0">
               <div className="flex h-full min-h-[68vh] flex-col lg:min-h-0">
                 <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3">
                   <div className="min-w-0 flex-1">
@@ -2593,7 +2719,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       </div>
 
                       {toSuggestionsMenu ? (
-                        <div className={classNames("fixed z-12045 overflow-auto rounded-2xl", portalGlassPanelClass)} style={{ left: toSuggestionsMenu.left, top: toSuggestionsMenu.top, width: toSuggestionsMenu.width, maxHeight: toSuggestionsMenu.maxHeight }} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+                        <LiquidGlassPopupSurface data-inline-menu-root="true" className="fixed z-12045 overflow-hidden" style={{ left: toSuggestionsMenu.left, top: toSuggestionsMenu.top, width: toSuggestionsMenu.width, maxHeight: toSuggestionsMenu.maxHeight }} onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
                           {contactsLoading ? (
                             <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
                           ) : (
@@ -2615,13 +2741,13 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                               );
                             })()
                           )}
-                        </div>
+                      </LiquidGlassPopupSurface>
                       ) : null}
                     </div>
                   </div>
                 ) : null}
 
-                <div ref={smsScrollRef} className={classNames("min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:pr-24 lg:pb-24", styles.smsPane)}>
+                <div ref={smsScrollRef} className={classNames("min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:pr-6 lg:pb-3", styles.smsPane)}>
                   {!activeThread ? (
                     <div className="text-sm text-zinc-600">Start a new text by choosing a contact or entering a phone number.</div>
                   ) : loadingMessages ? (
@@ -2665,8 +2791,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   )}
                 </div>
 
-                <div className={classNames("shrink-0 border-t border-zinc-200 p-3 lg:pr-24", styles.inputBar)}>
-                  <div className={classNames("flex items-center gap-2 px-2 py-2", styles.inputPill)}>
+                <div className={classNames("shrink-0 border-t border-zinc-200 px-3 pb-0 pt-2 lg:pr-24", styles.inputBar)}>
+                  <div className={classNames("flex items-end gap-2 px-2 py-2", styles.inputPill)}>
                     <button
                       type="button"
                       className={classNames(styles.iconButton, styles.iconButtonMuted)}
@@ -2681,17 +2807,20 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     >
                       <span className="text-lg leading-none">+</span>
                     </button>
-                    <input ref={smsComposeRef} value={composeBody} onChange={(e) => setComposeBody(e.target.value)} onKeyDown={(e) => {
-                      if (e.key === "Enter") {
+                    <textarea ref={smsComposeRef} value={composeBody} rows={1} onChange={(e) => {
+                      setComposeBody(e.target.value);
+                      resizeSmsComposeInput();
+                    }} onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         void onSend();
                       }
-                    }} placeholder="Text message" className="w-full bg-transparent px-1 text-[15px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none" />
+                    }} placeholder="Text message" className="min-h-11 w-full resize-none bg-transparent px-1 py-3 text-[15px] leading-5 text-zinc-900 placeholder:text-zinc-400 focus:outline-none" />
                     <button type="button" className={classNames(styles.iconButton, styles.iconButtonMuted, (sending || uploading) && "opacity-60")} onClick={openSchedule} disabled={sending || uploading} aria-label="Schedule send">
                       <IconSchedule size={18} />
                     </button>
-                    <button type="button" onClick={() => void onSend()} disabled={sending} className={classNames(styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")} aria-label="Send">
-                      <IconSend size={18} />
+                    <button type="button" onClick={() => void onSend()} disabled={!canSendComposeMessage || sending || uploading} className={classNames(inboxPuraSendButtonClass, "h-9 w-9")} aria-label="Send">
+                      <SendButtonGlyph enabled={canSendComposeMessage} />
                     </button>
                   </div>
                 </div>
@@ -2925,8 +3054,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     </div>
 
                     {toSuggestionsMenu ? (
-                      <div
-                        className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                      <LiquidGlassPopupSurface
+                        data-inline-menu-root="true"
+                        className="fixed z-12045 overflow-hidden"
                         style={{ left: toSuggestionsMenu.left, top: toSuggestionsMenu.top, width: toSuggestionsMenu.width, maxHeight: toSuggestionsMenu.maxHeight }}
                         onMouseDown={(e) => e.stopPropagation()}
                         onTouchStart={(e) => e.stopPropagation()}
@@ -2946,7 +3076,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                                   <button
                                     key={c.id}
                                     type="button"
-                                    className="w-full px-3 py-2 text-left hover:bg-zinc-50"
+                                    className="w-full rounded-2xl px-3 py-2 text-left transition hover:bg-white/16"
                                     onMouseDown={(e) => {
                                       e.preventDefault();
                                       applyContactToCompose(c);
@@ -2960,7 +3090,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                             );
                           })()
                         )}
-                      </div>
+                      </LiquidGlassPopupSurface>
                     ) : null}
                   </div>
                 </div>
@@ -3122,15 +3252,16 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           onTouchStart={() => setSmsMoreMenu(null)}
                           aria-hidden
                         />
-                        <div
-                          className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                        <LiquidGlassPopupSurface
+                          data-inline-menu-root="true"
+                          className="fixed z-12045 overflow-hidden"
                           style={{ left: smsMoreMenu.left, top: smsMoreMenu.top, width: smsMoreMenu.width, maxHeight: smsMoreMenu.maxHeight }}
                           onMouseDown={(e) => e.stopPropagation()}
                           onTouchStart={(e) => e.stopPropagation()}
                         >
                           <button
                             type="button"
-                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
                             onClick={() => {
                               setSmsMoreMenu(null);
                               openVariablePicker("sms_body");
@@ -3140,7 +3271,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           </button>
                           <button
                             type="button"
-                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
                             onClick={() => {
                               setSmsMoreMenu(null);
                               smsFileRef.current?.click();
@@ -3150,7 +3281,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           </button>
                           <button
                             type="button"
-                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
                             onClick={() => {
                               setSmsMoreMenu(null);
                               setMediaPickerOpen(true);
@@ -3158,7 +3289,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           >
                             Add from media library
                           </button>
-                        </div>
+                        </LiquidGlassPopupSurface>
                       </>
                     ) : null}
 
@@ -3194,18 +3325,19 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     accept="image/*,video/*,audio/*,application/pdf,text/plain"
                   />
 
-                  <input
+                  <textarea
                     ref={smsComposeRef}
                     value={composeBody}
+                    rows={1}
                     onChange={(e) => setComposeBody(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") {
+                      if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
-                        onSend();
+                        void onSend();
                       }
                     }}
                     placeholder="Text message"
-                    className="w-full bg-transparent px-1 text-[15px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
+                    className="min-h-11 w-full resize-none bg-transparent px-1 py-3 text-[15px] leading-5 text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
                   />
 
                   <button
@@ -3222,15 +3354,15 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <button
                     type="button"
                     onClick={() => void onSend()}
-                    disabled={sending}
-                    className={classNames(styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")}
+                    disabled={!canSendComposeMessage || sending || uploading}
+                    className={classNames(inboxPuraSendButtonClass, "h-9 w-9")}
                     aria-label="Send"
                   >
-                    <IconSend size={18} />
+                    <SendButtonGlyph enabled={canSendComposeMessage} />
                   </button>
                 </div>
 
-                <div className="mt-1 px-2 text-[11px] text-zinc-500">{uploading ? "Uploading…" : "Press Enter to send"}</div>
+                <div className="mt-1 px-2 text-[11px] text-zinc-500">{uploading ? "Uploading…" : "Press Enter to send, Shift+Enter for a new line"}</div>
               </div>
             </div>
           </div>
@@ -3345,8 +3477,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     />
 
                     {toSuggestionsMenu ? (
-                      <div
-                        className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                      <LiquidGlassPopupSurface
+                        data-inline-menu-root="true"
+                        className="fixed z-12045 overflow-hidden"
                         style={{ left: toSuggestionsMenu.left, top: toSuggestionsMenu.top, width: toSuggestionsMenu.width, maxHeight: toSuggestionsMenu.maxHeight }}
                         onMouseDown={(e) => e.stopPropagation()}
                         onTouchStart={(e) => e.stopPropagation()}
@@ -3366,7 +3499,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                                   <button
                                     key={c.id}
                                     type="button"
-                                    className="w-full px-3 py-2 text-left hover:bg-zinc-50"
+                                    className="w-full rounded-2xl px-3 py-2 text-left transition hover:bg-white/16"
                                     onMouseDown={(e) => {
                                       e.preventDefault();
                                       applyContactToCompose(c);
@@ -3380,7 +3513,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                             );
                           })()
                         )}
-                      </div>
+                      </LiquidGlassPopupSurface>
                     ) : null}
                   </div>
                 </div>
@@ -3425,15 +3558,16 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           onTouchStart={() => setEmailAttachMenu(null)}
                           aria-hidden
                         />
-                        <div
-                          className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                        <LiquidGlassPopupSurface
+                          data-inline-menu-root="true"
+                          className="fixed z-12045 overflow-hidden"
                           style={{ left: emailAttachMenu.left, top: emailAttachMenu.top, width: emailAttachMenu.width, maxHeight: emailAttachMenu.maxHeight }}
                           onMouseDown={(e) => e.stopPropagation()}
                           onTouchStart={(e) => e.stopPropagation()}
                         >
                           <button
                             type="button"
-                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
                             onClick={() => {
                               setEmailAttachMenu(null);
                               emailComposerFileRef.current?.click();
@@ -3443,7 +3577,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           </button>
                           <button
                             type="button"
-                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
                             onClick={() => {
                               setEmailAttachMenu(null);
                               setMediaPickerOpen(true);
@@ -3451,7 +3585,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           >
                             Add from media library
                           </button>
-                        </div>
+                        </LiquidGlassPopupSurface>
                       </>
                     ) : null}
 
@@ -3494,8 +3628,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <button
                     type="button"
                     className={classNames(
-                      "inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#007aff] text-white hover:bg-[#006ae6]",
-                      sending && "opacity-60",
+                      inboxPuraSendButtonClass,
+                      "h-10 w-10",
                     )}
                     onClick={async () => {
                       const result = await onSend();
@@ -3505,10 +3639,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         setEmailAttachMenu(null);
                       }
                     }}
-                    disabled={sending}
+                    disabled={!canSendComposeMessage || sending || uploading}
                     aria-label="Send"
                   >
-                    <IconSend size={18} />
+                    <SendButtonGlyph enabled={canSendComposeMessage} />
                   </button>
                 </div>
               </div>

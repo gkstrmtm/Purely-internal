@@ -340,6 +340,8 @@ model PortalAiChatRun {
   workTitle  String?
   canvasUrl  String?
   summaryText String?
+  aiSummaryText String?
+  aiSummaryGeneratedAt DateTime?
 
   stepsJson               Json?
   followUpSuggestionsJson Json?

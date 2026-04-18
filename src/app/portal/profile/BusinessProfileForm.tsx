@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
+import { portalGlassButtonClass } from "@/components/portalGlass";
 import { applyFontPresetToStyle, fontPresetKeyFromStyle } from "@/lib/fontPresets";
+import { CreatableMultiSelectField } from "./BusinessProfileControls";
 
 type BusinessProfile = {
   businessName: string;
@@ -14,6 +16,7 @@ type BusinessProfile = {
   primaryGoals: unknown;
   targetCustomer: string | null;
   brandVoice: string | null;
+  businessContextNotes?: string | null;
 
   logoUrl?: string | null;
   brandPrimaryHex?: string | null;
@@ -43,8 +46,6 @@ type ApiGet = { ok: boolean; profile: BusinessProfile | null };
 
 type ApiPut = { ok: boolean; profile: BusinessProfile };
 
-const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
-
 function normalizeGoals(goals: unknown) {
   if (!Array.isArray(goals)) return [] as string[];
   const out: string[] = [];
@@ -59,10 +60,69 @@ function normalizeGoals(goals: unknown) {
   return out;
 }
 
-function safeColorValue(value: string, fallback: string) {
-  const v = String(value || "").trim();
-  return HEX_RE.test(v) ? v : fallback;
+function normalizeUniqueList(values: unknown, maxItems = 10) {
+  if (!Array.isArray(values)) return [] as string[];
+  const out: string[] = [];
+  for (const value of values) {
+    const next = String(value || "").trim();
+    if (!next) continue;
+    if (out.some((entry) => entry.toLowerCase() === next.toLowerCase())) continue;
+    out.push(next);
+    if (out.length >= maxItems) break;
+  }
+  return out;
 }
+
+function parseDelimitedTags(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return [] as string[];
+  const parts = raw.split(/\s*(?:;|\n|•)\s*/g);
+  return normalizeUniqueList(parts, 10);
+}
+
+function joinDelimitedTags(values: string[]) {
+  return normalizeUniqueList(values, 10).join("; ");
+}
+
+function classNames(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(" ");
+}
+
+const nativeColorInputClassName =
+  "h-11 w-11 shrink-0 cursor-pointer appearance-none overflow-hidden rounded-xl border-0 bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-xl [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:border-0";
+
+const PRIMARY_GOAL_OPTIONS = [
+  "More leads",
+  "More booked appointments",
+  "Better follow-up",
+  "Higher close rate",
+  "More reviews",
+  "More repeat customers",
+  "Less manual work",
+  "Stronger online presence",
+].map((label) => ({ value: label, label }));
+
+const TARGET_CUSTOMER_OPTIONS = [
+  "Homeowners",
+  "Local families",
+  "Busy professionals",
+  "Small business owners",
+  "High-income households",
+  "First-time buyers",
+  "Returning customers",
+  "Local service clients",
+].map((label) => ({ value: label, label }));
+
+const BRAND_VOICE_OPTIONS = [
+  "Professional",
+  "Friendly",
+  "Confident",
+  "Luxury",
+  "Warm",
+  "Direct",
+  "Educational",
+  "Playful",
+].map((label) => ({ value: label, label }));
 
 export function BusinessProfileForm({
   title,
@@ -70,31 +130,48 @@ export function BusinessProfileForm({
   embedded,
   readOnly,
   onSaved,
+  businessEmailContent,
 }: {
   title?: string;
   description?: string;
   embedded?: boolean;
   readOnly?: boolean;
   onSaved?: () => void;
+  businessEmailContent?: ReactNode;
 }) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastSavedSigRef = useRef<string>("{}");
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
+  const logoMenuRef = useRef<HTMLDivElement | null>(null);
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [logoPickerOpen, setLogoPickerOpen] = useState(false);
+  const [logoMenuOpen, setLogoMenuOpen] = useState(false);
 
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
+
+  useEffect(() => {
+    if (!logoMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (logoMenuRef.current?.contains(event.target as Node)) return;
+      setLogoMenuOpen(false);
+    };
+    window.addEventListener("mousedown", handlePointerDown, true);
+    return () => window.removeEventListener("mousedown", handlePointerDown, true);
+  }, [logoMenuOpen]);
 
   const [businessName, setBusinessName] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [industry, setIndustry] = useState("");
   const [businessModel, setBusinessModel] = useState("");
   const [primaryGoals, setPrimaryGoals] = useState<string[]>([]);
-  const [primaryGoalDraft, setPrimaryGoalDraft] = useState("");
-  const [targetCustomer, setTargetCustomer] = useState("");
-  const [brandVoice, setBrandVoice] = useState("");
+  const [targetCustomers, setTargetCustomers] = useState<string[]>([]);
+  const [brandVoices, setBrandVoices] = useState<string[]>([]);
+  const [businessContextNotes, setBusinessContextNotes] = useState("");
 
   const [logoUrl, setLogoUrl] = useState("");
   const [brandPrimaryHex, setBrandPrimaryHex] = useState("");
@@ -113,9 +190,6 @@ export function BusinessProfileForm({
   const [hostedPrimaryHex, setHostedPrimaryHex] = useState("");
   const [hostedAccentHex, setHostedAccentHex] = useState("");
   const [hostedLinkHex, setHostedLinkHex] = useState("");
-
-  const [logoBusy, setLogoBusy] = useState(false);
-  const [logoPickerOpen, setLogoPickerOpen] = useState(false);
 
   const brandFontPresetKeyRaw = useMemo(
     () => fontPresetKeyFromStyle({ fontFamily: brandFontFamily, fontGoogleFamily: brandFontGoogleFamily }),
@@ -139,8 +213,9 @@ export function BusinessProfileForm({
       industry: normalize(industry),
       businessModel: normalize(businessModel),
       primaryGoals: goals,
-      targetCustomer: normalize(targetCustomer),
-      brandVoice: normalize(brandVoice),
+      targetCustomers: normalizeUniqueList(targetCustomers, 10),
+      brandVoices: normalizeUniqueList(brandVoices, 10),
+      businessContextNotes: normalize(businessContextNotes),
 
       logoUrl: normalize(logoUrl),
       brandPrimaryHex: normalize(brandPrimaryHex),
@@ -169,8 +244,9 @@ export function BusinessProfileForm({
     industry,
     businessModel,
     primaryGoals,
-    targetCustomer,
-    brandVoice,
+    targetCustomers,
+    brandVoices,
+    businessContextNotes,
     logoUrl,
     brandPrimaryHex,
     brandSecondaryHex,
@@ -212,8 +288,9 @@ export function BusinessProfileForm({
         const nextIndustry = p.industry ?? "";
         const nextBusinessModel = p.businessModel ?? "";
         const nextPrimaryGoals = normalizeGoals(p.primaryGoals);
-        const nextTargetCustomer = p.targetCustomer ?? "";
-        const nextBrandVoice = p.brandVoice ?? "";
+        const nextTargetCustomers = parseDelimitedTags(p.targetCustomer);
+        const nextBrandVoices = parseDelimitedTags(p.brandVoice);
+        const nextBusinessContextNotes = p.businessContextNotes ?? "";
 
         const nextLogoUrl = p.logoUrl ?? "";
         const nextBrandPrimaryHex = p.brandPrimaryHex ?? "";
@@ -240,8 +317,9 @@ export function BusinessProfileForm({
         setIndustry(nextIndustry);
         setBusinessModel(nextBusinessModel);
         setPrimaryGoals(nextPrimaryGoals);
-        setTargetCustomer(nextTargetCustomer);
-        setBrandVoice(nextBrandVoice);
+        setTargetCustomers(nextTargetCustomers);
+        setBrandVoices(nextBrandVoices);
+        setBusinessContextNotes(nextBusinessContextNotes);
 
         setLogoUrl(nextLogoUrl);
         setBrandPrimaryHex(nextBrandPrimaryHex);
@@ -271,8 +349,9 @@ export function BusinessProfileForm({
             .map((g) => String(g || "").trim())
             .filter(Boolean)
             .slice(0, 10),
-          targetCustomer: String(nextTargetCustomer || "").trim(),
-          brandVoice: String(nextBrandVoice || "").trim(),
+          targetCustomers: normalizeUniqueList(nextTargetCustomers, 10),
+          brandVoices: normalizeUniqueList(nextBrandVoices, 10),
+          businessContextNotes: String(nextBusinessContextNotes || "").trim(),
 
           logoUrl: String(nextLogoUrl || "").trim(),
           brandPrimaryHex: String(nextBrandPrimaryHex || "").trim(),
@@ -321,8 +400,9 @@ export function BusinessProfileForm({
         industry,
         businessModel,
         primaryGoals: primaryGoals.length ? primaryGoals : undefined,
-        targetCustomer,
-        brandVoice,
+        targetCustomer: joinDelimitedTags(targetCustomers),
+        brandVoice: joinDelimitedTags(brandVoices),
+        businessContextNotes,
 
         logoUrl,
         brandPrimaryHex,
@@ -356,8 +436,30 @@ export function BusinessProfileForm({
     }
 
     lastSavedSigRef.current = currentSig;
+  setLogoMenuOpen(false);
 
     onSaved?.();
+  }
+
+  async function uploadLogoFile(file: File | null | undefined) {
+    if (!file || readOnly) return;
+    setLogoBusy(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const up = await fetch("/api/uploads", { method: "POST", body: fd });
+      const upBody = (await up.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!up.ok || !upBody.url) {
+        setError(upBody.error ?? "Upload failed");
+        return;
+      }
+      setLogoUrl(upBody.url);
+      setLogoMenuOpen(false);
+    } finally {
+      setLogoBusy(false);
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    }
   }
 
   if (loading) {
@@ -383,60 +485,103 @@ export function BusinessProfileForm({
 
       <div className={(embedded ? "mt-2" : "mt-5") + " grid grid-cols-1 gap-4 sm:grid-cols-2"}>
         <div className="sm:col-span-2">
-          <label className="text-xs font-semibold text-zinc-600">Logo</label>
-          <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              <div className="h-12 w-12 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50">
-                {logoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={logoUrl} alt="Logo" className="h-full w-full object-cover" />
-                ) : null}
-              </div>
-              <div className="min-w-0">
-                <div className="truncate text-xs text-zinc-500">{logoUrl ? logoUrl : "No logo uploaded"}</div>
-                <div className="mt-1 text-xs text-zinc-500">Recommended: square image, under 2MB.</div>
-              </div>
+          <input
+            ref={logoInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={logoBusy || Boolean(readOnly)}
+            onChange={(event) => void uploadLogoFile(event.target.files?.[0])}
+          />
+
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="flex h-32 w-32 shrink-0 items-center justify-center overflow-hidden sm:h-40 sm:w-40">
+              {logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={logoUrl} alt="Business logo" className="h-full w-full object-contain" />
+              ) : (
+                <span className="px-4 text-center text-xs font-semibold text-zinc-400">No logo</span>
+              )}
             </div>
 
-            <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50">
-              {logoBusy ? "Uploading…" : "Upload"}
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={logoBusy || Boolean(readOnly)}
-                onChange={async (e) => {
-                  if (readOnly) return;
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  setLogoBusy(true);
-                  setError(null);
-                  try {
-                    const fd = new FormData();
-                    fd.set("file", file);
-                    const up = await fetch("/api/uploads", { method: "POST", body: fd });
-                    const upBody = (await up.json().catch(() => ({}))) as { url?: string; error?: string };
-                    if (!up.ok || !upBody.url) {
-                      setError(upBody.error ?? "Upload failed");
-                      return;
-                    }
-                    setLogoUrl(upBody.url);
-                  } finally {
-                    setLogoBusy(false);
-                    if (e.target) e.target.value = "";
-                  }
-                }}
-              />
-            </label>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm text-zinc-600">Recommended: PNG or JPG with a transparent background if possible.</div>
+              <div className="mt-1 text-xs text-zinc-500">Use a square or nearly square image for the cleanest fit.</div>
 
-            <button
-              type="button"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
-              onClick={() => !readOnly && setLogoPickerOpen(true)}
-              disabled={Boolean(readOnly)}
-            >
-              Choose from media library
-            </button>
+              <div ref={logoMenuRef} className="mt-4 flex flex-wrap items-center gap-2">
+                {logoUrl ? (
+                  <>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => !readOnly && setLogoMenuOpen((current) => !current)}
+                        disabled={Boolean(readOnly) || logoBusy}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
+                      >
+                        {logoBusy ? "Uploading…" : "Change logo"}
+                      </button>
+
+                      {logoMenuOpen ? (
+                        <div className="absolute left-0 top-full z-20 mt-2 min-w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg">
+                          <button
+                            type="button"
+                            className="flex w-full items-center rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50"
+                            onClick={() => {
+                              setLogoMenuOpen(false);
+                              logoInputRef.current?.click();
+                            }}
+                          >
+                            Upload new logo
+                          </button>
+                          <button
+                            type="button"
+                            className="flex w-full items-center rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-zinc-900 transition hover:bg-zinc-50"
+                            onClick={() => {
+                              setLogoMenuOpen(false);
+                              setLogoPickerOpen(true);
+                            }}
+                          >
+                            Choose from media library
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (readOnly) return;
+                        setLogoUrl("");
+                        setLogoMenuOpen(false);
+                      }}
+                      disabled={Boolean(readOnly) || logoBusy}
+                      className="inline-flex items-center justify-center rounded-2xl bg-[rgba(220,38,38,0.08)] px-4 py-2.5 text-sm font-semibold text-[#dc2626] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[rgba(220,38,38,0.10)] hover:text-[#b91c1c] disabled:opacity-60"
+                    >
+                      Delete logo
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => logoInputRef.current?.click()}
+                      disabled={Boolean(readOnly) || logoBusy}
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
+                    >
+                      {logoBusy ? "Uploading…" : "Upload"}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
+                      onClick={() => !readOnly && setLogoPickerOpen(true)}
+                      disabled={Boolean(readOnly) || logoBusy}
+                    >
+                      Choose from media library
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -448,27 +593,28 @@ export function BusinessProfileForm({
           onPick={(item) => {
             setLogoUrl(item.shareUrl);
             setLogoPickerOpen(false);
+            setLogoMenuOpen(false);
           }}
         />
 
-        <div className="sm:col-span-2">
+        <div>
           <label className="text-xs font-semibold text-zinc-600">Business name</label>
           <input
             value={businessName}
             onChange={(e) => setBusinessName(e.target.value)}
             disabled={Boolean(readOnly)}
-            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+            className="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300"
             placeholder="Acme Dental"
           />
         </div>
 
-        <div className="sm:col-span-2">
+        <div>
           <label className="text-xs font-semibold text-zinc-600">Website</label>
           <input
             value={websiteUrl}
             onChange={(e) => setWebsiteUrl(e.target.value)}
             disabled={Boolean(readOnly)}
-            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+            className="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300"
             placeholder="https://example.com"
           />
         </div>
@@ -479,7 +625,7 @@ export function BusinessProfileForm({
             value={industry}
             onChange={(e) => setIndustry(e.target.value)}
             disabled={Boolean(readOnly)}
-            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+            className="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300"
             placeholder="Home services, dental, legal…"
           />
         </div>
@@ -490,82 +636,62 @@ export function BusinessProfileForm({
             value={businessModel}
             onChange={(e) => setBusinessModel(e.target.value)}
             disabled={Boolean(readOnly)}
-            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+            className="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300"
             placeholder="Appointments, subscriptions, one-time jobs…"
           />
         </div>
 
-        <div className="sm:col-span-2">
-          <label className="text-xs font-semibold text-zinc-600">Primary goals</label>
-          <div className="mt-1 flex flex-col gap-2 sm:flex-row">
-            <input
-              value={primaryGoalDraft}
-              onChange={(e) => setPrimaryGoalDraft(e.target.value)}
-              disabled={Boolean(readOnly)}
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-              placeholder="Add a goal (e.g. More leads)"
-            />
-            <button
-              type="button"
-              disabled={Boolean(readOnly)}
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
-              onClick={() => {
-                if (readOnly) return;
-                const v = primaryGoalDraft.trim();
-                if (!v) return;
-                setPrimaryGoals((xs) => {
-                  if (xs.includes(v)) return xs;
-                  if (xs.length >= 10) return xs;
-                  return [...xs, v];
-                });
-                setPrimaryGoalDraft("");
-              }}
-            >
-              + Add
-            </button>
-          </div>
-
-          {primaryGoals.length ? (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {primaryGoals.map((g) => (
-                <button
-                  key={g}
-                  type="button"
-                  disabled={Boolean(readOnly)}
-                  onClick={() => !readOnly && setPrimaryGoals((xs) => xs.filter((x) => x !== g))}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-100 disabled:opacity-60"
-                  title={readOnly ? undefined : "Remove"}
-                >
-                  <span className="max-w-[18rem] truncate">{g}</span>
-                  {!readOnly ? <span className="text-zinc-500">×</span> : null}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-2 text-xs text-zinc-500">Add up to 10 goals.</div>
-          )}
-        </div>
+        {businessEmailContent ? <div className="sm:col-span-2">{businessEmailContent}</div> : null}
 
         <div className="sm:col-span-2">
-          <label className="text-xs font-semibold text-zinc-600">Target customer</label>
-          <input
-            value={targetCustomer}
-            onChange={(e) => setTargetCustomer(e.target.value)}
+          <CreatableMultiSelectField
+            label="Primary goals"
+            value={primaryGoals}
+            options={PRIMARY_GOAL_OPTIONS}
+            onChange={setPrimaryGoals}
             disabled={Boolean(readOnly)}
-            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-            placeholder="Families in Atlanta looking for…"
+            placeholder="Search or add a goal"
+            hint="Choose up to 10 goals, or type your own."
+            maxItems={10}
           />
         </div>
 
         <div className="sm:col-span-2">
-          <label className="text-xs font-semibold text-zinc-600">Brand voice</label>
-          <input
-            value={brandVoice}
-            onChange={(e) => setBrandVoice(e.target.value)}
+          <CreatableMultiSelectField
+            label="Target customer"
+            value={targetCustomers}
+            options={TARGET_CUSTOMER_OPTIONS}
+            onChange={setTargetCustomers}
             disabled={Boolean(readOnly)}
-            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-            placeholder="Professional, friendly, short paragraphs"
+            placeholder="Search or add a customer type"
+            hint="Select audience types or add custom ones."
+            maxItems={10}
           />
+        </div>
+
+        <div className="sm:col-span-2">
+          <CreatableMultiSelectField
+            label="Brand voice"
+            value={brandVoices}
+            options={BRAND_VOICE_OPTIONS}
+            onChange={setBrandVoices}
+            disabled={Boolean(readOnly)}
+            placeholder="Search or add a voice trait"
+            hint="Pick multiple voice traits or add your own."
+            maxItems={10}
+          />
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className="text-xs font-semibold text-zinc-600">Additional business context</label>
+          <textarea
+            value={businessContextNotes}
+            onChange={(e) => setBusinessContextNotes(e.target.value)}
+            disabled={Boolean(readOnly)}
+            className="mt-1 min-h-28 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+            placeholder="Anything extra you want Pura, AI calls, or the rest of the platform to know about your business."
+          />
+          <div className="mt-1 text-xs text-zinc-500">Use this for extra context, special instructions, tone preferences, or business details that don’t fit the fields above.</div>
         </div>
 
         <div className="sm:col-span-2">
@@ -582,7 +708,10 @@ export function BusinessProfileForm({
               }}
               extraOptions={[{ value: "default", label: "Default (app font)" }]}
               className="w-full"
-              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+              buttonClassName={classNames(
+                "flex h-11 w-full items-center justify-between gap-2 rounded-2xl border border-white/55 px-4 text-sm text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:border-white/70 hover:bg-white/80",
+                portalGlassButtonClass,
+              )}
               disabled={Boolean(readOnly)}
             />
           </div>
@@ -595,345 +724,86 @@ export function BusinessProfileForm({
           <div className="mt-1 text-xs text-zinc-500">Used for hosted page styling and templates.</div>
         </div>
 
-        <div>
-          <label className="text-xs font-semibold text-zinc-600">Brand primary color</label>
-          <div className="mt-1 flex items-center gap-2">
-            <input
-              type="color"
-              value={safeColorValue(brandPrimaryHex, "#1d4ed8")}
-              onChange={(e) => setBrandPrimaryHex(e.target.value)}
-              disabled={Boolean(readOnly)}
-              className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-              aria-label="Pick primary color"
-            />
-            <input
-              value={brandPrimaryHex}
-              onChange={(e) => setBrandPrimaryHex(e.target.value)}
-              disabled={Boolean(readOnly)}
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-              placeholder="#1d4ed8"
-            />
-            <div
-              className="h-10 w-10 rounded-2xl border border-zinc-200"
-              style={{ background: safeColorValue(brandPrimaryHex, "#1d4ed8") }}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="text-xs font-semibold text-zinc-600">Brand secondary color</label>
-          <div className="mt-1 flex items-center gap-2">
-            <input
-              type="color"
-              value={safeColorValue(brandSecondaryHex, "#22c55e")}
-              onChange={(e) => setBrandSecondaryHex(e.target.value)}
-              disabled={Boolean(readOnly)}
-              className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-              aria-label="Pick secondary color"
-            />
-            <input
-              value={brandSecondaryHex}
-              onChange={(e) => setBrandSecondaryHex(e.target.value)}
-              disabled={Boolean(readOnly)}
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-              placeholder="#22c55e"
-            />
-            <div
-              className="h-10 w-10 rounded-2xl border border-zinc-200"
-              style={{ background: safeColorValue(brandSecondaryHex, "#22c55e") }}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="text-xs font-semibold text-zinc-600">Brand accent color</label>
-          <div className="mt-1 flex items-center gap-2">
-            <input
-              type="color"
-              value={safeColorValue(brandAccentHex, "#fb7185")}
-              onChange={(e) => setBrandAccentHex(e.target.value)}
-              disabled={Boolean(readOnly)}
-              className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-              aria-label="Pick accent color"
-            />
-            <input
-              value={brandAccentHex}
-              onChange={(e) => setBrandAccentHex(e.target.value)}
-              disabled={Boolean(readOnly)}
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-              placeholder="#fb7185"
-            />
-            <div
-              className="h-10 w-10 rounded-2xl border border-zinc-200"
-              style={{ background: safeColorValue(brandAccentHex, "#fb7185") }}
-            />
-          </div>
-        </div>
-
         <div className="sm:col-span-2">
-          <label className="text-xs font-semibold text-zinc-600">Text color</label>
-          <div className="mt-1 flex items-center gap-2">
-            <input
-              type="color"
-              value={safeColorValue(brandTextHex, "#0f172a")}
-              onChange={(e) => setBrandTextHex(e.target.value)}
-              disabled={Boolean(readOnly)}
-              className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-              aria-label="Pick text color"
-            />
-            <input
-              value={brandTextHex}
-              onChange={(e) => setBrandTextHex(e.target.value)}
-              disabled={Boolean(readOnly)}
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-              placeholder="#0f172a"
-            />
-            <div
-              className="flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs"
-              style={{ color: safeColorValue(brandTextHex, "#0f172a") }}
-            >
-              Aa
-            </div>
-          </div>
-        </div>
-
-        <div className="sm:col-span-2">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="text-sm font-semibold text-zinc-900">Brand colors</div>
+          <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
             <div>
-              <div className="text-sm font-semibold text-zinc-900">Hosted pages theme overrides</div>
-              <div className="mt-1 text-xs text-zinc-500">
-                Optional. Leave any field blank to inherit the theme derived from your brand colors. This affects hosted pages like blogs and reviews.
-              </div>
-            </div>
-            {!readOnly ? (
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
-                onClick={() => {
-                  setHostedBgHex("");
-                  setHostedSurfaceHex("");
-                  setHostedSoftHex("");
-                  setHostedBorderHex("");
-                  setHostedTextHex("");
-                  setHostedMutedTextHex("");
-                  setHostedPrimaryHex("");
-                  setHostedAccentHex("");
-                  setHostedLinkHex("");
-                }}
-              >
-                Reset hosted overrides
-              </button>
-            ) : null}
-          </div>
-
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="text-xs font-semibold text-zinc-600">Background</label>
-              <div className="mt-1 flex items-center gap-2">
+              <label className="text-xs font-semibold text-zinc-600">Brand primary color</label>
+              <div className="mt-1 flex items-center gap-3">
                 <input
                   type="color"
-                  value={safeColorValue(hostedBgHex, "#ffffff")}
-                  onChange={(e) => setHostedBgHex(e.target.value)}
+                  value={brandPrimaryHex || "#1d4ed8"}
+                  onChange={(e) => setBrandPrimaryHex(e.target.value)}
                   disabled={Boolean(readOnly)}
-                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-                  aria-label="Pick hosted background"
+                  className={nativeColorInputClassName}
+                  aria-label="Pick primary color"
                 />
                 <input
-                  value={hostedBgHex}
-                  onChange={(e) => setHostedBgHex(e.target.value)}
+                  value={brandPrimaryHex}
+                  onChange={(e) => setBrandPrimaryHex(e.target.value)}
                   disabled={Boolean(readOnly)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="(blank = auto)"
-                />
-                <div className="h-10 w-10 rounded-2xl border border-zinc-200" style={{ background: safeColorValue(hostedBgHex, "#ffffff") }} />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-zinc-600">Surface (cards)</label>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="color"
-                  value={safeColorValue(hostedSurfaceHex, "#ffffff")}
-                  onChange={(e) => setHostedSurfaceHex(e.target.value)}
-                  disabled={Boolean(readOnly)}
-                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-                  aria-label="Pick hosted surface"
-                />
-                <input
-                  value={hostedSurfaceHex}
-                  onChange={(e) => setHostedSurfaceHex(e.target.value)}
-                  disabled={Boolean(readOnly)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="(blank = auto)"
-                />
-                <div className="h-10 w-10 rounded-2xl border border-zinc-200" style={{ background: safeColorValue(hostedSurfaceHex, "#ffffff") }} />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-zinc-600">Soft background (chips)</label>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="color"
-                  value={safeColorValue(hostedSoftHex, "#f4f4f5")}
-                  onChange={(e) => setHostedSoftHex(e.target.value)}
-                  disabled={Boolean(readOnly)}
-                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-                  aria-label="Pick hosted soft background"
-                />
-                <input
-                  value={hostedSoftHex}
-                  onChange={(e) => setHostedSoftHex(e.target.value)}
-                  disabled={Boolean(readOnly)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="(blank = auto)"
-                />
-                <div className="h-10 w-10 rounded-2xl border border-zinc-200" style={{ background: safeColorValue(hostedSoftHex, "#f4f4f5") }} />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-zinc-600">Border</label>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="color"
-                  value={safeColorValue(hostedBorderHex, "#e4e4e7")}
-                  onChange={(e) => setHostedBorderHex(e.target.value)}
-                  disabled={Boolean(readOnly)}
-                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-                  aria-label="Pick hosted border"
-                />
-                <input
-                  value={hostedBorderHex}
-                  onChange={(e) => setHostedBorderHex(e.target.value)}
-                  disabled={Boolean(readOnly)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="(blank = auto)"
-                />
-                <div className="h-10 w-10 rounded-2xl border border-zinc-200" style={{ background: safeColorValue(hostedBorderHex, "#e4e4e7") }} />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-zinc-600">Text</label>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="color"
-                  value={safeColorValue(hostedTextHex, "#18181b")}
-                  onChange={(e) => setHostedTextHex(e.target.value)}
-                  disabled={Boolean(readOnly)}
-                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-                  aria-label="Pick hosted text"
-                />
-                <input
-                  value={hostedTextHex}
-                  onChange={(e) => setHostedTextHex(e.target.value)}
-                  disabled={Boolean(readOnly)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="(blank = auto)"
-                />
-                <div className="flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs" style={{ color: safeColorValue(hostedTextHex, "#18181b") }}>
-                  Aa
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-zinc-600">Muted text</label>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="color"
-                  value={safeColorValue(hostedMutedTextHex, "#52525b")}
-                  onChange={(e) => setHostedMutedTextHex(e.target.value)}
-                  disabled={Boolean(readOnly)}
-                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-                  aria-label="Pick hosted muted text"
-                />
-                <input
-                  value={hostedMutedTextHex}
-                  onChange={(e) => setHostedMutedTextHex(e.target.value)}
-                  disabled={Boolean(readOnly)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="(blank = auto)"
-                />
-                <div className="flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs" style={{ color: safeColorValue(hostedMutedTextHex, "#52525b") }}>
-                  Aa
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-zinc-600">Primary (buttons)</label>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  type="color"
-                  value={safeColorValue(hostedPrimaryHex, safeColorValue(brandPrimaryHex, "#1d4ed8"))}
-                  onChange={(e) => setHostedPrimaryHex(e.target.value)}
-                  disabled={Boolean(readOnly)}
-                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-                  aria-label="Pick hosted primary"
-                />
-                <input
-                  value={hostedPrimaryHex}
-                  onChange={(e) => setHostedPrimaryHex(e.target.value)}
-                  disabled={Boolean(readOnly)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="(blank = auto)"
-                />
-                <div
-                  className="h-10 w-10 rounded-2xl border border-zinc-200"
-                  style={{ background: safeColorValue(hostedPrimaryHex, safeColorValue(brandPrimaryHex, "#1d4ed8")) }}
+                  className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300"
+                  placeholder="#1d4ed8"
                 />
               </div>
             </div>
-
             <div>
-              <label className="text-xs font-semibold text-zinc-600">Accent (highlights)</label>
-              <div className="mt-1 flex items-center gap-2">
+              <label className="text-xs font-semibold text-zinc-600">Brand secondary color</label>
+              <div className="mt-1 flex items-center gap-3">
                 <input
                   type="color"
-                  value={safeColorValue(hostedAccentHex, safeColorValue(brandAccentHex, "#fb7185"))}
-                  onChange={(e) => setHostedAccentHex(e.target.value)}
+                  value={brandSecondaryHex || "#22c55e"}
+                  onChange={(e) => setBrandSecondaryHex(e.target.value)}
                   disabled={Boolean(readOnly)}
-                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-                  aria-label="Pick hosted accent"
+                  className={nativeColorInputClassName}
+                  aria-label="Pick secondary color"
                 />
                 <input
-                  value={hostedAccentHex}
-                  onChange={(e) => setHostedAccentHex(e.target.value)}
+                  value={brandSecondaryHex}
+                  onChange={(e) => setBrandSecondaryHex(e.target.value)}
                   disabled={Boolean(readOnly)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="(blank = auto)"
-                />
-                <div
-                  className="h-10 w-10 rounded-2xl border border-zinc-200"
-                  style={{ background: safeColorValue(hostedAccentHex, safeColorValue(brandAccentHex, "#fb7185")) }}
+                  className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300"
+                  placeholder="#22c55e"
                 />
               </div>
             </div>
-
             <div>
-              <label className="text-xs font-semibold text-zinc-600">Link</label>
-              <div className="mt-1 flex items-center gap-2">
+              <label className="text-xs font-semibold text-zinc-600">Brand accent color</label>
+              <div className="mt-1 flex items-center gap-3">
                 <input
                   type="color"
-                  value={safeColorValue(hostedLinkHex, safeColorValue(brandPrimaryHex, "#2563eb"))}
-                  onChange={(e) => setHostedLinkHex(e.target.value)}
+                  value={brandAccentHex || "#fb7185"}
+                  onChange={(e) => setBrandAccentHex(e.target.value)}
                   disabled={Boolean(readOnly)}
-                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
-                  aria-label="Pick hosted link"
+                  className={nativeColorInputClassName}
+                  aria-label="Pick accent color"
                 />
                 <input
-                  value={hostedLinkHex}
-                  onChange={(e) => setHostedLinkHex(e.target.value)}
+                  value={brandAccentHex}
+                  onChange={(e) => setBrandAccentHex(e.target.value)}
                   disabled={Boolean(readOnly)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="(blank = auto)"
+                  className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300"
+                  placeholder="#fb7185"
                 />
-                <div
-                  className="h-10 w-10 rounded-2xl border border-zinc-200"
-                  style={{ background: safeColorValue(hostedLinkHex, safeColorValue(brandPrimaryHex, "#2563eb")) }}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Text color</label>
+              <div className="mt-1 flex items-center gap-3">
+                <input
+                  type="color"
+                  value={brandTextHex || "#0f172a"}
+                  onChange={(e) => setBrandTextHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className={nativeColorInputClassName}
+                  aria-label="Pick text color"
+                />
+                <input
+                  value={brandTextHex}
+                  onChange={(e) => setBrandTextHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300"
+                  placeholder="#0f172a"
                 />
               </div>
             </div>

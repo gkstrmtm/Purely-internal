@@ -9,7 +9,9 @@ import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 import { AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { InlineSpinner } from "@/components/InlineSpinner";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { useToast } from "@/components/ToastProvider";
+import { portalGlassButtonClass } from "@/components/portalGlass";
 import { PORTAL_VARIANT_HEADER, portalVariantFromPathname } from "@/lib/portalVariant";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
@@ -676,7 +678,7 @@ export function PortalMediaLibraryClient() {
                           onClick={() => {
                             setFolderId(f.id);
                           }}
-                          className="flex min-h-40 w-full flex-col rounded-2xl border border-zinc-200 bg-white p-4 text-left transition hover:border-zinc-300 hover:bg-zinc-50"
+                          className="flex w-full flex-col rounded-2xl border border-zinc-200 bg-white p-3.5 text-left transition hover:border-zinc-300 hover:bg-zinc-50"
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex min-w-0 items-center gap-3">
@@ -691,12 +693,12 @@ export function PortalMediaLibraryClient() {
                               </div>
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-semibold text-zinc-900">{f.name}</div>
-                                <div className="mt-1 truncate font-mono text-[11px] text-zinc-500">tag: {f.tag}</div>
+                                <div className="mt-0.5 truncate font-mono text-[11px] text-zinc-500">tag: {f.tag}</div>
                               </div>
                             </div>
                             <button
                               type="button"
-                              className="shrink-0 rounded-xl px-2 py-1 text-sm font-semibold text-zinc-600 hover:bg-zinc-100"
+                              className={classNames(portalGlassButtonClass, "shrink-0 rounded-xl px-2 py-1 text-sm font-semibold text-zinc-600 hover:bg-white/80")}
                               aria-label="Folder actions"
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -705,9 +707,6 @@ export function PortalMediaLibraryClient() {
                             >
                               ⋯
                             </button>
-                          </div>
-                          <div className="mt-auto inline-flex items-center rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
-                            Open folder
                           </div>
                         </button>
                       ))}
@@ -745,7 +744,7 @@ export function PortalMediaLibraryClient() {
                               </div>
                               <button
                                 type="button"
-                                className="shrink-0 rounded-xl px-2 py-1 text-sm font-semibold text-zinc-600 hover:bg-zinc-100"
+                                className={classNames(portalGlassButtonClass, "shrink-0 rounded-xl px-2 py-1 text-sm font-semibold text-zinc-600 hover:bg-white/80")}
                                 aria-label="File actions"
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -802,8 +801,8 @@ export function PortalMediaLibraryClient() {
         ? createPortal(
             <div className="fixed inset-0 z-90" aria-hidden>
               <div className="absolute inset-0" onMouseDown={() => setOpenMenu(null)} onTouchStart={() => setOpenMenu(null)} />
-              <div
-                className="fixed z-95 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+              <LiquidGlassPopupSurface
+                className="fixed z-95 w-56 p-1.5 shadow-lg"
                 style={{ left: openMenu.left, top: openMenu.top, maxHeight: openMenu.maxHeight }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
@@ -812,7 +811,7 @@ export function PortalMediaLibraryClient() {
                   <>
                     <button
                       type="button"
-                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                       onClick={() => {
                         const it = menuTarget as Item;
                         openRename("item", it.id, it.fileName);
@@ -822,7 +821,7 @@ export function PortalMediaLibraryClient() {
                     </button>
                     <button
                       type="button"
-                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                       onClick={() => {
                         const it = menuTarget as Item;
                         void openMove("item", it.id);
@@ -832,7 +831,7 @@ export function PortalMediaLibraryClient() {
                     </button>
                     <button
                       type="button"
-                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                       onClick={(e) => {
                         setOpenMenu(null);
                         void copyAbsoluteUrl((menuTarget as Item).shareUrl, e.currentTarget);
@@ -842,7 +841,7 @@ export function PortalMediaLibraryClient() {
                     </button>
                     <button
                       type="button"
-                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                       onClick={() => {
                         const it = menuTarget as Item;
                         setOpenMenu(null);
@@ -852,7 +851,7 @@ export function PortalMediaLibraryClient() {
                       Download
                     </button>
                     <a
-                      className="block w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="block w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                       href={(menuTarget as Item).openUrl || (menuTarget as Item).previewUrl || (menuTarget as Item).downloadUrl}
                       target="_blank"
                       rel="noreferrer"
@@ -862,7 +861,7 @@ export function PortalMediaLibraryClient() {
                     </a>
                     <button
                       type="button"
-                      className="w-full px-4 py-3 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                      className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-red-700 transition-colors duration-150 hover:bg-red-500/10"
                       onClick={() => {
                         setOpenMenu(null);
                         const it = menuTarget as Item;
@@ -876,7 +875,7 @@ export function PortalMediaLibraryClient() {
                   <>
                     <button
                       type="button"
-                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                       onClick={() => {
                         const f = menuTarget as Folder;
                         openRename("folder", f.id, f.name);
@@ -886,7 +885,7 @@ export function PortalMediaLibraryClient() {
                     </button>
                     <button
                       type="button"
-                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                       onClick={() => {
                         const f = menuTarget as Folder;
                         void openMove("folder", f.id);
@@ -919,7 +918,7 @@ export function PortalMediaLibraryClient() {
                     </div>
                     <button
                       type="button"
-                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                       onClick={(e) => {
                         setOpenMenu(null);
                         void copyAbsoluteUrl((menuTarget as Folder).shareUrl, e.currentTarget);
@@ -929,7 +928,7 @@ export function PortalMediaLibraryClient() {
                     </button>
                     <button
                       type="button"
-                      className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                       onClick={() => {
                         const f = menuTarget as Folder;
                         setOpenMenu(null);
@@ -940,7 +939,7 @@ export function PortalMediaLibraryClient() {
                     </button>
                   </>
                 )}
-              </div>
+              </LiquidGlassPopupSurface>
             </div>,
             document.body,
           )

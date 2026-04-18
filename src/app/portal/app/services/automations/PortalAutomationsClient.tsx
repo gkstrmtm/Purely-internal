@@ -3,15 +3,21 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LocalTimePicker } from "@/components/LocalDateTimePicker";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { useToast } from "@/components/ToastProvider";
+import { portalGlassButtonClass } from "@/components/portalGlass";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { IconEdit } from "@/app/portal/PortalIcons";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
+
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
 
 const PORTAL_TIME_VARIABLES: TemplateVariable[] = [
   { key: "now.hour", label: "Current hour (0-23)", group: "Custom", appliesTo: "Now" },
@@ -3255,12 +3261,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       <div className="relative">
                         <button
                           type="button"
-                          className={
-                            "rounded-xl border px-2 py-1 text-xs font-semibold " +
-                            (isSel
-                              ? "border-brand-ink bg-brand-ink text-white hover:opacity-95"
-                              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                          }
+                          className={classNames(
+                            portalGlassButtonClass,
+                            "rounded-xl px-2 py-1 text-xs font-semibold text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80",
+                            libraryMenuFor?.automationId === a.id ? "bg-[rgba(191,219,254,0.8)] text-brand-blue" : "",
+                            isSel && libraryMenuFor?.automationId !== a.id ? "text-zinc-900" : "",
+                          )}
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleLibraryMenu(a.id, e.currentTarget);
@@ -3271,14 +3277,14 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                         </button>
 
                         {libraryMenuFor?.automationId === a.id ? (
-                          <div
-                            className="fixed z-40 w-40 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                          <LiquidGlassPopupSurface
+                            className="fixed z-40 w-40 p-1.5 shadow-xl"
                             style={{ left: libraryMenuFor.left, top: libraryMenuFor.top, maxHeight: libraryMenuFor.maxHeight }}
                             onMouseDown={(e) => e.stopPropagation()}
                           >
                             <button
                               type="button"
-                              className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                              className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                               onClick={() => {
                                 setSelectedAutomation(a.id);
                                 setLibraryOpen(false);
@@ -3294,7 +3300,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                             </button>
                             <button
                               type="button"
-                              className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                              className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                               onClick={() => {
                                 setSelectedAutomation(a.id);
                                 setLibraryOpen(false);
@@ -3307,7 +3313,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                             </button>
                             <button
                               type="button"
-                              className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                              className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                               onClick={() => {
                                 setLibraryOpen(false);
                                 setLibraryMenuFor(null);
@@ -3318,7 +3324,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                             </button>
                             <button
                               type="button"
-                              className="block w-full px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                              className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 transition-colors duration-150 hover:bg-red-500/10"
                               onClick={() => {
                                 setLibraryMenuFor(null);
                                 void deleteAutomationById(a.id);
@@ -3326,7 +3332,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                             >
                               Delete
                             </button>
-                          </div>
+                          </LiquidGlassPopupSurface>
                         ) : null}
                       </div>
                     </div>

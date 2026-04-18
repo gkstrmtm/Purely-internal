@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { IconEdit } from "@/app/portal/PortalIcons";
+import { AppModal } from "@/components/AppModal";
 import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
@@ -448,18 +450,18 @@ export function PortalContactDetailsModal(props: Props) {
         )}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="shrink-0 border-b border-white/30 p-6">
+        <div className="shrink-0 p-6">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-base font-semibold text-zinc-900">Contact details</div>
-              <div className="mt-1 text-xs text-zinc-500">Click outside to close.</div>
             </div>
             <button
               type="button"
-              className={classNames("rounded-xl px-3 py-2 text-sm font-semibold hover:bg-white/80", portalGlassButtonClass)}
+              className={classNames("inline-flex h-10 w-10 items-center justify-center rounded-full text-lg font-semibold text-zinc-500 hover:bg-white/80 hover:text-zinc-800", portalGlassButtonClass)}
               onClick={onClose}
+              aria-label="Close"
             >
-              Close
+              ×
             </button>
           </div>
         </div>
@@ -511,19 +513,19 @@ export function PortalContactDetailsModal(props: Props) {
             )}
 
             <div className={classNames("mt-4 rounded-2xl p-3", portalGlassSectionClass)}>
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Template variables</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Variables</div>
               <div className="mt-2 space-y-1 text-xs text-zinc-700">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-zinc-600">Name</span>
-                  <span className="max-w-full break-all rounded-lg border border-white/35 bg-white/55 px-2 py-1 font-mono">{"{contact.name}"}</span>
+                  <span className="max-w-full break-all rounded-lg bg-white/55 px-2 py-1 font-mono">{"{contact.name}"}</span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-zinc-600">Email</span>
-                  <span className="max-w-full break-all rounded-lg border border-white/35 bg-white/55 px-2 py-1 font-mono">{"{contact.email}"}</span>
+                  <span className="max-w-full break-all rounded-lg bg-white/55 px-2 py-1 font-mono">{"{contact.email}"}</span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-zinc-600">Phone</span>
-                  <span className="max-w-full break-all rounded-lg border border-white/35 bg-white/55 px-2 py-1 font-mono">{"{contact.phone}"}</span>
+                  <span className="max-w-full break-all rounded-lg bg-white/55 px-2 py-1 font-mono">{"{contact.phone}"}</span>
                 </div>
               </div>
             </div>
@@ -608,7 +610,7 @@ export function PortalContactDetailsModal(props: Props) {
                 {!editing ? (
                   <button
                     type="button"
-                    className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                    className="inline-flex items-center gap-2 rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                     onClick={() => {
                       if (!detail) return;
                       lastSavedEditSigRef.current = stableContactEditSignature({
@@ -623,7 +625,8 @@ export function PortalContactDetailsModal(props: Props) {
                     }}
                     disabled={!detail}
                   >
-                    Edit
+                    <IconEdit size={16} />
+                    <span>Edit</span>
                   </button>
                 ) : (
                   <>
@@ -643,7 +646,7 @@ export function PortalContactDetailsModal(props: Props) {
                     </button>
                     <button
                       type="button"
-                      className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      className="rounded-xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                       onClick={() => void saveEdits()}
                       disabled={saving || !editDirty}
                     >
@@ -660,7 +663,7 @@ export function PortalContactDetailsModal(props: Props) {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-zinc-200 p-4">
+          <div className={classNames("rounded-2xl p-4", portalGlassSectionClass)}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Tags</div>
@@ -675,7 +678,7 @@ export function PortalContactDetailsModal(props: Props) {
                     key={t.id}
                     type="button"
                     disabled={tagBusyId === t.id}
-                    className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-full bg-white/75 px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-white/90 disabled:opacity-60"
                     title="Remove tag"
                     onClick={() => void setTagChecked(t.id, false)}
                   >
@@ -709,69 +712,78 @@ export function PortalContactDetailsModal(props: Props) {
                       ...addableOwnerTagOptions.map((t) => ({ value: t.id, label: t.name })),
                       { value: "__new_tag__", label: "New tag…" },
                     ]}
-                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-[color:var(--color-brand-blue)]"
+                    buttonClassName={classNames("flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm outline-none hover:bg-white/80", portalGlassButtonClass)}
                   />
                 </div>
               </div>
-
-              {createTagOpen ? (
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                  <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    <input
-                      className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
-                      placeholder="Tag name"
-                      value={createTagName}
-                      onChange={(e) => setCreateTagName(e.target.value)}
-                      autoFocus
-                    />
-                    <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2 py-2">
-                      {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
-                        const selected = c === createTagColor;
-                        return (
-                          <button
-                            key={c}
-                            type="button"
-                            className={classNames(
-                              "h-6 w-6 rounded-full border",
-                              selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
-                            )}
-                            style={{ backgroundColor: c }}
-                            onClick={() => setCreateTagColor(c)}
-                            title={c}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <button
-                      type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                      onClick={() => {
-                        setCreateTagOpen(false);
-                        setCreateTagName("");
-                        setCreateTagColor("#2563EB");
-                      }}
-                      disabled={createTagBusy}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                      disabled={createTagBusy}
-                      onClick={() => void createOwnerTag()}
-                    >
-                      {createTagBusy ? "Creating…" : "Create"}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
             </div>
           </div>
         </div>
         </div>
+
+      <AppModal
+        open={createTagOpen}
+        title="Create new tag"
+        description="Pick a name and color, then add it to this contact."
+        onClose={() => {
+          if (createTagBusy) return;
+          setCreateTagOpen(false);
+          setCreateTagName("");
+          setCreateTagColor("#2563EB");
+        }}
+        widthClassName="w-[min(540px,calc(100vw-32px))]"
+        zIndex={(Number.isFinite(zIndex as number) ? (zIndex as number) : 8000) + 20}
+        closeVariant="x"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className={classNames("rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
+              onClick={() => {
+                setCreateTagOpen(false);
+                setCreateTagName("");
+                setCreateTagColor("#2563EB");
+              }}
+              disabled={createTagBusy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              disabled={createTagBusy}
+              onClick={() => void createOwnerTag()}
+            >
+              {createTagBusy ? "Creating…" : "Create"}
+            </button>
+          </div>
+        }
+      >
+        <div className="grid grid-cols-1 gap-3">
+          <input
+            className="w-full rounded-xl bg-white/80 px-3 py-2 text-sm outline-none"
+            placeholder="Tag name"
+            value={createTagName}
+            onChange={(e) => setCreateTagName(e.target.value)}
+            autoFocus
+          />
+          <div className={classNames("flex flex-wrap items-center gap-2 rounded-2xl px-3 py-3", portalGlassSectionClass)}>
+            {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+              const selected = c === createTagColor;
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  className={classNames("h-7 w-7 rounded-full transition-transform duration-150 hover:scale-105", selected ? "ring-2 ring-zinc-900/20" : "")}
+                  style={{ backgroundColor: c }}
+                  onClick={() => setCreateTagColor(c)}
+                  title={c}
+                />
+              );
+            })}
+          </div>
+        </div>
+      </AppModal>
       </div>
     </div>
   );

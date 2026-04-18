@@ -23,15 +23,20 @@ import { IconEdit, IconEyeGlyph, IconGlobeGlyph, IconServiceGlyph } from "@/app/
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
-import { portalGlassButtonClass, portalGlassPanelClass } from "@/components/portalGlass";
+import { portalGlassButtonClass } from "@/components/portalGlass";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
 
 type AudienceTab = "external" | "internal";
 
@@ -1307,7 +1312,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                                 <button
                                   type="button"
                                   aria-label="Newsletter actions"
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-lg font-semibold text-zinc-700 hover:bg-zinc-50"
+                                  className={classNames(portalGlassButtonClass, "inline-flex h-9 w-9 items-center justify-center rounded-2xl text-lg font-semibold text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80")}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     toggleNewsletterMenu(n.id, e.currentTarget);
@@ -1335,8 +1340,8 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             ? createPortal(
                 <div className="fixed inset-0 z-30" aria-hidden>
                   <div className="absolute inset-0" onMouseDown={() => setOpenNewsletterMenu(null)} onTouchStart={() => setOpenNewsletterMenu(null)} />
-                  <div
-                    className={["fixed z-40 w-56 overflow-auto rounded-2xl p-1.5", portalGlassPanelClass].join(" ")}
+                  <LiquidGlassPopupSurface
+                    className="fixed z-40 w-56 p-1.5"
                     style={{ left: openNewsletterMenu.left, top: openNewsletterMenu.top, maxHeight: openNewsletterMenu.maxHeight }}
                     onMouseDown={(e) => e.stopPropagation()}
                     onTouchStart={(e) => e.stopPropagation()}
@@ -1355,7 +1360,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         <>
                           <button
                             type="button"
-                            className={["w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80", portalGlassButtonClass].join(" ")}
+                            className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-brand-ink transition-colors duration-150 hover:bg-white/16"
                             onClick={() => {
                               setOpenNewsletterMenu(null);
                               void openDraft(item.id);
@@ -1370,7 +1375,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           {previewPath ? (
                             <button
                               type="button"
-                              className={["mt-1 w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80", portalGlassButtonClass].join(" ")}
+                              className="mt-1 w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                               onClick={() => {
                                 setOpenNewsletterMenu(null);
                                 window.open(previewPath, "_blank", "noopener,noreferrer");
@@ -1386,7 +1391,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           {livePath ? (
                             <button
                               type="button"
-                              className={["mt-1 w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80", portalGlassButtonClass].join(" ")}
+                              className="mt-1 w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                               onClick={() => {
                                 setOpenNewsletterMenu(null);
                                 window.open(livePath, "_blank", "noopener,noreferrer");
@@ -1401,7 +1406,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         </>
                       );
                     })()}
-                  </div>
+                  </LiquidGlassPopupSurface>
                 </div>,
                 document.body,
               )

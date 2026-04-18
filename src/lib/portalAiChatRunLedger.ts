@@ -127,6 +127,8 @@ export function normalizePortalAiChatRunRecord(raw: unknown) {
     workTitle: typeof (raw as any).workTitle === "string" ? String((raw as any).workTitle).trim().slice(0, 200) : null,
     canvasUrl: typeof (raw as any).canvasUrl === "string" ? String((raw as any).canvasUrl).trim().slice(0, 1200) : null,
     summaryText: typeof (raw as any).summaryText === "string" ? String((raw as any).summaryText).trim().slice(0, 4000) : null,
+    aiSummaryText: typeof (raw as any).aiSummaryText === "string" ? String((raw as any).aiSummaryText).trim().slice(0, 4000) : null,
+    aiSummaryGeneratedAt: (raw as any).aiSummaryGeneratedAt ? new Date((raw as any).aiSummaryGeneratedAt).toISOString() : null,
     assistantMessageId: typeof (raw as any).assistantMessageId === "string" ? String((raw as any).assistantMessageId).trim().slice(0, 200) : null,
     scheduledMessageId: typeof (raw as any).scheduledMessageId === "string" ? String((raw as any).scheduledMessageId).trim().slice(0, 200) : null,
     createdAt: typeof (raw as any).createdAt === "string" ? String((raw as any).createdAt).trim().slice(0, 80) : raw instanceof Date ? raw.toISOString() : new Date((raw as any).createdAt || Date.now()).toISOString(),

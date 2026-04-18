@@ -354,10 +354,30 @@ function GeneralTab({
     return null;
   }, [credits, reporting]);
 
-  const formattedCreditsRemaining = useMemo(() => {
+  const creditsCardDisplayValue = useMemo(() => {
     if (typeof creditsRemaining !== "number" || !Number.isFinite(creditsRemaining)) return "N/A";
-    return Math.max(0, Math.round(creditsRemaining)).toLocaleString();
+    const wholeCredits = Math.max(0, Math.round(creditsRemaining));
+    if (wholeCredits < 10000) {
+      return wholeCredits.toLocaleString();
+    }
+    return new Intl.NumberFormat("en-US", {
+      notation: "compact",
+      maximumFractionDigits: wholeCredits < 100000 ? 1 : 0,
+    })
+      .format(wholeCredits)
+      .replace(/K$/, "k");
   }, [creditsRemaining]);
+
+  const creditsValueClassName = useMemo(() => {
+    const compactLength = String(creditsCardDisplayValue || "").replace(/\s+/g, "").length;
+    if (compactLength >= 9) {
+      return "text-[clamp(2.6rem,7vw,4.75rem)] tracking-[-0.05em] sm:text-[clamp(3rem,6vw,5.5rem)]";
+    }
+    if (compactLength >= 7) {
+      return "text-[clamp(3rem,8vw,5.5rem)] tracking-[-0.055em] sm:text-[clamp(3.5rem,7vw,6.5rem)]";
+    }
+    return "text-[clamp(3.5rem,10vw,6.5rem)] tracking-[-0.06em] sm:text-[clamp(4rem,8vw,7.5rem)]";
+  }, [creditsCardDisplayValue]);
 
   const creditRunwayDays = useMemo(() => {
     if (!reporting || !("ok" in reporting) || !reporting.ok) return null;
@@ -572,8 +592,8 @@ function GeneralTab({
           <div className="relative z-10 flex h-full flex-col p-4">
             <div className="text-sm font-semibold text-zinc-900">Credits</div>
 
-            <div className="mt-2 min-w-0 flex-1 overflow-hidden text-[clamp(3.5rem,10vw,6.5rem)] font-extrabold leading-[0.88] tracking-[-0.06em] text-brand-ink sm:text-[clamp(4rem,8vw,7.5rem)]">
-              <span className="block max-w-full overflow-hidden text-ellipsis break-all sm:break-normal">{formattedCreditsRemaining}</span>
+            <div className={classNames("mt-2 min-w-0 flex-1 overflow-hidden font-extrabold leading-[0.88] text-brand-ink", creditsValueClassName)}>
+              <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap">{creditsCardDisplayValue}</span>
             </div>
 
             <div className="-mt-1 text-sm font-semibold">

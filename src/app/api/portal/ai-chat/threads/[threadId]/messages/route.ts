@@ -6,6 +6,7 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { persistPortalAiChatRun, type PortalAiChatRunStatus, type PortalAiChatRunTraceInput } from "@/lib/portalAiChatRunLedger";
+import { ensurePortalAiChatRunAiSummary } from "@/lib/portalAiChatRunSummary";
 import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 import { generatePuraText as generateText, isPuraAiConfigured, runWithPuraAiProfile } from "@/lib/puraAi";
 import { PURA_AI_PROFILE_VALUES, normalizePuraAiProfile } from "@/lib/puraAiProfile";
@@ -3407,6 +3408,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       followUpSuggestions: opts.followUpSuggestions,
       completedAt: opts.completedAt ?? null,
       interruptedAt: opts.interruptedAt ?? null,
+    });
+    await ensurePortalAiChatRunAiSummary({
+      ownerId,
+      threadId,
+      runId,
+      assistantMessageId:
+        typeof runTrace.assistantMessageId === "string" && runTrace.assistantMessageId.trim()
+          ? String(runTrace.assistantMessageId).trim().slice(0, 200)
+          : null,
+      triggerKind: "chat",
     });
   };
 

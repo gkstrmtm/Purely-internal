@@ -5,7 +5,7 @@ const ENSURE_TTL_MS = 10 * 60 * 1000;
 
 async function aiChatSchemaLooksReady(): Promise<boolean> {
   try {
-    const rows = await prisma.$queryRaw<Array<{ thread: boolean; message: boolean }>>`
+    const rows = await prisma.$queryRaw<Array<{ thread: boolean; message: boolean; run: boolean }>>`
       SELECT
         EXISTS (
           SELECT 1 FROM information_schema.tables
@@ -34,7 +34,19 @@ async function aiChatSchemaLooksReady(): Promise<boolean> {
         EXISTS (
           SELECT 1 FROM information_schema.columns
           WHERE table_schema = 'public' AND table_name = 'PortalAiChatMessage' AND column_name = 'repeatEveryMinutes'
-        ) AS "messageRepeat";
+        ) AS "messageRepeat",
+        EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'PortalAiChatRun'
+        ) AS "run",
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'PortalAiChatRun' AND column_name = 'aiSummaryText'
+        ) AS "runAiSummary",
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'PortalAiChatRun' AND column_name = 'aiSummaryGeneratedAt'
+        ) AS "runAiSummaryGeneratedAt";
     `;
     const r = rows?.[0];
     return Boolean(
@@ -44,7 +56,10 @@ async function aiChatSchemaLooksReady(): Promise<boolean> {
         (r as any)?.threadForkedFrom &&
         (r as any)?.threadContext &&
         r?.message &&
-        (r as any)?.messageRepeat,
+        (r as any)?.messageRepeat &&
+        r?.run &&
+        (r as any)?.runAiSummary &&
+        (r as any)?.runAiSummaryGeneratedAt,
     );
   } catch {
     return false;
@@ -106,11 +121,43 @@ CREATE TABLE IF NOT EXISTS "PortalAiChatMessage" (
     // Older installs may already have the table without newer scheduling fields.
     `ALTER TABLE "PortalAiChatMessage" ADD COLUMN IF NOT EXISTS "repeatEveryMinutes" INTEGER;`,
 
+    `
+CREATE TABLE IF NOT EXISTS "PortalAiChatRun" (
+  "id" TEXT NOT NULL,
+  "ownerId" TEXT NOT NULL,
+  "threadId" TEXT NOT NULL,
+  "assistantMessageId" TEXT,
+  "scheduledMessageId" TEXT,
+  "runId" TEXT,
+  "triggerKind" TEXT NOT NULL,
+  "status" TEXT NOT NULL,
+  "workTitle" TEXT,
+  "canvasUrl" TEXT,
+  "summaryText" TEXT,
+  "aiSummaryText" TEXT,
+  "aiSummaryGeneratedAt" TIMESTAMP(3),
+  "stepsJson" JSONB,
+  "followUpSuggestionsJson" JSONB,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "completedAt" TIMESTAMP(3),
+  "interruptedAt" TIMESTAMP(3),
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "PortalAiChatRun_pkey" PRIMARY KEY ("id")
+);
+    `.trim(),
+
+    `ALTER TABLE "PortalAiChatRun" ALTER COLUMN "updatedAt" DROP DEFAULT;`,
+    `ALTER TABLE "PortalAiChatRun" ADD COLUMN IF NOT EXISTS "aiSummaryText" TEXT;`,
+    `ALTER TABLE "PortalAiChatRun" ADD COLUMN IF NOT EXISTS "aiSummaryGeneratedAt" TIMESTAMP(3);`,
+
     `CREATE INDEX IF NOT EXISTS "PortalAiChatThread_ownerId_lastMessageAt_idx" ON "PortalAiChatThread"("ownerId", "lastMessageAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalAiChatThread_ownerId_isPinned_pinnedAt_idx" ON "PortalAiChatThread"("ownerId", "isPinned", "pinnedAt");`,
 
     `CREATE INDEX IF NOT EXISTS "PortalAiChatMessage_threadId_createdAt_idx" ON "PortalAiChatMessage"("threadId", "createdAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalAiChatMessage_ownerId_createdAt_idx" ON "PortalAiChatMessage"("ownerId", "createdAt");`,
+    `CREATE INDEX IF NOT EXISTS "PortalAiChatRun_threadId_createdAt_idx" ON "PortalAiChatRun"("threadId", "createdAt");`,
+    `CREATE INDEX IF NOT EXISTS "PortalAiChatRun_ownerId_createdAt_idx" ON "PortalAiChatRun"("ownerId", "createdAt");`,
+    `CREATE INDEX IF NOT EXISTS "PortalAiChatRun_threadId_status_createdAt_idx" ON "PortalAiChatRun"("threadId", "status", "createdAt");`,
 
     `
 DO $$
@@ -153,6 +200,30 @@ BEGIN
     ALTER TABLE "PortalAiChatMessage"
       ADD CONSTRAINT "PortalAiChatMessage_createdByUserId_fkey"
       FOREIGN KEY ("createdByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'PortalAiChatRun_ownerId_fkey'
+  ) THEN
+    ALTER TABLE "PortalAiChatRun"
+      ADD CONSTRAINT "PortalAiChatRun_ownerId_fkey"
+      FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'PortalAiChatRun_threadId_fkey'
+  ) THEN
+    ALTER TABLE "PortalAiChatRun"
+      ADD CONSTRAINT "PortalAiChatRun_threadId_fkey"
+      FOREIGN KEY ("threadId") REFERENCES "PortalAiChatThread"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'PortalAiChatRun_assistantMessageId_fkey'
+  ) THEN
+    ALTER TABLE "PortalAiChatRun"
+      ADD CONSTRAINT "PortalAiChatRun_assistantMessageId_fkey"
+      FOREIGN KEY ("assistantMessageId") REFERENCES "PortalAiChatMessage"("id") ON DELETE SET NULL ON UPDATE CASCADE;
   END IF;
 END $$;
     `.trim(),

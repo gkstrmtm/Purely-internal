@@ -822,6 +822,189 @@
 				"tmp/portal-qa/capture_funnel_editor_loaded.mjs"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "Debug: selector capture",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/debug_capture_selectors.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Dev: next dev persistent",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"dev"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "Capture: glass polish final",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture_glass_polish_review.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: glass polish final 2",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture_glass_polish_review.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: curl portal login",
+			"type": "shell",
+			"command": "curl",
+			"args": [
+				"-s",
+				"-o",
+				"/dev/null",
+				"-w",
+				"%{http_code}\\n",
+				"-H",
+				"content-type: application/json",
+				"-H",
+				"x-portal-variant: portal",
+				"-d",
+				"{\"email\":\"demo-full@purelyautomation.dev\",\"password\":\"pura-demo-local\"}",
+				"http://127.0.0.1:3000/portal/api/login"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: glass polish final 3",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture_glass_polish_review.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: targeted glass polish review",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture_glass_polish_review.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Capture: glass polish review fresh",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/capture_glass_polish_review.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: glass state probe",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/debug_glass_state.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: appearance listboxes",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/debug_appearance_listboxes.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: appearance listboxes file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/debug_appearance_listboxes.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: reporting buttons live",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/list_reporting_buttons.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Audit: glass polish targets live",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/audit_glass_polish_targets.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Probe: glass live state",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/probe_glass_live_state.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: profile reporting summary",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/profile_reporting_summary.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: profile reporting summary to file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/profile_reporting_summary.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: profile reporting summary concise",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/profile_reporting_summary.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: funnel form menu position",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_funnel_form_menu_position.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: funnel form menu position to file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_funnel_form_menu_position.mjs"
+			],
+			"isBackground": false
 		}
 	]
 }

@@ -1,6 +1,7 @@
 import crypto from "crypto";
 
 import { prisma } from "@/lib/db";
+import { findPortalContactByPhone } from "@/lib/portalContacts";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 
@@ -157,6 +158,7 @@ export type AiReceptionistCallEvent = {
   to: string | null;
   createdAtIso: string;
   status: "IN_PROGRESS" | "COMPLETED" | "FAILED" | "UNKNOWN";
+  contactId?: string;
   notes?: string;
   // ElevenLabs conversation id (used to fetch transcript).
   conversationId?: string;
@@ -501,7 +503,17 @@ export async function getAiReceptionistServiceData(ownerId: string): Promise<AiR
 
   const settings = parseAiReceptionistSettings(rec?.settings, prev);
 
-  return { version: 1, settings, events: parsed.events };
+  const events = await Promise.all(
+    parsed.events.map(async (event) => {
+      const rawPhone = String(event.contactPhone || event.from || "").trim();
+      if (!rawPhone) return event;
+      const match = await findPortalContactByPhone({ ownerId, phone: rawPhone }).catch(() => null);
+      if (!match?.id) return event;
+      return { ...event, contactId: match.id };
+    }),
+  );
+
+  return { version: 1, settings, events };
 }
 
 export async function setAiReceptionistSettings(ownerId: string, settings: AiReceptionistSettings): Promise<AiReceptionistSettings> {

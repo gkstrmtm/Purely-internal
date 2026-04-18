@@ -21,6 +21,7 @@ export const BusinessProfileUpsertSchema = z.object({
   primaryGoals: z.array(z.string().trim().min(1)).max(10).optional(),
   targetCustomer: z.string().trim().max(240).optional().or(z.literal("")),
   brandVoice: z.string().trim().max(240).optional().or(z.literal("")),
+  businessContextNotes: z.string().trim().max(4000).optional().or(z.literal("")),
 
   logoUrl: z.string().trim().max(500).optional().or(z.literal("")),
   brandPrimaryHex: z
@@ -140,6 +141,7 @@ type ProfileColumnFlags = {
   primaryGoals: boolean;
   targetCustomer: boolean;
   brandVoice: boolean;
+  businessContextNotes: boolean;
   logoUrl: boolean;
   brandPrimaryHex: boolean;
   brandSecondaryHex: boolean;
@@ -158,6 +160,7 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     primaryGoals,
     targetCustomer,
     brandVoice,
+    businessContextNotes,
     logoUrl,
     brandPrimaryHex,
     brandSecondaryHex,
@@ -173,6 +176,7 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     hasPublicColumn("BusinessProfile", "primaryGoals"),
     hasPublicColumn("BusinessProfile", "targetCustomer"),
     hasPublicColumn("BusinessProfile", "brandVoice"),
+    hasPublicColumn("BusinessProfile", "businessContextNotes"),
     hasPublicColumn("BusinessProfile", "logoUrl"),
     hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
     hasPublicColumn("BusinessProfile", "brandSecondaryHex"),
@@ -190,6 +194,7 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     primaryGoals,
     targetCustomer,
     brandVoice,
+    businessContextNotes,
     logoUrl,
     brandPrimaryHex,
     brandSecondaryHex,
@@ -199,6 +204,31 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     brandFontGoogleFamily,
     updatedAt,
   };
+}
+
+const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+async function getProfileExtras(ownerId: string): Promise<Record<string, unknown> | null> {
+  const row = await prisma.portalServiceSetup
+    .findUnique({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+      select: { dataJson: true },
+    })
+    .catch(() => null);
+
+  return row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+    ? (row.dataJson as Record<string, unknown>)
+    : null;
+}
+
+async function setProfileExtras(ownerId: string, patch: Record<string, unknown>) {
+  const current = (await getProfileExtras(ownerId)) ?? {};
+  const next = { ...current, ...patch };
+  await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    create: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG, status: "COMPLETE", dataJson: next as any },
+    update: { status: "COMPLETE", dataJson: next as any },
+  });
 }
 
 function profileSelect(flags: ProfileColumnFlags) {
@@ -212,6 +242,7 @@ function profileSelect(flags: ProfileColumnFlags) {
   if (flags.primaryGoals) select.primaryGoals = true;
   if (flags.targetCustomer) select.targetCustomer = true;
   if (flags.brandVoice) select.brandVoice = true;
+  if (flags.businessContextNotes) select.businessContextNotes = true;
   if (flags.logoUrl) select.logoUrl = true;
   if (flags.brandPrimaryHex) select.brandPrimaryHex = true;
   if (flags.brandSecondaryHex) select.brandSecondaryHex = true;
@@ -224,7 +255,7 @@ function profileSelect(flags: ProfileColumnFlags) {
   return select as any;
 }
 
-function normalizeProfile(row: any, flags: ProfileColumnFlags) {
+function normalizeProfile(row: any, flags: ProfileColumnFlags, extras?: Record<string, unknown> | null) {
   return {
     businessName: row.businessName,
     websiteUrl: flags.websiteUrl ? (row.websiteUrl ?? null) : null,
@@ -233,6 +264,11 @@ function normalizeProfile(row: any, flags: ProfileColumnFlags) {
     primaryGoals: flags.primaryGoals ? ((row.primaryGoals as unknown) ?? null) : null,
     targetCustomer: flags.targetCustomer ? (row.targetCustomer ?? null) : null,
     brandVoice: flags.brandVoice ? (row.brandVoice ?? null) : null,
+    businessContextNotes: flags.businessContextNotes
+      ? (row.businessContextNotes ?? null)
+      : typeof extras?.businessContextNotes === "string"
+        ? String(extras.businessContextNotes)
+        : null,
     logoUrl: flags.logoUrl ? (row.logoUrl ?? null) : null,
     brandPrimaryHex: flags.brandPrimaryHex ? (row.brandPrimaryHex ?? null) : null,
     brandSecondaryHex: flags.brandSecondaryHex ? (row.brandSecondaryHex ?? null) : null,
@@ -250,12 +286,13 @@ export async function getPortalBusinessProfile(opts: { ownerId: string }): Promi
 
   const flags = await getProfileColumnFlags();
 
-  const [profile, hostedTheme] = await Promise.all([
+  const [profile, hostedTheme, extras] = await Promise.all([
     prisma.businessProfile.findUnique({ where: { ownerId }, select: profileSelect(flags) }),
     getHostedTheme(ownerId),
+    getProfileExtras(ownerId),
   ]);
 
-  const normalized = profile ? normalizeProfile(profile as any, flags) : null;
+  const normalized = profile ? normalizeProfile(profile as any, flags, extras) : null;
   return { status: 200, json: { ok: true, profile: normalized ? { ...normalized, hostedTheme } : null } };
 }
 
@@ -296,6 +333,7 @@ export async function upsertPortalBusinessProfile(opts: {
   }
   if (flags.targetCustomer) baseData.targetCustomer = emptyToNull(parsed.data.targetCustomer);
   if (flags.brandVoice) baseData.brandVoice = emptyToNull(parsed.data.brandVoice);
+  if (flags.businessContextNotes) baseData.businessContextNotes = emptyToNull(parsed.data.businessContextNotes);
   if (flags.logoUrl) baseData.logoUrl = emptyToNull(parsed.data.logoUrl);
   if (flags.brandPrimaryHex) baseData.brandPrimaryHex = emptyToNull(parsed.data.brandPrimaryHex);
   if (flags.brandSecondaryHex) baseData.brandSecondaryHex = emptyToNull(parsed.data.brandSecondaryHex);
@@ -315,6 +353,7 @@ export async function upsertPortalBusinessProfile(opts: {
   }
   if (flags.targetCustomer) updateData.targetCustomer = emptyToNull(parsed.data.targetCustomer);
   if (flags.brandVoice) updateData.brandVoice = emptyToNull(parsed.data.brandVoice);
+  if (flags.businessContextNotes) updateData.businessContextNotes = emptyToNull(parsed.data.businessContextNotes);
   if (flags.logoUrl) updateData.logoUrl = emptyToNull(parsed.data.logoUrl);
   if (flags.brandPrimaryHex) updateData.brandPrimaryHex = emptyToNull(parsed.data.brandPrimaryHex);
   if (flags.brandSecondaryHex) updateData.brandSecondaryHex = emptyToNull(parsed.data.brandSecondaryHex);
@@ -329,6 +368,10 @@ export async function upsertPortalBusinessProfile(opts: {
     update: updateData as any,
     select: profileSelect(flags),
   });
+
+  await setProfileExtras(ownerId, {
+    businessContextNotes: emptyToNull(parsed.data.businessContextNotes),
+  }).catch(() => null);
 
   const hostedThemePatch = parsed.data.hostedTheme;
   const hostedTheme = hostedThemePatch
@@ -374,5 +417,14 @@ export async function upsertPortalBusinessProfile(opts: {
     // ignore
   }
 
-  return { status: 200, json: { ok: true, profile: { ...normalizeProfile(row as any, flags), hostedTheme } } };
+  return {
+    status: 200,
+    json: {
+      ok: true,
+      profile: {
+        ...normalizeProfile(row as any, flags, { businessContextNotes: emptyToNull(parsed.data.businessContextNotes) }),
+        hostedTheme,
+      },
+    },
+  };
 }

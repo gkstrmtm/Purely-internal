@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { encode } from "next-auth/jwt";
+import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { dbHasUserClientPortalVariantColumn } from "@/lib/dbSchemaCompat";
@@ -28,6 +29,31 @@ const portalVariantToCookieName: Record<PortalVariant, string> = {
   portal: PORTAL_SESSION_COOKIE_NAME,
   credit: CREDIT_PORTAL_SESSION_COOKIE_NAME,
 };
+
+function isPrismaPoolTimeoutError(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2024") return true;
+  const message = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  const normalized = String(message || "").toLowerCase();
+  return normalized.includes("connection pool") && normalized.includes("timed out");
+}
+
+async function withDbRetry<T>(fn: () => Promise<T>, opts?: { attempts?: number; delayMs?: number }): Promise<T> {
+  const attempts = Math.max(1, Math.min(4, Math.floor(opts?.attempts ?? 3)));
+  const delayMs = Math.max(50, Math.min(2_000, Math.floor(opts?.delayMs ?? 200)));
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (!isPrismaPoolTimeoutError(error) || attempt >= attempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+
+  throw lastError;
+}
 
 function isSecureRequest(req: Request): boolean {
   const xfProto = req.headers.get("x-forwarded-proto");
@@ -90,13 +116,13 @@ export async function POST(req: Request) {
     ...(hasVariantColumn ? { clientPortalVariant: true } : {}),
   };
 
-  let user: any = await prisma.user.findUnique({ where: { email }, select: userSelect });
+  let user: any = await withDbRetry(() => prisma.user.findUnique({ where: { email }, select: userSelect }));
 
   // Safety valve: if the demo account is missing (or its password got reset),
   // allow recreating/resetting it on login so the portal doesn't get bricked.
   if ((!user || !user.active) && isPortalDemoLogin) {
     const passwordHash = await hashPassword(parsed.data.password);
-    user = await prisma.user.upsert({
+    user = await withDbRetry(() => prisma.user.upsert({
       where: { email },
       update: {
         role: "CLIENT",
@@ -114,7 +140,7 @@ export async function POST(req: Request) {
         passwordHash,
       },
       select: userSelect,
-    });
+    }));
   }
 
   if (!user || !user.active) {
@@ -136,19 +162,23 @@ export async function POST(req: Request) {
   if (!ok && isPortalDemoLogin) {
     // Demo recovery: accept the provided password and reset the demo hash.
     const passwordHash = await hashPassword(parsed.data.password);
-    user = await prisma.user.update({ where: { id: user.id }, data: { passwordHash }, select: userSelect });
+    user = await withDbRetry(() => prisma.user.update({ where: { id: user.id }, data: { passwordHash }, select: userSelect }));
     ok = true;
   }
 
   if (!ok) return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
 
   // Multi-user portal accounts: session uid is the account ownerId.
-  const ownerId = await resolvePortalOwnerIdForLogin(user.id).catch(() => user.id);
-  const profileSetup = await prisma.portalServiceSetup.findUnique({
-    where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
-    select: { dataJson: true },
-  }).catch(() => null);
-  const defaultFrom = normalizeDefaultLoginPath((profileSetup?.dataJson as any)?.defaultLoginPath);
+  const ownerId = isPortalDemoLogin
+    ? user.id
+    : await withDbRetry(() => resolvePortalOwnerIdForLogin(user.id)).catch(() => user.id);
+  const profileSetup = isPortalDemoLogin
+    ? null
+    : await withDbRetry(() => prisma.portalServiceSetup.findUnique({
+        where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+        select: { dataJson: true },
+      })).catch(() => null);
+  const defaultFrom = isPortalDemoLogin ? null : normalizeDefaultLoginPath((profileSetup?.dataJson as any)?.defaultLoginPath);
 
   const token = await encode({
     secret,

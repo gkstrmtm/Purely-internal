@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { persistPortalAiChatRun } from "@/lib/portalAiChatRunLedger";
+import { ensurePortalAiChatRunAiSummary } from "@/lib/portalAiChatRunSummary";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction } from "@/lib/portalAgentActionMeta";
 import { deriveThreadContextPatchFromAction, executePortalAgentAction } from "@/lib/portalAgentActionExecutor";
@@ -757,6 +758,13 @@ export async function processDuePortalAiChatScheduledMessages(
         status: results.some((result) => !Boolean(result?.ok)) ? (results.some((result) => Boolean(result?.ok)) ? "partial" : "failed") : "completed",
         summaryText: assistantText || null,
         completedAt: new Date(),
+      });
+      await ensurePortalAiChatRunAiSummary({
+        ownerId,
+        threadId,
+        scheduledMessageId: String(p.id),
+        triggerKind: "scheduled",
+        responseProfile,
       });
     }
 

@@ -36,6 +36,7 @@ import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEdit
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { useToast } from "@/components/ToastProvider";
+import { portalGlassButtonClass } from "@/components/portalGlass";
 import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderTemplates";
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
@@ -1031,10 +1032,10 @@ export function PortalBookingClient() {
               </a>
               <a
                 href={selectedCalendarId ? `${appBase}/services/booking/page-editor?calendarId=${encodeURIComponent(selectedCalendarId)}` : `${appBase}/services/booking/page-editor`}
-                className="inline-flex items-center gap-2 rounded-2xl bg-zinc-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-900"
+                className="inline-flex items-center gap-2 rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2.5 text-sm font-semibold text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]"
               >
                 <span className="flex items-center gap-2">
-                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-90"><IconEdit size={18} /></span>
+                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center opacity-95"><IconEdit size={18} /></span>
                   <span>Edit page</span>
                 </span>
               </a>
@@ -2341,7 +2342,7 @@ export function PortalBookingClient() {
                           </div>
                           <button
                             type="button"
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 disabled:opacity-60"
+                            className="rounded-xl bg-red-100 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-200 disabled:opacity-60"
                             disabled={reminderSaving || reminderDraft.steps.length <= 1}
                             onClick={() => deleteReminderStep(s.id)}
                           >

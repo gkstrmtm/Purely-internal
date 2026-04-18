@@ -4,7 +4,11 @@ import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { BASE_POPUP_Z_INDEX, popupZIndexForAnchor } from "@/components/popupLayering";
+import { portalGlassButtonClass } from "@/components/portalGlass";
+
+const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(" ");
 
 export type PortalListboxOption<T extends string> = {
   value: T;
@@ -101,10 +105,12 @@ export function PortalListboxDropdown<T extends string>(props: {
   const menuNode = useMemo(() => {
     if (!open) return null;
 
+    const menuBorderRadius = 28;
+
     const menu = (
-      <div
+      <LiquidGlassPopupSurface
         ref={menuRef}
-        className="pa-portal-listbox-menu overflow-hidden rounded-3xl border border-[rgba(37,99,235,0.12)] bg-[rgba(255,255,255,0.74)] shadow-[0_18px_45px_rgba(37,99,235,0.10)] supports-backdrop-filter:bg-[rgba(255,255,255,0.58)] supports-backdrop-filter:backdrop-blur-xl"
+        className="pa-portal-listbox-menu"
         role="listbox"
         style={{
           position: portal ? "fixed" : ("static" as any),
@@ -119,7 +125,7 @@ export function PortalListboxDropdown<T extends string>(props: {
           e.stopPropagation();
         }}
       >
-        <div className="overflow-auto p-1" style={{ maxHeight: menuRect?.maxHeight ?? 280 }}>
+        <div className="relative overflow-auto px-2 py-2" style={{ maxHeight: menuRect?.maxHeight ?? 280 }}>
           {options.map((o) => {
             const isSel = o.value === value;
             const disabled = Boolean(o.disabled);
@@ -130,14 +136,14 @@ export function PortalListboxDropdown<T extends string>(props: {
                 type="button"
                 title={o.label}
                 data-selected={isSel ? "true" : "false"}
-                className={
-                  "pa-portal-listbox-option w-full rounded-2xl px-3.5 py-2.5 text-left text-sm transition-all duration-150 " +
-                  (disabled
-                    ? "cursor-not-allowed text-zinc-400"
+                className={classNames(
+                  "pa-portal-listbox-option w-full rounded-2xl px-3.5 py-2.5 text-left text-sm transition-all duration-150",
+                  disabled
+                    ? "cursor-not-allowed text-zinc-400 opacity-55"
                     : isSel
-                      ? "border border-[rgba(37,99,235,0.12)] bg-[rgba(37,99,235,0.14)] text-brand-blue shadow-[0_10px_24px_rgba(37,99,235,0.08)]"
-                      : "border border-transparent bg-white/26 text-zinc-900 hover:border-[rgba(37,99,235,0.10)] hover:bg-[rgba(255,255,255,0.46)] hover:shadow-[0_10px_24px_rgba(37,99,235,0.08)]")
-                }
+                      ? "bg-[rgba(37,99,235,0.16)] text-brand-blue"
+                      : "bg-transparent text-zinc-900 hover:bg-[rgba(255,255,255,0.34)]",
+                )}
                 onClick={() => {
                   if (disabled) return;
                   onChange(o.value);
@@ -160,7 +166,7 @@ export function PortalListboxDropdown<T extends string>(props: {
             );
           })}
         </div>
-      </div>
+      </LiquidGlassPopupSurface>
     );
 
     if (!portal) {
@@ -234,7 +240,10 @@ export function PortalListboxDropdown<T extends string>(props: {
         disabled={disabled}
         className={
           (buttonClassName ||
-            "pa-portal-listbox-button flex w-full items-center justify-between gap-2 rounded-[22px] border border-[rgba(37,99,235,0.12)] bg-[rgba(255,255,255,0.68)] px-3.5 py-2.5 text-sm shadow-[0_10px_28px_rgba(37,99,235,0.08)] transition-all duration-150 hover:-translate-y-0.5 hover:border-[rgba(37,99,235,0.16)] hover:bg-[rgba(255,255,255,0.76)] supports-backdrop-filter:bg-[rgba(255,255,255,0.52)] supports-backdrop-filter:backdrop-blur-xl") +
+            classNames(
+              "pa-portal-listbox-button flex w-full items-center justify-between gap-2 rounded-[22px] px-3.5 py-2.5 text-sm shadow-[0_10px_28px_rgba(37,99,235,0.08)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[rgba(255,255,255,0.76)]",
+              portalGlassButtonClass,
+            )) +
           (disabled ? " cursor-not-allowed opacity-60" : "")
         }
         onMouseDown={(e) => {

@@ -110,7 +110,7 @@ function sidebarIconButtonClass(active: boolean, extra?: string) {
 function sidebarIconChipClass(active: boolean) {
   return classNames(
     "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-all duration-100",
-    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100 group-hover:scale-105",
+    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100 group-hover:scale-105 group-hover:text-zinc-900",
   );
 }
 
@@ -232,6 +232,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   type AdPlacement = "SIDEBAR_BANNER" | "TOP_BANNER" | "FULLSCREEN_REWARD" | "POPUP_CARD";
 
   const isAiChat = typeof pathname === "string" && pathname.startsWith(`${basePath}/app/ai-chat`);
+  const isInbox = typeof pathname === "string" && pathname.startsWith(`${basePath}/app/services/inbox`);
 
   const [puraCanvasOpen, setPuraCanvasOpen] = useState(false);
   useEffect(() => {
@@ -741,8 +742,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
     if (collapsedBeforeOverrideRef.current === null) {
       collapsedBeforeOverrideRef.current = collapsed;
+      if (!collapsed) setCollapsed(true);
     }
-    if (!collapsed) setCollapsed(true);
   }, [collapsed, sidebarOverride?.forceCollapsed]);
 
   useEffect(() => {
@@ -1094,8 +1095,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const activeTopKey = sidebarModeOverride ?? derivedTopKey;
   const hasSidebarOverrideContent = Boolean(sidebarOverride?.desktopSidebarContent || sidebarOverride?.mobileSidebarContent);
-  const showSidebarOverrideInServices =
-    activeTopKey === "services" && derivedTopKey === "services" && hasSidebarOverrideContent && sidebarModeOverride !== "services";
+  const showSidebarOverrideInServices = activeTopKey === "services" && derivedTopKey === "services" && hasSidebarOverrideContent;
   const sidebarPanelTopKey = activeTopKey;
   const showSidebarOverridePanel = sidebarPanelTopKey === "pura" || showSidebarOverrideInServices;
 
@@ -1839,6 +1839,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   const iconClass = sidebarIconButtonClass(active, "h-10 w-10");
                   const onClick = () => {
                     if (isSidebarOnly) {
+                      if (key === "services" && derivedTopKey === "services" && hasSidebarOverrideContent) {
+                        setSidebarModeOverride(null);
+                        return;
+                      }
                       setSidebarModeOverride(key);
                       return;
                     }
@@ -2306,6 +2310,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     if (key === "settings") {
                       setCollapsed(false);
                       setSidebarModeOverride("settings");
+                      return;
+                    }
+                    if (derivedTopKey === "services" && hasSidebarOverrideContent) {
+                      setSidebarModeOverride(null);
                       return;
                     }
                     // Services should respect the user's collapsed preference.
@@ -2782,7 +2790,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <PortalNavLink
                     href={`${basePath}/app/settings`}
                     className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-150",
                       pathname === `${basePath}/app/settings` ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
@@ -2795,7 +2803,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <PortalNavLink
                       href={`${basePath}/app/profile`}
                       className={classNames(
-                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-150",
                         pathname.startsWith(`${basePath}/app/profile`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                       )}
                     >
@@ -2809,7 +2817,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <PortalNavLink
                       href={`${basePath}/app/billing`}
                       className={classNames(
-                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-150",
                         pathname.startsWith(`${basePath}/app/billing`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                       )}
                     >
@@ -2823,7 +2831,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <PortalNavLink
                     href={`${basePath}/app/settings/appearance`}
                     className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-150",
                       pathname.startsWith(`${basePath}/app/settings/appearance`)
                         ? "bg-zinc-100 text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",
@@ -2838,7 +2846,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <PortalNavLink
                     href={`${basePath}/app/settings/integrations`}
                     className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-150",
                       pathname.startsWith(`${basePath}/app/settings/integrations`)
                         ? "bg-zinc-100 text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",
@@ -2853,7 +2861,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <PortalNavLink
                     href={`${basePath}/app/settings/business`}
                     className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-150",
                       pathname.startsWith(`${basePath}/app/settings/business`)
                         ? "bg-zinc-100 text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",
@@ -2937,7 +2945,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </div>
           </aside>
 
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain">
+          <div className={classNames("flex min-h-0 min-w-0 flex-1 flex-col", isInbox ? "overflow-hidden" : "overflow-y-auto overscroll-y-contain")}>
           {!isHostedPageEditor ? <div className="pointer-events-none fixed inset-x-0 top-0 z-90 flex items-start justify-between px-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:hidden">
             <button
               type="button"
@@ -2956,6 +2964,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 ? "p-0"
                 : isAiChat
                 ? "pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:p-0"
+                : isInbox
+                ? "overflow-hidden p-4 pb-0 pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:p-8 sm:pb-0 sm:pt-[calc(var(--pa-portal-topbar-height,0px)+0.75rem)]"
                 : "p-4 pb-4 pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:p-8 sm:pb-6 sm:pt-[calc(var(--pa-portal-topbar-height,0px)+2rem)]",
             )}
           >
@@ -3026,7 +3036,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             ) : null}
 
             {children}
-            {!isAiChat && !isHostedPageEditor ? (
+            {!isAiChat && !isHostedPageEditor && !isInbox ? (
               <div
                 aria-hidden
                 className="h-[calc(env(safe-area-inset-bottom)+5rem)] sm:h-[calc(env(safe-area-inset-bottom)+2rem)]"

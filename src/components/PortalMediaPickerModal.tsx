@@ -139,7 +139,7 @@ export function PortalMediaPickerModal({
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
           >
-            <div className="shrink-0 border-b border-white/30 p-5">
+            <div className="shrink-0 p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-zinc-900">{title || "Media library"}</div>

@@ -16,6 +16,7 @@ export function AppModal({
   onClose,
   children,
   footer,
+  headerActions,
   widthClassName,
   zIndex,
   closeVariant = "x",
@@ -28,6 +29,7 @@ export function AppModal({
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  headerActions?: React.ReactNode;
   widthClassName?: string;
   zIndex?: number;
   closeVariant?: "text" | "x";
@@ -100,22 +102,25 @@ export function AppModal({
                   <div className="text-base font-semibold text-zinc-900">{title}</div>
                   {description ? <div className="mt-1 text-sm text-zinc-600">{description}</div> : null}
                 </div>
-                <button
-                  type="button"
-                  className={classNames(
-                    "shrink-0 select-none transition-all duration-150 hover:-translate-y-0.5",
-                    closeVariant === "x"
-                      ? classNames(
-                          "grid h-10 w-10 place-items-center rounded-2xl text-lg leading-none font-semibold text-zinc-500 hover:scale-105 hover:bg-white/80 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]",
-                          portalGlassButtonClass,
-                        )
-                      : classNames("rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)
-                  )}
-                  onClick={onClose}
-                  aria-label="Close"
-                >
-                  {closeVariant === "x" ? "×" : "Close"}
-                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  {headerActions}
+                  <button
+                    type="button"
+                    className={classNames(
+                      "shrink-0 select-none transition-all duration-150 hover:-translate-y-0.5",
+                      closeVariant === "x"
+                        ? classNames(
+                            "grid h-10 w-10 place-items-center rounded-full text-lg leading-none font-semibold text-zinc-500 hover:scale-105 hover:bg-white/80 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]",
+                            portalGlassButtonClass,
+                          )
+                        : classNames("rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)
+                    )}
+                    onClick={onClose}
+                    aria-label="Close"
+                  >
+                    {closeVariant === "x" ? "×" : "Close"}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -126,7 +131,7 @@ export function AppModal({
         </div>
       </div>
     );
-  }, [children, closeVariant, description, footer, hideFooterDivider, hideHeaderDivider, onClose, open, title, widthClassName, zIndex]);
+  }, [children, closeVariant, description, footer, headerActions, hideFooterDivider, hideHeaderDivider, onClose, open, title, widthClassName, zIndex]);
 
   if (!mounted) return null;
   if (!body) return null;
