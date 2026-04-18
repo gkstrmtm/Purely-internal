@@ -1081,6 +1081,9 @@ function MessageBubble({
   const isThinking = msg.id.startsWith("optimistic-assistant-") && msg.role === "assistant";
   const actions = !isUser && !isThinking && Array.isArray(msg.assistantActions) ? msg.assistantActions : [];
   const scheduledEnv = tryParseScheduledEnvelopeForUi(msg.text);
+  const runTrace = msg.runTrace ?? null;
+  const runTraceSteps = runTrace?.steps ?? [];
+  const runTraceTone = runTraceSteps.length ? runTraceCardTone(runTraceSteps) : null;
 
   const bubble = (
     <div
@@ -1255,23 +1258,23 @@ function MessageBubble({
         </div>
       ) : null}
 
-      {!isUser && !isThinking && msg.runTrace?.steps?.length ? (
-        <div className={classNames("mt-3 rounded-2xl px-3 py-2", runTraceCardTone(msg.runTrace.steps).cardClassName)}>
-          <div className={classNames("flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-wide", runTraceCardTone(msg.runTrace.steps).headerClassName)}>
-            <span>{msg.runTrace.workTitle || "Pura work trace"}</span>
-            <span>{msg.runTrace.steps.length} step{msg.runTrace.steps.length === 1 ? "" : "s"}</span>
+      {!isUser && !isThinking && runTrace && runTraceSteps.length && runTraceTone ? (
+        <div className={classNames("mt-3 rounded-2xl px-3 py-2", runTraceTone.cardClassName)}>
+          <div className={classNames("flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-wide", runTraceTone.headerClassName)}>
+            <span>{runTrace.workTitle || "Pura work trace"}</span>
+            <span>{runTraceSteps.length} step{runTraceSteps.length === 1 ? "" : "s"}</span>
           </div>
           <div className="mt-2 space-y-2">
-            {msg.runTrace.steps.slice(0, 4).map((step, idx) => {
+            {runTraceSteps.slice(0, 4).map((step, idx) => {
               return (
                 <div key={`${step.key}-${idx}`} className="rounded-2xl px-3 py-2.5 text-[12px] leading-5">
-                  <span className={classNames("block min-w-0 font-medium", runTraceCardTone(msg.runTrace.steps).textClassName)}>{step.title || step.key}</span>
+                  <span className={classNames("block min-w-0 font-medium", runTraceTone.textClassName)}>{step.title || step.key}</span>
                 </div>
               );
             })}
-            {msg.runTrace.steps.length > 4 ? (
-              <div className={classNames("pl-4 text-[11px]", runTraceCardTone(msg.runTrace.steps).moreClassName)}>
-                +{msg.runTrace.steps.length - 4} more step{msg.runTrace.steps.length - 4 === 1 ? "" : "s"}
+            {runTraceSteps.length > 4 ? (
+              <div className={classNames("pl-4 text-[11px]", runTraceTone.moreClassName)}>
+                +{runTraceSteps.length - 4} more step{runTraceSteps.length - 4 === 1 ? "" : "s"}
               </div>
             ) : null}
           </div>
