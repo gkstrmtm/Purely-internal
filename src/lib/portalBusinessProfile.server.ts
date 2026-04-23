@@ -21,6 +21,7 @@ export const BusinessProfileUpsertSchema = z.object({
   primaryGoals: z.array(z.string().trim().min(1)).max(10).optional(),
   targetCustomer: z.string().trim().max(240).optional().or(z.literal("")),
   brandVoice: z.string().trim().max(240).optional().or(z.literal("")),
+  businessContext: z.string().trim().max(8000).optional().or(z.literal("")),
 
   logoUrl: z.string().trim().max(500).optional().or(z.literal("")),
   brandPrimaryHex: z
@@ -140,6 +141,7 @@ type ProfileColumnFlags = {
   primaryGoals: boolean;
   targetCustomer: boolean;
   brandVoice: boolean;
+  businessContext: boolean;
   logoUrl: boolean;
   brandPrimaryHex: boolean;
   brandSecondaryHex: boolean;
@@ -158,6 +160,7 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     primaryGoals,
     targetCustomer,
     brandVoice,
+    businessContext,
     logoUrl,
     brandPrimaryHex,
     brandSecondaryHex,
@@ -173,6 +176,7 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     hasPublicColumn("BusinessProfile", "primaryGoals"),
     hasPublicColumn("BusinessProfile", "targetCustomer"),
     hasPublicColumn("BusinessProfile", "brandVoice"),
+    hasPublicColumn("BusinessProfile", "businessContext"),
     hasPublicColumn("BusinessProfile", "logoUrl"),
     hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
     hasPublicColumn("BusinessProfile", "brandSecondaryHex"),
@@ -190,6 +194,7 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     primaryGoals,
     targetCustomer,
     brandVoice,
+    businessContext,
     logoUrl,
     brandPrimaryHex,
     brandSecondaryHex,
@@ -212,6 +217,7 @@ function profileSelect(flags: ProfileColumnFlags) {
   if (flags.primaryGoals) select.primaryGoals = true;
   if (flags.targetCustomer) select.targetCustomer = true;
   if (flags.brandVoice) select.brandVoice = true;
+  if (flags.businessContext) select.businessContext = true;
   if (flags.logoUrl) select.logoUrl = true;
   if (flags.brandPrimaryHex) select.brandPrimaryHex = true;
   if (flags.brandSecondaryHex) select.brandSecondaryHex = true;
@@ -233,6 +239,7 @@ function normalizeProfile(row: any, flags: ProfileColumnFlags) {
     primaryGoals: flags.primaryGoals ? ((row.primaryGoals as unknown) ?? null) : null,
     targetCustomer: flags.targetCustomer ? (row.targetCustomer ?? null) : null,
     brandVoice: flags.brandVoice ? (row.brandVoice ?? null) : null,
+    businessContext: flags.businessContext ? (row.businessContext ?? null) : null,
     logoUrl: flags.logoUrl ? (row.logoUrl ?? null) : null,
     brandPrimaryHex: flags.brandPrimaryHex ? (row.brandPrimaryHex ?? null) : null,
     brandSecondaryHex: flags.brandSecondaryHex ? (row.brandSecondaryHex ?? null) : null,
@@ -296,6 +303,7 @@ export async function upsertPortalBusinessProfile(opts: {
   }
   if (flags.targetCustomer) baseData.targetCustomer = emptyToNull(parsed.data.targetCustomer);
   if (flags.brandVoice) baseData.brandVoice = emptyToNull(parsed.data.brandVoice);
+  if (flags.businessContext) baseData.businessContext = emptyToNull(parsed.data.businessContext);
   if (flags.logoUrl) baseData.logoUrl = emptyToNull(parsed.data.logoUrl);
   if (flags.brandPrimaryHex) baseData.brandPrimaryHex = emptyToNull(parsed.data.brandPrimaryHex);
   if (flags.brandSecondaryHex) baseData.brandSecondaryHex = emptyToNull(parsed.data.brandSecondaryHex);
@@ -315,6 +323,7 @@ export async function upsertPortalBusinessProfile(opts: {
   }
   if (flags.targetCustomer) updateData.targetCustomer = emptyToNull(parsed.data.targetCustomer);
   if (flags.brandVoice) updateData.brandVoice = emptyToNull(parsed.data.brandVoice);
+  if (flags.businessContext) updateData.businessContext = emptyToNull(parsed.data.businessContext);
   if (flags.logoUrl) updateData.logoUrl = emptyToNull(parsed.data.logoUrl);
   if (flags.brandPrimaryHex) updateData.brandPrimaryHex = emptyToNull(parsed.data.brandPrimaryHex);
   if (flags.brandSecondaryHex) updateData.brandSecondaryHex = emptyToNull(parsed.data.brandSecondaryHex);

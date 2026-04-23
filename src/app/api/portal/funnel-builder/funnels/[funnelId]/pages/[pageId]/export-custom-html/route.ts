@@ -12,6 +12,7 @@ import {
 } from "@/lib/funnelPageDbCompat";
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
 import { createFunnelPageMirroredHtmlUpdate, getFunnelPageCurrentHtml } from "@/lib/funnelPageState";
+import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,6 +75,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const normalizedPage = normalizeDraftHtml(page);
 
   const ownerId = auth.session.user.id;
+  const settings = await prisma.creditFunnelBuilderSettings
+    .findUnique({ where: { ownerId }, select: { dataJson: true } })
+    .catch(() => null);
+  const defaultBookingCalendarId = readFunnelBookingRouting(settings?.dataJson ?? null, funnelId)?.calendarId ?? undefined;
 
   const blocksFromClient = coerceBlocks(parsed.data.blocksJson);
   const blocksFromDb = coerceBlocks(normalizedPage.blocksJson);
@@ -83,6 +88,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     blocks,
     pageId: normalizedPage.id,
     ownerId,
+    defaultBookingCalendarId,
     basePath,
     title: parsed.data.title || normalizedPage.title || "Funnel page",
   });

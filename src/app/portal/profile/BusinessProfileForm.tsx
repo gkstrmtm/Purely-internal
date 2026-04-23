@@ -14,6 +14,7 @@ type BusinessProfile = {
   primaryGoals: unknown;
   targetCustomer: string | null;
   brandVoice: string | null;
+  businessContext?: string | null;
 
   logoUrl?: string | null;
   brandPrimaryHex?: string | null;
@@ -43,7 +44,84 @@ type ApiGet = { ok: boolean; profile: BusinessProfile | null };
 
 type ApiPut = { ok: boolean; profile: BusinessProfile };
 
+type ClarificationQuestion = {
+  question: string;
+  reason: string;
+  suggestedAnswerStarter?: string;
+};
+
+type ApiClarify = {
+  ok: boolean;
+  summary: string;
+  questions: ClarificationQuestion[];
+  recommendedContext?: string;
+};
+
 const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+type SpeechRecognitionAlternativeLike = {
+  transcript: string;
+};
+
+type SpeechRecognitionResultLike = {
+  length: number;
+  isFinal: boolean;
+  [index: number]: SpeechRecognitionAlternativeLike;
+};
+
+type SpeechRecognitionEventLike = {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+};
+
+type SpeechRecognitionErrorEventLike = {
+  error?: string;
+  message?: string;
+};
+
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+function getSpeechRecognitionCtor(source: Window & typeof globalThis): SpeechRecognitionCtor | null {
+  const scoped = source as Window & typeof globalThis & {
+    SpeechRecognition?: SpeechRecognitionCtor;
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+  };
+
+  return scoped.SpeechRecognition ?? scoped.webkitSpeechRecognition ?? null;
+}
+
+function normalizeWhitespace(value: string) {
+  return String(value || "").replace(/\r/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function appendUniqueBlock(existing: string, addition: string) {
+  const current = normalizeWhitespace(existing);
+  const next = normalizeWhitespace(addition);
+  if (!next) return current;
+  if (current.includes(next)) return current;
+  return current ? `${current}\n\n${next}` : next;
+}
+
+function friendlySpeechError(event: SpeechRecognitionErrorEventLike) {
+  const code = String(event.error || "").trim().toLowerCase();
+  if (code === "not-allowed" || code === "service-not-allowed") return "Microphone permission was denied.";
+  if (code === "no-speech") return "No speech was detected. Try again and speak a little closer to the mic.";
+  if (code === "audio-capture") return "This browser could not access a working microphone.";
+  if (code === "network") return "Speech recognition hit a network issue. Try again.";
+  return "Speech recognition stopped unexpectedly.";
+}
 
 function normalizeGoals(goals: unknown) {
   if (!Array.isArray(goals)) return [] as string[];
@@ -95,6 +173,14 @@ export function BusinessProfileForm({
   const [primaryGoalDraft, setPrimaryGoalDraft] = useState("");
   const [targetCustomer, setTargetCustomer] = useState("");
   const [brandVoice, setBrandVoice] = useState("");
+  const [businessContext, setBusinessContext] = useState("");
+  const [clarifying, setClarifying] = useState(false);
+  const [clarification, setClarification] = useState<ApiClarify | null>(null);
+  const [dictationSupported, setDictationSupported] = useState(false);
+  const [dictating, setDictating] = useState(false);
+  const [dictationError, setDictationError] = useState<string | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const dictationBaseRef = useRef("");
 
   const [logoUrl, setLogoUrl] = useState("");
   const [brandPrimaryHex, setBrandPrimaryHex] = useState("");
@@ -141,6 +227,7 @@ export function BusinessProfileForm({
       primaryGoals: goals,
       targetCustomer: normalize(targetCustomer),
       brandVoice: normalize(brandVoice),
+      businessContext: normalizeWhitespace(businessContext),
 
       logoUrl: normalize(logoUrl),
       brandPrimaryHex: normalize(brandPrimaryHex),
@@ -171,6 +258,7 @@ export function BusinessProfileForm({
     primaryGoals,
     targetCustomer,
     brandVoice,
+    businessContext,
     logoUrl,
     brandPrimaryHex,
     brandSecondaryHex,
@@ -193,6 +281,7 @@ export function BusinessProfileForm({
 
   function applyProfileToForm(profile: BusinessProfile | null | undefined) {
     if (!profile) {
+      setBusinessContext("");
       lastSavedSigRef.current = "{}";
       return;
     }
@@ -204,6 +293,7 @@ export function BusinessProfileForm({
     const nextPrimaryGoals = normalizeGoals(profile.primaryGoals);
     const nextTargetCustomer = profile.targetCustomer ?? "";
     const nextBrandVoice = profile.brandVoice ?? "";
+    const nextBusinessContext = profile.businessContext ?? "";
 
     const nextLogoUrl = profile.logoUrl ?? "";
     const nextBrandPrimaryHex = profile.brandPrimaryHex ?? "";
@@ -232,6 +322,7 @@ export function BusinessProfileForm({
     setPrimaryGoals(nextPrimaryGoals);
     setTargetCustomer(nextTargetCustomer);
     setBrandVoice(nextBrandVoice);
+    setBusinessContext(nextBusinessContext);
 
     setLogoUrl(nextLogoUrl);
     setBrandPrimaryHex(nextBrandPrimaryHex);
@@ -263,6 +354,7 @@ export function BusinessProfileForm({
         .slice(0, 10),
       targetCustomer: String(nextTargetCustomer || "").trim(),
       brandVoice: String(nextBrandVoice || "").trim(),
+      businessContext: normalizeWhitespace(nextBusinessContext),
       logoUrl: String(nextLogoUrl || "").trim(),
       brandPrimaryHex: String(nextBrandPrimaryHex || "").trim(),
       brandSecondaryHex: String(nextBrandSecondaryHex || "").trim(),
@@ -307,6 +399,143 @@ export function BusinessProfileForm({
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setDictationSupported(Boolean(getSpeechRecognitionCtor(window)));
+
+    return () => {
+      try {
+        recognitionRef.current?.abort();
+      } catch {
+        // ignore
+      }
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  function buildClarifyPayload() {
+    const payload: Record<string, unknown> = {};
+    const assign = (key: string, value: string, opts?: { minLength?: number }) => {
+      const trimmed = String(value || "").trim();
+      if (!trimmed) return;
+      if ((opts?.minLength ?? 1) > trimmed.length) return;
+      payload[key] = trimmed;
+    };
+
+    assign("businessName", businessName, { minLength: 2 });
+    assign("websiteUrl", websiteUrl);
+    assign("industry", industry);
+    assign("businessModel", businessModel);
+    assign("targetCustomer", targetCustomer);
+    assign("brandVoice", brandVoice);
+    assign("businessContext", businessContext);
+
+    const goals = (primaryGoals || []).map((goal) => String(goal || "").trim()).filter(Boolean).slice(0, 10);
+    if (goals.length) payload.primaryGoals = goals;
+
+    return payload;
+  }
+
+  async function runClarification() {
+    if (readOnly || clarifying) return;
+    setClarifying(true);
+    setError(null);
+
+    const res = await fetch("/api/portal/business-profile/clarify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(buildClarifyPayload()),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as Partial<ApiClarify> & { error?: string };
+    setClarifying(false);
+
+    if (!res.ok || !json.ok) {
+      setError(json.error ?? "Unable to run clarification");
+      return;
+    }
+
+    setClarification({
+      ok: true,
+      summary: String(json.summary || "").trim(),
+      questions: Array.isArray(json.questions) ? json.questions : [],
+      recommendedContext: String(json.recommendedContext || "").trim(),
+    });
+  }
+
+  function stopDictation() {
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
+  }
+
+  function startDictation() {
+    if (readOnly) return;
+    if (dictating) {
+      stopDictation();
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      setDictationError("Speech-to-text is only available in the browser.");
+      return;
+    }
+
+    const Recognition = getSpeechRecognitionCtor(window);
+    if (!Recognition) {
+      setDictationError("This browser does not support built-in speech-to-text.");
+      return;
+    }
+
+    setDictationError(null);
+
+    try {
+      recognitionRef.current?.abort();
+    } catch {
+      // ignore
+    }
+
+    const recognition = new Recognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    dictationBaseRef.current = businessContext.trim() ? `${businessContext.trimEnd()}\n\n` : "";
+    recognition.onresult = (event) => {
+      const segments: string[] = [];
+      for (let index = 0; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const alternative = result?.[0];
+        if (!alternative?.transcript) continue;
+        segments.push(alternative.transcript);
+      }
+
+      const transcript = segments.join(" ").replace(/\s+/g, " ").trim();
+      const nextValue = transcript ? `${dictationBaseRef.current}${transcript}` : dictationBaseRef.current.trimEnd();
+      setBusinessContext(nextValue.trimEnd());
+    };
+    recognition.onerror = (event) => {
+      setDictationError(friendlySpeechError(event));
+      setDictating(false);
+      recognitionRef.current = null;
+    };
+    recognition.onend = () => {
+      setDictating(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = recognition;
+    setDictating(true);
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+      setDictating(false);
+      setDictationError("Speech-to-text could not start in this browser session.");
+    }
+  }
+
   async function save() {
     if (!canSave) return;
     setSaving(true);
@@ -326,6 +555,7 @@ export function BusinessProfileForm({
         primaryGoals: primaryGoals.length ? primaryGoals : undefined,
         targetCustomer,
         brandVoice,
+        businessContext,
 
         logoUrl,
         brandPrimaryHex,
@@ -569,6 +799,112 @@ export function BusinessProfileForm({
             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
             placeholder="Professional, friendly, short paragraphs"
           />
+        </div>
+
+        <div className="sm:col-span-2 rounded-3xl border border-zinc-200 bg-zinc-50/70 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Business context and operating notes</label>
+              <div className="mt-1 text-xs text-zinc-500">
+                Put the nuance here that should cascade into funnels, outbound, newsletters, and other AI work: offer details, sales motion, differentiators, objections, proof, constraints, and who converts best.
+              </div>
+            </div>
+
+            {!readOnly ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={startDictation}
+                  disabled={!dictationSupported && !dictating}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  title={dictationSupported ? (dictating ? "Stop dictation" : "Start dictation") : "Speech-to-text is not available in this browser"}
+                >
+                  {dictating ? "Stop mic" : "Use mic"}
+                </button>
+                <button
+                  type="button"
+                  onClick={runClarification}
+                  disabled={clarifying}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  {clarifying ? "Running clarification…" : "Clarification run"}
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          <textarea
+            value={businessContext}
+            onChange={(e) => {
+              setBusinessContext(e.target.value);
+              if (dictationError) setDictationError(null);
+            }}
+            disabled={Boolean(readOnly)}
+            rows={8}
+            className="mt-3 w-full rounded-3xl border border-zinc-200 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-zinc-300"
+            placeholder="Describe the offer, who buys fastest, common objections, how delivery works, compliance or brand constraints, what counts as a win, and the kind of proof AI should emphasize."
+          />
+
+          <div className="mt-2 flex flex-col gap-1 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+            <div>{normalizeWhitespace(businessContext).length}/8000 characters</div>
+            <div>
+              {dictating
+                ? "Listening now. Speak naturally and your notes will be appended here."
+                : dictationSupported
+                  ? "Use the mic to dictate operating detail directly into the shared profile."
+                  : "Speech-to-text depends on browser support and microphone permission."}
+            </div>
+          </div>
+
+          {dictationError ? (
+            <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{dictationError}</div>
+          ) : null}
+
+          {clarification || clarifying ? (
+            <div className="mt-4 rounded-3xl border border-blue-200 bg-white p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Clarification run</div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    Targeted follow-up questions based on the business profile draft, designed to sharpen downstream AI outputs.
+                  </div>
+                </div>
+
+                {!readOnly && clarification?.recommendedContext ? (
+                  <button
+                    type="button"
+                    onClick={() => setBusinessContext((current) => appendUniqueBlock(current, clarification.recommendedContext || ""))}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                  >
+                    Append AI starter
+                  </button>
+                ) : null}
+              </div>
+
+              {clarification?.summary ? <div className="mt-3 text-sm text-zinc-700">{clarification.summary}</div> : null}
+
+              {clarification?.questions?.length ? (
+                <div className="mt-4 space-y-3">
+                  {clarification.questions.map((item, index) => (
+                    <div key={`${item.question}-${index}`} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                      <div className="text-sm font-semibold text-zinc-900">{index + 1}. {item.question}</div>
+                      <div className="mt-1 text-xs text-zinc-600">{item.reason}</div>
+                      {item.suggestedAnswerStarter ? (
+                        <div className="mt-2 text-xs text-zinc-500">Starter: {item.suggestedAnswerStarter}</div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {clarification?.recommendedContext ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Suggested detail to add</div>
+                  <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{clarification.recommendedContext}</div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="sm:col-span-2">

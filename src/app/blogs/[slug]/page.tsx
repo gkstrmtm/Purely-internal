@@ -89,7 +89,7 @@ export default async function BlogPostPage(props: PageProps) {
             </Link>
             <Link
               href={cta.href}
-              className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-blue-700"
+              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-blue-700"
             >
               {cta.button}
             </Link>
@@ -102,7 +102,7 @@ export default async function BlogPostPage(props: PageProps) {
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
             {formatBlogDate(post.publishedAt)}
           </div>
-          <h1 className="mt-3 font-brand text-4xl leading-tight text-[color:var(--color-brand-blue)] sm:text-5xl">
+          <h1 className="mt-3 font-brand text-4xl leading-tight text-(--color-brand-blue) sm:text-5xl">
             {post.title}
           </h1>
           <p className="mt-5 text-base leading-relaxed text-zinc-700">{post.excerpt}</p>
@@ -157,19 +157,19 @@ export default async function BlogPostPage(props: PageProps) {
             })}
           </div>
 
-          <div className="mt-14 rounded-3xl bg-[color:rgba(29,78,216,0.06)] p-8">
-            <div className="font-brand text-2xl text-[color:var(--color-brand-blue)]">{cta.title}</div>
+          <div className="mt-14 rounded-3xl bg-[rgba(29,78,216,0.06)] p-8">
+            <div className="font-brand text-2xl text-(--color-brand-blue)">{cta.title}</div>
             <p className="mt-3 text-sm leading-relaxed text-zinc-700">{cta.body}</p>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <Link
                 href={cta.href}
-                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-6 py-3 text-base font-extrabold text-[color:var(--color-brand-blue)] shadow-sm hover:bg-pink-300"
+                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-pink) px-6 py-3 text-base font-extrabold text-(--color-brand-blue) shadow-sm hover:bg-pink-300"
               >
                 {cta.button}
               </Link>
               <Link
                 href="/"
-                className="inline-flex items-center justify-center rounded-2xl border border-[color:rgba(29,78,216,0.15)] bg-white px-6 py-3 text-base font-bold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
+                className="inline-flex items-center justify-center rounded-2xl border border-[rgba(29,78,216,0.15)] bg-white px-6 py-3 text-base font-bold text-(--color-brand-blue) hover:bg-zinc-50"
               >
                 back to home
               </Link>
@@ -187,10 +187,10 @@ export default async function BlogPostPage(props: PageProps) {
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-zinc-600">© {new Date().getFullYear()} Purely Automation</div>
           <div className="flex items-center gap-4">
-            <Link href="/blogs" className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline">
+            <Link href="/blogs" className="text-sm font-semibold text-(--color-brand-blue) hover:underline">
               blogs
             </Link>
-            <Link href={cta.href} className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline">
+            <Link href={cta.href} className="text-sm font-semibold text-(--color-brand-blue) hover:underline">
               book a call
             </Link>
           </div>

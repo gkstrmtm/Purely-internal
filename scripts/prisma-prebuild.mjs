@@ -1,12 +1,32 @@
 import { spawnSync } from "node:child_process";
 
+function wrapCommandForPlatform(cmd, args) {
+  if (process.platform !== "win32") return { cmd, args };
+
+  const commandLine = [cmd, ...args]
+    .map((part) => {
+      const value = String(part ?? "");
+      return /[\s"]/u.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value;
+    })
+    .join(" ");
+
+  return {
+    cmd: "cmd.exe",
+    args: ["/d", "/s", "/c", commandLine],
+  };
+}
+
 function run(cmd, args, opts = {}) {
-  const res = spawnSync(cmd, args, {
+  const platformCommand = wrapCommandForPlatform(cmd, args);
+  const res = spawnSync(platformCommand.cmd, platformCommand.args, {
     stdio: "inherit",
     shell: false,
     timeout: opts.timeoutMs,
-    env: opts.env,
+    env: opts.env ?? process.env,
   });
+  if (res.error) {
+    console.error(`[prebuild] Failed to launch ${cmd}: ${res.error.message}`);
+  }
   if (res.status !== 0 && !opts.allowFailure) process.exit(res.status ?? 1);
   return res;
 }

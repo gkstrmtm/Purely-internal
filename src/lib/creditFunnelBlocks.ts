@@ -14,6 +14,7 @@ import {
 import { SalesCheckoutButton } from "@/components/funnel/SalesCheckoutButton";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
+import { appendCreditFunnelTrackingParams } from "@/lib/funnelEventTracking";
 
 export type BlockStyle = {
   textColor?: string;
@@ -111,7 +112,7 @@ export type CreditFunnelBlock =
   | {
       id: string;
       type: "customCode";
-      props: { html: string; css?: string; heightPx?: number; style?: BlockStyle };
+      props: { html: string; css?: string; heightPx?: number; style?: BlockStyle; chatJson?: unknown; aiHistoryJson?: unknown };
     }
   | {
       id: string;
@@ -297,6 +298,174 @@ function coerceBool(v: unknown): boolean | undefined {
   if (v === true) return true;
   if (v === false) return false;
   return undefined;
+}
+
+function coerceShortString(v: unknown, max: number): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.trim();
+  if (!s) return undefined;
+  return s.slice(0, max);
+}
+
+function coercePositiveInt(v: unknown, max: number): number | null {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(1, Math.min(max, Math.floor(n)));
+}
+
+function coerceCount(v: unknown, max: number): number {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.max(0, Math.min(max, Math.floor(n)));
+}
+
+function coercePreviewLines(v: unknown, maxItems = 4, maxLen = 240): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const lines = v
+    .filter((line) => typeof line === "string")
+    .map((line) => String(line).trim())
+    .filter(Boolean)
+    .slice(0, maxItems)
+    .map((line) => line.slice(0, maxLen));
+  return lines.length ? lines : undefined;
+}
+
+function coerceStoredHtmlDiffSummary(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const entry = raw as Record<string, unknown>;
+  const addedLines = coerceCount(entry.addedLines, 2000);
+  const removedLines = coerceCount(entry.removedLines, 2000);
+  const addedPreview = coercePreviewLines(entry.addedPreview) || [];
+  const removedPreview = coercePreviewLines(entry.removedPreview) || [];
+  const currentStartLine = coercePositiveInt(entry.currentStartLine, 50000);
+  const currentEndLine = coercePositiveInt(entry.currentEndLine, 50000);
+  const changed =
+    entry.changed === true ||
+    addedLines > 0 ||
+    removedLines > 0 ||
+    addedPreview.length > 0 ||
+    removedPreview.length > 0;
+
+  return {
+    addedLines,
+    removedLines,
+    currentStartLine,
+    currentEndLine: currentEndLine && currentStartLine && currentEndLine < currentStartLine ? currentStartLine : currentEndLine,
+    addedPreview,
+    removedPreview,
+    changed,
+  };
+}
+
+function coerceStoredBuilderDiffSummary(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const entry = raw as Record<string, unknown>;
+  const addedBlocks = coerceCount(entry.addedBlocks, 2000);
+  const removedBlocks = coerceCount(entry.removedBlocks, 2000);
+  const updatedBlocks = coerceCount(entry.updatedBlocks, 2000);
+  const movedBlocks = coerceCount(entry.movedBlocks, 2000);
+  const addedPreview = coercePreviewLines(entry.addedPreview) || [];
+  const removedPreview = coercePreviewLines(entry.removedPreview) || [];
+  const updatedPreview = coercePreviewLines(entry.updatedPreview) || [];
+  const movedPreview = coercePreviewLines(entry.movedPreview) || [];
+  const changed =
+    entry.changed === true ||
+    addedBlocks > 0 ||
+    removedBlocks > 0 ||
+    updatedBlocks > 0 ||
+    movedBlocks > 0 ||
+    addedPreview.length > 0 ||
+    removedPreview.length > 0 ||
+    updatedPreview.length > 0 ||
+    movedPreview.length > 0;
+
+  return {
+    addedBlocks,
+    removedBlocks,
+    updatedBlocks,
+    movedBlocks,
+    addedPreview,
+    removedPreview,
+    updatedPreview,
+    movedPreview,
+    changed,
+  };
+}
+
+function coerceStoredCustomCodeDiffSummary(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const entry = raw as Record<string, unknown>;
+  const html = coerceStoredHtmlDiffSummary(entry.html) || {
+    addedLines: 0,
+    removedLines: 0,
+    currentStartLine: null,
+    currentEndLine: null,
+    addedPreview: [],
+    removedPreview: [],
+    changed: false,
+  };
+  const css = coerceStoredHtmlDiffSummary(entry.css) || {
+    addedLines: 0,
+    removedLines: 0,
+    currentStartLine: null,
+    currentEndLine: null,
+    addedPreview: [],
+    removedPreview: [],
+    changed: false,
+  };
+  const htmlChanged = entry.htmlChanged === true || html.changed;
+  const cssChanged = entry.cssChanged === true || css.changed;
+  const totalAddedLines = coerceCount(entry.totalAddedLines, 4000) || html.addedLines + css.addedLines;
+  const totalRemovedLines = coerceCount(entry.totalRemovedLines, 4000) || html.removedLines + css.removedLines;
+
+  return {
+    html,
+    css,
+    htmlChanged,
+    cssChanged,
+    totalAddedLines,
+    totalRemovedLines,
+  };
+}
+
+function coerceStoredCustomCodeHistory(raw: unknown) {
+  if (!Array.isArray(raw)) return undefined;
+  const history = raw
+    .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    .map((entry, index) => {
+      const item = entry as Record<string, unknown>;
+      const prompt = coerceShortString(item.prompt, 1200) || "";
+      const summary = coerceShortString(item.summary, 1200) || "";
+      const at = coerceShortString(item.at, 64);
+      const id = coerceShortString(item.id, 120) || `custom-code-history-${index + 1}`;
+      const kindRaw = coerceShortString(item.kind, 24);
+      const kind =
+        kindRaw === "no-change" || kindRaw === "question" || kindRaw === "restore"
+          ? kindRaw
+          : "ai-update";
+      const customCodeDiff = coerceStoredCustomCodeDiffSummary(item.customCodeDiff);
+      const builderDiff = coerceStoredBuilderDiffSummary(item.builderDiff);
+      const previewChanged =
+        item.previewChanged === true ||
+        Boolean(customCodeDiff?.htmlChanged || customCodeDiff?.cssChanged || builderDiff?.changed);
+
+      if (!prompt && !summary && !customCodeDiff && !builderDiff) return null;
+
+      return {
+        id,
+        kind,
+        ...(at ? { at } : {}),
+        prompt,
+        summary,
+        previewChanged,
+        ...(customCodeDiff ? { customCodeDiff } : {}),
+        ...(builderDiff ? { builderDiff } : {}),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 12);
+
+  return history.length ? history : undefined;
 }
 
 function coerceHeaderMobileMode(v: unknown): "dropdown" | "slideover" | undefined {
@@ -658,8 +827,20 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
             .filter((m: any) => typeof m.content === "string" && m.content.trim())
             .slice(-40))
         : undefined;
+      const aiHistoryJson = coerceStoredCustomCodeHistory((props as any)?.aiHistoryJson);
       const style = coerceStyle(props?.style);
-      out.push({ id, type, props: { html, css: css || undefined, heightPx, style, ...(chatJson ? { chatJson } : {}) } as any });
+      out.push({
+        id,
+        type,
+        props: {
+          html,
+          css: css || undefined,
+          heightPx,
+          style,
+          ...(chatJson ? { chatJson } : {}),
+          ...(aiHistoryJson ? { aiHistoryJson } : {}),
+        },
+      } as any);
       continue;
     }
 
@@ -1043,10 +1224,13 @@ export function renderCreditFunnelBlocks({
   context?: {
     bookingSiteSlug?: string;
     bookingOwnerId?: string;
+    defaultBookingCalendarId?: string;
+    funnelId?: string;
     funnelPageId?: string;
     funnelSlug?: string;
     funnelPathBase?: string;
     funnelPageSlug?: string;
+    metaPixelId?: string | null;
     previewDevice?: "desktop" | "mobile";
     previewEmbedMode?: "live" | "placeholder";
   };
@@ -1582,6 +1766,7 @@ export function renderCreditFunnelBlocks({
               pageId,
               priceId,
               quantity,
+              metaPixelId: context?.metaPixelId || null,
               text,
               disabled: isEditor,
               style: Object.keys(btnStyle).some((k) => (btnStyle as any)[k] !== undefined) ? btnStyle : undefined,
@@ -1786,6 +1971,7 @@ export function renderCreditFunnelBlocks({
               pageId,
               priceId,
               quantity,
+              metaPixelId: context?.metaPixelId || null,
               productName,
               productDescription,
               text,
@@ -1842,6 +2028,7 @@ export function renderCreditFunnelBlocks({
             { name: "Cart button" },
             React.createElement(CartButton, {
               pageId,
+              metaPixelId: context?.metaPixelId || null,
               text,
               disabled: isEditor,
               style: Object.keys(btnStyle).some((k) => (btnStyle as any)[k] !== undefined) ? btnStyle : undefined,
@@ -2328,7 +2515,19 @@ export function renderCreditFunnelBlocks({
             ),
           );
         }
-        const src = `${basePath}/forms/${encodeURIComponent(formSlug)}?embed=1`;
+        const src = appendCreditFunnelTrackingParams({
+          url: `${basePath}/forms/${encodeURIComponent(formSlug)}?embed=1`,
+          context: context?.funnelPageId
+            ? {
+                funnelId: context?.funnelId || null,
+                funnelSlug: context?.funnelSlug || null,
+                pageId: context?.funnelPageId || null,
+                pageSlug: context?.funnelPageSlug || null,
+                path: context?.funnelPathBase || null,
+                source: "funnel_form_embed",
+              }
+            : null,
+        });
         const height = typeof b.props.height === "number" ? b.props.height : 760;
         const effectiveHeight = previewEmbedHeight(height, 760, 560);
 
@@ -2383,7 +2582,7 @@ export function renderCreditFunnelBlocks({
       }
 
       if (b.type === "calendarEmbed") {
-        const calendarId = String((b.props as any).calendarId || "").trim();
+        const calendarId = String((b.props as any).calendarId || context?.defaultBookingCalendarId || "").trim();
         if (!calendarId) {
           if (!isEditor) return null;
           return React.createElement(
@@ -2400,7 +2599,7 @@ export function renderCreditFunnelBlocks({
                 className:
                   "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-600",
               },
-              "Calendar embed: select this block and pick a calendar.",
+              "Calendar embed: pick a calendar on this block or set the funnel booking route in page settings.",
             ),
           );
         }
@@ -2409,11 +2608,26 @@ export function renderCreditFunnelBlocks({
         const effectiveHeight = previewEmbedHeight(height, 760, 620);
         const slug = context?.bookingSiteSlug ? String(context.bookingSiteSlug).trim() : "";
         const ownerId = context?.bookingOwnerId ? String(context.bookingOwnerId).trim() : "";
-        const src = slug
+        const srcBase = slug
           ? `/book/${encodeURIComponent(slug)}/c/${encodeURIComponent(calendarId)}`
           : ownerId
             ? `/book/u/${encodeURIComponent(ownerId)}/${encodeURIComponent(calendarId)}`
             : "";
+        const src = srcBase
+          ? appendCreditFunnelTrackingParams({
+              url: srcBase,
+              context: context?.funnelPageId
+                ? {
+                    funnelId: context?.funnelId || null,
+                    funnelSlug: context?.funnelSlug || null,
+                    pageId: context?.funnelPageId || null,
+                    pageSlug: context?.funnelPageSlug || null,
+                    path: context?.funnelPathBase || null,
+                    source: "funnel_booking_embed",
+                  }
+                : null,
+            })
+          : "";
 
         if (!src) {
           if (!isEditor) return null;

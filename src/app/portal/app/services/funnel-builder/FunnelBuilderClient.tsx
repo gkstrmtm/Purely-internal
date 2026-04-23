@@ -32,6 +32,8 @@ import { CREDIT_FORM_TEMPLATES, coerceCreditFormTemplateKey, getCreditFormTempla
 import { CREDIT_FORM_THEMES, coerceCreditFormThemeKey, getCreditFormTheme, type CreditFormThemeKey } from "@/lib/creditFormThemes";
 import { CREDIT_FUNNEL_TEMPLATES, coerceCreditFunnelTemplateKey, getCreditFunnelTemplate, type CreditFunnelTemplateKey } from "@/lib/creditFunnelTemplates";
 import { CREDIT_FUNNEL_THEMES, coerceCreditFunnelThemeKey, getCreditFunnelTheme, type CreditFunnelThemeKey } from "@/lib/creditFunnelThemes";
+import { listFunnelShellFrames } from "@/lib/funnelShellFrames";
+import { buildSuggestedFunnelNaming, buildSuggestedPageNaming, inferFunnelPageIntentProfile, type FunnelPageIntentType, type FunnelPageMediaMode } from "@/lib/funnelPageIntent";
 
 type CreditFunnel = {
   id: string;
@@ -77,6 +79,10 @@ type StripeIntegrationStatus = {
   configured: boolean;
   accountId: string | null;
   connectedAtIso: string | null;
+};
+
+type FunnelBuilderSettings = {
+  metaPixelId: string | null;
 };
 
 type FormSettingsDialog = {
@@ -125,6 +131,51 @@ function normalizeSlug(raw: string) {
     .replace(/^-/, "")
     .replace(/-$/, "");
   return cleaned;
+}
+
+const PAGE_INTENT_TYPE_LABELS: Record<FunnelPageIntentType, string> = {
+  landing: "Landing",
+  "lead-capture": "Lead capture",
+  booking: "Booking",
+  sales: "Sales",
+  checkout: "Checkout",
+  "thank-you": "Thank you",
+  application: "Application",
+  webinar: "Webinar",
+  home: "Home",
+  custom: "Custom",
+};
+
+function buildPrimaryCtaSuggestions(pageType: FunnelPageIntentType, current: string) {
+  const presets: Record<FunnelPageIntentType, string[]> = {
+    landing: ["Get started", "See how it works", "Talk to our team"],
+    "lead-capture": ["Get the offer", "Get the guide", "Request a quote"],
+    booking: ["Book a call", "Schedule a consultation", "Talk to our team"],
+    sales: ["Buy now", "See pricing", "Get started"],
+    checkout: ["Complete purchase", "Continue to payment", "Secure my order"],
+    "thank-you": ["See next steps", "Keep going", "Back to dashboard"],
+    application: ["Apply now", "Start application", "Check eligibility"],
+    webinar: ["Reserve your seat", "Save my spot", "Register now"],
+    home: ["Get started", "See how it works", "Talk to our team"],
+    custom: ["Get started", "Talk to our team", "See next steps"],
+  };
+
+  const out = [...presets[pageType]];
+  const nextCurrent = String(current || "").trim();
+  if (nextCurrent && !out.includes(nextCurrent)) out.unshift(nextCurrent);
+  return out;
+}
+
+function defaultFunnelGoalForCreate(pageType: FunnelPageIntentType) {
+  if (pageType === "booking") return "Turn qualified visitors into booked calls";
+  if (pageType === "sales") return "Move qualified visitors from interest to purchase";
+  if (pageType === "checkout") return "Finish the purchase with minimal drop-off";
+  if (pageType === "lead-capture") return "Convert interest into a lead with a clear value exchange";
+  if (pageType === "application") return "Filter for fit and collect strong applications";
+  if (pageType === "webinar") return "Turn interest into webinar registrations";
+  if (pageType === "thank-you") return "Confirm the action and move the visitor to the right next step";
+  if (pageType === "home") return "Route visitors into the right funnel path";
+  return "Frame the offer clearly and move the visitor to the primary CTA";
 }
 
 function deriveDnsHostLabel(domain: string): string {
@@ -257,6 +308,13 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [createFunnelThemeKey, setCreateFunnelThemeKey] = useState<CreditFunnelThemeKey>("royal-indigo");
   const [createFunnelPreviewOpen, setCreateFunnelPreviewOpen] = useState(false);
   const [createFunnelUseTemplate, setCreateFunnelUseTemplate] = useState(false);
+  const [createFunnelPageType, setCreateFunnelPageType] = useState<FunnelPageIntentType>("lead-capture");
+  const [createFunnelPrimaryCta, setCreateFunnelPrimaryCta] = useState("Get the offer");
+  const [createFunnelHeroAssetMode, setCreateFunnelHeroAssetMode] = useState<FunnelPageMediaMode>("auto");
+  const [createFunnelAudience, setCreateFunnelAudience] = useState("");
+  const [createFunnelOffer, setCreateFunnelOffer] = useState("");
+  const [createFunnelGoal, setCreateFunnelGoal] = useState(defaultFunnelGoalForCreate("lead-capture"));
+  const [createFunnelShellFrameId, setCreateFunnelShellFrameId] = useState("");
   const [busy, setBusy] = useState(false);
 
   const [funnelDeleteBusy, setFunnelDeleteBusy] = useState<Record<string, boolean>>({});
@@ -295,6 +353,10 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
   const [stripeStatus, setStripeStatus] = useState<StripeIntegrationStatus | null>(null);
   const [stripeStatusBusy, setStripeStatusBusy] = useState(false);
+  const [builderSettings, setBuilderSettings] = useState<FunnelBuilderSettings | null>(null);
+  const [builderSettingsBusy, setBuilderSettingsBusy] = useState(false);
+  const [builderSettingsSaveBusy, setBuilderSettingsSaveBusy] = useState(false);
+  const [metaPixelIdInput, setMetaPixelIdInput] = useState("");
 
   const [funnelDomainBusy, setFunnelDomainBusy] = useState<Record<string, boolean>>({});
 
@@ -407,10 +469,65 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     }
   }, []);
 
+  const loadBuilderSettings = useCallback(async () => {
+    setBuilderSettingsBusy(true);
+    try {
+      const res = await fetch("/api/portal/funnel-builder/settings", { cache: "no-store" });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true || !json.settings) {
+        throw new Error(json?.error || "Failed to load builder settings");
+      }
+
+      const nextSettings: FunnelBuilderSettings = {
+        metaPixelId: typeof json.settings.metaPixelId === "string" && json.settings.metaPixelId.trim()
+          ? String(json.settings.metaPixelId).trim()
+          : null,
+      };
+
+      setBuilderSettings(nextSettings);
+      setMetaPixelIdInput(nextSettings.metaPixelId || "");
+    } catch (e) {
+      toast.error((e as any)?.message ? String((e as any).message) : "Failed to load builder settings");
+    } finally {
+      setBuilderSettingsBusy(false);
+    }
+  }, [toast]);
+
   useEffect(() => {
     if (tab !== "settings") return;
-    void loadStripeStatus();
-  }, [tab, loadStripeStatus]);
+    void Promise.all([loadStripeStatus(), loadBuilderSettings()]);
+  }, [loadBuilderSettings, loadStripeStatus, tab]);
+
+  const saveBuilderSettings = useCallback(async () => {
+    if (builderSettingsSaveBusy) return;
+
+    setBuilderSettingsSaveBusy(true);
+    try {
+      const res = await fetch("/api/portal/funnel-builder/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ metaPixelId: metaPixelIdInput }),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true || !json.settings) {
+        throw new Error(json?.error || "Failed to save builder settings");
+      }
+
+      const nextSettings: FunnelBuilderSettings = {
+        metaPixelId: typeof json.settings.metaPixelId === "string" && json.settings.metaPixelId.trim()
+          ? String(json.settings.metaPixelId).trim()
+          : null,
+      };
+
+      setBuilderSettings(nextSettings);
+      setMetaPixelIdInput(nextSettings.metaPixelId || "");
+      toast.success(nextSettings.metaPixelId ? "Meta pixel saved." : "Meta pixel cleared.");
+    } catch (e) {
+      toast.error((e as any)?.message ? String((e as any).message) : "Failed to save builder settings");
+    } finally {
+      setBuilderSettingsSaveBusy(false);
+    }
+  }, [builderSettingsSaveBusy, metaPixelIdInput, toast]);
 
   useEffect(() => {
     if (!openFunnelMenuId) return;
@@ -502,6 +619,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
   const funnelPreviewBase = useMemo(() => toPurelyHostedUrl("/f"), []);
   const formPreviewBase = useMemo(() => toPurelyHostedUrl("/forms"), []);
+  const normalizedMetaPixelIdInput = useMemo(
+    () => String(metaPixelIdInput || "").trim().replace(/[^0-9]/g, "").slice(0, 32),
+    [metaPixelIdInput],
+  );
+  const savedMetaPixelId = builderSettings?.metaPixelId || "";
+  const metaPixelDirty = normalizedMetaPixelIdInput !== savedMetaPixelId;
   const platformTargetHost = useMemo(() => coercePlatformTargetHost(), []);
   const isLocalPreview = useMemo(() => {
     const h = (platformTargetHost || "").trim().toLowerCase();
@@ -880,6 +1003,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
   useEffect(() => {
     if (!creatingKind) return;
+    const seededIntent = inferFunnelPageIntentProfile({ existing: { pageType: "lead-capture" } });
     setCreateSlug("");
     setCreateName("");
     setCreateTemplateKey("credit-intake-premium");
@@ -888,6 +1012,13 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     setCreateFunnelThemeKey("royal-indigo");
     setCreateFunnelPreviewOpen(false);
     setCreateFunnelUseTemplate(false);
+    setCreateFunnelPageType(seededIntent.pageType);
+    setCreateFunnelPrimaryCta(seededIntent.primaryCta);
+    setCreateFunnelHeroAssetMode(seededIntent.mediaPlan.heroAssetMode);
+    setCreateFunnelAudience("");
+    setCreateFunnelOffer("");
+    setCreateFunnelGoal(defaultFunnelGoalForCreate(seededIntent.pageType));
+    setCreateFunnelShellFrameId(seededIntent.shellFrameId);
   }, [creatingKind]);
 
   const openCreate = (kind: "funnel" | "form") => {
@@ -905,16 +1036,30 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     setBusy(true);
 
     try {
-      const slug = normalizeSlug(createSlug);
+      const funnelNaming = buildSuggestedFunnelNaming({
+        pageType: createFunnelPageType,
+        funnelGoal: createFunnelGoal,
+        offer: createFunnelOffer,
+        primaryCta: createFunnelPrimaryCta,
+        fallbackSlug: normalizeSlug(createSlug) || undefined,
+        fallbackName: createName.trim() || undefined,
+        templateLabel: creatingKind === "funnel" && createFunnelUseTemplate ? getCreditFunnelTemplate(createFunnelTemplateKey)?.label : undefined,
+      });
+      const slug = creatingKind === "funnel" ? normalizeSlug(createSlug) || funnelNaming.slug : normalizeSlug(createSlug);
       if (!slug) throw new Error("Enter a valid slug (letters, numbers, hyphens)");
 
       const endpoint = creatingKind === "funnel" ? "/api/portal/funnel-builder/funnels" : "/api/portal/funnel-builder/forms";
+      const trimmedName = createName.trim();
+      const trimmedFunnelGoal = createFunnelGoal.trim();
+      const trimmedFunnelAudience = createFunnelAudience.trim();
+      const trimmedFunnelOffer = createFunnelOffer.trim();
+      const trimmedPrimaryCta = createFunnelPrimaryCta.trim();
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           slug,
-          name: createName.trim() || undefined,
+          name: trimmedName || undefined,
           ...(creatingKind === "form"
             ? {
                 templateKey: coerceCreditFormTemplateKey(createTemplateKey),
@@ -927,7 +1072,15 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         templateKey: coerceCreditFunnelTemplateKey(createFunnelTemplateKey),
                         themeKey: coerceCreditFunnelThemeKey(createFunnelThemeKey),
                       }
-                    : null),
+                    : {
+                        pageType: createFunnelPageType,
+                        ...(trimmedFunnelGoal ? { funnelGoal: trimmedFunnelGoal } : null),
+                        ...(trimmedFunnelAudience ? { audience: trimmedFunnelAudience, audienceSummary: trimmedFunnelAudience } : null),
+                        ...(trimmedFunnelOffer ? { offer: trimmedFunnelOffer, offerSummary: trimmedFunnelOffer } : null),
+                        ...(trimmedPrimaryCta ? { primaryCta: trimmedPrimaryCta } : null),
+                        heroAssetMode: createFunnelHeroAssetMode,
+                        ...(createFunnelShellFrameId ? { shellFrameId: createFunnelShellFrameId } : null),
+                      }),
                 }
               : {}),
         }),
@@ -1161,23 +1314,28 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       placeholder="Default (not assigned)"
                     />
 
-                    <div className="text-xs text-zinc-600">
-                      {liveUrlLabel}:{" "}
-                      <span className={classNames("font-mono", assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? "text-zinc-400" : "text-zinc-700")}>
+                    <div className="min-w-0 text-xs text-zinc-600">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{liveUrlLabel}</div>
+                      <div
+                        className={classNames(
+                          "mt-1 min-w-0 break-all font-mono leading-5",
+                          assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? "text-zinc-400" : "text-zinc-700",
+                        )}
+                      >
                         {assignedDomainClean
                           ? isLocalPreview
                             ? `${platformTargetHost || ""}/domain-router/${assignedDomainClean}/${f.slug}`
                             : `https://${assignedDomainClean}/${f.slug}`
                           : toPurelyHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`)}
-                      </span>
+                      </div>
                       {assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? (
-                        <span
-                          className="ml-2 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700"
+                        <div
+                          className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700"
                           title="This domain isn’t verified yet (DNS not pointing here or still propagating)."
                         >
                           <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
                           Pending DNS
-                        </span>
+                        </div>
                       ) : null}
                     </div>
                   </div>
@@ -1526,6 +1684,60 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                     Connect Stripe
                   </Link>
                 ) : null}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="text-base font-semibold text-brand-ink">Tracking and Meta Pixel</div>
+                <p className="mt-1 text-sm text-zinc-600">
+                  Set the default Meta pixel for hosted funnel pages. The editor shows the resolved pixel and live event counts per page.
+                </p>
+              </div>
+              <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">
+                {builderSettingsBusy ? "Loading…" : normalizedMetaPixelIdInput ? "Configured" : "Not configured"}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <label className="block">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Meta pixel ID</div>
+                <input
+                  value={metaPixelIdInput}
+                  onChange={(e) => setMetaPixelIdInput(e.target.value.replace(/[^0-9]/g, "").slice(0, 32))}
+                  placeholder="123456789012345"
+                  inputMode="numeric"
+                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                />
+              </label>
+
+              <div className="mt-2 text-xs leading-5 text-zinc-500">
+                Leave this blank to disable Meta pixel emission across hosted funnel pages. Only numeric pixel IDs are accepted.
+              </div>
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-xs text-zinc-500">
+                  {builderSettingsBusy
+                    ? "Loading current tracking settings…"
+                    : normalizedMetaPixelIdInput
+                      ? `Current default pixel: ${normalizedMetaPixelIdInput}`
+                      : "No default Meta pixel is configured."}
+                </div>
+                <button
+                  type="button"
+                  disabled={builderSettingsBusy || builderSettingsSaveBusy || !metaPixelDirty}
+                  onClick={() => void saveBuilderSettings()}
+                  className={classNames(
+                    "rounded-2xl px-4 py-2 text-sm font-semibold text-white transition-opacity duration-150",
+                    builderSettingsBusy || builderSettingsSaveBusy || !metaPixelDirty
+                      ? "bg-zinc-400"
+                      : "bg-brand-ink hover:opacity-95",
+                  )}
+                >
+                  {builderSettingsSaveBusy ? "Saving…" : metaPixelDirty ? "Save pixel" : "Saved"}
+                </button>
               </div>
             </div>
           </div>
@@ -1915,7 +2127,11 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-lg font-bold text-brand-ink">{creatingKind === "funnel" ? "Create funnel" : "Create form"}</div>
-                <p className="mt-1 text-sm text-zinc-600">Choose a URL slug. You can rename it later.</p>
+                <p className="mt-1 text-sm text-zinc-600">
+                  {creatingKind === "funnel"
+                    ? "Start with the funnel job and first-page direction. Name and slug can be confirmed later."
+                    : "Choose a URL slug. You can rename it later."}
+                </p>
               </div>
               <button
                 type="button"
@@ -1930,36 +2146,69 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             </div>
 
             <div className="mt-4 space-y-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
-                  <input
-                    value={createSlug}
-                    onChange={(e) => setCreateSlug(e.target.value)}
-                    placeholder={creatingKind === "funnel" ? "lead-capture" : "intake"}
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                  />
-                  <div className="mt-1 text-xs text-zinc-500">
-                    URL: {creatingKind === "funnel" ? funnelPreviewBase : formPreviewBase}/<span className="font-semibold">{normalizeSlug(createSlug) || "…"}</span>
+              {creatingKind === "form" ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
+                    <input
+                      value={createSlug}
+                      onChange={(e) => setCreateSlug(e.target.value)}
+                      placeholder="intake"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                    />
+                    <div className="mt-1 text-xs text-zinc-500">
+                      URL: {formPreviewBase}/<span className="font-semibold">{normalizeSlug(createSlug) || "…"}</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Name (optional)</div>
+                    <input
+                      value={createName}
+                      onChange={(e) => setCreateName(e.target.value)}
+                      placeholder="Client Intake Form"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                    />
                   </div>
                 </div>
-
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Name (optional)</div>
-                  <input
-                    value={createName}
-                    onChange={(e) => setCreateName(e.target.value)}
-                    placeholder={creatingKind === "funnel" ? "Lead Capture Funnel" : "Client Intake Form"}
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                  />
-                </div>
-              </div>
+              ) : null}
 
               {creatingKind === "funnel" ? (
                 <div>
                   {(() => {
                     const template = getCreditFunnelTemplate(createFunnelTemplateKey) || CREDIT_FUNNEL_TEMPLATES[0]!;
                     const theme = getCreditFunnelTheme(createFunnelThemeKey) || getCreditFunnelTheme(template.defaultThemeKey) || CREDIT_FUNNEL_THEMES[0]!;
+                    const shellFrames = listFunnelShellFrames(createFunnelPageType);
+                    const naming = buildSuggestedFunnelNaming({
+                      pageType: createFunnelPageType,
+                      funnelGoal: createFunnelGoal,
+                      offer: createFunnelOffer,
+                      primaryCta: createFunnelPrimaryCta,
+                      fallbackSlug: normalizeSlug(createSlug) || undefined,
+                      fallbackName: createName.trim() || undefined,
+                      templateLabel: createFunnelUseTemplate ? template.label : undefined,
+                    });
+                    const previewIntent = inferFunnelPageIntentProfile({
+                      pageType: createFunnelPageType,
+                      pageSlug: "home",
+                      pageTitle: buildSuggestedPageNaming({
+                        pageType: createFunnelPageType,
+                        primaryCta: createFunnelPrimaryCta,
+                        offer: createFunnelOffer,
+                        fallbackSlug: "home",
+                      }).title,
+                      audience: createFunnelAudience,
+                      offer: createFunnelOffer,
+                      primaryCta: createFunnelPrimaryCta,
+                      heroAssetMode: createFunnelHeroAssetMode,
+                      shellFrameId: createFunnelShellFrameId,
+                    });
+                    const firstPageNaming = buildSuggestedPageNaming({
+                      pageType: createFunnelPageType,
+                      primaryCta: createFunnelPrimaryCta,
+                      offer: createFunnelOffer,
+                      fallbackSlug: "home",
+                    });
 
                     return (
                       <>
@@ -1999,8 +2248,221 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           </div>
                         </div>
 
-                        {createFunnelUseTemplate ? (
+                        {!createFunnelUseTemplate ? (
+                          <div className="mt-3 space-y-4">
+                            <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">1. Funnel direction</div>
+                              <div className="mt-1 text-sm text-zinc-700">Pick the conversion motion first. This determines the first page posture, CTA, shell frame, and the naming suggestions.</div>
+
+                              <div className="mt-4">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Primary page type</div>
+                                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                  {(["landing", "lead-capture", "booking", "sales", "application", "webinar"] as FunnelPageIntentType[]).map((type) => {
+                                    const active = createFunnelPageType === type;
+                                    return (
+                                      <button
+                                        key={type}
+                                        type="button"
+                                        onClick={() => {
+                                          const nextIntent = inferFunnelPageIntentProfile({
+                                            pageType: type,
+                                            audience: createFunnelAudience,
+                                            offer: createFunnelOffer,
+                                          });
+                                          setCreateFunnelPageType(type);
+                                          setCreateFunnelPrimaryCta(nextIntent.primaryCta);
+                                          setCreateFunnelHeroAssetMode(nextIntent.mediaPlan.heroAssetMode);
+                                          setCreateFunnelGoal(defaultFunnelGoalForCreate(type));
+                                          setCreateFunnelShellFrameId(nextIntent.shellFrameId);
+                                        }}
+                                        className={classNames(
+                                          "rounded-2xl border px-3 py-3 text-left text-sm font-semibold transition-colors",
+                                          active ? "border-(--color-brand-blue) bg-blue-50 text-blue-900" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-100",
+                                        )}
+                                      >
+                                        {PAGE_INTENT_TYPE_LABELS[type]}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <label className="block">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Funnel goal</div>
+                                  <input
+                                    value={createFunnelGoal}
+                                    onChange={(e) => setCreateFunnelGoal(e.target.value)}
+                                    placeholder="Turn qualified visitors into booked calls"
+                                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                                  />
+                                </label>
+
+                                <label className="block">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Primary CTA</div>
+                                  <input
+                                    value={createFunnelPrimaryCta}
+                                    onChange={(e) => setCreateFunnelPrimaryCta(e.target.value)}
+                                    placeholder="Book a call"
+                                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                                  />
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {buildPrimaryCtaSuggestions(createFunnelPageType, createFunnelPrimaryCta).slice(0, 3).map((suggestion) => (
+                                      <button
+                                        key={suggestion}
+                                        type="button"
+                                        onClick={() => setCreateFunnelPrimaryCta(suggestion)}
+                                        className={classNames(
+                                          "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                                          createFunnelPrimaryCta.trim() === suggestion ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                                        )}
+                                      >
+                                        {suggestion}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </label>
+                              </div>
+
+                              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <label className="block">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Audience (optional)</div>
+                                  <input
+                                    value={createFunnelAudience}
+                                    onChange={(e) => setCreateFunnelAudience(e.target.value)}
+                                    placeholder="High-intent visitors evaluating help"
+                                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                                  />
+                                </label>
+
+                                <label className="block">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Offer or hook (optional)</div>
+                                  <input
+                                    value={createFunnelOffer}
+                                    onChange={(e) => setCreateFunnelOffer(e.target.value)}
+                                    placeholder="Free audit, strategic consultation, pricing offer"
+                                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                                  />
+                                </label>
+                              </div>
+
+                              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <div>
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hero posture</div>
+                                  <div className="mt-2 grid grid-cols-2 gap-2">
+                                    {([
+                                      { value: "auto", label: "Auto" },
+                                      { value: "image", label: "Image-led" },
+                                      { value: "video", label: "Video-led" },
+                                      { value: "none", label: "Text-led" },
+                                    ] as Array<{ value: FunnelPageMediaMode; label: string }>).map((option) => (
+                                      <button
+                                        key={option.value}
+                                        type="button"
+                                        onClick={() => setCreateFunnelHeroAssetMode(option.value)}
+                                        className={classNames(
+                                          "rounded-2xl border px-3 py-2 text-sm font-semibold transition-colors",
+                                          createFunnelHeroAssetMode === option.value ? "border-(--color-brand-blue) bg-blue-50 text-blue-900" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                                        )}
+                                      >
+                                        {option.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Shell frame</div>
+                                  <PortalListboxDropdown
+                                    value={createFunnelShellFrameId || previewIntent.shellFrameId}
+                                    onChange={(value) => setCreateFunnelShellFrameId(String(value || ""))}
+                                    options={shellFrames.map((frame) => ({ value: frame.id, label: frame.label, hint: frame.summary }))}
+                                    buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50"
+                                  />
+                                  <div className="mt-1 text-xs leading-5 text-zinc-600">{shellFrames.find((frame) => frame.id === (createFunnelShellFrameId || previewIntent.shellFrameId))?.summary || "Use a proven shell frame as the first-draft posture."}</div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">2. Name and route</div>
+                              <div className="mt-1 text-sm text-zinc-700">Leave these blank to use the suggested funnel name and hosted route.</div>
+
+                              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <label className="block">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug override (optional)</div>
+                                  <input
+                                    value={createSlug}
+                                    onChange={(e) => setCreateSlug(e.target.value)}
+                                    placeholder={naming.slug}
+                                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                                  />
+                                  <div className="mt-1 text-xs text-zinc-500">URL: {funnelPreviewBase}/<span className="font-semibold">{normalizeSlug(createSlug) || naming.slug}</span></div>
+                                </label>
+
+                                <label className="block">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Name override (optional)</div>
+                                  <input
+                                    value={createName}
+                                    onChange={(e) => setCreateName(e.target.value)}
+                                    placeholder={naming.name}
+                                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                                  />
+                                  {!createName.trim() ? <div className="mt-1 text-xs text-zinc-500">Suggested name: {naming.name}</div> : null}
+                                </label>
+                              </div>
+
+                              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                                <div className="font-semibold text-zinc-900">What gets created</div>
+                                <div className="mt-1 leading-6">This blank funnel starts with one home page, but AI will treat that page as a {PAGE_INTENT_TYPE_LABELS[previewIntent.pageType].toLowerCase()} page aimed at {previewIntent.pageGoal.toLowerCase()}.</div>
+                                <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-zinc-600 sm:grid-cols-3">
+                                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3">
+                                    <div className="font-semibold uppercase tracking-wide text-zinc-500">Primary action</div>
+                                    <div className="mt-1 text-sm text-zinc-800">{previewIntent.primaryCta}</div>
+                                  </div>
+                                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3">
+                                    <div className="font-semibold uppercase tracking-wide text-zinc-500">Hero posture</div>
+                                    <div className="mt-1 text-sm text-zinc-800">{createFunnelHeroAssetMode === "auto" ? "AI decides the strongest opening" : createFunnelHeroAssetMode === "none" ? "Text-led opening" : `${createFunnelHeroAssetMode} opening`}</div>
+                                  </div>
+                                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3">
+                                    <div className="font-semibold uppercase tracking-wide text-zinc-500">First page</div>
+                                    <div className="mt-1 text-sm text-zinc-800">{firstPageNaming.title}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
                           <>
+                            <div className="mt-3 rounded-3xl border border-zinc-200 bg-white p-4">
+                              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">2. Name and route</div>
+                              <div className="mt-1 text-sm text-zinc-700">Template structure is fixed, but you can still leave naming blank and let the system derive it from the template.</div>
+
+                              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <label className="block">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug override (optional)</div>
+                                  <input
+                                    value={createSlug}
+                                    onChange={(e) => setCreateSlug(e.target.value)}
+                                    placeholder={naming.slug}
+                                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                                  />
+                                  <div className="mt-1 text-xs text-zinc-500">URL: {funnelPreviewBase}/<span className="font-semibold">{normalizeSlug(createSlug) || naming.slug}</span></div>
+                                </label>
+
+                                <label className="block">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Name override (optional)</div>
+                                  <input
+                                    value={createName}
+                                    onChange={(e) => setCreateName(e.target.value)}
+                                    placeholder={naming.name}
+                                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                                  />
+                                  {!createName.trim() ? <div className="mt-1 text-xs text-zinc-500">Suggested name: {naming.name}</div> : null}
+                                </label>
+                              </div>
+                            </div>
+
                             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                               <div>
                                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Template</div>
@@ -2049,10 +2511,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               </button>
                             </div>
                           </>
-                        ) : (
-                            <div className="mt-3 rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                              This will create an empty funnel with a single blank page so you can define the structure and conversion path yourself.
-                          </div>
                         )}
                       </>
                     );

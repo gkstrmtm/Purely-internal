@@ -10,6 +10,8 @@ type FunnelPageBlockSnapshotInput = {
   blocks: CreditFunnelBlock[];
   pageId: string;
   ownerId: string;
+  bookingSiteSlug?: string;
+  defaultBookingCalendarId?: string;
   basePath: string;
   title: string;
 };
@@ -53,6 +55,8 @@ export function createFunnelPageBlockSnapshotUpdate(input: FunnelPageBlockSnapsh
     blocks: input.blocks,
     pageId: input.pageId,
     ownerId: input.ownerId,
+    bookingSiteSlug: input.bookingSiteSlug,
+    defaultBookingCalendarId: input.defaultBookingCalendarId,
     basePath: input.basePath,
     title: input.title,
   });

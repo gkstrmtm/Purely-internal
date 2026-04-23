@@ -759,8 +759,15 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "funnel.create": z
     .object({
-      name: z.string().trim().min(1).max(120),
+      name: z.string().trim().max(120).optional().nullable(),
       slug: z.string().trim().min(2).max(60).optional().nullable(),
+      pageType: z.enum(["landing", "lead-capture", "booking", "sales", "checkout", "thank-you", "application", "webinar", "home", "custom"]).optional().nullable(),
+      funnelGoal: z.string().trim().max(240).optional().nullable(),
+      audience: z.string().trim().max(240).optional().nullable(),
+      offer: z.string().trim().max(240).optional().nullable(),
+      primaryCta: z.string().trim().max(120).optional().nullable(),
+      heroAssetMode: z.enum(["auto", "image", "video", "none"]).optional().nullable(),
+      shellFrameId: z.string().trim().max(80).optional().nullable(),
     })
     .strict(),
 
@@ -878,10 +885,24 @@ export const PortalAgentActionArgsSchemaByKey = {
   "funnel_builder.pages.create": z
     .object({
       funnelId: z.string().trim().min(1).max(120),
-      slug: z.string().trim().min(1).max(64),
+      slug: z.string().trim().max(64).optional().nullable(),
       title: z.string().trim().max(200).optional().nullable(),
       contentMarkdown: z.string().optional().nullable(),
       sortOrder: z.number().finite().optional().nullable(),
+      pageType: z.enum(["landing", "lead-capture", "booking", "sales", "checkout", "thank-you", "application", "webinar", "home", "custom"]).optional().nullable(),
+      pageGoal: z.string().trim().max(220).optional().nullable(),
+      audience: z.string().trim().max(180).optional().nullable(),
+      offer: z.string().trim().max(180).optional().nullable(),
+      primaryCta: z.string().trim().max(120).optional().nullable(),
+      companyContext: z.string().trim().max(360).optional().nullable(),
+      qualificationFields: z.string().trim().max(240).optional().nullable(),
+      routingDestination: z.string().trim().max(240).optional().nullable(),
+      formStrategy: z.enum(["none", "embed-form", "link-form", "auto-create-form", "booking", "checkout", "chatbot", "application"]).optional().nullable(),
+      heroAssetMode: z.enum(["auto", "image", "video", "none"]).optional().nullable(),
+      shellFrameId: z.string().trim().max(80).optional().nullable(),
+      shellConcept: z.string().trim().max(480).optional().nullable(),
+      sectionPlan: z.string().trim().max(480).optional().nullable(),
+      askClarifyingQuestions: z.boolean().optional().nullable(),
     })
     .strict(),
 
@@ -3549,6 +3570,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       primaryGoals: z.array(z.string().trim().min(1)).max(10).optional(),
       targetCustomer: z.string().trim().max(240).optional().or(z.literal("")),
       brandVoice: z.string().trim().max(240).optional().or(z.literal("")),
+      businessContext: z.string().trim().max(8000).optional().or(z.literal("")),
 
       logoUrl: z.string().trim().max(500).optional().or(z.literal("")),
       brandPrimaryHex: z
@@ -4021,7 +4043,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- ai_receptionist.sms_knowledge_base.upload: Upload a file to the AI receptionist SMS knowledge base (fields: fileName, mimeType?, contentBase64, knowledgeBase.seedUrl?, knowledgeBase.crawlDepth?, knowledgeBase.maxUrls?, knowledgeBase.text?)",
     "- ai_receptionist.voice_knowledge_base.upload: Upload a file to the AI receptionist Voice knowledge base (fields: fileName, mimeType?, contentBase64, knowledgeBase.seedUrl?, knowledgeBase.crawlDepth?, knowledgeBase.maxUrls?, knowledgeBase.text?)",
     "- business_profile.get: Get the Business Profile (and hosted theme)",
-    "- business_profile.update: Create/update the Business Profile (fields: businessName, websiteUrl?, industry?, businessModel?, primaryGoals?, targetCustomer?, brandVoice?, logoUrl?, brandPrimaryHex?, brandSecondaryHex?, brandAccentHex?, brandTextHex?, brandFontFamily?, brandFontGoogleFamily?, hostedTheme?)",
+    "- business_profile.update: Create/update the Business Profile (fields: businessName, websiteUrl?, industry?, businessModel?, primaryGoals?, targetCustomer?, brandVoice?, businessContext?, logoUrl?, brandPrimaryHex?, brandSecondaryHex?, brandAccentHex?, brandTextHex?, brandFontFamily?, brandFontGoogleFamily?, hostedTheme?)",
     "- elevenlabs.convai.token.get: Get an ElevenLabs ConvAI conversation token for an agent (fields: agentId) (returns sensitive token)",
     "- elevenlabs.convai.signed_url.get: Get an ElevenLabs ConvAI signed URL for an agent (fields: agentId) (returns sensitive URL)",
   ];

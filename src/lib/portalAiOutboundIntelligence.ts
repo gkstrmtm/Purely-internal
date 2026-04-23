@@ -39,6 +39,7 @@ type ParsedBusinessContext = {
   primaryGoals: string;
   targetCustomer: string;
   brandVoice: string;
+  businessContext: string;
 };
 
 function compactText(raw: unknown, maxLen = 2400): string {
@@ -75,6 +76,7 @@ function parseBusinessContext(raw: string): ParsedBusinessContext {
     primaryGoals: read("Primary goals"),
     targetCustomer: read("Target customer"),
     brandVoice: read("Brand voice"),
+    businessContext: read("Business context"),
   };
 }
 
@@ -164,6 +166,11 @@ export function analyzeOutboundContextStrength(input: {
     strengths.push(`Brand voice is present: ${parsedBusiness.brandVoice}.`);
     profileCoverage.push("Brand voice");
   }
+  if (hasUsefulSentence(parsedBusiness.businessContext, 8)) {
+    score += 12;
+    strengths.push("Business context includes usable operating detail rather than just short labels.");
+    profileCoverage.push("Business context");
+  }
   if (parsedBusiness.websiteUrl) {
     score += 6;
     strengths.push("Website URL is available for general business grounding.");
@@ -197,6 +204,9 @@ export function analyzeOutboundContextStrength(input: {
 
   if (!parsedBusiness.industry && !parsedBusiness.businessModel) {
     gaps.push("What kind of business this is.");
+  }
+  if (!hasUsefulSentence(parsedBusiness.businessContext, 8)) {
+    gaps.push("Operating detail about how the business sells, delivers, and differentiates.");
   }
 
   const normalizedScore = Math.max(0, Math.min(100, score));

@@ -55,6 +55,7 @@ function sanitizeAiTextOutput(raw: string, contextForPolicy: string): string {
 export async function generateText({
   system,
   user,
+  history,
   model,
   temperature,
   baseUrlOverride,
@@ -62,6 +63,7 @@ export async function generateText({
 }: {
   system?: string;
   user: string;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
   model?: string;
   temperature?: number;
   baseUrlOverride?: string;
@@ -77,6 +79,7 @@ export async function generateText({
 
   const messages: ChatMessage[] = [];
   if (system) messages.push({ role: "system", content: system });
+  if (history?.length) messages.push(...history.map((m) => ({ role: m.role, content: m.content })));
   messages.push({ role: "user", content: user });
 
   const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
@@ -106,6 +109,7 @@ export async function generateTextWithImages({
   system,
   user,
   imageUrls,
+  history,
   model,
   temperature,
   baseUrlOverride,
@@ -114,6 +118,7 @@ export async function generateTextWithImages({
   system?: string;
   user: string;
   imageUrls: string[];
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
   model?: string;
   temperature?: number;
   baseUrlOverride?: string;
@@ -137,6 +142,7 @@ export async function generateTextWithImages({
 
   const messages: ChatMessageMultimodal[] = [];
   if (system) messages.push({ role: "system", content: system });
+  if (history?.length) messages.push(...history.map((m) => ({ role: m.role, content: m.content })));
   messages.push({ role: "user", content: userParts });
 
   const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {

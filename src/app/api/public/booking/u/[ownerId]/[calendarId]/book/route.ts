@@ -4,6 +4,7 @@ import { z } from "zod";
 import { findAvailabilityCoverage } from "@/lib/bookingAvailability";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import { parseCreditFunnelTrackingContext, trackCreditFunnelEvent } from "@/lib/funnelEventTracking";
 import { getBookingFormConfig } from "@/lib/bookingForm";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { getRequestOrigin, signBookingRescheduleToken } from "@/lib/bookingReschedule";
@@ -27,6 +28,7 @@ const postSchema = z.object({
   contactPhone: z.string().trim().max(40).optional().nullable(),
   notes: z.string().trim().max(1200).optional().nullable(),
   answers: z.record(z.string(), z.any()).optional(),
+  trackingContext: z.unknown().optional(),
 });
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
@@ -78,6 +80,7 @@ export async function POST(
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid payload" }, { status: 400 });
   }
+  const trackingContext = parseCreditFunnelTrackingContext(parsed.data.trackingContext);
 
   const [site, calendars, flags] = await Promise.all([
     (prisma as any).portalBookingSite.findUnique({
@@ -274,6 +277,35 @@ export async function POST(
       notes: true,
     },
   });
+
+  if (trackingContext?.pageId) {
+    const page = await prisma.creditFunnelPage
+      .findUnique({
+        where: { id: trackingContext.pageId },
+        select: { id: true, funnelId: true, funnel: { select: { ownerId: true } } },
+      })
+      .catch(() => null);
+    if (page?.funnel?.ownerId === ownerId) {
+      await trackCreditFunnelEvent({
+        ownerId: String(ownerId),
+        funnelId: page.funnelId,
+        pageId: page.id,
+        eventType: "booking_created",
+        eventPath: trackingContext?.path || null,
+        source: trackingContext?.source || "hosted_booking",
+        sessionId: trackingContext?.sessionId || null,
+        referrer: trackingContext?.referrer || req.headers.get("referer") || null,
+        utmSource: trackingContext?.utmSource || null,
+        utmMedium: trackingContext?.utmMedium || null,
+        utmCampaign: trackingContext?.utmCampaign || null,
+        utmContent: trackingContext?.utmContent || null,
+        utmTerm: trackingContext?.utmTerm || null,
+        contactId,
+        bookingId: String(booking.id),
+        payloadJson: { bookingSiteId: site.id, calendarId: String(calendarId) },
+      });
+    }
+  }
 
   // Best-effort: notify portal users (never block a successful booking).
   try {

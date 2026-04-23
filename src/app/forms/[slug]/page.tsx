@@ -34,8 +34,19 @@ export default async function HostedFormPage({
   const next = hostedFormPath(s, matches[0].id);
   if (!next) notFound();
 
-  const qs = embed ? "?embed=1" : "";
-  redirect(`${next}${qs}`);
+  const nextUrl = new URL(next, "https://example.invalid");
+  if (resolvedSearchParams) {
+    for (const [key, rawValue] of Object.entries(resolvedSearchParams)) {
+      if (typeof rawValue === "undefined") continue;
+      if (Array.isArray(rawValue)) {
+        for (const value of rawValue) nextUrl.searchParams.append(key, value);
+        continue;
+      }
+      nextUrl.searchParams.set(key, rawValue);
+    }
+  }
+  if (embed && !nextUrl.searchParams.has("embed")) nextUrl.searchParams.set("embed", "1");
+  redirect(`${nextUrl.pathname}${nextUrl.search}`);
 
   // next/navigation redirect throws; this is just to satisfy types.
   return null;

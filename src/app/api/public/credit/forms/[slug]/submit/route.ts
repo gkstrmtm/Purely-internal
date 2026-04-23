@@ -9,6 +9,7 @@ import {
   validateCreditFormSubmissionPayload,
   shortSubmissionId,
 } from "@/lib/creditFormSchema";
+import { parseCreditFunnelTrackingContext, trackCreditFunnelEvent } from "@/lib/funnelEventTracking";
 import { tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
@@ -105,6 +106,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   if (!form) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
   const body = await readRequestBodyBestEffort(req);
+  const trackingContext = parseCreditFunnelTrackingContext(body?.trackingContext);
   const normalizedPayload = normalizeCreditFormSubmissionPayload(body?.data ?? body ?? {}, form.schemaJson);
   const validationError = validateCreditFormSubmissionPayload(normalizedPayload, form.schemaJson);
   if (validationError) return NextResponse.json({ ok: false, error: validationError }, { status: 400 });
@@ -178,6 +180,34 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     }
   } catch {
     // ignore
+  }
+
+  if (trackingContext?.pageId) {
+    const page = await prisma.creditFunnelPage
+      .findUnique({
+        where: { id: trackingContext.pageId },
+        select: { id: true, funnelId: true, funnel: { select: { ownerId: true } } },
+      })
+      .catch(() => null);
+    if (page?.funnel?.ownerId === form.ownerId) {
+      await trackCreditFunnelEvent({
+        ownerId: form.ownerId,
+        funnelId: page.funnelId,
+        pageId: page.id,
+        eventType: "form_submitted",
+        eventPath: trackingContext?.path || null,
+        source: trackingContext?.source || "hosted_form",
+        sessionId: trackingContext?.sessionId || null,
+        referrer: trackingContext?.referrer || req.headers.get("referer") || null,
+        utmSource: trackingContext?.utmSource || null,
+        utmMedium: trackingContext?.utmMedium || null,
+        utmCampaign: trackingContext?.utmCampaign || null,
+        utmContent: trackingContext?.utmContent || null,
+        utmTerm: trackingContext?.utmTerm || null,
+        contactId,
+        payloadJson: { formId: form.id, submissionId: submission.id },
+      });
+    }
   }
 
   runOwnerAutomationsForEvent({

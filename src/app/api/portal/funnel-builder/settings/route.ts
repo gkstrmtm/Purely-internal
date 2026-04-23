@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
 
-import { prisma } from "@/lib/db";
+import { getCreditFunnelBuilderSettings, mutateCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSettingsStore";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,12 @@ type Settings = {
   notifyEmails: string[];
   webhookUrl: string | null;
   webhookSecret: string;
+  metaPixelId: string | null;
 };
+
+function createWebhookSecret() {
+  return crypto.randomBytes(24).toString("hex");
+}
 
 function normalizeEmailList(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -39,14 +44,23 @@ function normalizeWebhookUrl(raw: unknown): string | null {
   }
 }
 
+function normalizeMetaPixelId(raw: unknown): string | null {
+  const next = String(typeof raw === "string" ? raw : "")
+    .trim()
+    .replace(/[^0-9]/g, "")
+    .slice(0, 32);
+  return next || null;
+}
+
 function parseSettings(dataJson: unknown): Settings {
   const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson) ? (dataJson as any) : {};
   const notifyEmails = normalizeEmailList(rec.notifyEmails);
   const webhookUrl = normalizeWebhookUrl(rec.webhookUrl);
   const webhookSecret = typeof rec.webhookSecret === "string" && rec.webhookSecret.trim().length >= 16
     ? rec.webhookSecret.trim()
-    : crypto.randomBytes(24).toString("hex");
-  return { notifyEmails, webhookUrl, webhookSecret };
+    : "";
+  const metaPixelId = normalizeMetaPixelId(rec.metaPixelId);
+  return { notifyEmails, webhookUrl, webhookSecret, metaPixelId };
 }
 
 export async function GET() {
@@ -59,17 +73,7 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const row = await prisma.creditFunnelBuilderSettings
-    .findUnique({ where: { ownerId }, select: { dataJson: true } })
-    .catch(() => null);
-
-  const settings = parseSettings(row?.dataJson);
-
-  if (!row || (row.dataJson as any)?.webhookSecret !== settings.webhookSecret) {
-    await prisma.creditFunnelBuilderSettings
-      .upsert({ where: { ownerId }, update: { dataJson: settings as any }, create: { ownerId, dataJson: settings as any } })
-      .catch(() => null);
-  }
+  const settings = parseSettings(await getCreditFunnelBuilderSettings(ownerId));
 
   return NextResponse.json({ ok: true, settings });
 }
@@ -86,23 +90,26 @@ export async function POST(req: Request) {
   const ownerId = auth.session.user.id;
   const body = (await req.json().catch(() => null)) as any;
 
-  const row = await prisma.creditFunnelBuilderSettings
-    .findUnique({ where: { ownerId }, select: { dataJson: true } })
-    .catch(() => null);
-  const current = parseSettings(row?.dataJson);
+  const current = parseSettings(await getCreditFunnelBuilderSettings(ownerId));
 
   const next: Settings = {
     notifyEmails: normalizeEmailList(body?.notifyEmails ?? current.notifyEmails),
     webhookUrl: normalizeWebhookUrl(body?.webhookUrl) ?? null,
     webhookSecret:
-      body?.regenerateSecret === true ? crypto.randomBytes(24).toString("hex") : current.webhookSecret,
+      body?.regenerateSecret === true ? createWebhookSecret() : current.webhookSecret || createWebhookSecret(),
+    metaPixelId: normalizeMetaPixelId(body?.metaPixelId ?? current.metaPixelId),
   };
 
-  await prisma.creditFunnelBuilderSettings.upsert({
-    where: { ownerId },
-    update: { dataJson: next as any },
-    create: { ownerId, dataJson: next as any },
-  });
+  await mutateCreditFunnelBuilderSettings(ownerId, (existing) => ({
+    next: {
+      ...existing,
+      notifyEmails: next.notifyEmails,
+      webhookUrl: next.webhookUrl,
+      webhookSecret: next.webhookSecret,
+      metaPixelId: next.metaPixelId,
+    },
+    value: next,
+  }));
 
   return NextResponse.json({ ok: true, settings: next });
 }

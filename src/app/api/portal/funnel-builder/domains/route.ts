@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getCreditFunnelBuilderSettings, mutateCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSettingsStore";
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import { ensureVercelProjectDomain } from "@/lib/vercelProjectDomains";
@@ -82,10 +83,7 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const settings = await prisma.creditFunnelBuilderSettings
-    .findUnique({ where: { ownerId }, select: { dataJson: true } })
-    .catch(() => null);
-  const settingsJson = settings?.dataJson ?? null;
+  const settingsJson = await getCreditFunnelBuilderSettings(ownerId);
 
   const domains = await prisma.creditCustomDomain.findMany({
     where: { ownerId },
@@ -185,21 +183,13 @@ export async function PATCH(req: Request) {
     // Allow clearing if not redirect.
   }
 
-  const existingSettings = await prisma.creditFunnelBuilderSettings
-    .findUnique({ where: { ownerId }, select: { dataJson: true } })
-    .catch(() => null);
-
-  const nextJson = writeDomainSettings(existingSettings?.dataJson ?? null, domain, {
-    rootMode,
-    rootFunnelSlug: rootMode === "REDIRECT" ? rootFunnelSlug : null,
-  });
-
-  await prisma.creditFunnelBuilderSettings.upsert({
-    where: { ownerId },
-    update: { dataJson: nextJson as any },
-    create: { ownerId, dataJson: nextJson as any },
-    select: { ownerId: true },
-  });
+  await mutateCreditFunnelBuilderSettings(ownerId, (current) => ({
+    next: writeDomainSettings(current, domain, {
+      rootMode,
+      rootFunnelSlug: rootMode === "REDIRECT" ? rootFunnelSlug : null,
+    }),
+    value: true,
+  }));
 
   return NextResponse.json({ ok: true, domain, rootMode, rootFunnelSlug: rootMode === "REDIRECT" ? rootFunnelSlug : null });
 }

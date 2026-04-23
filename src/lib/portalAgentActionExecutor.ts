@@ -13,6 +13,7 @@ import type { FunnelHeaderNavItem } from "@/components/funnel/FunnelHeaderNav";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { groupPortalServices } from "@/app/portal/services/categories";
+import { getCreditFunnelBuilderSettings, mutateCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSettingsStore";
 import { prisma } from "@/lib/db";
 import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
 import { parseCsv } from "@/lib/csv";
@@ -77,6 +78,7 @@ import {
   setAppointmentReminderSettingsForCalendar,
 } from "@/lib/appointmentReminders";
 import { processDueBookingInternalReminders } from "@/lib/bookingInternalReminders";
+import { buildSuggestedFunnelNaming, buildSuggestedPageNaming, inferFunnelBriefProfile, inferFunnelPageIntentProfile, readFunnelBrief, writeFunnelBrief, writeFunnelPageBrief } from "@/lib/funnelPageIntent";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact, normalizeEmailKey, normalizeNameKey as normalizeContactNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { listDuplicatePortalContactsByPhoneKey, mergePortalContacts } from "@/lib/portalContactDedup";
@@ -1675,6 +1677,7 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       const primaryGoals = pickFirstDefined(args, ["primaryGoals", "goals"]);
       const targetCustomer = pickFirstDefined(args, ["targetCustomer", "audience", "idealCustomer"]);
       const brandVoice = pickFirstDefined(args, ["brandVoice", "voice", "tone"]);
+      const businessContext = pickFirstDefined(args, ["businessContext", "businessDetails", "contextNotes", "operatingNotes"]);
       if (businessName !== undefined) args.businessName = businessName;
       if (websiteUrl !== undefined) args.websiteUrl = websiteUrl;
       if (industry !== undefined) args.industry = industry;
@@ -1682,6 +1685,7 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       if (primaryGoals !== undefined) args.primaryGoals = Array.isArray(primaryGoals) ? primaryGoals : splitLooseStringList(primaryGoals);
       if (targetCustomer !== undefined) args.targetCustomer = targetCustomer;
       if (brandVoice !== undefined) args.brandVoice = brandVoice;
+      if (businessContext !== undefined) args.businessContext = businessContext;
       return args;
     }
 
@@ -3582,7 +3586,7 @@ async function runDirectAction(opts: {
     const webhookUrl = normalizeWebhookUrl(rec.webhookUrl);
     const webhookSecret = typeof rec.webhookSecret === "string" && rec.webhookSecret.trim().length >= 16
       ? rec.webhookSecret.trim()
-      : crypto.randomBytes(24).toString("hex");
+      : "";
     return { notifyEmails, webhookUrl, webhookSecret };
   }
 
@@ -4478,11 +4482,19 @@ async function runDirectAction(opts: {
         return { status: 402, json: { ok: false, error: "Insufficient credits", credits: charged.state.balance } };
       }
 
-      const slug = normalizeSlug(args.slug);
       const nameRaw = typeof args.name === "string" ? args.name.trim() : "";
-      const name = nameRaw || (slug ? slug.replace(/-/g, " ") : "");
+      const suggestedNaming = buildSuggestedFunnelNaming({
+        pageType: args?.pageType,
+        funnelGoal: args?.funnelGoal,
+        offer: args?.offer,
+        primaryCta: args?.primaryCta,
+        fallbackSlug: normalizeSlug(args.slug),
+        fallbackName: nameRaw || undefined,
+      });
+      const slug = normalizeSlug(args.slug) || suggestedNaming.slug;
+      const name = nameRaw || suggestedNaming.name;
 
-      const wantsBookingFlow = /\b(book|booking|appointment|schedule)\b/i.test(`${name} ${slug}`);
+      const wantsBookingFlow = (args?.pageType ? args.pageType === "booking" : false) || /\b(book|booking|appointment|schedule)\b/i.test(`${name} ${slug}`);
 
       if (!slug) return { status: 400, json: { ok: false, error: "Invalid slug" } };
       if (!name || name.length > 120) return { status: 400, json: { ok: false, error: "Invalid name" } };
@@ -4659,6 +4671,43 @@ async function runDirectAction(opts: {
       const expectedPages = wantsBookingFlow ? 3 : 2;
       const seedOk = pages.length >= expectedPages && seedWarnings.length === 0;
 
+      try {
+        const seededBrief = inferFunnelBriefProfile({
+          existing: {
+            funnelGoal: args?.funnelGoal,
+            offerSummary: args?.offer,
+            audienceSummary: args?.audience,
+          },
+          funnelName: funnel.name,
+          funnelSlug: funnel.slug,
+        });
+        const homePage = pages.find((page) => String(page?.slug || "") === "home") || pages[0] || null;
+        const seededPageBrief = homePage
+          ? inferFunnelPageIntentProfile({
+              funnelBrief: seededBrief,
+              funnelName: funnel.name,
+              funnelSlug: funnel.slug,
+              pageTitle: homePage.title,
+              pageSlug: homePage.slug,
+              pageType: args?.pageType,
+              audience: args?.audience,
+              offer: args?.offer,
+              primaryCta: args?.primaryCta,
+              heroAssetMode: args?.heroAssetMode,
+              shellFrameId: args?.shellFrameId,
+            })
+          : null;
+
+        await mutateCreditFunnelBuilderSettings(ownerId, (current) => ({
+          next: seededPageBrief && homePage
+            ? writeFunnelPageBrief(writeFunnelBrief(current, funnel.id, seededBrief), homePage.id, seededPageBrief)
+            : writeFunnelBrief(current, funnel.id, seededBrief),
+          value: null,
+        }));
+      } catch {
+        // Best-effort only. The funnel itself already exists.
+      }
+
       return {
         status: 200,
         json: {
@@ -4678,16 +4727,7 @@ async function runDirectAction(opts: {
     case "funnel_builder.settings.get": {
       if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
-      const row = await prisma.creditFunnelBuilderSettings
-        .findUnique({ where: { ownerId }, select: { dataJson: true } })
-        .catch(() => null);
-      const settings = parseFunnelBuilderSettings(row?.dataJson);
-
-      if (!row || (row.dataJson as any)?.webhookSecret !== settings.webhookSecret) {
-        await prisma.creditFunnelBuilderSettings
-          .upsert({ where: { ownerId }, update: { dataJson: settings as any }, create: { ownerId, dataJson: settings as any } })
-          .catch(() => null);
-      }
+      const settings = parseFunnelBuilderSettings(await getCreditFunnelBuilderSettings(ownerId));
 
       return { status: 200, json: { ok: true, settings } };
     }
@@ -4695,22 +4735,23 @@ async function runDirectAction(opts: {
     case "funnel_builder.settings.update": {
       if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
-      const row = await prisma.creditFunnelBuilderSettings
-        .findUnique({ where: { ownerId }, select: { dataJson: true } })
-        .catch(() => null);
-      const current = parseFunnelBuilderSettings(row?.dataJson);
+      const current = parseFunnelBuilderSettings(await getCreditFunnelBuilderSettings(ownerId));
 
       const next: FunnelBuilderSettings = {
         notifyEmails: normalizeEmailList(args?.notifyEmails ?? current.notifyEmails),
         webhookUrl: normalizeWebhookUrl(args?.webhookUrl) ?? null,
-        webhookSecret: args?.regenerateSecret === true ? crypto.randomBytes(24).toString("hex") : current.webhookSecret,
+        webhookSecret: args?.regenerateSecret === true ? crypto.randomBytes(24).toString("hex") : current.webhookSecret || crypto.randomBytes(24).toString("hex"),
       };
 
-      await prisma.creditFunnelBuilderSettings.upsert({
-        where: { ownerId },
-        update: { dataJson: next as any },
-        create: { ownerId, dataJson: next as any },
-      });
+      await mutateCreditFunnelBuilderSettings(ownerId, (existing) => ({
+        next: {
+          ...existing,
+          notifyEmails: next.notifyEmails,
+          webhookUrl: next.webhookUrl,
+          webhookSecret: next.webhookSecret,
+        },
+        value: next,
+      }));
 
       return { status: 200, json: { ok: true, settings: next } };
     }
@@ -5776,7 +5817,7 @@ async function runDirectAction(opts: {
       const funnelId = String(args?.funnelId || "").trim();
       if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid funnelId" } };
 
-      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
+      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true, name: true, slug: true } });
       if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
 
       const pages = await prisma.creditFunnelPage.findMany({
@@ -5811,7 +5852,7 @@ async function runDirectAction(opts: {
       const funnelId = String(args?.funnelId || "").trim();
       if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid funnelId" } };
 
-      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
+      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true, name: true, slug: true } });
       if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
 
       const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.funnelPageCreate);
@@ -5857,18 +5898,52 @@ async function runDirectAction(opts: {
       const titleRawInput = typeof args?.title === "string" ? args.title.trim() : "";
 
       const titleClean = isNoPrefText(titleRawInput) ? "" : titleRawInput;
-      const autoSlugSeed = `page-${Date.now().toString(36).slice(-6)}-${Math.random().toString(36).slice(2, 5)}`;
       const slugSeed = isNoPrefText(slugRawInput) ? "" : slugRawInput;
-      const slugRaw = (slugSeed || titleClean || autoSlugSeed).trim().toLowerCase();
       const contentMarkdown = typeof args?.contentMarkdown === "string" ? args.contentMarkdown : "";
       const sortOrder = Number.isFinite(Number(args?.sortOrder)) ? Number(args.sortOrder) : 0;
 
-      const normalizedSlug = slugRaw
+      const suggestedNaming = buildSuggestedPageNaming({
+        pageType: args?.pageType,
+        primaryCta: args?.primaryCta,
+        offer: args?.offer,
+        fallbackSlug: slugSeed || undefined,
+        fallbackTitle: titleClean || undefined,
+      });
+      const baseSlug = String(suggestedNaming.slug || "")
+        .trim()
+        .toLowerCase()
         .replace(/[^a-z0-9-]/g, "-")
         .replace(/-+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 64);
+      let normalizedSlug = baseSlug;
       if (!normalizedSlug) return { status: 400, json: { ok: false, error: "Slug is required" } };
+
+      const requestedExplicitSlug = Boolean(slugSeed);
+
+      const matchingSlugs = await prisma.creditFunnelPage.findMany({ where: { funnelId }, select: { slug: true } });
+      const existingSlugSet = new Set(
+        matchingSlugs
+          .map((page) =>
+            String(page.slug || "")
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9-]/g, "-")
+              .replace(/-+/g, "-")
+              .replace(/^-|-$/g, "")
+              .slice(0, 64),
+          )
+          .filter(Boolean),
+      );
+      if (!requestedExplicitSlug) {
+        let suffix = 2;
+        while (existingSlugSet.has(normalizedSlug)) {
+          const next = `${baseSlug}-${suffix}`.slice(0, 64).replace(/-+/g, "-").replace(/^-|-$/g, "");
+          normalizedSlug = next || baseSlug;
+          suffix += 1;
+          if (suffix > 20) break;
+        }
+      }
 
       const existingBySlug = await prisma.creditFunnelPage.findFirst({
         where: { funnelId, slug: normalizedSlug },
@@ -5891,7 +5966,7 @@ async function runDirectAction(opts: {
         return { status: 200, json: { ok: true, reusedExisting: true, page: existingBySlug } };
       }
 
-      const finalTitle = titleClean || "New Page";
+      const finalTitle = titleClean || suggestedNaming.title || "New Page";
 
       const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
       const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
@@ -5988,9 +6063,41 @@ async function runDirectAction(opts: {
         },
       });
 
+      try {
+        await mutateCreditFunnelBuilderSettings(ownerId, (current) => {
+          const funnelBrief = readFunnelBrief(current, funnel.id);
+          const nextBrief = inferFunnelPageIntentProfile({
+            funnelBrief,
+            funnelName: funnel.name,
+            funnelSlug: funnel.slug,
+            pageTitle: page.title,
+            pageSlug: page.slug,
+            pageType: args?.pageType,
+            pageGoal: args?.pageGoal,
+            audience: args?.audience,
+            offer: args?.offer,
+            primaryCta: args?.primaryCta,
+            companyContext: args?.companyContext,
+            qualificationFields: args?.qualificationFields,
+            routingDestination: args?.routingDestination,
+            formStrategy: args?.formStrategy,
+            heroAssetMode: args?.heroAssetMode,
+            shellFrameId: args?.shellFrameId,
+            shellConcept: args?.shellConcept,
+            sectionPlan: args?.sectionPlan,
+            askClarifyingQuestions: args?.askClarifyingQuestions,
+          });
+          return {
+            next: writeFunnelPageBrief(current, page.id, nextBrief),
+            value: nextBrief,
+          };
+        });
+      } catch {
+        // Best-effort only. The page itself already exists.
+      }
+
       return { status: 200, json: { ok: true, page, creditsRemaining: charged.state.balance } };
     }
-
     case "funnel_builder.pages.update": {
       if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
@@ -6811,14 +6918,6 @@ async function runDirectAction(opts: {
 
         const assistantMsg = assistantText ? { role: "assistant", content: assistantText, at: new Date().toISOString() } : null;
         const nextChat = (assistantMsg ? [...prevChat, userMsg, assistantMsg] : [...prevChat, userMsg]).slice(-40);
-
-        const htmlSnapshot = blocksToCustomHtmlDocument({
-          blocks,
-          pageId: page.id,
-          ownerId,
-          basePath,
-          title: page.title || page.funnel.name || "Funnel page",
-        });
 
         const updated = await prisma.creditFunnelPage.update({
           where: { id: page.id },
@@ -16937,10 +17036,12 @@ async function runDirectAction(opts: {
       const businessName = String(templateVars.businessName || templateVars["business.name"] || "").trim().slice(0, 160);
       const websiteUrl = String(templateVars.websiteUrl || templateVars["business.websiteUrl"] || "").trim().slice(0, 300);
       const brandVoice = String(templateVars.brandVoice || templateVars["business.brandVoice"] || "").trim().slice(0, 240);
+      const businessContext = String(templateVars.businessContext || templateVars["business.context"] || "").trim().slice(0, 1200);
       const brandContext = [
         businessName ? `Brand name: ${businessName}` : "",
         websiteUrl ? `Brand website: ${websiteUrl}` : "",
         brandVoice ? `Preferred brand voice: ${brandVoice}` : "",
+        businessContext ? `Operating context: ${businessContext}` : "",
       ]
         .filter(Boolean)
         .join("\n");

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
+import { parseCreditFunnelTrackingContext, trackCreditFunnelEvent } from "@/lib/funnelEventTracking";
 import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { stripeGetWithKey } from "@/lib/stripeFetchWithKey.server";
 import { stripePostWithKey } from "@/lib/stripeFetchWithKey.server";
@@ -27,6 +28,7 @@ const postSchema = z
       )
       .max(25)
       .optional(),
+    trackingContext: z.unknown().optional(),
   })
   .superRefine((v, ctx) => {
     const hasItems = Array.isArray(v.items) && v.items.length > 0;
@@ -225,6 +227,25 @@ export async function POST(req: Request) {
     if (!url) {
       return NextResponse.json({ ok: false, error: "Stripe did not return a checkout URL" }, { status: 502 });
     }
+
+    const trackingContext = parseCreditFunnelTrackingContext(parsed.data.trackingContext);
+    await trackCreditFunnelEvent({
+      ownerId,
+      funnelId: page.funnelId,
+      pageId: page.id,
+      eventType: "checkout_started",
+      eventPath: trackingContext?.path || null,
+      source: trackingContext?.source || "checkout_session",
+      sessionId: trackingContext?.sessionId || null,
+      referrer: trackingContext?.referrer || req.headers.get("referer") || null,
+      utmSource: trackingContext?.utmSource || null,
+      utmMedium: trackingContext?.utmMedium || null,
+      utmCampaign: trackingContext?.utmCampaign || null,
+      utmContent: trackingContext?.utmContent || null,
+      utmTerm: trackingContext?.utmTerm || null,
+      checkoutSessionId: session.id,
+      payloadJson: { items: requestedItems },
+    });
 
     return NextResponse.json({ ok: true, url });
   } catch (e) {

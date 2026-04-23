@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { notifyParentCreditFunnelEvent, readTrackingContextFromWindow } from "@/components/funnel/clientFunnelTracking";
 import { deriveHostedBrandTheme, type HostedBrandThemeInput } from "@/lib/hostedBrandTheme";
 
 type Site = {
@@ -338,6 +339,7 @@ export function PublicBookingClient({
         contactPhone: form?.phone?.enabled ? (phone.trim() ? phone : null) : null,
         notes: form?.notes?.enabled ? (notes.trim() ? notes : null) : null,
         answers,
+        trackingContext: readTrackingContextFromWindow(),
       }),
     });
 
@@ -354,6 +356,11 @@ export function PublicBookingClient({
 
     setSuccess((body as { booking: Booking }).booking);
     setRescheduleUrl(typeof (body as any).rescheduleUrl === "string" ? ((body as any).rescheduleUrl as string) : null);
+    notifyParentCreditFunnelEvent({
+      eventType: "booking_created",
+      pageId: readTrackingContextFromWindow().pageId || null,
+      payload: { bookingId: (body as any)?.booking?.id || null },
+    });
   }
 
   if (loading) {

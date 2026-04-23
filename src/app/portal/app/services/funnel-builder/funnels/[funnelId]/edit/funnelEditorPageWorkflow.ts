@@ -1,4 +1,5 @@
 import type { CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
+import { buildFunnelPageGraph, isCustomHtmlFunnelPage, isManagedFunnelPage } from "@/lib/funnelPageGraph";
 import { getFunnelPageCurrentHtml, hasFunnelPageDraft, type FunnelPageHtmlState } from "@/lib/funnelPageState";
 
 export type FunnelEditorWorkflowPage = FunnelPageHtmlState & {
@@ -63,8 +64,9 @@ export async function saveCurrentFunnelEditorPage(opts: {
 }): Promise<boolean> {
   const { selectedPage, saveableBlocks, selectedChat, savePage, setEditorMode, applyGlobalHeader } = opts;
   if (!selectedPage) return false;
+  const pageGraph = buildFunnelPageGraph(selectedPage);
 
-  if (selectedPage.editorMode === "BLOCKS") {
+  if (isManagedFunnelPage(selectedPage)) {
     const globalHeader = findGlobalHeaderBlock(saveableBlocks);
     if (globalHeader) return applyGlobalHeader(globalHeader);
 
@@ -74,10 +76,10 @@ export async function saveCurrentFunnelEditorPage(opts: {
     });
   }
 
-  if (selectedPage.editorMode === "CUSTOM_HTML") {
+  if (isCustomHtmlFunnelPage(selectedPage)) {
     return savePage({
       editorMode: "CUSTOM_HTML",
-      draftHtml: getFunnelPageCurrentHtml(selectedPage),
+      draftHtml: pageGraph.html.current || getFunnelPageCurrentHtml(selectedPage),
       customChatJson: selectedChat,
     });
   }
@@ -116,9 +118,10 @@ export function getFunnelEditorWorkflowViewModel(opts: {
   selectedPageIsEntryPage: boolean;
 }) {
   const { selectedPage, selectedPageDirty, customCodeModeActive, savingPage, publishingPage, selectedPageIsEntryPage } = opts;
+  const pageGraph = buildFunnelPageGraph(selectedPage);
 
   const hasDeployableDraft = Boolean(
-    selectedPage && selectedPage.editorMode === "CUSTOM_HTML" && (selectedPageDirty || hasFunnelPageDraft(selectedPage)),
+    selectedPage && pageGraph.sourceMode === "custom-html" && (selectedPageDirty || hasFunnelPageDraft(selectedPage)),
   );
   const saveButtonLabel = savingPage
     ? "Saving"
@@ -170,8 +173,8 @@ export function getFunnelEditorWorkflowViewModel(opts: {
           ? "A saved draft is ready. Publish when you want this version to replace the live page."
           : "You are looking at the current live page version. New edits stay in draft until you publish them."
       : selectedPageDirty
-        ? "You are editing the layout view. Save when you want these changes to update the live page."
-        : "Layout view is for sections, text, buttons, forms, and media. Saving updates the live page right away.";
+        ? "You are editing the current draft. Preview and source stay on this draft here, and saving pushes this version to the hosted page."
+        : "Layout view is the live draft workspace for sections, text, buttons, forms, and media. Saving pushes that draft to the hosted page right away.";
   const liveLinkLabel = selectedPageIsEntryPage ? "Open live" : "Open live page";
   const liveLinkHint = selectedPageIsEntryPage
     ? "Open the public version of this funnel in a new tab."

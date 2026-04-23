@@ -4,7 +4,9 @@ import { prisma } from "@/lib/db";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
-import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
+import { renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
+import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
+import { resolveFunnelPageRenderState } from "@/lib/funnelPageGraph";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +21,7 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
     .findUnique({
       where: { slug: s },
       select: {
+        id: true,
         ownerId: true,
         name: true,
         slug: true,
@@ -45,30 +48,35 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
     ? await getPortalBillingModelForOwner({ ownerId: funnel.ownerId, portalVariant: "portal" }).catch(() => "subscription" as const)
     : "subscription";
   const showWatermark = isCreditsOnlyBilling(billingModel);
+  const settings = funnel.ownerId
+    ? await prisma.creditFunnelBuilderSettings.findUnique({ where: { ownerId: funnel.ownerId }, select: { dataJson: true } }).catch(() => null)
+    : null;
+  const defaultBookingCalendarId = readFunnelBookingRouting(settings?.dataJson ?? null, funnel.id)?.calendarId ?? null;
 
   const page = funnel.pages[0] || null;
-  const markdownBlocks = page ? parseBlogContent(page.contentMarkdown) : [];
-  const blockBlocks = page ? coerceBlocksJson(page.blocksJson) : [];
+  const renderState = resolveFunnelPageRenderState(page, "published");
+  const markdownBlocks = renderState.kind === "markdown" ? parseBlogContent(renderState.markdown) : [];
 
   return (
     <main className="w-full min-h-screen">
       {page ? (
         <>
-          {page.editorMode === "CUSTOM_HTML" ? (
+          {renderState.kind === "html" ? (
             <iframe
               title={page.title}
               sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
                  allow="microphone"
-              srcDoc={page.customHtml || ""}
+              srcDoc={renderState.html}
               className="h-screen w-full bg-white"
             />
-          ) : page.editorMode === "BLOCKS" ? (
+          ) : renderState.kind === "blocks" ? (
             <div>
               {renderCreditFunnelBlocks({
-                blocks: blockBlocks,
+                blocks: renderState.blocks,
                 basePath: "/credit",
                 context: {
                   bookingOwnerId: funnel.ownerId,
+                  defaultBookingCalendarId: defaultBookingCalendarId || undefined,
                   funnelPageId: page.id,
                   funnelSlug: funnel.slug,
                   funnelPathBase: `/credit/f/${encodeURIComponent(funnel.slug)}`,

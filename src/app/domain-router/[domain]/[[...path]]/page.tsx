@@ -5,9 +5,11 @@ import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { parseCreditFormContent, parseCreditFormFields, parseCreditFormStyle, parseCreditFormSuccessContent } from "@/lib/creditFormSchema";
-import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
+import { renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
+import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
+import { resolveFunnelPageRenderState } from "@/lib/funnelPageGraph";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
@@ -315,14 +317,18 @@ async function renderFunnel(
     ? await getPortalBillingModelForOwner({ ownerId: funnel.ownerId, portalVariant: "portal" }).catch(() => "subscription" as const)
     : "subscription";
   const showWatermark = isCreditsOnlyBilling(billingModel);
+  const settingsRow = await prisma.creditFunnelBuilderSettings
+    .findUnique({ where: { ownerId: funnel.ownerId }, select: { dataJson: true } })
+    .catch(() => null);
 
   const assignedDomain = funnelDomains[funnel.id] ?? null;
   if (assignedDomain && !allowedDomains.has(assignedDomain)) notFound();
 
   const page = funnel.pages[0] || null;
   if (pageSlug && !page) notFound();
-  const markdownBlocks = page ? parseBlogContent(page.contentMarkdown) : [];
-  const blockBlocks = page ? coerceBlocksJson(page.blocksJson) : [];
+  const renderState = resolveFunnelPageRenderState(page, "published");
+  const defaultBookingCalendarId = readFunnelBookingRouting(settingsRow?.dataJson ?? null, funnel.id)?.calendarId ?? null;
+  const markdownBlocks = renderState.kind === "markdown" ? parseBlogContent(renderState.markdown) : [];
 
   const [hasBrandFontFamily, hasBrandFontGoogleFamily] = await Promise.all([
     hasPublicColumn("BusinessProfile", "brandFontFamily"),
@@ -345,8 +351,8 @@ async function renderFunnel(
   const brandFontStyle = brandFontFamily ? ({ fontFamily: brandFontFamily } as const) : undefined;
 
   const customHtmlSrcDoc = (() => {
-    if (!page || page.editorMode !== "CUSTOM_HTML") return null;
-    if (!brandGoogleCss && !brandFontFamily) return page.customHtml || "";
+    if (!page || renderState.kind !== "html") return null;
+    if (!brandGoogleCss && !brandFontFamily) return renderState.html;
 
     const cssLines = [
       brandGoogleCss,
@@ -356,7 +362,7 @@ async function renderFunnel(
       .join("\n");
 
     const injection = cssLines ? `<style>${cssLines}</style>` : "";
-    const html = String(page.customHtml || "");
+  const html = String(renderState.html || "");
     if (!injection) return html;
 
     const headClose = html.match(/<\/head\s*>/i);
@@ -373,21 +379,22 @@ async function renderFunnel(
       {brandGoogleCss ? <style>{brandGoogleCss}</style> : null}
       {page ? (
         <>
-          {page.editorMode === "CUSTOM_HTML" ? (
+          {renderState.kind === "html" ? (
             <iframe
               title={page.title}
               sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
               allow="microphone"
-              srcDoc={customHtmlSrcDoc ?? (page.customHtml || "")}
+              srcDoc={customHtmlSrcDoc ?? ""}
               className="h-screen w-full bg-white"
             />
-          ) : page.editorMode === "BLOCKS" ? (
+          ) : renderState.kind === "blocks" ? (
             <div>
               {renderCreditFunnelBlocks({
-                blocks: blockBlocks,
+                blocks: renderState.blocks,
                 basePath: "",
                 context: {
                   bookingOwnerId: funnel.ownerId,
+                  defaultBookingCalendarId: defaultBookingCalendarId || undefined,
                   funnelPageId: page.id,
                   funnelSlug: slug,
                   funnelPathBase,

@@ -48,7 +48,9 @@ function styleToCss(style: any): string {
         ? 1
         : null;
   if (borderWidth !== null) {
-    push("border", `${Math.max(0, Math.round(borderWidth))}px solid ${String(s.borderColor || "currentColor")}`);
+    const width = Math.max(0, Math.round(borderWidth));
+    const color = typeof s.borderColor === "string" && s.borderColor.trim() ? s.borderColor.trim() : "var(--pa-border)";
+    push("border", `${width}px solid ${color}`);
   }
 
   if (typeof s.maxWidthPx === "number" && Number.isFinite(s.maxWidthPx) && s.maxWidthPx > 0) {
@@ -78,6 +80,8 @@ export function blocksToCustomHtmlDocument(opts: {
   blocks: CreditFunnelBlock[];
   pageId: string;
   ownerId: string;
+  bookingSiteSlug?: string;
+  defaultBookingCalendarId?: string;
   basePath: string;
   title: string;
 }): string {
@@ -136,12 +140,21 @@ export function blocksToCustomHtmlDocument(opts: {
     return escapeHtml(String(text || ""));
   };
 
+  const withBlockAnchor = (block: CreditFunnelBlock, html: string): string => {
+    const markup = String(html || "").trim();
+    if (!markup) return "";
+    if (/^<[a-zA-Z0-9-]+\b[^>]*\bdata-pa-block-id=/.test(markup)) return markup;
+
+    const attrs = `data-pa-block-id="${escapeHtmlAttr(block.id)}" data-pa-block-type="${escapeHtmlAttr(block.type)}"`;
+    return markup.replace(/^<([a-zA-Z0-9-]+)\b/, `<$1 ${attrs}`);
+  };
+
   const renderBlock = (b: CreditFunnelBlock): string => {
     if (!b || typeof b !== "object") return "";
 
     if (b.type === "page") {
       const cssInline = styleToCss((b.props as any)?.style);
-      return cssInline ? `<div style=\"${escapeHtmlAttr(cssInline)}\"></div>` : "";
+      return cssInline ? withBlockAnchor(b, `<div style=\"${escapeHtmlAttr(cssInline)}\"></div>`) : "";
     }
 
     if (b.type === "headerNav") {
@@ -164,7 +177,7 @@ export function blocksToCustomHtmlDocument(opts: {
         ? `<a href=\"${escapeHtmlAttr(logoHref || "/")}\" style=\"display:inline-flex;align-items:center;gap:10px;text-decoration:none\"><img src=\"${escapeHtmlAttr(logoUrl)}\" alt=\"${escapeHtmlAttr(logoAlt || "Logo")}\" style=\"height:28px;width:auto\" /></a>`
         : `<a href=\"${escapeHtmlAttr(logoHref || "/")}\" style=\"font-weight:900;text-decoration:none\">${escapeHtml(opts.title || "")}</a>`;
 
-      return `<div class=\"pa-header\"><div class=\"pa-header-inner\">${logo}<nav class=\"pa-nav\">${links}</nav></div></div>`;
+      return withBlockAnchor(b, `<div class=\"pa-header\"><div class=\"pa-header-inner\">${logo}<nav class=\"pa-nav\">${links}</nav></div></div>`);
     }
 
     if (b.type === "anchor") {
@@ -173,7 +186,7 @@ export function blocksToCustomHtmlDocument(opts: {
       const attrs = [anchorId ? `id=\"${escapeHtmlAttr(anchorId)}\"` : "", cssInline ? `style=\"${escapeHtmlAttr(cssInline)}\"` : ""]
         .filter(Boolean)
         .join(" ");
-      return `<div ${attrs}></div>`;
+      return withBlockAnchor(b, `<div ${attrs}></div>`);
     }
 
     if (b.type === "heading") {
@@ -182,13 +195,13 @@ export function blocksToCustomHtmlDocument(opts: {
       const cls = level === 1 ? "pa-h1" : level === 2 ? "pa-h2" : "pa-h3";
       const cssInline = styleToCss((b.props as any)?.style);
       const content = renderTextOrHtml(String((b.props as any)?.text || ""), (b.props as any)?.html);
-      return `<${tag} class=\"${cls}\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${content}</${tag}>`;
+      return withBlockAnchor(b, `<${tag} class=\"${cls}\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${content}</${tag}>`);
     }
 
     if (b.type === "paragraph") {
       const cssInline = styleToCss((b.props as any)?.style);
       const content = renderTextOrHtml(String((b.props as any)?.text || ""), (b.props as any)?.html);
-      return `<p class=\"pa-p\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${content}</p>`;
+      return withBlockAnchor(b, `<p class=\"pa-p\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${content}</p>`);
     }
 
     if (b.type === "button") {
@@ -197,7 +210,7 @@ export function blocksToCustomHtmlDocument(opts: {
       const variant = (b.props as any)?.variant === "secondary" ? "secondary" : "primary";
       const cssInline = styleToCss((b.props as any)?.style);
       const cls = variant === "secondary" ? "pa-btn" : "pa-btn pa-btn-primary";
-      return `<a class=\"${cls}\" href=\"${escapeHtmlAttr(href)}\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${escapeHtml(text)}</a>`;
+      return withBlockAnchor(b, `<a class=\"${cls}\" href=\"${escapeHtmlAttr(href)}\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${escapeHtml(text)}</a>`);
     }
 
     if (b.type === "image") {
@@ -207,7 +220,7 @@ export function blocksToCustomHtmlDocument(opts: {
       const cssInline = styleToCss((b.props as any)?.style);
       const frame = (b.props as any)?.showFrame !== false;
       const cls = frame ? "pa-img" : "";
-      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><img class=\"${cls}\" src=\"${escapeHtmlAttr(src)}\" alt=\"${escapeHtmlAttr(alt)}\" /></div>`;
+      return withBlockAnchor(b, `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><img class=\"${cls}\" src=\"${escapeHtmlAttr(src)}\" alt=\"${escapeHtmlAttr(alt)}\" /></div>`);
     }
 
     if (b.type === "video") {
@@ -219,13 +232,13 @@ export function blocksToCustomHtmlDocument(opts: {
       const loop = Boolean((b.props as any)?.loop);
       const muted = Boolean((b.props as any)?.muted);
       const cssInline = styleToCss((b.props as any)?.style);
-      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><video src=\"${escapeHtmlAttr(src)}\" ${poster ? `poster=\"${escapeHtmlAttr(poster)}\"` : ""} ${controls ? "controls" : ""} ${autoplay ? "autoplay" : ""} ${loop ? "loop" : ""} ${muted ? "muted" : ""} playsinline style=\"width:100%;border-radius:16px;border:1px solid var(--pa-border);background:#fff\"></video></div>`;
+      return withBlockAnchor(b, `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><video src=\"${escapeHtmlAttr(src)}\" ${poster ? `poster=\"${escapeHtmlAttr(poster)}\"` : ""} ${controls ? "controls" : ""} ${autoplay ? "autoplay" : ""} ${loop ? "loop" : ""} ${muted ? "muted" : ""} playsinline style=\"width:100%;border-radius:16px;border:1px solid var(--pa-border);background:#fff\"></video></div>`);
     }
 
     if (b.type === "spacer") {
       const h = typeof (b.props as any)?.height === "number" && Number.isFinite((b.props as any).height) ? Math.max(0, Math.round((b.props as any).height)) : 24;
       const cssInline = styleToCss((b.props as any)?.style);
-      return `<div style=\"height:${h}px;${cssInline ? escapeHtmlAttr(cssInline) : ""}\"></div>`;
+      return withBlockAnchor(b, `<div style=\"height:${h}px;${cssInline ? escapeHtmlAttr(cssInline) : ""}\"></div>`);
     }
 
     if (b.type === "formLink") {
@@ -233,7 +246,7 @@ export function blocksToCustomHtmlDocument(opts: {
       const text = typeof (b.props as any)?.text === "string" ? String((b.props as any).text).trim() : "Open form";
       const cssInline = styleToCss((b.props as any)?.style);
       const href = `${opts.basePath}/forms/${encodeURIComponent(formSlug)}`;
-      return `<a class=\"pa-btn pa-btn-primary\" href=\"${escapeHtmlAttr(href)}\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${escapeHtml(text)}</a>`;
+      return withBlockAnchor(b, `<a class=\"pa-btn pa-btn-primary\" href=\"${escapeHtmlAttr(href)}\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${escapeHtml(text)}</a>`);
     }
 
     if (b.type === "formEmbed") {
@@ -242,7 +255,7 @@ export function blocksToCustomHtmlDocument(opts: {
       const cssInline = styleToCss((b.props as any)?.style);
       if (!formSlug) return "";
       const src = `${opts.basePath}/forms/${encodeURIComponent(formSlug)}?embed=1`;
-      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><iframe title=\"Form\" src=\"${escapeHtmlAttr(src)}\" style=\"width:100%;height:${height}px;border:1px solid var(--pa-border);border-radius:16px;background:#fff\" sandbox=\"allow-forms allow-scripts allow-same-origin\"></iframe></div>`;
+      return withBlockAnchor(b, `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><iframe title=\"Form\" src=\"${escapeHtmlAttr(src)}\" style=\"width:100%;height:${height}px;border:1px solid var(--pa-border);border-radius:16px;background:#fff\" sandbox=\"allow-forms allow-scripts allow-same-origin\"></iframe></div>`);
     }
 
     if (b.type === "calendarEmbed") {
@@ -251,7 +264,7 @@ export function blocksToCustomHtmlDocument(opts: {
       const cssInline = styleToCss((b.props as any)?.style);
       if (!calendarId || !opts.ownerId) return "";
       const src = `/book/u/${encodeURIComponent(opts.ownerId)}/${encodeURIComponent(calendarId)}`;
-      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><iframe title=\"Booking\" src=\"${escapeHtmlAttr(src)}\" style=\"width:100%;height:${height}px;border:1px solid var(--pa-border);border-radius:16px;background:#fff\" sandbox=\"allow-forms allow-scripts allow-same-origin\"></iframe></div>`;
+      return withBlockAnchor(b, `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><iframe title=\"Booking\" src=\"${escapeHtmlAttr(src)}\" style=\"width:100%;height:${height}px;border:1px solid var(--pa-border);border-radius:16px;background:#fff\" sandbox=\"allow-forms allow-scripts allow-same-origin\"></iframe></div>`);
     }
 
     if (b.type === "columns") {
@@ -265,7 +278,7 @@ export function blocksToCustomHtmlDocument(opts: {
         const html = children.length ? children.map(renderBlock).join("\n") : "";
         return `<div${colStyle ? ` style=\"${escapeHtmlAttr(colStyle)}\"` : ""}>${html}</div>`;
       });
-      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><div class=\"pa-grid\" style=\"--cols:${count};gap:${gapPx}px\">${inner.join("\n")}</div></div>`;
+      return withBlockAnchor(b, `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><div class=\"pa-grid\" style=\"--cols:${count};gap:${gapPx}px\">${inner.join("\n")}</div></div>`);
     }
 
     if (b.type === "section") {
@@ -295,7 +308,7 @@ export function blocksToCustomHtmlDocument(opts: {
         .filter(Boolean)
         .join(" ");
 
-      return `<section ${attrs}>${inner}</section>`;
+      return withBlockAnchor(b, `<section ${attrs}>${inner}</section>`);
     }
 
     if (b.type === "addToCartButton") {
@@ -306,7 +319,7 @@ export function blocksToCustomHtmlDocument(opts: {
       const productDescription = typeof (b.props as any)?.productDescription === "string" ? String((b.props as any).productDescription).trim() : "";
       const cssInline = styleToCss((b.props as any)?.style);
       if (!priceId) return "";
-      return `<button type=\"button\" class=\"pa-btn\" data-pa-action=\"add\" data-pa-price-id=\"${escapeHtmlAttr(priceId)}\" data-pa-qty=\"${quantity}\" data-pa-name=\"${escapeHtmlAttr(productName)}\" data-pa-desc=\"${escapeHtmlAttr(productDescription)}\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${escapeHtml(text)}</button>`;
+      return withBlockAnchor(b, `<button type=\"button\" class=\"pa-btn\" data-pa-action=\"add\" data-pa-price-id=\"${escapeHtmlAttr(priceId)}\" data-pa-qty=\"${quantity}\" data-pa-name=\"${escapeHtmlAttr(productName)}\" data-pa-desc=\"${escapeHtmlAttr(productDescription)}\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${escapeHtml(text)}</button>`);
     }
 
     if (b.type === "salesCheckoutButton") {
@@ -317,13 +330,13 @@ export function blocksToCustomHtmlDocument(opts: {
       const productDescription = typeof (b.props as any)?.productDescription === "string" ? String((b.props as any).productDescription).trim() : "";
       const cssInline = styleToCss((b.props as any)?.style);
       if (!priceId) return "";
-      return `<button type=\"button\" class=\"pa-btn pa-btn-primary\" data-pa-action=\"buy\" data-pa-price-id=\"${escapeHtmlAttr(priceId)}\" data-pa-qty=\"${quantity}\" data-pa-name=\"${escapeHtmlAttr(productName)}\" data-pa-desc=\"${escapeHtmlAttr(productDescription)}\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${escapeHtml(text)}</button>`;
+      return withBlockAnchor(b, `<button type=\"button\" class=\"pa-btn pa-btn-primary\" data-pa-action=\"buy\" data-pa-price-id=\"${escapeHtmlAttr(priceId)}\" data-pa-qty=\"${quantity}\" data-pa-name=\"${escapeHtmlAttr(productName)}\" data-pa-desc=\"${escapeHtmlAttr(productDescription)}\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${escapeHtml(text)}</button>`);
     }
 
     if (b.type === "cartButton") {
       const text = typeof (b.props as any)?.text === "string" ? String((b.props as any).text) : "Cart";
       const cssInline = styleToCss((b.props as any)?.style);
-      return `<button type=\"button\" class=\"pa-btn\" data-pa-action=\"cart\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${escapeHtml(text)} <span data-pa-cart-count style=\"opacity:.7;font-weight:800\"></span></button>`;
+      return withBlockAnchor(b, `<button type=\"button\" class=\"pa-btn\" data-pa-action=\"cart\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${escapeHtml(text)} <span data-pa-cart-count style=\"opacity:.7;font-weight:800\"></span></button>`);
     }
 
     if (b.type === "chatbot") {
@@ -331,7 +344,7 @@ export function blocksToCustomHtmlDocument(opts: {
       const agentId = typeof p?.agentId === "string" ? String(p.agentId).trim() : "";
       const cssInline = styleToCss(p?.style);
       if (!agentId) {
-        return `<div class=\"pa-card\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><div style=\"font-weight:800\">Chatbot</div><div style=\"margin-top:6px;color:var(--pa-muted);font-size:14px\">Select an agent for this chatbot block to enable the embed.</div></div>`;
+        return withBlockAnchor(b, `<div class=\"pa-card\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><div style=\"font-weight:800\">Chatbot</div><div style=\"margin-top:6px;color:var(--pa-muted);font-size:14px\">Select an agent for this chatbot block to enable the embed.</div></div>`);
       }
 
       const primaryColor = typeof p?.primaryColor === "string" ? String(p.primaryColor).trim() : "";
@@ -356,7 +369,7 @@ export function blocksToCustomHtmlDocument(opts: {
       // Tradeoff: the iframe blocks clicks in its rectangle.
       const iframeCss = "position:fixed;right:0;bottom:0;width:440px;height:740px;border:0;background:transparent;z-index:2147483647";
 
-      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><iframe title=\"Chatbot\" src=\"/embed/chatbot?${escapeHtmlAttr(qs)}\" style=\"${iframeCss}\" sandbox=\"allow-forms allow-scripts allow-same-origin\" allow=\"microphone\"></iframe></div>`;
+      return withBlockAnchor(b, `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><iframe title=\"Chatbot\" src=\"/embed/chatbot?${escapeHtmlAttr(qs)}\" style=\"${iframeCss}\" sandbox=\"allow-forms allow-scripts allow-same-origin\" allow=\"microphone\"></iframe></div>`);
     }
 
     if (b.type === "customCode") {
@@ -365,7 +378,7 @@ export function blocksToCustomHtmlDocument(opts: {
       const cssInline = styleToCss((b.props as any)?.style);
       if (!html.trim()) return "";
       // Inline custom code directly (best-effort).
-      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${css.trim() ? `<style>${css}</style>` : ""}${html}</div>`;
+      return withBlockAnchor(b, `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${css.trim() ? `<style>${css}</style>` : ""}${html}</div>`);
     }
 
     return "";

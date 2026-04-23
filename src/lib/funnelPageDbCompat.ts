@@ -32,3 +32,38 @@ export function normalizeDraftHtml<T extends Record<string, unknown>>(page: T): 
 export function normalizeDraftHtmlList<T extends Record<string, unknown>>(pages: T[]): Array<T & { draftHtml: string }> {
   return Array.isArray(pages) ? pages.map((page) => normalizeDraftHtml(page)) : [];
 }
+
+export async function dbHasCreditFunnelPageFoundationArtifactColumns(): Promise<boolean> {
+  const [hasHash, hasJson] = await Promise.all([
+    dbHasPublicColumn({
+      tableNames: ["CreditFunnelPage", "creditfunnelpage"],
+      columnName: "foundationArtifactHash",
+    }),
+    dbHasPublicColumn({
+      tableNames: ["CreditFunnelPage", "creditfunnelpage"],
+      columnName: "foundationArtifactJson",
+    }),
+  ]);
+
+  return hasHash && hasJson;
+}
+
+export function withFoundationArtifactSelect<T extends Record<string, unknown>>(
+  select: T,
+  hasFoundationArtifact: boolean,
+): T & { foundationArtifactHash?: true; foundationArtifactJson?: true } {
+  return (
+    hasFoundationArtifact
+      ? { ...select, foundationArtifactHash: true, foundationArtifactJson: true }
+      : { ...select }
+  ) as T & { foundationArtifactHash?: true; foundationArtifactJson?: true };
+}
+
+export function applyFoundationArtifactWriteCompat<T extends Record<string, unknown>>(data: T, hasFoundationArtifact: boolean): T {
+  if (hasFoundationArtifact) return data;
+
+  const next = { ...data } as Record<string, unknown>;
+  delete next.foundationArtifactHash;
+  delete next.foundationArtifactJson;
+  return next as T;
+}

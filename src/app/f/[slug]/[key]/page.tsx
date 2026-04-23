@@ -5,11 +5,15 @@ import { prisma } from "@/lib/db";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
-import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
+import { renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
+import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
+import { readCreditFunnelTrackingSettings } from "@/lib/funnelEventTracking";
+import { resolveFunnelPageRenderState } from "@/lib/funnelPageGraph";
 import { publicKeyFromId } from "@/lib/publicHostedKeys";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
+import { HostedFunnelTracker } from "@/components/funnel/HostedFunnelTracker";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -92,6 +96,31 @@ function mergeSeo(base: FunnelSeo | null, override: FunnelSeo | null): FunnelSeo
   return Object.keys(out).length ? out : null;
 }
 
+function escapeInlineJson(value: unknown) {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/<\/script/gi, "<\\/script");
+}
+
+function injectHostedRuntimeScripts(
+  html: string,
+  payload: {
+    pageId: string;
+    pageSlug: string;
+    funnelId: string;
+    funnelSlug: string;
+    pixelId: string | null;
+  },
+) {
+  const runtimePayload = escapeInlineJson(payload);
+  const script = `<script>(function(){var p=${runtimePayload};var safe=function(v){return typeof v==="string"&&v.trim()?v.trim():null;};var params=new URLSearchParams((function(){try{return (window.top&&window.top.location&&window.top.location.search)||window.location.search||"";}catch(_){return window.location.search||"";}})());var ctx={pageId:p.pageId,funnelId:p.funnelId,funnelSlug:p.funnelSlug,pageSlug:p.pageSlug,path:(function(){try{return ((window.top&&window.top.location&&window.top.location.pathname)||window.location.pathname||"")+((window.top&&window.top.location&&window.top.location.search)||window.location.search||"");}catch(_){return (window.location.pathname||"")+(window.location.search||"");}})(),source:"hosted_funnel_html",sessionId:(function(){try{var k="pa_credit_funnel_session_id";var existing=window.sessionStorage.getItem(k);if(existing)return existing;var next=(window.crypto&&window.crypto.randomUUID?window.crypto.randomUUID():String(Date.now())+"-"+Math.random().toString(36).slice(2,10));window.sessionStorage.setItem(k,next);return next;}catch(_){return String(Date.now())+"-"+Math.random().toString(36).slice(2,10);}})(),referrer:safe(document.referrer),utmSource:safe(params.get("utm_source")),utmMedium:safe(params.get("utm_medium")),utmCampaign:safe(params.get("utm_campaign")),utmContent:safe(params.get("utm_content")),utmTerm:safe(params.get("utm_term"))};try{var body=JSON.stringify({pageId:p.pageId,eventType:"page_view",trackingContext:ctx});if(navigator.sendBeacon){navigator.sendBeacon("/api/public/funnel-builder/events",new Blob([body],{type:"application/json"}));}else{fetch("/api/public/funnel-builder/events",{method:"POST",headers:{"content-type":"application/json"},body:body,keepalive:true}).catch(function(){});}}catch(_){ }if(p.pixelId){!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');try{window.fbq('init',p.pixelId);window.fbq('track','PageView');}catch(_){}}})();</script>`;
+  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${script}</body>`);
+  if (/<\/html>/i.test(html)) return html.replace(/<\/html>/i, `${script}</html>`);
+  return `${html}${script}`;
+}
+
 async function fetchFunnel(slug: string, key: string) {
   const s = String(slug || "").trim().toLowerCase();
   const k = String(key || "").trim();
@@ -103,10 +132,11 @@ async function fetchFunnel(slug: string, key: string) {
       select: {
         id: true,
         ownerId: true,
+        slug: true,
         pages: {
           orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
           take: 1,
-          select: { id: true, title: true, contentMarkdown: true, editorMode: true, blocksJson: true, customHtml: true },
+          select: { id: true, slug: true, title: true, contentMarkdown: true, editorMode: true, blocksJson: true, customHtml: true },
         },
       },
     })
@@ -123,16 +153,29 @@ async function fetchFunnel(slug: string, key: string) {
 
   const seoSettings = readFunnelSeo(settings?.dataJson ?? null, funnel.id);
   const page = funnel.pages[0] || null;
+  const renderState = resolveFunnelPageRenderState(page, "published");
   const templateVars = funnel.ownerId ? await getBusinessProfileTemplateVars(funnel.ownerId).catch(() => ({})) : {};
   const renderedCustomHtml =
-    page?.editorMode === "CUSTOM_HTML" && page.customHtml
-      ? renderTextTemplate(page.customHtml, templateVars)
-      : (page?.customHtml ?? "");
+    renderState.kind === "html" && renderState.html
+      ? renderTextTemplate(renderState.html, templateVars)
+      : "";
 
-  const seoFromCustomHtml = page?.editorMode === "CUSTOM_HTML" ? extractSeoFromCustomHtml(renderedCustomHtml || "") : null;
+  const seoFromCustomHtml = renderState.kind === "html" ? extractSeoFromCustomHtml(renderedCustomHtml || "") : null;
   const seo = mergeSeo(seoSettings, seoFromCustomHtml);
+  const tracking = readCreditFunnelTrackingSettings(settings?.dataJson ?? null, funnel.id, page?.id ?? null);
+  const defaultBookingCalendarId = readFunnelBookingRouting(settings?.dataJson ?? null, funnel.id)?.calendarId ?? null;
+  const renderedHtmlWithRuntime =
+    renderState.kind === "html" && renderedCustomHtml
+      ? injectHostedRuntimeScripts(renderedCustomHtml, {
+          pageId: page?.id || "",
+          pageSlug: page?.slug || "",
+          funnelId: funnel.id,
+          funnelSlug: funnel.slug,
+          pixelId: tracking.resolvedPixelId,
+        })
+      : renderedCustomHtml;
 
-  return { funnel, page, seo, renderedCustomHtml };
+  return { funnel, page, seo, renderedCustomHtml: renderedHtmlWithRuntime, renderState, tracking, defaultBookingCalendarId };
 }
 
 export async function generateMetadata({
@@ -174,9 +217,8 @@ export default async function HostedFunnelWithKeyPage({
 
   const loaded = await fetchFunnel(s, k);
   if (!loaded) notFound();
-  const { funnel, page, renderedCustomHtml } = loaded;
-  const markdownBlocks = page ? parseBlogContent(page.contentMarkdown) : [];
-  const blockBlocks = page ? coerceBlocksJson(page.blocksJson) : [];
+  const { funnel, page, renderedCustomHtml, renderState, tracking, defaultBookingCalendarId } = loaded;
+  const markdownBlocks = renderState.kind === "markdown" ? parseBlogContent(renderState.markdown) : [];
 
   const billingModel = funnel.ownerId
     ? await getPortalBillingModelForOwner({ ownerId: funnel.ownerId, portalVariant: "portal" }).catch(() => "subscription" as const)
@@ -185,9 +227,18 @@ export default async function HostedFunnelWithKeyPage({
 
   return (
     <main className="w-full min-h-screen">
+      {page && renderState.kind !== "html" ? (
+        <HostedFunnelTracker
+          pageId={page.id}
+          pageSlug={page.slug}
+          funnelId={funnel.id}
+          funnelSlug={funnel.slug}
+          pixelId={tracking.resolvedPixelId}
+        />
+      ) : null}
       {page ? (
         <>
-          {page.editorMode === "CUSTOM_HTML" ? (
+          {renderState.kind === "html" ? (
             <iframe
               title={page.title}
               sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
@@ -195,16 +246,20 @@ export default async function HostedFunnelWithKeyPage({
               srcDoc={renderedCustomHtml || ""}
               className="h-screen w-full bg-white"
             />
-          ) : page.editorMode === "BLOCKS" ? (
+          ) : renderState.kind === "blocks" ? (
             <div>
               {renderCreditFunnelBlocks({
-                blocks: blockBlocks,
+                blocks: renderState.blocks,
                 basePath: "",
                 context: {
                   bookingOwnerId: funnel.ownerId,
+                  defaultBookingCalendarId: defaultBookingCalendarId || undefined,
+                  funnelId: funnel.id,
                   funnelPageId: page.id,
                   funnelSlug: s,
                   funnelPathBase: `/f/${encodeURIComponent(s)}/${encodeURIComponent(k)}`,
+                  funnelPageSlug: page.slug,
+                  metaPixelId: tracking.resolvedPixelId,
                 },
               })}
             </div>

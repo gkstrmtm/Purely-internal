@@ -6,6 +6,7 @@ import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import type { SignaturePadHandle } from "@/components/SignaturePad";
 import { SignaturePad } from "@/components/SignaturePad";
+import { notifyParentCreditFunnelEvent, readTrackingContextFromWindow } from "@/components/funnel/clientFunnelTracking";
 import type { CreditFormContent, CreditFormField as Field, CreditFormStyle, CreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { googleFontImportCss } from "@/lib/fontPresets";
 
@@ -384,7 +385,7 @@ export function CreditHostedFormClient({
             const res = await fetch(actionUrl, {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ data }),
+              body: JSON.stringify({ data, trackingContext: readTrackingContextFromWindow() }),
             });
             const json = (await res.json().catch(() => null)) as any;
             if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Submission failed");
@@ -406,6 +407,7 @@ export function CreditHostedFormClient({
               fileValuesRef.current = {};
               setFileValues({});
               setSuccess(true);
+              notifyParentCreditFunnelEvent({ eventType: "form_submitted", pageId: readTrackingContextFromWindow().pageId || null });
             })
             .catch((err) => {
               setError(err?.message ? String(err.message) : "Submission failed");
