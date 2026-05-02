@@ -1,7 +1,10 @@
 import crypto from "crypto";
 
+import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { prisma } from "@/lib/db";
 import { findPortalContactByPhone } from "@/lib/portalContacts";
+import { getPortalServiceStatusesForOwner } from "@/lib/portalServicesStatus";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 
@@ -11,6 +14,405 @@ const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 const MAX_EVENTS = 200;
 const MAX_GREETING_LEN = 360;
 const MAX_PROMPT_LEN = 6000;
+
+function cleanPromptLine(value: unknown, maxLen = 280) {
+  return String(typeof value === "string" ? value : "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLen);
+}
+
+type AiReceptionistServiceStatuses = Record<string, { state: string; label: string }>;
+
+function normalizeAiReceptionistServiceStatuses(
+  result:
+    | { statuses?: Record<string, { state: string; label: string }> | null | undefined }
+    | Record<string, { state: string; label: string }>
+    | null
+    | undefined,
+): AiReceptionistServiceStatuses | null {
+  if (!result) return null;
+  const maybeWrapped = result as { statuses?: Record<string, { state: string; label: string }> | null | undefined };
+  if (maybeWrapped.statuses && typeof maybeWrapped.statuses === "object" && !Array.isArray(maybeWrapped.statuses)) {
+    return maybeWrapped.statuses as AiReceptionistServiceStatuses;
+  }
+  return result as AiReceptionistServiceStatuses;
+}
+
+function buildAiReceptionistServiceContext(statuses: AiReceptionistServiceStatuses | null | undefined): string {
+  if (!statuses) return "";
+
+  const activeServices = PORTAL_SERVICES.filter((service) => {
+    if (service.hidden) return false;
+    const state = String(statuses[service.slug]?.state || "").trim().toLowerCase();
+    return state === "active" || state === "needs_setup";
+  }).slice(0, 10);
+
+  if (!activeServices.length) return "";
+
+  const lines = [
+    "BUSINESS_SERVICES (use these concrete offerings when the customer asks what the business does):",
+    ...activeServices.map((service) => {
+      const description = cleanPromptLine(service.description, 160);
+      const highlights = Array.isArray(service.highlights)
+        ? service.highlights.map((item) => cleanPromptLine(item, 90)).filter(Boolean).slice(0, 2)
+        : [];
+      const status = cleanPromptLine(statuses[service.slug]?.label || "", 40);
+      return [
+        `- ${service.title}${status ? ` (${status})` : ""}: ${description}`,
+        highlights.length ? `  Highlights: ${highlights.join("; ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }),
+  ];
+
+  return lines.join("\n");
+}
+
+function normalizeServiceReplyTitle(service: { slug: string; title: string }) {
+  switch (service.slug) {
+    case "funnel-builder":
+      return "funnels and lead capture";
+    case "inbox":
+      return "shared inbox and SMS/email follow-up";
+    case "ai-receptionist":
+      return "AI receptionist";
+    case "booking":
+      return "booking automation";
+    case "reviews":
+      return "review requests";
+    case "newsletter":
+      return "newsletters";
+    case "lead-scraping":
+      return "lead scraping";
+    case "automations":
+      return "custom automations";
+    case "ai-outbound-calls":
+      return "AI outbound";
+    case "blogs":
+      return "automated blogs";
+    default:
+      return cleanPromptLine(service.title, 60).toLowerCase();
+  }
+}
+
+function joinHumanList(items: string[]) {
+  if (items.length <= 1) return items[0] || "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items.at(-1)}`;
+}
+
+function normalizeInboundIntentText(raw: string) {
+  return String(raw || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasPriorConversation(historyText?: string | null) {
+  return Boolean(String(historyText || "").trim());
+}
+
+function isGreetingOnlyIntent(raw: string) {
+  return /^(hi|hello|hey|yo|good morning|good afternoon|good evening|sup|what'?s up)[!., ]*$/i.test(String(raw || "").trim());
+}
+
+function isAcknowledgementIntent(raw: string) {
+  return /^(got it|ok|okay|kk|sounds good|understood|cool|nice|perfect|thanks|thank you|appreciate it)[!., ]*$/i.test(String(raw || "").trim());
+}
+
+function isTestingIntent(raw: string) {
+  const text = normalizeInboundIntentText(raw);
+  if (/\b(test|testing|capability|workflow|sms)\b/.test(text)) return true;
+  if (/\b(check|checking)\b/.test(text) && /\b(sms|reply|replies|flow|system)\b/.test(text)) return true;
+  if (/\b(working|works)\b/.test(text) && /\b(sms|reply|replies|flow|system)\b/.test(text)) return true;
+  return false;
+}
+
+function isOwnerIntent(raw: string) {
+  const text = normalizeInboundIntentText(raw);
+  return /\b(owner|founder)\b/.test(text) || /purely'?s owner/.test(text);
+}
+
+function isServiceListIntent(raw: string, historyText?: string | null) {
+  const text = String(raw || "").trim().toLowerCase();
+  if (!text) return false;
+  if (/(list\s+(your\s+)?services|what\s+(services|do\s+you\s+offer)|services\s+pls|what\s+can\s+you\s+help\s+with|what\s+do\s+you\s+guys\s+do|what\s+does\s+the\s+business\s+offer)/i.test(text)) {
+    return true;
+  }
+  if (/(list\s+them(\s+all)?|list\s+all\s+of\s+them|what\s+are\s+they)/i.test(text)) {
+    const history = String(historyText || "").toLowerCase();
+    return /service|offer|automation|help with/.test(history);
+  }
+  return false;
+}
+
+function asksForSchedulingAvailability(raw: string) {
+  const text = normalizeInboundIntentText(raw);
+  return /(what|which) (day|time)/.test(text) || /when works/.test(text) || /(what day works best|what time works best|when are you available)/.test(text);
+}
+
+function looksLikeAvailabilityAnswer(raw: string) {
+  const text = normalizeInboundIntentText(raw);
+  return /(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening|tonight|am|pm|\b\d{1,2}(:\d{2})?\b)/.test(text);
+}
+
+export type AiReceptionistSmsConversationTurn = {
+  role: "assistant" | "customer";
+  content: string;
+};
+
+function extractCustomerGoal(historyTurns: AiReceptionistSmsConversationTurn[], inbound: string) {
+  const customerTurns = historyTurns.filter((turn) => turn.role === "customer").map((turn) => turn.content).filter(Boolean);
+  const seed = customerTurns.find((turn) => turn.length >= 8) || customerTurns[0] || cleanPromptLine(inbound, 220);
+  return cleanPromptLine(seed, 220);
+}
+
+function extractPendingAssistantQuestion(lastAssistant: string) {
+  const value = cleanPromptLine(lastAssistant, 220);
+  return looksLikeQuestion(value) ? value : "";
+}
+
+function summarizeReceptionistIntent(raw: string, historyText?: string | null) {
+  if (isServiceListIntent(raw, historyText)) return "The customer is asking what services the business offers.";
+  if (isOwnerIntent(raw) && isTestingIntent(raw)) return "The customer is confirming the SMS flow and identifying themselves as the business owner.";
+  if (isTestingIntent(raw)) return "The customer is testing the SMS conversation flow.";
+  if (isAcknowledgementIntent(raw)) return "The customer is acknowledging the previous reply and waiting for the next useful step.";
+  if (isGreetingOnlyIntent(raw)) return "The customer is greeting the business.";
+  const trimmed = cleanPromptLine(raw, 220);
+  return trimmed ? `Latest customer message intent: ${trimmed}` : "The customer is continuing the conversation.";
+}
+
+function looksLikeQuestion(raw: string) {
+  const text = String(raw || "").trim();
+  return /\?$/.test(text) || /^(what|when|where|which|who|how|are|is|do|did|can|could|would|should)\b/i.test(text);
+}
+
+function trimConversationTurns(turns: AiReceptionistSmsConversationTurn[], maxTurns = 10) {
+  return turns
+    .map((turn) => ({ role: turn.role, content: cleanPromptLine(turn.content, 320) }))
+    .filter((turn) => Boolean(turn.content))
+    .slice(-Math.max(1, maxTurns));
+}
+
+export function buildAiReceptionistSmsConversationContext(opts: {
+  inbound: string;
+  historyTurns?: AiReceptionistSmsConversationTurn[];
+  contactName?: string | null;
+  contactContextNote?: string | null;
+}) {
+  const historyTurns = trimConversationTurns(Array.isArray(opts.historyTurns) ? opts.historyTurns : []);
+  const inbound = cleanPromptLine(opts.inbound, 400);
+  const lastAssistant = [...historyTurns].reverse().find((turn) => turn.role === "assistant")?.content || "";
+  const lastCustomer = [...historyTurns].reverse().find((turn) => turn.role === "customer")?.content || "";
+  const currentCustomerGoal = extractCustomerGoal(historyTurns, inbound);
+  const pendingAssistantQuestion = extractPendingAssistantQuestion(lastAssistant);
+  const likelyReplyingToAssistant = Boolean(historyTurns.length && lastAssistant && looksLikeQuestion(lastAssistant));
+  const likelyAnsweringPendingQuestion = Boolean(likelyReplyingToAssistant && pendingAssistantQuestion && !isGreetingOnlyIntent(inbound) && !isAcknowledgementIntent(inbound));
+  const likelyAnsweringSchedulingQuestion = Boolean(likelyReplyingToAssistant && asksForSchedulingAvailability(lastAssistant) && looksLikeAvailabilityAnswer(inbound));
+  const contactName = cleanPromptLine(opts.contactName, 120);
+  const contactContextNote = cleanPromptLine(opts.contactContextNote, 600);
+  const transcript = historyTurns
+    .map((turn) => `${turn.role === "assistant" ? "Assistant" : "Customer"}: ${turn.content}`)
+    .join("\n");
+
+  const context = [
+    "THREAD_CONTEXT (authoritative):",
+    `- Existing conversation: ${historyTurns.length ? "yes" : "no"}`,
+    contactName ? `- Contact name: ${contactName}` : "",
+    contactContextNote ? `- ${contactContextNote}` : "",
+    historyTurns.length ? `- Prior turn count: ${historyTurns.length}` : "",
+    lastAssistant ? `- Last assistant message: ${lastAssistant}` : "",
+    lastCustomer ? `- Last customer message before the latest SMS: ${lastCustomer}` : "",
+    currentCustomerGoal ? `- Current customer goal: ${currentCustomerGoal}` : "",
+    pendingAssistantQuestion ? `- Pending assistant question: ${pendingAssistantQuestion}` : "",
+    likelyReplyingToAssistant ? "- Latest inbound message is likely answering or continuing the assistant's previous prompt." : "",
+    likelyAnsweringPendingQuestion ? "- Latest inbound message should be treated as a direct answer to the pending assistant question." : "",
+    likelyAnsweringSchedulingQuestion ? "- Latest inbound message appears to answer the assistant's scheduling or availability question." : "",
+    `- ${summarizeReceptionistIntent(inbound, transcript)}`,
+    historyTurns.length
+      ? "- Continue this exact thread. Do not restart the conversation, do not greet again, and do not ask generic opener questions."
+      : "- This is a fresh conversation, so a normal greeting is allowed if helpful.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    hasPriorConversation: historyTurns.length > 0,
+    transcript,
+    context,
+    likelyReplyingToAssistant,
+    likelyAnsweringPendingQuestion,
+    likelyAnsweringSchedulingQuestion,
+    lastAssistant,
+    lastCustomer,
+  };
+}
+
+export function buildAiReceptionistSmsUserPrompt(opts: {
+  inbound: string;
+  conversationContext: string;
+  transcript?: string | null;
+}) {
+  return [
+    opts.conversationContext,
+    opts.transcript ? `Conversation so far:\n${String(opts.transcript || "").trim()}` : "",
+    "Latest inbound SMS:",
+    cleanPromptLine(opts.inbound, 2000),
+    "Write the next SMS reply text only.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function normalizeAiReceptionistSmsReplyText(opts: {
+  raw: string;
+  hasPriorConversation?: boolean;
+  maxLen?: number;
+}) {
+  const text = String(opts.raw || "").trim();
+  if (!text) return "";
+
+  let oneLine = text.replace(/\s+/g, " ").trim();
+  if (opts.hasPriorConversation) {
+    oneLine = oneLine
+      .replace(/^(hi|hello|hey|hi there|hello there|hey there)([!,.\s]+)(?=[a-z0-9])/i, "")
+      .replace(/^(thanks for testing(?: our)?(?: sms)? capability[!,.\s]*)/i, "")
+      .replace(/^(thanks for testing[!,.\s]*)/i, "")
+      .replace(/^(just checking in[!,.\s]*)/i, "")
+      .replace(/^(if you have any questions or need assistance, feel free to ask[!,.\s]*)/i, "")
+      .replace(/^(how can i (help|assist) you today\??[!,.\s]*)/i, "")
+      .trim();
+  }
+
+  if (!oneLine) return "";
+  const maxLen = Math.max(80, Math.floor(Number(opts.maxLen || 320)));
+  return oneLine.length > maxLen ? `${oneLine.slice(0, maxLen - 1)}…` : oneLine;
+}
+
+export async function tryBuildAiReceptionistDeterministicSmsReply(opts: {
+  ownerId: string;
+  inbound: string;
+  historyText?: string | null;
+  settings?: Pick<AiReceptionistSettings, "businessName"> | Record<string, unknown> | null;
+}) {
+  const ownerId = String(opts.ownerId || "").trim();
+  if (!ownerId) return null;
+
+  const hasHistory = hasPriorConversation(opts.historyText);
+  const businessName = cleanPromptLine((opts.settings as any)?.businessName, 80) || "the business";
+  const history = String(opts.historyText || "").trim();
+  const historyLines = history ? history.split(/\n+/).filter(Boolean) : [];
+  const lastAssistantLine = [...historyLines].reverse().find((line) => /^Assistant:\s*/i.test(line)) || "";
+  const lastAssistant = lastAssistantLine.replace(/^Assistant:\s*/i, "").trim();
+
+  if (hasHistory && asksForSchedulingAvailability(lastAssistant) && looksLikeAvailabilityAnswer(opts.inbound)) {
+    const availability = cleanPromptLine(opts.inbound, 120);
+    return `Got it - ${availability}. If you want, I can help you lock in a specific time or point you to the booking link.`;
+  }
+
+  if (hasHistory && isOwnerIntent(opts.inbound) && isTestingIntent(opts.inbound)) {
+    return `Got it - ${businessName} SMS replies are live and working. I can help with services, booking, inbox, follow-up, and automations whenever you need it.`;
+  }
+
+  if (hasHistory && isTestingIntent(opts.inbound)) {
+    return "Got it - SMS replies are working. If you want to test something specific next, tell me what you want to check.";
+  }
+
+  if (hasHistory && isAcknowledgementIntent(opts.inbound)) {
+    return "Got it. Tell me what you need next and I’ll keep it moving.";
+  }
+
+  if (isGreetingOnlyIntent(opts.inbound)) {
+    return hasHistory ? "What do you need?" : "How can I help you today?";
+  }
+
+  if (!isServiceListIntent(opts.inbound, opts.historyText)) return null;
+
+  const statusResult = await getPortalServiceStatusesForOwner({ ownerId, fallbackEmail: null, portalVariant: "portal" }).catch(() => null);
+  const statuses = normalizeAiReceptionistServiceStatuses(statusResult);
+  const prioritizedSlugs = [
+    "funnel-builder",
+    "inbox",
+    "booking",
+    "reviews",
+    "newsletter",
+    "ai-receptionist",
+    "lead-scraping",
+    "automations",
+    "ai-outbound-calls",
+    "blogs",
+  ];
+
+  const prioritizedServices = prioritizedSlugs
+    .map((slug) => PORTAL_SERVICES.find((service) => service.slug === slug))
+    .filter((service): service is NonNullable<typeof service> => Boolean(service && !service.hidden));
+
+  const picked = prioritizedServices
+    .filter((service) => {
+      const state = String(statuses?.[service.slug]?.state || "").trim().toLowerCase();
+      return state === "active" || state === "needs_setup";
+    })
+    .slice(0, 6);
+
+  const finalServices = (picked.length ? picked : prioritizedServices.slice(0, 6)).slice(0, 6);
+  if (!finalServices.length) return null;
+
+  const serviceBusinessName = cleanPromptLine((opts.settings as any)?.businessName, 80) || "We";
+  const services = joinHumanList(finalServices.map((service) => normalizeServiceReplyTitle(service)));
+  const prefix = serviceBusinessName === "We" ? serviceBusinessName : `${serviceBusinessName} helps with`;
+  const reply = `${prefix} ${services}. If you want, I can point you to the best fit for what you're trying to automate.`
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return reply.length > 320 ? `${reply.slice(0, 317).trimEnd()}...` : reply;
+}
+
+export async function buildAiReceptionistSmsSystemPrompt(opts: {
+  ownerId: string;
+  settings: Pick<AiReceptionistSettings, "businessName" | "systemPrompt" | "smsSystemPrompt"> | Record<string, unknown>;
+  conversationContext?: string | null;
+}) {
+  const ownerId = String(opts.ownerId || "").trim();
+  const settings = opts.settings ?? {};
+
+  const businessName = cleanPromptLine((settings as any).businessName, 200);
+  const smsPrompt = cleanPromptLine((settings as any).smsSystemPrompt, 4000);
+  const basePrompt = smsPrompt || cleanPromptLine((settings as any).systemPrompt, 4000);
+
+  const [businessProfileContext, serviceStatusResult] = await Promise.all([
+    ownerId ? getBusinessProfileAiContext(ownerId).catch(() => "") : Promise.resolve(""),
+    ownerId
+      ? getPortalServiceStatusesForOwner({ ownerId, fallbackEmail: null, portalVariant: "portal" }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const serviceStatuses = normalizeAiReceptionistServiceStatuses(serviceStatusResult);
+  const serviceContext = buildAiReceptionistServiceContext(serviceStatuses);
+
+  return [
+    basePrompt || "You are a helpful receptionist.",
+    "You are replying via SMS.",
+    "Treat the recent conversation as the active thread context. Continue naturally and do not ask the customer to repeat or clarify details that are already clear from the thread.",
+    "If the thread context says this is an existing conversation, continue from the last turn instead of starting over.",
+    "If the latest inbound message looks like an answer to the assistant's previous message, treat it as a continuation of that exchange.",
+    "Use the current customer goal and pending assistant question from the thread context as the primary guide for the next reply.",
+    "When the latest inbound message directly answers the pending assistant question, use that answer immediately and move the conversation forward.",
+    "Do not say 'hi', 'thanks for clarifying', or similar filler when the customer is already mid-thread unless that acknowledgement is truly necessary.",
+    "Keep replies concise: 1-3 short sentences, under 320 characters when possible.",
+    "No markdown. No long lists. Ask at most one question, and only when the next step is genuinely unclear.",
+    "If the customer asks about services, what the business offers, or what you can help with, answer directly using the business context below before asking any follow-up.",
+    businessName ? `Business name: ${businessName}` : "",
+    opts.conversationContext ? String(opts.conversationContext).trim() : "",
+    businessProfileContext,
+    serviceContext,
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+    .slice(0, MAX_PROMPT_LEN);
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -56,6 +458,10 @@ export type AiReceptionistSettings = {
   // Inbound SMS auto-replies (separate from voice calls).
   smsEnabled: boolean;
   smsSystemPrompt: string;
+  // If include list is non-empty, only contacts with ANY included tag will be answered by the AI receptionist.
+  voiceIncludeTagIds: string[];
+  // If exclude list matches ANY tag, do not let the AI receptionist answer.
+  voiceExcludeTagIds: string[];
   // If include list is non-empty, only contacts with ANY included tag will get a reply.
   smsIncludeTagIds: string[];
   // If exclude list matches ANY tag, do not reply.
@@ -217,6 +623,8 @@ export function parseAiReceptionistSettings(
 
     smsEnabled: false,
     smsSystemPrompt: "",
+    voiceIncludeTagIds: [],
+    voiceExcludeTagIds: [],
     smsIncludeTagIds: [],
     smsExcludeTagIds: [],
 
@@ -270,6 +678,8 @@ export function parseAiReceptionistSettings(
     return out;
   };
 
+  const voiceIncludeTagIds = normalizeTagIds((rec as any).voiceIncludeTagIds);
+  const voiceExcludeTagIds = normalizeTagIds((rec as any).voiceExcludeTagIds);
   const smsIncludeTagIds = normalizeTagIds((rec as any).smsIncludeTagIds);
   const smsExcludeTagIds = normalizeTagIds((rec as any).smsExcludeTagIds);
 
@@ -356,6 +766,8 @@ export function parseAiReceptionistSettings(
 
     smsEnabled,
     smsSystemPrompt,
+    voiceIncludeTagIds,
+    voiceExcludeTagIds,
     smsIncludeTagIds,
     smsExcludeTagIds,
     aiCanTransferToHuman,

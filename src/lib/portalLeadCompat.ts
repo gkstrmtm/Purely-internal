@@ -331,6 +331,11 @@ export async function createPortalLeadCompat(
       name: data.businessName,
       email: null,
       phone: data.phone,
+      customVariables: data.address
+        ? {
+            address: data.address,
+          }
+        : null,
     });
   } catch {
     // ignore

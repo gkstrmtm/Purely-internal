@@ -1005,6 +1005,1512 @@
 				"tmp/portal-qa/verify_funnel_form_menu_position.mjs"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "Inspect: lead scraping route html",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_lead_scraping_route_html.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: lead scraping settings patch",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/verify_lead_scraping_settings_patch.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: lead scraping settings patch report",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/verify_lead_scraping_settings_patch.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: dashboard probe",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/dashboard_probe.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Seed: ai outbound demo",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/seed-ai-outbound-demo.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Seed: AI outbound demo",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/seed-ai-outbound-demo.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: AI outbound seeded counts",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"-e",
+				"const { PrismaClient } = require('@prisma/client'); const prisma = new PrismaClient(); (async () => { const campaignId = '90086e1a-9694-497d-9061-aa27f561376a'; const callEnrollments = await prisma.portalAiOutboundCallEnrollment.findMany({ where: { campaignId }, select: { status: true } }); const messageEnrollments = await prisma.portalAiOutboundMessageEnrollment.findMany({ where: { campaignId }, select: { status: true } }); const manualCalls = await prisma.portalAiOutboundCallManualCall.findMany({ where: { campaignId }, select: { status: true } }); console.log(JSON.stringify({ campaignId, callEnrollments: callEnrollments.length, callStatuses: callEnrollments.map((row) => row.status), messageEnrollments: messageEnrollments.length, messageStatuses: messageEnrollments.map((row) => row.status), manualCalls: manualCalls.length, manualStatuses: manualCalls.map((row) => row.status) }, null, 2)); })().catch((error) => { console.error(error); process.exit(1); }).finally(async () => { await prisma.$disconnect(); });"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: AI outbound counts file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect-ai-outbound-counts.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: AI outbound counts summary",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"-e",
+				"const { PrismaClient } = require('@prisma/client'); const prisma = new PrismaClient(); (async () => { const campaignId = '90086e1a-9694-497d-9061-aa27f561376a'; const c = await prisma.portalAiOutboundCallEnrollment.count({ where: { campaignId } }); const m = await prisma.portalAiOutboundMessageEnrollment.count({ where: { campaignId } }); const manual = await prisma.portalAiOutboundCallManualCall.count({ where: { campaignId } }); console.log(`campaign=${campaignId} calls=${c} messages=${m} manual=${manual}`); })().catch((error) => { console.error(error); process.exit(1); }).finally(async () => { await prisma.$disconnect(); });"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Dev: ai-outbound isolated next dev",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"dev"
+			],
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "Verify: booking availability edit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_availability_edit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: booking availability edit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_availability_edit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: booking availability edit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_availability_edit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: booking availability edit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_availability_edit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: booking availability edit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_availability_edit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: booking availability edit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_availability_edit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: booking availability edit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_availability_edit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: booking availability edit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_availability_edit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: booking availability edit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_availability_edit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: booking availability edit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_availability_edit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: booking capture states",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_capture.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: booking availability edit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_booking_availability_edit.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: booking availability verifier json",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"node tmp/portal-qa/verify_booking_availability_edit.mjs > /tmp/booking-availability-verify.json 2>&1; status=$?; cat /tmp/booking-availability-verify.json; exit $status"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: booking availability verifier json workspace",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"node tmp/portal-qa/verify_booking_availability_edit.mjs > tmp/booking-availability-verify.json 2>&1; status=$?; cat tmp/booking-availability-verify.json; exit $status"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: hosted editor block selection",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"/Users/jaylan/purely-automation/tmp/portal-qa/verify_hosted_editor_block_selection.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: reviews hosted editor selection",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"/Users/jaylan/purely-automation/tmp/portal-qa/inspect_reviews_editor_selection.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: pura non-funnel ops",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_pura_non_funnel_ops.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Pura: non-funnel live checks",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_non_funnel_live_checks.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: outbound agent state",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_outbound_agent_state.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Validate: outbound call fix live",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_outbound_call_checks.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Validate: outbound call fix live v2",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_outbound_call_checks.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Validate: outbound call fix to file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_outbound_call_checks_to_file.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: outbound agent state fresh",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_outbound_agent_state.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: outbound agent state file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_outbound_agent_state.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: outbound call rows file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_outbound_call_checks.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Validate: outbound campaign only to file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_outbound_campaign_only_to_file.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: outbound agent state post campaign",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_outbound_agent_state.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Validate: outbound campaign only to file v2",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_outbound_campaign_only_to_file.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: outbound agent state post campaign v2",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_outbound_agent_state.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Validate: outbound campaign only to file v3",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_outbound_campaign_only_to_file.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: outbound agent state fresh final",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_outbound_agent_state.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Refresh: latest manual call to file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/refresh_latest_manual_call_to_file.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Refresh: latest manual call to file v2",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/refresh_latest_manual_call_to_file.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Validate: outbound campaign only to file final",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_outbound_campaign_only_to_file.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: refresh latest manual call validation",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/refresh_latest_manual_call_to_file.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: refresh latest manual call to log",
+			"type": "shell",
+			"command": "node tmp/refresh_latest_manual_call_to_file.mjs > tmp/latest_manual_call_refresh_task.log 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: side effects to log",
+			"type": "shell",
+			"command": "node tmp/inspect_latest_manual_call_side_effects.mjs > tmp/latest_manual_call_side_effects_task.log 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "Validate: manual call outcome matrix",
+			"type": "shell",
+			"command": "node tmp/validate_manual_call_outcomes.mjs > tmp/manual_call_outcome_validation_task.log 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "Validate: manual call outcome matrix rerun",
+			"type": "shell",
+			"command": "node tmp/validate_manual_call_outcomes.mjs > tmp/manual_call_outcome_validation_task.log 2>&1",
+			"isBackground": false
+		},
+		{
+			"label": "Cleanup: Chester duplicate schedules",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/cleanup_chester_duplicate_schedules.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Cleanup: remove Chester weekday schedules",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/delete_chester_weekday_schedules.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Verify: Chester weekday schedules removed",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/cleanup_chester_duplicate_schedules.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Audit: duplicate recurring schedules",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/audit_duplicate_recurring_schedules.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: pending recurring schedules",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/list_pending_recurring_schedules.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: pending recurring schedules to file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/list_pending_recurring_schedules.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Cleanup: remove legacy Chester schedules",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/delete_legacy_chester_weekday_schedules.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Verify: duplicate recurring schedules clean",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/audit_duplicate_recurring_schedules.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Verify: recurring schedules still clean",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/audit_duplicate_recurring_schedules.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Audit: pending one-time Pura schedules",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/audit_pending_one_time_schedules.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Verify: pending one-time Pura schedules clean",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/audit_pending_one_time_schedules.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Verify: recurring schedules clean after QA patch",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/audit_duplicate_recurring_schedules.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "QA: operator booking reporting inbox pass",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_operator_booking_reporting_inbox_pass.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: operator booking reporting inbox pass strict",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_operator_booking_reporting_inbox_pass.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: operator pass stdout",
+			"type": "shell",
+			"command": "node tmp/portal-qa/run_operator_booking_reporting_inbox_pass.mjs > tmp/portal-qa/operator-booking-reporting-inbox-pass.stdout.json",
+			"isBackground": false
+		},
+		{
+			"label": "QA: ai calling operator pass",
+			"type": "shell",
+			"command": "node tmp/portal-qa/run_ai_calling_operator_pass.mjs > tmp/portal-qa/ai-calling-operator-pass.stdout.json",
+			"isBackground": false
+		},
+		{
+			"label": "QA: ai calling operator pass file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_ai_calling_operator_pass.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: ai calling operator pass strict file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_ai_calling_operator_pass.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: pura preview pass",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_pura_preview_pass.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: pura preview pass final",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_pura_preview_pass.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: pura preview pass clean",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_pura_preview_pass.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: media library pass",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_media_library_pass.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: media library pass tee",
+			"type": "shell",
+			"command": "node tmp/portal-qa/run_media_library_pass.mjs | tee tmp/portal-qa/media-library-pass.stdout.json",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: media library pass clean",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_media_library_pass.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: media library pass rerun",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_media_library_pass.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: media library pass traced",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_media_library_pass.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: media library pass error detail",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_media_library_pass.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: media library pass stderr",
+			"type": "shell",
+			"command": "node tmp/portal-qa/run_media_library_pass.mjs 2> tmp/portal-qa/media-library-pass.err.txt",
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: media library pass message",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_media_library_pass.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: media library pass absolute",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_media_library_pass.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Inspect: media library pass final",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_media_library_pass.mjs"
+			],
+			"isBackground": false,
+			"group": "test"
+		},
+		{
+			"label": "Cleanup: blogs QA drafts",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/cleanup_blogs_qa.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: blogs action bar probe",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_blogs_post_action_bar_probe.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: blogs action bar probe capture",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node tmp/portal-qa/run_blogs_post_action_bar_probe.mjs > tmp/portal-qa/blogs-post-action-bar-probe.stdout.txt 2>&1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: blogs continuity capture",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node tmp/portal-qa/run_blogs_continuity_pass.mjs > tmp/portal-qa/blogs-continuity-pass.stdout.txt 2>&1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: port 3000 owner",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"lsof -nP -iTCP:3000 -sTCP:LISTEN | cat"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: port 3000 cmd",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"ps -p 91786 -o pid=,command= | cat"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: build error capture",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"npm run build > tmp/build-error-capture.txt 2>&1 || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: build process state",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"ps -axo pid=,command= | grep 'next build --webpack' | grep -v grep | cat"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: blog post file tail raw",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"tail -n 40 'src/app/portal/app/services/blogs/[postId]/PortalBlogPostClient.tsx' | od -An -tx1 -c | cat"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: blog post file tail raw 2",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"tail -n 40 \"src/app/portal/app/services/blogs/[postId]/PortalBlogPostClient.tsx\" | od -An -tx1 -c | cat"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: ts parse blog post client",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"-e",
+				"const fs=require('fs'); const ts=require('typescript'); const p='src/app/portal/app/services/blogs/[postId]/PortalBlogPostClient.tsx'; const src=fs.readFileSync(p,'utf8'); const sf=ts.createSourceFile(p,src,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX); const diags=sf.parseDiagnostics.map(d=>({code:d.code,start:d.start,length:d.length,message:ts.flattenDiagnosticMessageText(d.messageText,' ')})); console.log(JSON.stringify(diags,null,2));"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: ts parse blog post client 2",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node <<'EOF'\nconst fs=require('fs');\nconst ts=require('typescript');\nconst p=\"src/app/portal/app/services/blogs/[postId]/PortalBlogPostClient.tsx\";\nconst src=fs.readFileSync(p,'utf8');\nconst sf=ts.createSourceFile(p,src,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);\nconst diags=sf.parseDiagnostics.map(d=>({code:d.code,start:d.start,length:d.length,message:ts.flattenDiagnosticMessageText(d.messageText,' ')}));\nconsole.log(JSON.stringify(diags,null,2));\nEOF"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: ts parse blog post client 3",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/parse_blog_post_client.cjs",
+				"src/app/portal/app/services/blogs/[postId]/PortalBlogPostClient.tsx"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: ts parse blog post client 4",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node tmp/parse_blog_post_client.cjs \"src/app/portal/app/services/blogs/[postId]/PortalBlogPostClient.tsx\""
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: ts parse blog post client 5",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node tmp/parse_blog_post_client.cjs \"src/app/portal/app/services/blogs/[postId]/PortalBlogPostClient.tsx\" > tmp/parse-blog-post-client.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: ts parse blog post client fixed",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node tmp/parse_blog_post_client.cjs \"src/app/portal/app/services/blogs/[postId]/PortalBlogPostClient.tsx\" > tmp/parse-blog-post-client.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: lead scraping settings save pass",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_lead_scraping_settings_save_pass.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: lead scraping settings save pass capture",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node tmp/portal-qa/run_lead_scraping_settings_save_pass.mjs > tmp/portal-qa/lead-scraping-settings-save-pass.stdout.txt 2>&1 || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Probe: lead scraping save buttons",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node tmp/portal-qa/probe_lead_scraping_save_buttons.mjs > tmp/portal-qa/probe-lead-scraping-save-buttons.json 2>&1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: lead scraping settings save pass rerun",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node tmp/portal-qa/run_lead_scraping_settings_save_pass.mjs > tmp/portal-qa/lead-scraping-settings-save-pass.stdout.txt 2>&1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: lead scraping settings save pass final rerun",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node tmp/portal-qa/run_lead_scraping_settings_save_pass.mjs > tmp/portal-qa/lead-scraping-settings-save-pass.stdout.txt 2>&1 || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: lead scraping settings save pass external capture",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node tmp/portal-qa/run_lead_scraping_settings_save_pass.mjs > tmp/lead-scraping-settings-save-pass-terminal.txt 2>&1 || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "QA: lead scraping settings save pass inline inspect",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node tmp/portal-qa/run_lead_scraping_settings_save_pass.mjs; echo '---FILES---'; find tmp/portal-qa/lead-scraping-settings-save-pass -maxdepth 1 -type f | sort"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Audit: pura reliability expanded",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/run_pura_reliability_suite.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: pura multitask bundle",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/debug_pura_multitask_bundle.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: pura multitask bundle to file",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"node tmp/portal-qa/debug_pura_multitask_bundle.mjs > tmp/portal-qa/debug_pura_multitask_bundle_output.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: pura multitask bundle to file 2",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/debug_pura_multitask_bundle.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: pura multitask bundle after patch",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/debug_pura_multitask_bundle.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: review reply focused",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/debug-review-reply.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: review reply focused v2",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/debug-review-reply.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: review reply to file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/debug-review-reply-to-file.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: review reply to file v2",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/debug-review-reply-to-file.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: raw lead scrape 500",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/debug_pura_lead_scrape_500.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: raw lead scrape 500 retry",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/debug_pura_lead_scrape_500.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: raw lead scrape body live",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/debug_pura_lead_scrape_500.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: raw lead scrape body fixed",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/debug_pura_lead_scrape_500.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: local tsc executor",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"tsc",
+				"--noEmit"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: raw lead scrape body after imports",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/debug_pura_lead_scrape_500.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: tsc head executor",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"npx tsc --noEmit 2>&1 | head -n 120"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: tsc head executor 2",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"npx tsc --noEmit 2>&1 | head -n 120"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: raw lead scrape current",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/debug_pura_lead_scrape_500.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: tsc head executor 3",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"npx tsc --noEmit 2>&1 | head -n 80"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: lead scrape regression semantics",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/verify_pura_lead_scrape_regression.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: lead scrape semantics live fresh",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/verify_pura_lead_scrape_semantics_live.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: tsc head executor 4",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-lc",
+				"npx tsc --noEmit 2>&1 | head -n 80"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: lead scrape semantics live final",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/verify_pura_lead_scrape_semantics_live.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: broader regression after lead semantics",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_broader_regression.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: broader regression polish final",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_broader_regression.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: broader regression perfect check",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_broader_regression.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: broader regression final voice",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_broader_regression.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: hosted deterministic renderer",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"-e",
+				"require('ts-node/register/transpile-only'); const m = require('./src/lib/portalAgentActionExecutor.ts'); const out = m.buildDeterministicAssistantTextForActionResult({ action: 'hosted_pages.documents.generate_html', ok: true, status: 200, args: { prompt: 'premium webinar strategy call' }, result: { ok: true, html: '<html></html>', document: { title: 'Booking Page' } }, linkUrl: null }); console.log(out);"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: hosted deterministic renderer file",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/debug_hosted_deterministic_renderer.cjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: broader regression hosted fix",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_broader_regression.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: broader regression hosted final",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/run_pura_broader_regression.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: pura thread open scroll direct",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_pura_thread_open_scroll.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: pura thread open scroll isolated",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/verify_pura_thread_open_scroll.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Probe: portal login isolated",
+			"type": "shell",
+			"command": "curl",
+			"args": [
+				"-sS",
+				"-D",
+				"-",
+				"-H",
+				"content-type: application/json",
+				"-H",
+				"x-portal-variant: portal",
+				"-H",
+				"x-pa-return-token: 1",
+				"--data",
+				"{\"email\":\"demo-full@purelyautomation.dev\",\"password\":\"pura-demo-local\"}",
+				"http://127.0.0.1:3000/portal/api/login"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Probe: localhost listen isolated",
+			"type": "shell",
+			"command": "lsof",
+			"args": [
+				"-nP",
+				"-iTCP:3000",
+				"-sTCP:LISTEN"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Dev: next dev isolated",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"dev"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "Probe: portal login via script",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/portal-qa/test_login.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Dev: next dev isolated after db fix",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"dev"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "Probe: blog intent direct",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/blog_intent_probe.js"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Probe: blog intent direct v2",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/blog_intent_probe.js"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: scroll seed thread direct",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/inspect_scroll_seed_thread.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: pura message hydration",
+			"type": "shell",
+			"command": "env",
+			"args": [
+				"PURA_BASE_URL=http://127.0.0.1:3001",
+				"node",
+				"tmp/inspect_pura_message_hydration.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: pura message hydration file",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"env PURA_BASE_URL=http://127.0.0.1:3001 node tmp/inspect_pura_message_hydration.mjs > tmp/pura_message_hydration_output.json 2>&1 && cat tmp/pura_message_hydration_output.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: pura multitask live file",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"env PURA_BASE_URL=http://127.0.0.1:3001 node tmp/portal-qa/debug_pura_multitask_live.mjs > tmp/debug_pura_multitask_live_output.json 2>&1 && cat tmp/debug_pura_multitask_live_output.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Debug: pura clarify resume file",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"env PURA_BASE_URL=http://127.0.0.1:3001 node tmp/portal-qa/debug_pura_clarify_resume_live.mjs > tmp/debug_pura_clarify_resume_output.json 2>&1 && cat tmp/debug_pura_clarify_resume_output.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: pura thread open scroll after hydration fix",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"env PURA_BASE_URL=http://127.0.0.1:3001 node tmp/portal-qa/verify_pura_thread_open_scroll.mjs > tmp/verify_pura_thread_open_scroll_after_fix.json 2>&1 && cat tmp/verify_pura_thread_open_scroll_after_fix.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: pura vague multitask after bundling fix",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"env PURA_BASE_URL=http://127.0.0.1:3001 node tmp/portal-qa/verify_pura_vague_multitask_live.mjs > tmp/verify_pura_vague_multitask_after_fix.json 2>&1 && cat tmp/verify_pura_vague_multitask_after_fix.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: pura thread open scroll direct",
+			"type": "shell",
+			"command": "env",
+			"args": [
+				"PURA_BASE_URL=http://127.0.0.1:3001",
+				"node",
+				"tmp/portal-qa/verify_pura_thread_open_scroll.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: pura vague multitask direct",
+			"type": "shell",
+			"command": "env",
+			"args": [
+				"PURA_BASE_URL=http://127.0.0.1:3001",
+				"node",
+				"tmp/portal-qa/verify_pura_vague_multitask_live.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: port 3001 listener prod",
+			"type": "shell",
+			"command": "lsof",
+			"args": [
+				"-iTCP:3001",
+				"-sTCP:LISTEN",
+				"-n",
+				"-P"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Build: next build after pura patch",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"build"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Build: next fresh prod bundle",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"tmp/build_next_fresh.sh"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Start: next prod clean 3001",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"tmp/start_next_prod.sh"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "Start: next prod clean 3002",
+			"type": "shell",
+			"command": "env",
+			"args": [
+				"PORT=3002",
+				"npx",
+				"next",
+				"start"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "Debug: repro thread messages fetch",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"tmp/repro_thread_messages_fetch.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Start: prod 3002 temp",
+			"type": "shell",
+			"command": "existing=$(lsof -tiTCP:3002 -sTCP:LISTEN || true) && if [[ -n \"$existing\" ]]; then kill $existing; sleep 2; fi && env PORT=3002 npm run start",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "none"
+		},
+		{
+			"label": "Start: prod 3002 temp",
+			"type": "shell",
+			"command": "existing=$(lsof -tiTCP:3002 -sTCP:LISTEN || true) && if [[ -n \"$existing\" ]]; then kill $existing; sleep 2; fi && env PORT=3002 npm run start",
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "none"
 		}
 	]
 }

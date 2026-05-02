@@ -3,9 +3,9 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { IconSend } from "@/app/portal/PortalIcons";
 import GlassSurface from "@/components/GlassSurface";
-import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass } from "@/components/portalGlass";
+import { portalGlassBackdropClass, portalGlassPanelClass } from "@/components/portalGlass";
 import { buildPortalAiChatThreadHref } from "@/lib/portalAiChatThreadRefs";
 
 type VersionPayload = {
@@ -392,12 +392,26 @@ function buildSuggestedSetupMessage(
   };
 }
 
-function ThinkingDots() {
+function ThinkingDots({ className }: { className?: string }) {
   return (
-    <div className="inline-flex items-center gap-1" aria-label="Thinking">
-      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "0ms" }} />
-      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "100ms" }} />
-      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "200ms" }} />
+    <div className={classNames("inline-flex items-center gap-1.5 text-brand-blue", className)} aria-label="Thinking">
+      <span className="inline-block h-1.5 w-1.5 rounded-full bg-current opacity-50 animate-pulse" style={{ animationDelay: "0ms" }} />
+      <span className="inline-block h-1.5 w-1.5 rounded-full bg-current opacity-75 animate-pulse" style={{ animationDelay: "140ms" }} />
+      <span className="inline-block h-1.5 w-1.5 rounded-full bg-current opacity-95 animate-pulse" style={{ animationDelay: "280ms" }} />
+    </div>
+  );
+}
+
+function ThinkingMessageCard({ label }: { label: string }) {
+  return (
+    <div className="rounded-[20px] border border-zinc-900/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,247,250,0.96))] px-3.5 py-3 text-zinc-800 shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
+      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+        <ThinkingDots />
+        <span>Pura</span>
+        <span className="rounded-md border border-zinc-200 bg-white/80 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-zinc-400">ACTIVE</span>
+      </div>
+      <div className="mt-2 text-sm font-medium text-zinc-900">{label}</div>
+      <div className="mt-1.5 text-xs text-zinc-500">Checking context and drafting the next step.</div>
     </div>
   );
 }
@@ -422,20 +436,11 @@ const defaultWidgetWelcomeMessage = (): SupportChatMessage => ({
   text: "Ask a question, assign tasks, and more!",
 });
 
-const floatingToolsSecondaryButtonClass =
-  [
-    "rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-500 transition-colors duration-100 hover:bg-white/80 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]",
-    portalGlassButtonClass,
-  ].join(" ");
-
 const floatingToolsCloseButtonClass =
-  "inline-flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-zinc-600 transition-colors duration-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]";
+  "inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-zinc-600 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-100 hover:bg-white hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]";
 
 const floatingToolsPrimaryButtonClass =
   "rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60";
-
-const floatingToolsGradientButtonClass =
-  "rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60";
 
 const floatingToolsPuraSendButtonClass =
   "inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-blue text-white transition-all duration-100 hover:scale-105 hover:opacity-95 disabled:opacity-60";
@@ -481,6 +486,8 @@ export function PortalFloatingTools() {
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [pageSuggestion, setPageSuggestion] = useState<WidgetSuggestedSetup | null>(null);
+  const [pageSuggestionStatus, setPageSuggestionStatus] = useState<SuggestedSetupCardState>("ready");
+  const [pageSuggestionError, setPageSuggestionError] = useState<string | null>(null);
 
   const chatMessagesRef = useRef<SupportChatMessage[]>(chatMessages);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -488,6 +495,23 @@ export function PortalFloatingTools() {
   const shouldAutoScrollRef = useRef(true);
   const chatScrollRafRef = useRef<number | null>(null);
   const syncingSuggestionKeyRef = useRef<string | null>(null);
+
+  const fetchJsonWithTimeout = useCallback(async <T,>(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 1800) => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(input, { ...init, signal: controller.signal });
+      const body = (await response.json().catch(() => null)) as T | null;
+      return { ok: response.ok, body, timedOut: false };
+    } catch (error) {
+      if ((error as Error)?.name === "AbortError") {
+        return { ok: false, body: null as T | null, timedOut: true };
+      }
+      return { ok: false, body: null as T | null, timedOut: false };
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }, []);
 
   const toolsCardRef = useRef<HTMLDivElement | null>(null);
   const chatPanelRef = useRef<HTMLDivElement | null>(null);
@@ -511,19 +535,27 @@ export function PortalFloatingTools() {
       setPageSuggestion(null);
       return;
     }
+    if (typeof pathname === "string" && pathname.includes("/services/lead-scraping")) {
+      setPageSuggestion(null);
+      return;
+    }
+    if (typeof pathname === "string" && pathname.includes("/services/booking")) {
+      setPageSuggestion(null);
+      return;
+    }
     const serviceSlug = inferSuggestedSetupServiceSlug(pathname);
     if (!serviceSlug) {
       setPageSuggestion(null);
       return;
     }
 
-    const res = await fetch("/api/portal/suggested-setup/preview", { cache: "no-store" }).catch(() => null as any);
-    if (!res?.ok) {
+    const res = await fetchJsonWithTimeout<{ proposedActions?: SuggestedSetupAction[] }>("/api/portal/suggested-setup/preview", { cache: "no-store" }, 3500);
+    if (!res.ok) {
       setPageSuggestion(null);
       return;
     }
 
-    const json = (await res.json().catch(() => null)) as { proposedActions?: SuggestedSetupAction[] } | null;
+    const json = res.body as { proposedActions?: SuggestedSetupAction[] } | null;
     const proposedActions = Array.isArray(json?.proposedActions)
       ? json.proposedActions
           .filter((action) => action && typeof action.id === "string" && typeof action.serviceSlug === "string")
@@ -536,11 +568,16 @@ export function PortalFloatingTools() {
       : [];
 
     setPageSuggestion(buildWidgetSuggestedSetup(proposedActions.filter((action) => action.serviceSlug === serviceSlug)));
-  }, [pathname]);
+  }, [fetchJsonWithTimeout, pathname]);
 
   useEffect(() => {
     void loadSuggestedSetupPreview();
   }, [loadSuggestedSetupPreview]);
+
+  useEffect(() => {
+    setPageSuggestionStatus("ready");
+    setPageSuggestionError(null);
+  }, [pageSuggestion?.key]);
 
   useEffect(() => {
     if (!chatOpen || !chatThreadId) return;
@@ -595,11 +632,17 @@ export function PortalFloatingTools() {
   }, []);
 
   useEffect(() => {
+    if (typeof pathname === "string" && pathname.includes("/services/lead-scraping")) {
+      return;
+    }
+    if (typeof pathname === "string" && pathname.includes("/services/booking")) {
+      return;
+    }
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/portal/profile", { cache: "no-store" }).catch(() => null as any);
-      if (!mounted || !res?.ok) return;
-      const json = (await res.json().catch(() => null)) as { user?: { hideFloatingTools?: boolean } | null } | null;
+      const res = await fetchJsonWithTimeout<{ user?: { hideFloatingTools?: boolean } | null }>("/api/portal/profile", { cache: "no-store" }, 1500);
+      if (!mounted || !res.ok) return;
+      const json = res.body as { user?: { hideFloatingTools?: boolean } | null } | null;
       const nextHidden = Boolean(json?.user?.hideFloatingTools);
       setProfileHidden(nextHidden);
       if (typeof document !== "undefined") {
@@ -619,7 +662,7 @@ export function PortalFloatingTools() {
       mounted = false;
       window.removeEventListener("pa.portal.floating-tools-pref", onPrefChanged as EventListener);
     };
-  }, []);
+  }, [fetchJsonWithTimeout, pathname]);
 
   const hidden = forceHidden || profileHidden || (isSmallScreen && !isDashboardRoute && !isSettingsRoute && !chatOpen && !reportOpen);
   const moveDockToTopRight = false;
@@ -875,7 +918,6 @@ export function PortalFloatingTools() {
     setMinimized(false);
     if (pageSuggestion) {
       setChatMessages((current) => upsertSuggestedSetupMessage(current, pageSuggestion));
-      void ensurePageSuggestionInThread(pageSuggestion);
     }
     shouldAutoScrollRef.current = true;
     scheduleChatScrollToBottom(true);
@@ -905,15 +947,47 @@ export function PortalFloatingTools() {
     void loadSuggestedSetupPreview();
   }
 
+  async function applyPageSuggestionPreview() {
+    if (!pageSuggestion?.actionIds.length) return;
+    setPageSuggestionStatus("applying");
+    setPageSuggestionError(null);
+
+    const res = await fetch("/api/portal/suggested-setup/apply", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actionIds: pageSuggestion.actionIds }),
+    }).catch(() => null as any);
+
+    const json = (await res?.json?.().catch(() => null)) as { ok?: boolean; error?: string } | null;
+    if (!res?.ok || !json?.ok) {
+      setPageSuggestionStatus("error");
+      setPageSuggestionError(json?.error ?? "Suggested setup could not be applied.");
+      return;
+    }
+
+    setPageSuggestionStatus("applied");
+    setPageSuggestionError(null);
+    setPageSuggestion(null);
+    setNote("Suggested setup applied.");
+    window.setTimeout(() => setNote(null), 3500);
+    router.refresh();
+    void loadSuggestedSetupPreview();
+  }
+
   function persistWidgetThreadId(nextThreadId: string | null) {
     setChatThreadId(nextThreadId);
   }
 
-  function continueWithPura() {
+  async function continueWithPura() {
     if (typeof window === "undefined") return;
+    let threadIdForTarget = chatThreadId;
+    if (pageSuggestion) {
+      const suggestedThreadId = await ensurePageSuggestionInThread(pageSuggestion);
+      if (suggestedThreadId) threadIdForTarget = suggestedThreadId;
+    }
     const target = buildPortalAiChatThreadHref({
       basePath: portalBase,
-      thread: chatThreadId ? { id: chatThreadId } : null,
+      thread: threadIdForTarget ? { id: threadIdForTarget } : null,
     });
     window.dispatchEvent(new CustomEvent("pa.portal.topbar.intent", { detail: { hidden: true } }));
     void router.prefetch(target);
@@ -1196,7 +1270,7 @@ export function PortalFloatingTools() {
                         : "mr-10 border border-zinc-200 bg-white text-zinc-800")
                     }
                   >
-                    {m.role === "assistant" && m.id.startsWith("optimistic-assistant-") ? <ThinkingDots /> : m.role === "assistant" ? renderMarkdownish(m.text) : m.text}
+                    {m.role === "assistant" && m.id.startsWith("optimistic-assistant-") ? <ThinkingMessageCard label="Thinking through your request" /> : m.role === "assistant" ? renderMarkdownish(m.text) : m.text}
                     {m.role === "assistant" && m.suggestedSetup ? (
                       <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-3">
                         <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Suggestion</div>
@@ -1334,7 +1408,7 @@ export function PortalFloatingTools() {
                       />
                     </svg>
                   </span>
-                  <span className="text-sm font-semibold text-zinc-900">Chat and Report</span>
+                  <span className="text-sm font-semibold text-zinc-900">{pageSuggestion ? "Setup suggestion" : "Chat and Report"}</span>
                 </button>
               </GlassSurface>
             </div>
@@ -1387,6 +1461,51 @@ export function PortalFloatingTools() {
                     Chat
                   </button>
                 </div>
+
+                {pageSuggestion ? (
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-white/72 p-3" data-widget-suggested-setup-preview>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Suggested setup</div>
+                    <div className="mt-1 text-sm font-semibold text-zinc-900">{pageSuggestion.title}</div>
+                    {pageSuggestion.detailLines.length ? (
+                      <div className="mt-2 space-y-1 text-xs text-zinc-600">
+                        {pageSuggestion.detailLines.slice(0, 2).map((line) => (
+                          <div key={line}>{line}</div>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className={classNames(
+                          "rounded-xl px-3 py-2 text-xs font-semibold text-white transition-transform duration-150",
+                          pageSuggestionStatus === "applied"
+                            ? "bg-emerald-600"
+                            : pageSuggestionStatus === "applying"
+                              ? "bg-zinc-400"
+                              : "bg-brand-blue hover:opacity-95",
+                        )}
+                        onClick={() => void applyPageSuggestionPreview()}
+                        disabled={pageSuggestionStatus === "applying" || pageSuggestionStatus === "applied"}
+                      >
+                        {pageSuggestionStatus === "applied"
+                          ? "Applied"
+                          : pageSuggestionStatus === "applying"
+                            ? "Applying…"
+                            : "Apply now"}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 transition-colors duration-100 hover:bg-zinc-50"
+                        onClick={openChatPanel}
+                      >
+                        Review in chat
+                      </button>
+                      {pageSuggestionStatus === "error" && pageSuggestionError ? (
+                        <div className="text-xs text-red-600">{pageSuggestionError}</div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </GlassSurface>
           </div>

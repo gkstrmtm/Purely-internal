@@ -38,6 +38,7 @@ import { usePortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 import type { Entitlements } from "@/lib/entitlements.shared";
 import { usePortalActiveTimeTracker } from "@/lib/portalActiveTime.client";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 import { usePuraCanvasUiBridgeResponder } from "@/lib/puraCanvasUiBridge.client";
 
@@ -47,6 +48,31 @@ const PORTAL_SERVICE_TITLE_BY_SLUG = new Map<string, string>(PORTAL_SERVICES.map
 const PORTAL_SERVICE_BY_SLUG = new Map<string, PortalService>(PORTAL_SERVICES.map((s) => [s.slug, s]));
 
 const DASHBOARD_SALES_SHORTCUT_SLUG = "sales-dashboard";
+const DASHBOARD_LEGACY_SHORTCUT_SEED = [
+  DASHBOARD_SALES_SHORTCUT_SLUG,
+  "funnel-builder",
+  "inbox",
+  "media-library",
+  "tasks",
+  "ai-receptionist",
+] as const;
+const DASHBOARD_SHORTCUT_EXCLUDED_DEFAULTS = new Set<string>(["funnel-builder"]);
+const DASHBOARD_SHORTCUT_PRIORITY = [
+  "inbox",
+  "tasks",
+  "booking",
+  "reporting",
+  "lead-scraping",
+  "reviews",
+  "newsletter",
+  "blogs",
+  "ai-receptionist",
+  "automations",
+  "media-library",
+  "nurture-campaigns",
+  "ai-outbound-calls",
+  "funnel-builder",
+] as const;
 
 type Me = {
   user: { email: string; name: string; role: string; businessName?: string | null };
@@ -68,8 +94,90 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function isLegacyDashboardShortcutSeed(slugs: string[]) {
+  const normalized = slugs.map((slug) => String(slug || "").trim()).filter(Boolean);
+  if (normalized.length !== DASHBOARD_LEGACY_SHORTCUT_SEED.length) return false;
+  return DASHBOARD_LEGACY_SHORTCUT_SEED.every((slug, index) => normalized[index] === slug);
+}
+
+function dashboardShortcutPriorityIndex(slug: string) {
+  const idx = DASHBOARD_SHORTCUT_PRIORITY.indexOf(slug as (typeof DASHBOARD_SHORTCUT_PRIORITY)[number]);
+  return idx === -1 ? DASHBOARD_SHORTCUT_PRIORITY.length + 1 : idx;
+}
+
+function dashboardShortcutStatusWeight(state: string | undefined) {
+  switch (String(state || "").trim().toLowerCase()) {
+    case "needs_setup":
+      return 4;
+    case "paused":
+    case "canceled":
+      return 3;
+    case "active":
+      return 2;
+    case "locked":
+    case "coming_soon":
+      return 0;
+    default:
+      return 1;
+  }
+}
+
+function computeDashboardDefaultShortcuts(opts: {
+  allowed: string[];
+  counts: Record<string, number>;
+  statuses: Record<string, { state: string; label: string }> | null;
+}) {
+  const candidates = opts.allowed.filter((slug) => !DASHBOARD_SHORTCUT_EXCLUDED_DEFAULTS.has(slug));
+  return [...candidates]
+    .sort((left, right) => {
+      const leftStatus = dashboardShortcutStatusWeight(opts.statuses?.[left]?.state);
+      const rightStatus = dashboardShortcutStatusWeight(opts.statuses?.[right]?.state);
+      if (rightStatus !== leftStatus) return rightStatus - leftStatus;
+
+      const leftPriority = dashboardShortcutPriorityIndex(left);
+      const rightPriority = dashboardShortcutPriorityIndex(right);
+      if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+
+      const countDelta = (opts.counts[right] || 0) - (opts.counts[left] || 0);
+      if (countDelta !== 0) return countDelta;
+
+      return left.localeCompare(right);
+    })
+    .slice(0, 6);
+}
+
+function sanitizeDashboardShortcutSelection(slugs: string[], fallback: string[]) {
+  const cleaned = Array.from(
+    new Set(
+      slugs
+        .map((slug) => String(slug || "").trim())
+        .filter(Boolean)
+        .filter((slug) => !DASHBOARD_SHORTCUT_EXCLUDED_DEFAULTS.has(slug)),
+    ),
+  );
+
+  return [...cleaned, ...fallback.filter((slug) => !cleaned.includes(slug))].slice(0, 6);
+}
+
 function PortalNavLink(props: React.ComponentProps<typeof Link>) {
   return <Link {...props} scroll={props.scroll ?? false} />;
+}
+
+async function fetchJsonWithTimeout<T = any>(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 2500): Promise<{ ok: boolean; status: number; body: T | null; timedOut: boolean }> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(input, { ...init, signal: controller.signal });
+    const body = (await res.json().catch(() => null)) as T | null;
+    return { ok: res.ok, status: res.status, body, timedOut: false };
+  } catch (error) {
+    if ((error as Error)?.name === "AbortError") {
+      return { ok: false, status: 408, body: null, timedOut: true };
+    }
+    return { ok: false, status: 500, body: null, timedOut: false };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function dispatchTopbarIntent(hidden: boolean) {
@@ -109,8 +217,8 @@ function sidebarIconButtonClass(active: boolean, extra?: string) {
 
 function sidebarIconChipClass(active: boolean) {
   return classNames(
-    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-all duration-100",
-    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100 group-hover:scale-105 group-hover:text-zinc-900",
+    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-[transform,background-color,color] duration-100",
+    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:-translate-y-0.5 group-hover:bg-zinc-100 group-hover:scale-105 group-hover:text-zinc-900",
   );
 }
 
@@ -149,6 +257,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isHostedPageEditor = typeof pathname === "string" && pathname.includes("/page-editor");
+  const isBookingRoute = typeof pathname === "string" && pathname.includes("/services/booking");
 
   usePortalActiveTimeTracker({ enabled: !isHostedPageEditor });
   usePuraCanvasUiBridgeResponder();
@@ -183,7 +292,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const embedded = embeddedFromQuery || embeddedSticky;
   const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
   const basePath = variant === "credit" ? "/credit" : "/portal";
-  const sidebarLogoSrc = "/brand/purelylogo.png";
+  const sidebarLogoSrc = variant === "credit" ? "/brand/2.png" : "/brand/purelylogo.png";
+  const appBrandLabel = variant === "credit" ? "Purely Credit" : "Purely Automation";
 
   useEffect(() => {
     if (!pathname) return;
@@ -201,6 +311,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       sectionTitle = "Billing";
     } else if (pathname.startsWith(`${appRoot}/profile`)) {
       sectionTitle = "Profile";
+    } else if (pathname.startsWith(`${appRoot}/onboarding`)) {
+      sectionTitle = "Quick setup";
+    } else if (pathname.startsWith(`${appRoot}/tasks`)) {
+      sectionTitle = PORTAL_SERVICE_TITLE_BY_SLUG.get("tasks") || "Tasks";
     } else if (pathname.startsWith(`${appRoot}/settings`)) {
       sectionTitle = "Settings";
     } else if (pathname.startsWith(`${appRoot}/services`)) {
@@ -226,13 +340,19 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     }
 
     if (!sectionTitle) return;
-    document.title = `${sectionTitle} • Purely Automation`;
-  }, [pathname, basePath]);
+    document.title = `${sectionTitle} • ${appBrandLabel}`;
+  }, [pathname, basePath, appBrandLabel]);
 
   type AdPlacement = "SIDEBAR_BANNER" | "TOP_BANNER" | "FULLSCREEN_REWARD" | "POPUP_CARD";
 
   const isAiChat = typeof pathname === "string" && pathname.startsWith(`${basePath}/app/ai-chat`);
   const isInbox = typeof pathname === "string" && pathname.startsWith(`${basePath}/app/services/inbox`);
+  const isAiOutboundCallsRoute = typeof pathname === "string" && pathname.startsWith(`${basePath}/app/services/ai-outbound-calls`);
+  const isAiOutboundTestingRoute = isAiOutboundCallsRoute && pathname.endsWith('/testing');
+  const isAiReceptionistRoute = typeof pathname === "string" && pathname.startsWith(`${basePath}/app/services/ai-receptionist`);
+  const aiReceptionistTab = String(searchParams?.get("tab") || "activity").trim().toLowerCase();
+  const isAiReceptionistActivityRoute = isAiReceptionistRoute && (!aiReceptionistTab || aiReceptionistTab === "activity");
+  const isAiReceptionistTestingRoute = isAiReceptionistRoute && aiReceptionistTab === "testing";
 
   const [puraCanvasOpen, setPuraCanvasOpen] = useState(false);
   useEffect(() => {
@@ -663,26 +783,30 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (isHostedPageEditor) {
+    if (isHostedPageEditor || pathname.includes("/services/lead-scraping")) {
       setServiceStatuses(null);
       return;
     }
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/portal/services/status", { cache: "no-store" });
+      const res = await fetchJsonWithTimeout<{ ok?: boolean; statuses?: unknown }>(
+        "/api/portal/services/status",
+        { cache: "no-store", headers: { [PORTAL_VARIANT_HEADER]: variant } },
+        2500,
+      );
       if (!mounted) return;
       if (!res.ok) {
         setServiceStatuses(null);
         return;
       }
-      const json = await res.json().catch(() => null);
+      const json = res.body;
       const statuses = json && (json as any).ok === true ? (json as any).statuses : null;
       setServiceStatuses(statuses && typeof statuses === "object" ? statuses : null);
     })();
     return () => {
       mounted = false;
     };
-  }, [isHostedPageEditor]);
+  }, [isHostedPageEditor, pathname, variant]);
 
   useEffect(() => {
     setShowGettingStartedHint(false);
@@ -691,19 +815,23 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/portal/me", { cache: "no-store" });
+      const res = await fetchJsonWithTimeout<PortalMe>(
+        "/api/portal/me",
+        { cache: "no-store", headers: { [PORTAL_VARIANT_HEADER]: variant } },
+        2500,
+      );
       if (!mounted) return;
       if (!res.ok) {
         setPortalMe({ ok: false, error: "Forbidden" });
         return;
       }
-      const json = (await res.json().catch(() => null)) as PortalMe | null;
+      const json = (res.body ?? null) as PortalMe | null;
       setPortalMe(json);
     })();
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [variant]);
 
   useEffect(() => {
     window.localStorage.setItem("portalSidebarCollapsed", collapsed ? "1" : "0");
@@ -754,13 +882,17 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/customer/me", {
+      const res = await fetchJsonWithTimeout<Me>(
+        "/api/customer/me",
+        {
         cache: "no-store",
         headers: { "x-pa-app": "portal", "x-portal-variant": variant },
-      });
+        },
+        3500,
+      );
       if (!mounted) return;
       if (!res.ok) return;
-      const json = (await res.json()) as Me;
+      const json = res.body as Me;
       setMe(json);
     })();
     return () => {
@@ -771,6 +903,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
   const signedInLabel = (me?.user.email ?? "").trim();
   const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
+  const isLeadScrapingRoute = pathname.includes("/services/lead-scraping");
+  const suppressPromotionalChrome = isHostedPageEditor || isLeadScrapingRoute || isBookingRoute;
 
   const canViewServiceKey = useCallback(
     (key: PortalServiceKey) => {
@@ -810,7 +944,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const refreshAds = useCallback(
     async (opts: { placement: AdPlacement; reason: "path" | "focus" | "dismiss" }) => {
-      if (isHostedPageEditor) {
+      if (suppressPromotionalChrome) {
         if (opts.placement === "SIDEBAR_BANNER") setSidebarCampaign(null);
         if (opts.placement === "TOP_BANNER") setTopBannerCampaign(null);
         if (opts.placement === "FULLSCREEN_REWARD") {
@@ -827,10 +961,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       const url =
         `/api/portal/ads/next?placement=${opts.placement}&path=${encodeURIComponent(pathname || "")}` +
         (excludeIds.length ? `&exclude=${encodeURIComponent(excludeIds.join(","))}` : "");
-      const res = await fetch(url, { cache: "no-store" }).catch(() => null as any);
-      const json = (await res?.json().catch(() => null)) as any;
+      const res = await fetchJsonWithTimeout<any>(url, { cache: "no-store" }, 1500);
+      const json = res.body as any;
 
-      if (!res?.ok || !json?.ok) {
+      if (!res.ok || !json?.ok) {
         if (opts.placement === "SIDEBAR_BANNER") setSidebarCampaign(null);
         if (opts.placement === "TOP_BANNER") setTopBannerCampaign(null);
         if (opts.placement === "FULLSCREEN_REWARD") {
@@ -865,7 +999,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         setPopupCampaignPending(json.campaign ?? null);
       }
     },
-    [getExcludedCampaignIds, isHostedPageEditor, pathname],
+    [getExcludedCampaignIds, pathname, suppressPromotionalChrome],
   );
 
   useEffect(() => {
@@ -1078,9 +1212,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const derivedTopKey = useMemo<"pura" | "dashboard" | "services" | "settings">(() => {
     if (isAiChat) return "pura";
     if (pathname === `${basePath}/app` || pathname === `${basePath}/app/`) return "dashboard";
+    if (typeof pathname === "string" && pathname.startsWith(`${basePath}/app/onboarding`)) return "dashboard";
     if (
       typeof pathname === "string" &&
-      (pathname.startsWith(`${basePath}/app/services`) || pathname.startsWith(`${basePath}/app/people`))
+      (pathname.startsWith(`${basePath}/app/services`) || pathname.startsWith(`${basePath}/app/people`) || pathname.startsWith(`${basePath}/app/tasks`))
     ) {
       return "services";
     }
@@ -1088,14 +1223,20 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [basePath, isAiChat, pathname]);
 
   const [sidebarModeOverride, setSidebarModeOverride] = useState<null | "pura" | "dashboard" | "services" | "settings">(null);
+  const [servicesSidebarView, setServicesSidebarView] = useState<"current" | "list">("current");
   useEffect(() => {
     // Any real navigation resets the manual sidebar mode.
     setSidebarModeOverride(null);
+    setServicesSidebarView("current");
   }, [pathname]);
 
   const activeTopKey = sidebarModeOverride ?? derivedTopKey;
   const hasSidebarOverrideContent = Boolean(sidebarOverride?.desktopSidebarContent || sidebarOverride?.mobileSidebarContent);
-  const showSidebarOverrideInServices = activeTopKey === "services" && derivedTopKey === "services" && hasSidebarOverrideContent;
+  const showSidebarOverrideInServices =
+    activeTopKey === "services" &&
+    derivedTopKey === "services" &&
+    hasSidebarOverrideContent &&
+    servicesSidebarView === "current";
   const sidebarPanelTopKey = activeTopKey;
   const showSidebarOverridePanel = sidebarPanelTopKey === "pura" || showSidebarOverrideInServices;
 
@@ -1114,6 +1255,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const activeServiceSlug = useMemo(() => {
     if (typeof pathname !== "string") return null;
+    if (pathname === `${basePath}/app/tasks` || pathname.startsWith(`${basePath}/app/tasks/`)) return "tasks";
     const prefix = `${basePath}/app/services/`;
     if (!pathname.startsWith(prefix)) return null;
     const rest = pathname.slice(prefix.length);
@@ -1182,9 +1324,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         // ignore
       }
 
-      const ordered = [...allowed].sort((a, b) => (counts[b] || 0) - (counts[a] || 0));
-      const computedServices = (ordered.filter(Boolean).slice(0, 5).length ? ordered.filter(Boolean).slice(0, 5) : allowed.slice(0, 5)).slice(0, 5);
-      const computed = [DASHBOARD_SALES_SHORTCUT_SLUG, ...computedServices.filter((s) => s !== DASHBOARD_SALES_SHORTCUT_SLUG)].slice(0, 6);
+      const computed = computeDashboardDefaultShortcuts({
+        allowed,
+        counts,
+        statuses: serviceStatuses,
+      });
       if (mounted) setDashboardQuickAccessFallback(computed);
 
       const res = await fetch("/api/portal/dashboard/quick-access", { cache: "no-store" }).catch(() => null as any);
@@ -1194,11 +1338,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       if (!mounted || !json?.ok) return;
 
       const slugs = Array.isArray(json.slugs) ? json.slugs : [];
-      setDashboardQuickAccess(slugs);
+      const nextSlugs = isLegacyDashboardShortcutSeed(slugs) ? computed : sanitizeDashboardShortcutSelection(slugs, computed);
+      setDashboardQuickAccess(nextSlugs);
 
-      // If not configured yet, persist a sensible “top used” default.
-      if (!slugs.length && computed.length) {
+      // If not configured yet, or if we're upgrading an older auto-seeded set,
+      // persist the more owner-operator-friendly default.
+      const shouldPersistSanitized = computed.length && JSON.stringify(nextSlugs) !== JSON.stringify(slugs);
+      if ((!slugs.length || isLegacyDashboardShortcutSeed(slugs)) && computed.length) {
         void saveDashboardQuickAccess(computed);
+      } else if (shouldPersistSanitized) {
+        void saveDashboardQuickAccess(nextSlugs);
       }
     })();
     return () => {
@@ -1208,10 +1357,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const dashboardQuickAccessEffective = useMemo(() => {
     const base = (dashboardQuickAccess && dashboardQuickAccess.length ? dashboardQuickAccess : dashboardQuickAccessFallback) || [];
-    const unique = Array.from(new Set(base.map((s) => String(s || "").trim()).filter(Boolean)));
-    const withoutSales = unique.filter((s) => s !== DASHBOARD_SALES_SHORTCUT_SLUG);
-    const salesFirst = [DASHBOARD_SALES_SHORTCUT_SLUG, ...withoutSales];
-    return salesFirst.slice(0, 6);
+    return Array.from(
+      new Set(
+        base
+          .map((s) => String(s || "").trim())
+          .filter(Boolean)
+          .filter((slug) => !DASHBOARD_SHORTCUT_EXCLUDED_DEFAULTS.has(slug)),
+      ),
+    ).slice(0, 6);
   }, [dashboardQuickAccess, dashboardQuickAccessFallback]);
 
   const [dashboardAnalysis, setDashboardAnalysis] = useState<null | { text: string; generatedAtIso: string }>(null);
@@ -1269,6 +1422,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const sidebarHeaderLabel = useMemo(() => {
     if (sidebarPanelTopKey === "pura") return "pura";
+    if (typeof pathname === "string" && pathname.startsWith(`${basePath}/app/onboarding`)) return "quick setup";
     if (sidebarPanelTopKey === "dashboard") return "dashboard";
     if (sidebarPanelTopKey === "settings") return "settings";
     if (sidebarPanelTopKey === "services") {
@@ -1282,7 +1436,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const mobileHeaderTitle = useMemo(() => {
     if (activeTopKey === "pura") return "Pura";
     if (pathname === `${basePath}/app` || pathname === `${basePath}/app/`) return "Dashboard";
+    if (pathname.startsWith(`${basePath}/app/onboarding`)) return "Quick setup";
     if (pathname === `${basePath}/app/people` || pathname.startsWith(`${basePath}/app/people/`)) return "People";
+    if (pathname === `${basePath}/app/tasks` || pathname.startsWith(`${basePath}/app/tasks/`)) {
+      return PORTAL_SERVICE_TITLE_BY_SLUG.get("tasks") || "Tasks";
+    }
     if (pathname.startsWith(`${basePath}/app/profile`)) return "Profile";
     if (pathname.startsWith(`${basePath}/app/billing`)) return "Billing";
     if (pathname.startsWith(`${basePath}/app/settings/appearance`)) return "Appearance";
@@ -1298,16 +1456,21 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const dashboardShortcutCandidates = PORTAL_SERVICES.filter((s) => !s.hidden)
     .filter((s) => canViewServiceSlug(s.slug))
-    .filter((s) => !s.variants || s.variants.includes(variant));
+    .filter((s) => !s.variants || s.variants.includes(variant))
+    .filter((s) => !DASHBOARD_SHORTCUT_EXCLUDED_DEFAULTS.has(s.slug));
 
   function isActive(href: string) {
-    if (href === `${basePath}/app`) return pathname === `${basePath}/app`;
+    if (href === `${basePath}/app`) {
+      return pathname === `${basePath}/app` || pathname.startsWith(`${basePath}/app/onboarding`);
+    }
     if (href === `${basePath}/app/services`) {
       return (
         pathname === href ||
         pathname.startsWith(href + "/") ||
         pathname === `${basePath}/app/people` ||
-        pathname.startsWith(`${basePath}/app/people/`)
+        pathname.startsWith(`${basePath}/app/people/`) ||
+        pathname === `${basePath}/app/tasks` ||
+        pathname.startsWith(`${basePath}/app/tasks/`)
       );
     }
     if (href === `${basePath}/app/settings`) {
@@ -1323,6 +1486,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return pathname === href || pathname.startsWith(href + "/");
   }
 
+  function hrefForServiceNavigation(slug: string) {
+    const rootHref = `${basePath}/app/services/${slug}`;
+    if (activeServiceSlug !== slug) return rootHref;
+    const currentPath = typeof pathname === "string" && pathname.startsWith(rootHref) ? pathname : rootHref;
+    const query = searchParams?.toString();
+    return query ? `${currentPath}?${query}` : currentPath;
+  }
+
   function renderSidebarServiceLink(s: PortalService) {
     const lockBadge = serviceLockBadge(s.slug);
     const unlocked = serviceUnlocked(s);
@@ -1331,7 +1502,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return (
       <PortalNavLink
         key={s.slug}
-        href={`${basePath}/app/services/${s.slug}`}
+        href={hrefForServiceNavigation(s.slug)}
+        onClick={() => {
+          setServicesSidebarView("current");
+          setSidebarModeOverride(null);
+          setMobileOpen(false);
+        }}
         className={classNames(
           "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-150",
           active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
@@ -1361,6 +1537,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       <PortalNavLink
         key="__people"
         href={`${basePath}/app/people`}
+        onClick={() => {
+          setServicesSidebarView("current");
+          setSidebarModeOverride(null);
+          setMobileOpen(false);
+        }}
         className={classNames(
           "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-150",
           active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
@@ -1437,14 +1618,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               : "env(safe-area-inset-bottom)",
           }}
         >
-          <main className="h-full overflow-y-auto overscroll-y-contain">
+          <main className="flex h-full min-h-0 flex-col overflow-hidden overscroll-y-contain">
             {children}
-            <div
-              aria-hidden
-              className="h-[calc(env(safe-area-inset-bottom)+5rem)] sm:h-[calc(env(safe-area-inset-bottom)+2rem)]"
-            />
           </main>
-          {isAutomationsEditor ? <PortalFloatingTools /> : null}
+          {isAutomationsEditor && !dashboardEditMode && !isBookingRoute ? <PortalFloatingTools /> : null}
         </div>
       </>
     );
@@ -1462,12 +1639,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }
 
   if (embedded) {
-    const settingsHref = variant === "portal" ? `${basePath}/app/settings` : `${basePath}/app`;
+    const settingsHref = `${basePath}/app/settings`;
 
     const footerTabs = [
       { href: `${basePath}/app`, label: "Dashboard", key: "home" },
+      { href: `${basePath}/app/services`, label: "Services", key: "services" },
       { href: `${basePath}/app/services/inbox`, label: "Inbox", key: "inbox" },
-      { href: `${basePath}/app/services/tasks`, label: "Tasks", key: "tasks" },
       { href: `${basePath}/app/people`, label: "People", key: "people" },
       { href: settingsHref, label: "Settings", key: "settings" },
     ] as const;
@@ -1537,7 +1714,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 <PortalNavLink href={`${basePath}/app`} className="flex items-center gap-3" onClick={() => setMobileOpen(false)}>
                   <Image
                     src={sidebarLogoSrc}
-                    alt="Purely Automation"
+                    alt={appBrandLabel}
                     width={120}
                     height={34}
                     className="h-6 w-auto max-w-32 object-contain"
@@ -1566,7 +1743,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           return (
                             <PortalNavLink
                               key={s.slug}
-                              href={`${basePath}/app/services/${s.slug}`}
+                              href={hrefForServiceNavigation(s.slug)}
                               onClick={() => setMobileOpen(false)}
                               className={classNames(
                                 "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
@@ -1653,26 +1830,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       );
                     case "inbox":
                       return <IconInboxGlyph size={22} />;
-                    case "tasks":
-                      return (
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path
-                            d="M9 11l2 2 4-4"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <path
-                            d="M7 4h12a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinejoin="round"
-                          />
-                          <path d="M8 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                          <path d="M8 16h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                        </svg>
-                      );
+                    case "services":
+                      return <IconServiceGlyph slug="booking" />;
                     case "people":
                       return <IconPeopleGlyph size={22} />;
                     case "settings":
@@ -1701,7 +1860,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           </nav>
 
-          <PortalFloatingTools />
+          {!dashboardEditMode && !isBookingRoute ? <PortalFloatingTools /> : null}
         </div>
       </>
     );
@@ -1839,8 +1998,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   const iconClass = sidebarIconButtonClass(active, "h-10 w-10");
                   const onClick = () => {
                     if (isSidebarOnly) {
-                      if (key === "services" && derivedTopKey === "services" && hasSidebarOverrideContent) {
-                        setSidebarModeOverride(null);
+                      if (key === "services") {
+                        if (derivedTopKey === "services" && hasSidebarOverrideContent && servicesSidebarView === "current") {
+                          setServicesSidebarView("list");
+                          setSidebarModeOverride("services");
+                          return;
+                        }
+                        setServicesSidebarView("current");
+                      }
+                      if (key === "services" && derivedTopKey === "services" && hasSidebarOverrideContent && servicesSidebarView === "list") {
+                        setSidebarModeOverride("services");
                         return;
                       }
                       setSidebarModeOverride(key);
@@ -1848,6 +2015,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     }
                     dispatchTopbarIntent(key === "pura");
                     setSidebarModeOverride(null);
+                    setServicesSidebarView("current");
                     setMobileOpen(false);
                   };
 
@@ -1920,12 +2088,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 toast?.push({ kind: "error", message: "Pick up to 6 shortcuts" });
                                 return;
                               }
-                              const next = [DASHBOARD_SALES_SHORTCUT_SLUG, ...cur.filter((x) => x !== DASHBOARD_SALES_SHORTCUT_SLUG)];
+                                const next = [...cur, DASHBOARD_SALES_SHORTCUT_SLUG];
                               setDashboardQuickAccess(next);
                               void saveDashboardQuickAccess(next);
                             }}
                             className={classNames(
-                              "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                              "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-150",
                               dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
                                 ? "bg-zinc-100 text-zinc-900"
                                 : "text-zinc-700 hover:bg-zinc-50",
@@ -1947,7 +2115,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               aria-hidden
                             >
                               {dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG) ? "✓" : "+"}
-                            </span>
+                              </span>
                           </button>
                           {dashboardShortcutCandidates.map((svc) => {
                             const selected = dashboardQuickAccessEffective.includes(svc.slug);
@@ -2007,7 +2175,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                       key="mobile_shortcut_sales_dashboard"
                                       href={`${basePath}/app/services/reporting/sales`}
                                       className={classNames(
-                                        "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                                        "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-150",
                                         pathname === `${basePath}/app/services/reporting/sales`
                                           ? "bg-zinc-100 text-zinc-900"
                                           : "text-zinc-700 hover:bg-zinc-50",
@@ -2042,7 +2210,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           onClick={() => void refreshDashboardAnalysis("manual_refresh")}
                           className="rounded-xl px-2 py-1 text-[11px] font-semibold text-zinc-600 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                         >
-                          {dashboardAnalysisLoading ? "Refreshing…" : "Refresh"}
+                          {dashboardAnalysisLoading ? "Regenerating…" : "Regenerate"}
                         </button>
                       </div>
                       <div className="mt-2 rounded-2xl bg-white p-3 text-xs leading-relaxed text-zinc-700">
@@ -2149,14 +2317,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     </PortalNavLink>
                     {canViewServiceKey("profile") ? (
                       <PortalNavLink
-                        href={`${basePath}/app/profile`}
+                        href={`${basePath}/app/settings/profile`}
                         onClick={() => setMobileOpen(false)}
                         className={classNames(
                           "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-150",
-                          pathname.startsWith(`${basePath}/app/profile`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                          pathname.startsWith(`${basePath}/app/settings/profile`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                         )}
                       >
-                        <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/profile`))} aria-hidden>
+                        <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/settings/profile`))} aria-hidden>
                           <IconProfileGlyph />
                         </span>
                         <span className="truncate">Profile</span>
@@ -2164,14 +2332,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     ) : null}
                     {canViewServiceKey("billing") ? (
                       <PortalNavLink
-                        href={`${basePath}/app/billing`}
+                        href={`${basePath}/app/settings/billing`}
                         onClick={() => setMobileOpen(false)}
                         className={classNames(
                           "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-150",
-                          pathname.startsWith(`${basePath}/app/billing`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                          pathname.startsWith(`${basePath}/app/settings/billing`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                         )}
                       >
-                        <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/billing`))} aria-hidden>
+                        <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/settings/billing`))} aria-hidden>
                           <IconBillingGlyph />
                         </span>
                         <span className="truncate">Billing</span>
@@ -2312,8 +2480,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       setSidebarModeOverride("settings");
                       return;
                     }
-                    if (derivedTopKey === "services" && hasSidebarOverrideContent) {
-                      setSidebarModeOverride(null);
+                    if (derivedTopKey === "services" && hasSidebarOverrideContent && servicesSidebarView === "current") {
+                      setServicesSidebarView("list");
+                      setSidebarModeOverride("services");
+                      return;
+                    }
+                    if (key === "services") {
+                      setServicesSidebarView("current");
+                    }
+                    if (derivedTopKey === "services" && hasSidebarOverrideContent && servicesSidebarView === "list") {
+                      setSidebarModeOverride("services");
                       return;
                     }
                     // Services should respect the user's collapsed preference.
@@ -2346,6 +2522,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       dispatchTopbarIntent(key === "pura");
                     }
                     if (key === "pura" || key === "dashboard" || key === "settings") setCollapsed(false);
+                    setServicesSidebarView("current");
                     setSidebarModeOverride(null);
                   };
 
@@ -2413,12 +2590,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             toast?.push({ kind: "error", message: "Pick up to 6 shortcuts" });
                             return;
                           }
-                          const next = [DASHBOARD_SALES_SHORTCUT_SLUG, ...cur.filter((x) => x !== DASHBOARD_SALES_SHORTCUT_SLUG)];
+                          const next = [...cur, DASHBOARD_SALES_SHORTCUT_SLUG];
                           setDashboardQuickAccess(next);
                           void saveDashboardQuickAccess(next);
                         }}
                         className={classNames(
-                          "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                          "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-150",
                           dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
                             ? "bg-zinc-100 text-zinc-900"
                             : "text-zinc-700 hover:bg-zinc-50",
@@ -2428,7 +2605,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           <span className={sidebarIconToneClassForSlug("reporting")}>
                             <IconSalesDashboardGlyph size={18} />
                           </span>
-                        </span>
+                          </span>
                         <span className="min-w-0 flex-1 truncate">Sales dashboard</span>
                         <span
                           className={classNames(
@@ -2496,11 +2673,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           {dashboardQuickAccessEffective.map((slug) => {
                             if (slug === DASHBOARD_SALES_SHORTCUT_SLUG) {
                               return (
-                                  <PortalNavLink
+                                <PortalNavLink
                                   key="shortcut_sales_dashboard"
                                   href={`${basePath}/app/services/reporting/sales`}
                                   className={classNames(
-                                    "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                                    "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-150",
                                     pathname === `${basePath}/app/services/reporting/sales`
                                       ? "bg-zinc-100 text-zinc-900"
                                       : "text-zinc-700 hover:bg-zinc-50",
@@ -2512,7 +2689,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                     </span>
                                   </span>
                                   <span className="truncate">Sales dashboard</span>
-                                  </PortalNavLink>
+                                </PortalNavLink>
                               );
                             }
 
@@ -2535,7 +2712,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       onClick={() => void refreshDashboardAnalysis("manual_refresh")}
                       className="rounded-xl px-2 py-1 text-[11px] font-semibold text-zinc-600 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                     >
-                      {dashboardAnalysisLoading ? "Refreshing…" : "Refresh"}
+                      {dashboardAnalysisLoading ? "Regenerating…" : "Regenerate"}
                     </button>
                   </div>
                   <div className="mt-2 rounded-2xl bg-white p-3 text-xs leading-relaxed text-zinc-700">
@@ -2609,6 +2786,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 <div className="flex min-h-0 flex-1 flex-col items-center gap-1 py-1">
                   <PortalNavLink
                     href={`${basePath}/app/services`}
+                    onClick={() => {
+                      setServicesSidebarView("list");
+                      setSidebarModeOverride("services");
+                    }}
                     title="See all"
                     aria-label="See all"
                     className={sidebarIconButtonClass(pathname === `${basePath}/app/services`)}
@@ -2625,7 +2806,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           out.push(
                             <PortalNavLink
                               key={`svc_${svc.slug}`}
-                              href={`${basePath}/app/services/${svc.slug}`}
+                              href={hrefForServiceNavigation(svc.slug)}
+                              onClick={() => {
+                                setServicesSidebarView("current");
+                                setSidebarModeOverride(null);
+                              }}
                               title={svc.title}
                               aria-label={svc.title}
                               className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/services/${svc.slug}`))}
@@ -2641,6 +2826,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               <PortalNavLink
                                 key="svc_people"
                                 href={`${basePath}/app/people`}
+                                onClick={() => {
+                                  setServicesSidebarView("current");
+                                  setSidebarModeOverride(null);
+                                }}
                                 title="People"
                                 aria-label="People"
                                 className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/people`))}
@@ -2658,7 +2847,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         out.push(
                           <PortalNavLink
                             key={`svc_${svc.slug}`}
-                            href={`${basePath}/app/services/${svc.slug}`}
+                            href={hrefForServiceNavigation(svc.slug)}
+                            onClick={() => {
+                              setServicesSidebarView("current");
+                              setSidebarModeOverride(null);
+                            }}
                             title={svc.title}
                             aria-label={svc.title}
                             className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/services/${svc.slug}`))}
@@ -2736,10 +2929,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
                   {canViewServiceKey("profile") ? (
                     <PortalNavLink
-                      href={`${basePath}/app/profile`}
+                      href={`${basePath}/app/settings/profile`}
                       title="Profile"
                       aria-label="Profile"
-                      className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/profile`))}
+                      className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/settings/profile`))}
                     >
                       <IconProfileGlyph />
                     </PortalNavLink>
@@ -2747,10 +2940,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
                   {canViewServiceKey("billing") ? (
                     <PortalNavLink
-                      href={`${basePath}/app/billing`}
+                      href={`${basePath}/app/settings/billing`}
                       title="Billing"
                       aria-label="Billing"
-                      className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/billing`))}
+                      className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/settings/billing`))}
                     >
                       <IconBillingGlyph />
                     </PortalNavLink>
@@ -2801,13 +2994,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   </PortalNavLink>
                   {canViewServiceKey("profile") ? (
                     <PortalNavLink
-                      href={`${basePath}/app/profile`}
+                      href={`${basePath}/app/settings/profile`}
                       className={classNames(
                         "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-150",
-                        pathname.startsWith(`${basePath}/app/profile`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                        pathname.startsWith(`${basePath}/app/settings/profile`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                       )}
                     >
-                      <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/profile`))} aria-hidden>
+                      <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/settings/profile`))} aria-hidden>
                         <IconProfileGlyph />
                       </span>
                       <span className="truncate">Profile</span>
@@ -2815,13 +3008,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   ) : null}
                   {canViewServiceKey("billing") ? (
                     <PortalNavLink
-                      href={`${basePath}/app/billing`}
+                      href={`${basePath}/app/settings/billing`}
                       className={classNames(
                         "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors duration-150",
-                        pathname.startsWith(`${basePath}/app/billing`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                        pathname.startsWith(`${basePath}/app/settings/billing`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                       )}
                     >
-                      <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/billing`))} aria-hidden>
+                      <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/settings/billing`))} aria-hidden>
                         <IconBillingGlyph />
                       </span>
                       <span className="truncate">Billing</span>
@@ -2945,7 +3138,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </div>
           </aside>
 
-          <div className={classNames("flex min-h-0 min-w-0 flex-1 flex-col", isInbox ? "overflow-hidden" : "overflow-y-auto overscroll-y-contain")}>
+          <div
+            className={classNames(
+              "flex min-h-0 min-w-0 flex-1 flex-col",
+              isAiReceptionistActivityRoute || isAiReceptionistTestingRoute ? "bg-white" : null,
+              isInbox || isLeadScrapingRoute || isAiReceptionistTestingRoute || isAiOutboundTestingRoute ? "overflow-hidden" : "overflow-y-auto overscroll-y-contain",
+            )}
+          >
           {!isHostedPageEditor ? <div className="pointer-events-none fixed inset-x-0 top-0 z-90 flex items-start justify-between px-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:hidden">
             <button
               type="button"
@@ -2960,10 +3159,19 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           <main
             className={classNames(
               "min-h-0 min-w-0 flex-1 sm:transition-[padding] sm:duration-350 sm:ease-[cubic-bezier(0.22,1,0.36,1)]",
+              isAiReceptionistActivityRoute || isAiReceptionistTestingRoute ? "bg-white" : null,
               isHostedPageEditor
                 ? "p-0"
+                : isAiReceptionistActivityRoute
+                ? "p-4 pb-4 pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:p-8 sm:pb-6 sm:pt-[calc(var(--pa-portal-topbar-height,0px)+0.75rem)]"
+                : isAiReceptionistTestingRoute
+                ? "overflow-hidden px-0 pb-0 pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:px-0 sm:pb-0 sm:pt-[calc(var(--pa-portal-topbar-height,0px)+0.75rem)]"
+                : isAiOutboundTestingRoute
+                ? "overflow-hidden p-4 pb-0 pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:p-8 sm:pb-0 sm:pt-[calc(var(--pa-portal-topbar-height,0px)+2rem)]"
                 : isAiChat
                 ? "pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:p-0"
+                : isLeadScrapingRoute
+                ? "overflow-hidden px-0 pb-0 pt-[calc(env(safe-area-inset-top)+3.35rem)] sm:px-0 sm:pb-0 sm:pt-(--pa-portal-topbar-height,0px)"
                 : isInbox
                 ? "overflow-hidden p-4 pb-0 pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:p-8 sm:pb-0 sm:pt-[calc(var(--pa-portal-topbar-height,0px)+0.75rem)]"
                 : "p-4 pb-4 pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:p-8 sm:pb-6 sm:pt-[calc(var(--pa-portal-topbar-height,0px)+2rem)]",
@@ -3036,7 +3244,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             ) : null}
 
             {children}
-            {!isAiChat && !isHostedPageEditor && !isInbox ? (
+            {!isAiChat && !isHostedPageEditor && !isInbox && !isAiReceptionistTestingRoute && !isAiOutboundTestingRoute ? (
               <div
                 aria-hidden
                 className="h-[calc(env(safe-area-inset-bottom)+5rem)] sm:h-[calc(env(safe-area-inset-bottom)+2rem)]"
@@ -3156,7 +3364,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       <button
                         type="button"
                         className={classNames(
-                          "inline-flex h-10 w-10 items-center justify-center rounded-full text-zinc-500 hover:bg-white/80 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]",
+                          "inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]",
                           portalGlassButtonClass,
                         )}
                         onClick={() => {
@@ -3497,7 +3705,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           ) : null}
 
-          <PortalFloatingTools />
+          {!dashboardEditMode && !isBookingRoute ? <PortalFloatingTools /> : null}
         </div>
         </div>
       </div>

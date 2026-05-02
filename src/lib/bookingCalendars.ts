@@ -9,6 +9,7 @@ export type BookingCalendar = {
   meetingLocation?: string;
   meetingDetails?: string;
   notificationEmails?: string[];
+  assignedUserId?: string;
   availabilityBlocks?: Array<{ startAt: string; endAt: string }>;
 };
 
@@ -108,6 +109,7 @@ export function parseBookingCalendarsConfig(value: unknown): BookingCalendarsCon
       .map((x) => x.toLowerCase())
       .filter((x) => emailLike.test(x))
       .slice(0, 20);
+    const assignedUserId = normalizeId(item.assignedUserId, "").slice(0, 120);
     const availabilityBlocks = normalizeAvailabilityBlocks(item.availabilityBlocks);
 
     const durationMinutesRaw = item.durationMinutes;
@@ -125,6 +127,7 @@ export function parseBookingCalendarsConfig(value: unknown): BookingCalendarsCon
       meetingLocation: meetingLocation || undefined,
       meetingDetails: meetingDetails || undefined,
       notificationEmails: notificationEmails.length ? notificationEmails : undefined,
+      assignedUserId: assignedUserId || undefined,
       availabilityBlocks,
     });
 

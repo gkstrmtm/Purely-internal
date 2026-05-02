@@ -28,10 +28,22 @@ export type PreviewBlogAutomationSettings = {
   enabled: boolean;
   frequencyDays: number;
   topics: string[];
+  contextFiles: PreviewBlogAutomationContextFile[];
   autoPublish: boolean;
   lastGeneratedAt: string | null;
   nextDueAt: string | null;
   lastRunAt?: string | null;
+};
+
+export type PreviewBlogAutomationContextFile = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  tag: string;
+  shareUrl: string;
+  previewUrl?: string;
+  createdAt?: string;
 };
 
 export type PreviewBlogAppearance = {
@@ -66,6 +78,7 @@ function cloneDefaultState(): PreviewBlogState {
       enabled: false,
       frequencyDays: 7,
       topics: ["seasonal offers", "common customer questions", "before and after project stories"],
+      contextFiles: [],
       autoPublish: false,
       lastGeneratedAt: null,
       nextDueAt: null,
@@ -89,10 +102,6 @@ function cloneDefaultState(): PreviewBlogState {
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function cloneState<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function clampFrequencyDays(value: number) {
@@ -142,6 +151,21 @@ function normalizeState(raw: unknown): PreviewBlogState {
       topics: Array.isArray(value.automation?.topics)
         ? value.automation.topics.map((item) => String(item || "")).filter(Boolean)
         : base.automation.topics,
+      contextFiles: Array.isArray(value.automation?.contextFiles)
+        ? value.automation.contextFiles
+            .map((item, index) => ({
+              id: String(item?.id || `preview-context-${index + 1}`),
+              fileName: String(item?.fileName || "Reference file"),
+              mimeType: String(item?.mimeType || "application/octet-stream"),
+              fileSize: Number.isFinite(item?.fileSize) ? Number(item?.fileSize) : 0,
+              tag: String(item?.tag || ""),
+              shareUrl: String(item?.shareUrl || ""),
+              previewUrl: item?.previewUrl ? String(item.previewUrl) : undefined,
+              createdAt: item?.createdAt ? String(item.createdAt) : undefined,
+            }))
+            .filter((item) => item.id && item.fileName && item.shareUrl)
+            .slice(0, 12)
+        : base.automation.contextFiles,
       autoPublish: Boolean(value.automation?.autoPublish ?? base.automation.autoPublish),
       lastGeneratedAt: value.automation?.lastGeneratedAt ? String(value.automation.lastGeneratedAt) : null,
       nextDueAt: value.automation?.nextDueAt ? String(value.automation.nextDueAt) : null,
@@ -245,6 +269,21 @@ export function savePreviewAutomationSettings(next: Partial<PreviewBlogAutomatio
       topics: Array.isArray(next.topics)
         ? next.topics.map((item) => String(item || "").trim()).filter(Boolean)
         : state.automation.topics,
+      contextFiles: Array.isArray(next.contextFiles)
+        ? next.contextFiles
+            .map((item, index) => ({
+              id: String(item?.id || `preview-context-${index + 1}`),
+              fileName: String(item?.fileName || "Reference file"),
+              mimeType: String(item?.mimeType || "application/octet-stream"),
+              fileSize: Number.isFinite(item?.fileSize) ? Number(item?.fileSize) : 0,
+              tag: String(item?.tag || ""),
+              shareUrl: String(item?.shareUrl || ""),
+              previewUrl: item?.previewUrl ? String(item.previewUrl) : undefined,
+              createdAt: item?.createdAt ? String(item.createdAt) : undefined,
+            }))
+            .filter((item) => item.id && item.fileName && item.shareUrl)
+            .slice(0, 12)
+        : state.automation.contextFiles,
     },
   }));
   return updated.automation;

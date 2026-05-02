@@ -49,6 +49,8 @@ type SettingsV3 = {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
     };
+    emailResources: Array<{ label: string; url: string }>;
+    smsResources: Array<{ label: string; url: string }>;
     resources: Array<{ label: string; url: string }>;
   };
   outboundState: {
@@ -115,12 +117,14 @@ function normalizeSettings(value: unknown): SettingsV3 {
       enabled: false,
       trigger: "MANUAL",
     },
+    emailResources: [],
+    smsResources: [],
     resources: [],
   };
 
   const outboundRaw = rec.outbound && typeof rec.outbound === "object" ? (rec.outbound as Record<string, unknown>) : {};
-  const resourcesRaw = Array.isArray(outboundRaw.resources) ? outboundRaw.resources : [];
-  const resources = resourcesRaw
+  const normalizeResources = (raw: unknown) =>
+    (Array.isArray(raw) ? raw : [])
     .map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>) : {}))
     .map((r) => ({
       label: (typeof r.label === "string" ? r.label.trim() : "").slice(0, 120) || "Resource",
@@ -128,6 +132,12 @@ function normalizeSettings(value: unknown): SettingsV3 {
     }))
     .filter((r) => Boolean(r.url))
     .slice(0, 30);
+  const resources = normalizeResources(outboundRaw.resources);
+  const emailResources = normalizeResources((outboundRaw as any).emailResources ?? resources);
+  const smsResources = normalizeResources((outboundRaw as any).smsResources ?? resources);
+  const mergedResources = Array.from(
+    new Map([...emailResources, ...smsResources].map((resource) => [`${resource.url}::${resource.label.toLowerCase()}`, resource])).values(),
+  ).slice(0, 30);
 
   const parseTrigger = (t: unknown) => {
     const raw = typeof t === "string" ? t.trim() : "MANUAL";
@@ -171,7 +181,9 @@ function normalizeSettings(value: unknown): SettingsV3 {
           enabled: false,
           trigger: "MANUAL",
         },
-        resources,
+        emailResources,
+        smsResources,
+        resources: mergedResources,
       };
     }
 
@@ -201,7 +213,9 @@ function normalizeSettings(value: unknown): SettingsV3 {
         trigger: parseTrigger((callsRec as any).trigger),
         script: (typeof (callsRec as any).script === "string" ? ((callsRec as any).script as string) : "").slice(0, 1800),
       },
-      resources,
+      emailResources,
+      smsResources,
+      resources: mergedResources,
     };
   })();
 
@@ -243,6 +257,13 @@ function normalizeSettings(value: unknown): SettingsV3 {
   };
 }
 
+function getOutboundResourcesForChannel(
+  outbound: SettingsV3["outbound"],
+  channel: "email" | "sms",
+) {
+  return channel === "email" ? outbound.emailResources : outbound.smsResources;
+}
+
 export async function POST(req: Request) {
   const auth = await requireClientSessionForService("leadScraping");
   if (!auth.ok) {
@@ -253,12 +274,11 @@ export async function POST(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
-  const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
-
   const entitlements = await resolveEntitlementsForOwnerId(ownerId, auth.session.user.email);
   if (!entitlements.leadOutbound) {
     return NextResponse.json({ error: "Outbound is not enabled on your account." }, { status: 403 });
   }
+  const aiCallsUnlocked = Boolean(entitlements.leadOutbound) || (await requireClientSessionForService("aiOutboundCalls")).ok;
 
   const followUpCustomVariables = (await getFollowUpSettings(ownerId).catch(() => null))?.customVariables ?? {};
 
@@ -335,7 +355,13 @@ export async function POST(req: Request) {
     const campaignId = settings.outbound.aiCampaignId || null;
     const useAiCampaign = Boolean(campaignId) && Boolean(settings.outbound.aiDraftAndSend) && aiCallsUnlocked;
 
-    const resources = settings.outbound.resources
+    const emailResources = getOutboundResourcesForChannel(settings.outbound, "email")
+      .map((r) => ({
+        label: r.label,
+        url: r.url.startsWith("/") ? `${base}${r.url}` : r.url,
+      }))
+      .filter((r) => Boolean(r.url));
+    const smsResources = getOutboundResourcesForChannel(settings.outbound, "sms")
       .map((r) => ({
         label: r.label,
         url: r.url.startsWith("/") ? `${base}${r.url}` : r.url,
@@ -349,7 +375,7 @@ export async function POST(req: Request) {
       try {
         const draft = await draftLeadOutboundEmail({
           lead,
-          resources,
+          resources: emailResources,
           fromName,
           prompt: settings.outbound.aiPrompt,
           senderBusinessContext,
@@ -361,8 +387,8 @@ export async function POST(req: Request) {
       }
     }
 
-    const textResources = resources.length
-      ? `\n\nResources:\n${resources.map((r) => `- ${r.label}: ${r.url}`).join("\n")}`
+    const textResources = emailResources.length
+      ? `\n\nResources:\n${emailResources.map((r) => `- ${r.label}: ${r.url}`).join("\n")}`
       : "";
     const text = (textBase + textResources).slice(0, 20000);
 
@@ -471,7 +497,7 @@ export async function POST(req: Request) {
             try {
               const draft = await draftLeadOutboundSms({
                 lead,
-                resources,
+                resources: smsResources,
                 fromName,
                 prompt: settings.outbound.aiPrompt,
                 senderBusinessContext,
@@ -487,12 +513,12 @@ export async function POST(req: Request) {
           } else {
             let smsBody = smsBodyBase;
 
-            if (resources.length) {
+            if (smsResources.length) {
               const prefix = "\n\nResources:\n";
               const remaining = 900 - smsBody.length;
               if (remaining > prefix.length + 10) {
                 let suffix = prefix;
-                for (const r of resources) {
+                for (const r of smsResources) {
                   const line = `- ${r.label}: ${r.url}`;
                   if (suffix.length + line.length + 1 > remaining) break;
                   suffix += line + "\n";

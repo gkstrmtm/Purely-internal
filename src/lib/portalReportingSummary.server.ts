@@ -51,6 +51,20 @@ function safeDate(value: unknown): Date | null {
   return d;
 }
 
+async function withTimeout<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race<T>([
+      work,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export type PortalReportingSummaryPayload = {
   ok: true;
   range: PortalReportingRangeKey;
@@ -117,9 +131,11 @@ export async function getPortalReportingSummaryForOwner(
 
   const warnings: string[] = [];
 
-  async function safe<T>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> {
+  async function safe<T>(label: string, fn: () => Promise<T>, fallback: T, timeoutMs = 4000): Promise<T> {
     try {
-      return await fn();
+      const result = await withTimeout(fn(), timeoutMs, fallback);
+      if (result === fallback) warnings.push(`${label}:timeout`);
+      return result;
     } catch (err) {
       console.error(`/api/portal/reporting: ${label} failed`, err);
       warnings.push(label);
@@ -148,9 +164,9 @@ export async function getPortalReportingSummaryForOwner(
     inboxMessagesIn,
     inboxMessagesOut,
   ] = await Promise.all([
-    safe("credits", () => getCreditsState(ownerId), { balance: 0, autoTopUp: false }),
-    safe("aiEvents", () => listAiReceptionistEvents(ownerId, 200), []),
-    safe("missedCallEvents", () => listMissedCallTextBackEvents(ownerId, 200), []),
+    safe("credits", () => getCreditsState(ownerId), { balance: 0, autoTopUp: false }, 3000),
+    safe("aiEvents", () => listAiReceptionistEvents(ownerId, 200), [], 3000),
+    safe("missedCallEvents", () => listMissedCallTextBackEvents(ownerId, 200), [], 3000),
     safe(
       "leadScrapeRuns",
       () =>
@@ -169,8 +185,9 @@ export async function getPortalReportingSummaryForOwner(
           take: 200,
         }),
       [],
+      3000,
     ),
-    safe("bookingSite", () => prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true } }), null),
+    safe("bookingSite", () => prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true } }), null, 2500),
     safe(
       "reviewsAgg",
       () =>
@@ -180,14 +197,16 @@ export async function getPortalReportingSummaryForOwner(
           _avg: { rating: true },
         }),
       { _count: { id: 0 }, _avg: { rating: null } },
+      3000,
     ),
-    safe("leadsCount", () => prisma.portalLead.count({ where: { ownerId, createdAt: { gte: start } } }), 0),
-    safe("contactsCount", () => prisma.portalContact.count({ where: { ownerId, createdAt: { gte: start } } }), 0),
+    safe("leadsCount", () => prisma.portalLead.count({ where: { ownerId, createdAt: { gte: start } } }), 0, 2500),
+    safe("contactsCount", () => prisma.portalContact.count({ where: { ownerId, createdAt: { gte: start } } }), 0, 2500),
 
     safe(
       "aiOutboundQueuedNow",
       () => prisma.portalAiOutboundCallEnrollment.count({ where: { ownerId, status: "QUEUED" } }),
       0,
+      2500,
     ),
     safe(
       "aiOutboundCompleted",
@@ -196,6 +215,7 @@ export async function getPortalReportingSummaryForOwner(
           where: { ownerId, status: "COMPLETED", completedAt: { gte: start } },
         }),
       0,
+      2500,
     ),
     safe(
       "aiOutboundFailed",
@@ -204,14 +224,16 @@ export async function getPortalReportingSummaryForOwner(
           where: { ownerId, status: "FAILED", updatedAt: { gte: start } },
         }),
       0,
+      2500,
     ),
 
     safe(
       "nurtureEnrollmentsCreated",
       () => prisma.portalNurtureEnrollment.count({ where: { ownerId, createdAt: { gte: start } } }),
       0,
+      2500,
     ),
-    safe("nurtureEnrollmentsActiveNow", () => prisma.portalNurtureEnrollment.count({ where: { ownerId, status: "ACTIVE" } }), 0),
+    safe("nurtureEnrollmentsActiveNow", () => prisma.portalNurtureEnrollment.count({ where: { ownerId, status: "ACTIVE" } }), 0, 2500),
     safe(
       "nurtureEnrollmentsCompleted",
       () =>
@@ -219,6 +241,7 @@ export async function getPortalReportingSummaryForOwner(
           where: { ownerId, status: "COMPLETED", updatedAt: { gte: start } },
         }),
       0,
+      2500,
     ),
 
     safe(
@@ -230,13 +253,15 @@ export async function getPortalReportingSummaryForOwner(
           _sum: { sentCount: true, failedCount: true },
         }),
       { _count: { id: 0 }, _sum: { sentCount: 0, failedCount: 0 } },
+      3000,
     ),
 
-    safe("tasksOpenNow", () => prisma.portalTask.count({ where: { ownerId, status: "OPEN" } }), 0),
+    safe("tasksOpenNow", () => prisma.portalTask.count({ where: { ownerId, status: "OPEN" } }), 0, 2500),
     safe(
       "tasksCompleted",
       () => prisma.portalTask.count({ where: { ownerId, status: "DONE", updatedAt: { gte: start } } }),
       0,
+      2500,
     ),
 
     safe(
@@ -246,6 +271,7 @@ export async function getPortalReportingSummaryForOwner(
           where: { ownerId, direction: "IN", createdAt: { gte: start } },
         }),
       0,
+      2500,
     ),
     safe(
       "inboxMessagesOut",
@@ -254,6 +280,7 @@ export async function getPortalReportingSummaryForOwner(
           where: { ownerId, direction: "OUT", createdAt: { gte: start } },
         }),
       0,
+      2500,
     ),
   ]);
 
@@ -267,6 +294,7 @@ export async function getPortalReportingSummaryForOwner(
           _sum: { chargedCredits: true },
         }),
       { _count: { id: 0 }, _sum: { chargedCredits: 0 } } as any,
+      3000,
     ),
     safe(
       "blogGenerationEvents",
@@ -278,6 +306,7 @@ export async function getPortalReportingSummaryForOwner(
           take: 500,
         }),
       [],
+      3000,
     ),
   ]);
 
@@ -286,6 +315,7 @@ export async function getPortalReportingSummaryForOwner(
         "bookingCount",
         () => prisma.portalBooking.count({ where: { siteId: bookingSite.id, createdAt: { gte: start } } }),
         0,
+        3000,
       )
     : 0;
 
@@ -380,12 +410,18 @@ export async function getPortalReportingSummaryForOwner(
   }
 
   if (bookingSite) {
-    const bookings = await prisma.portalBooking.findMany({
-      where: { siteId: bookingSite.id, createdAt: { gte: start } },
-      select: { createdAt: true },
-      take: 500,
-      orderBy: { createdAt: "desc" },
-    });
+    const bookings = await safe(
+      "bookingDaily",
+      () =>
+        prisma.portalBooking.findMany({
+          where: { siteId: bookingSite.id, createdAt: { gte: start } },
+          select: { createdAt: true },
+          take: 500,
+          orderBy: { createdAt: "desc" },
+        }),
+      [],
+      3000,
+    );
     for (const b of bookings) {
       const key = dayKeyUtc(b.createdAt);
       const row = dailyMap.get(key);
@@ -404,6 +440,7 @@ export async function getPortalReportingSummaryForOwner(
         orderBy: { createdAt: "desc" },
       }),
     [],
+    3000,
   );
 
   for (const r of reviews as any[]) {

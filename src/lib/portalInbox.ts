@@ -171,7 +171,7 @@ export async function upsertPortalInboxMessage(opts: {
   provider?: string | null;
   providerMessageId?: string | null;
   createdAt?: Date;
-}): Promise<{ threadId: string; messageId: string }> {
+}): Promise<{ threadId: string; messageId: string; inserted: boolean }> {
   const ownerId = String(opts.ownerId);
   const channel = opts.channel;
   const direction = opts.direction;
@@ -261,7 +261,7 @@ export async function upsertPortalInboxMessage(opts: {
           .catch(() => null);
       }
 
-      return { threadId: String(existing.threadId || thread.id), messageId: String(existing.id) };
+      return { threadId: String(existing.threadId || thread.id), messageId: String(existing.id), inserted: false };
     }
   }
 
@@ -282,7 +282,7 @@ export async function upsertPortalInboxMessage(opts: {
     select: { id: true },
   });
 
-  return { threadId: thread.id, messageId: msg.id };
+  return { threadId: thread.id, messageId: msg.id, inserted: true };
 }
 
 export async function tryUpsertPortalInboxMessage(

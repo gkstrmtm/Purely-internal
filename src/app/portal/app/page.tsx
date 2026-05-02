@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { PortalDashboardClient } from "@/app/portal/PortalDashboardClient";
 import { requirePortalUser } from "@/lib/portalAuth";
+import { requestPortalAppBasePath, requestPortalVariant } from "@/lib/portalVariant.server";
 
 function isMobileUserAgent(ua: string) {
   const s = String(ua || "");
@@ -25,6 +26,8 @@ export default async function PortalAppHomePage({
   searchParams?: any;
 }) {
   const h = await headers();
+  const portalVariant = await requestPortalVariant();
+  const appBase = await requestPortalAppBasePath(portalVariant);
   const host = String(h.get("host") || "").toLowerCase();
   const ua = String(h.get("user-agent") || "");
 
@@ -44,21 +47,14 @@ export default async function PortalAppHomePage({
       }
     }
     sp.set("pa_mobileapp", "1");
-    redirect(`/portal/app?${sp.toString()}`);
+    redirect(`${appBase}?${sp.toString()}`);
   }
 
-  await requirePortalUser();
+  await requirePortalUser({ variant: portalVariant });
 
   return (
     <div className="mx-auto w-full max-w-380 transition-[max-width] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)]">
-      <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-end">
-        <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Dashboard</h1>
-          <p className="mt-1 text-sm text-zinc-600">Your services, billing, and automation stats.</p>
-        </div>
-      </div>
-
-      <div className="mt-6">
+      <div>
         <PortalDashboardClient />
       </div>
     </div>

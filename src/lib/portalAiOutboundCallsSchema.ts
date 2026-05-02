@@ -62,7 +62,9 @@ SELECT
     "messageChannelPolicy",
     "callOutcomeTaggingJson",
     "messageOutcomeTaggingJson",
+    "bookingConfigJson",
   ];
+  const neededEnrollmentColumns = ["conversationId", "recordingSid", "transcriptText", "bookingAnalysisJson"];
 
   const foundCampaignCols = await prisma.$queryRawUnsafe<Array<{ column_name: string }>>(
     `
@@ -78,6 +80,22 @@ WHERE table_schema = 'public'
   const found = new Set(foundCampaignCols.map((r) => String(r.column_name)));
   for (const c of neededCampaignColumns) {
     if (!found.has(c)) return false;
+  }
+
+  const foundEnrollmentCols = await prisma.$queryRawUnsafe<Array<{ column_name: string }>>(
+    `
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'PortalAiOutboundCallEnrollment'
+  AND column_name = ANY($1::text[]);
+    `.trim(),
+    neededEnrollmentColumns,
+  );
+
+  const foundEnrollment = new Set(foundEnrollmentCols.map((r) => String(r.column_name)));
+  for (const c of neededEnrollmentColumns) {
+    if (!foundEnrollment.has(c)) return false;
   }
 
   return true;
@@ -179,6 +197,7 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallCampaign" (
   "manualChatAgentId" TEXT,
   "chatAgentConfigJson" JSONB,
   "chatKnowledgeBaseJson" JSONB,
+  "bookingConfigJson" JSONB,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "PortalAiOutboundCallCampaign_pkey" PRIMARY KEY ("id")
@@ -251,6 +270,11 @@ ALTER TABLE "PortalAiOutboundCallCampaign"
     `.trim(),
 
     `
+ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "bookingConfigJson" JSONB;
+    `.trim(),
+
+    `
 CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallEnrollment" (
   "id" TEXT NOT NULL,
   "ownerId" TEXT NOT NULL,
@@ -259,13 +283,37 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallEnrollment" (
   "status" "PortalAiOutboundCallEnrollmentStatus" NOT NULL DEFAULT 'QUEUED',
   "nextCallAt" TIMESTAMP(3),
   "callSid" TEXT,
+  "conversationId" TEXT,
+  "recordingSid" TEXT,
+  "transcriptText" TEXT,
   "attemptCount" INTEGER NOT NULL DEFAULT 0,
   "lastError" TEXT,
+  "bookingAnalysisJson" JSONB,
   "completedAt" TIMESTAMP(3),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "PortalAiOutboundCallEnrollment_pkey" PRIMARY KEY ("id")
 );
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallEnrollment"
+  ADD COLUMN IF NOT EXISTS "conversationId" TEXT;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallEnrollment"
+  ADD COLUMN IF NOT EXISTS "recordingSid" TEXT;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallEnrollment"
+  ADD COLUMN IF NOT EXISTS "transcriptText" TEXT;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallEnrollment"
+  ADD COLUMN IF NOT EXISTS "bookingAnalysisJson" JSONB;
     `.trim(),
 
   `
@@ -348,6 +396,7 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallManualCall" (
   "recordingSid" TEXT,
   "recordingDurationSec" INTEGER,
   "transcriptText" TEXT,
+  "bookingAnalysisJson" JSONB,
   "lastError" TEXT,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -358,6 +407,11 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallManualCall" (
     `
 ALTER TABLE "PortalAiOutboundCallManualCall"
   ADD COLUMN IF NOT EXISTS "recordingDurationSec" INTEGER;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallManualCall"
+  ADD COLUMN IF NOT EXISTS "bookingAnalysisJson" JSONB;
     `.trim(),
 
     `CREATE UNIQUE INDEX IF NOT EXISTS "PortalAiOutboundCallManualCall_webhookToken_key" ON "PortalAiOutboundCallManualCall"("webhookToken");`,
@@ -459,6 +513,22 @@ END $$;
     });
 
     ensuredAt = Date.now();
+  } catch (error) {
+    // Request-path schema ensures should never take down the product UI on a
+    // busy localhost/dev database. If the schema is already present, or Prisma
+    // cannot acquire/start the transaction fast enough, fail open and let the
+    // route continue with the existing tables/columns.
+    if (await schemaLooksPresent().catch(() => false)) {
+      ensuredAt = Date.now();
+      return;
+    }
+
+    const code = typeof (error as any)?.code === "string" ? String((error as any).code) : "";
+    if (code === "P2028" || code === "P2034") {
+      return;
+    }
+
+    throw error;
   } finally {
     await prisma.$queryRawUnsafe(`SELECT pg_advisory_unlock($1);`, lockKey).catch(() => null);
   }

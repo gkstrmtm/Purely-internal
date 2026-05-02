@@ -35,3 +35,4 @@
 - Keep changes surgical. This repo mixes public marketing pages, employee ops, portal, credit, ads, hosted pages, and mobile in one workspace, so avoid “global cleanup” edits unless the user asks.
 - Preserve discoverable compatibility code even if it looks redundant; many helpers exist specifically to support partially migrated or legacy data.
 - Never add deterministic portal flows, hard-coded execution branches, or screen-reading style logic unless the user explicitly says the code word: screen read.
+- Before changing any Pura assistant behavior, read ../docs/pura-ai-only-guardrail.md and follow it strictly.

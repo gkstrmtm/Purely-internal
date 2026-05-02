@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+
+import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +19,15 @@ function uniq(xs: string[]) {
   return out;
 }
 
+function serviceMeta(serviceSlug: string) {
+  const slug = String(serviceSlug || "").trim();
+  const service = PORTAL_SERVICES.find((item) => item.slug === slug) ?? null;
+  return {
+    title: service?.title ?? slug,
+    description: service?.description ?? "Apply this discount to continue to secure checkout.",
+  };
+}
+
 export default async function PortalDiscountChooserPage({
   searchParams,
 }: {
@@ -30,6 +42,13 @@ export default async function PortalDiscountChooserPage({
   const servicesRaw = typeof sp?.services === "string" ? sp.services : "";
   const serviceSlugs = uniq(servicesRaw.split(",")).slice(0, 20);
 
+  if (serviceSlugs.length === 1 && (promoCode || campaignId)) {
+    const qs = new URLSearchParams();
+    if (promoCode) qs.set("promoCode", promoCode);
+    if (campaignId) qs.set("campaignId", campaignId);
+    redirect(`${appBase}/discount/${encodeURIComponent(serviceSlugs[0] || "")}?${qs.toString()}`);
+  }
+
   return (
     <div className="mx-auto w-full max-w-xl p-6">
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -42,23 +61,31 @@ export default async function PortalDiscountChooserPage({
           </div>
         ) : null}
 
-        <div className="mt-4 grid gap-2">
-          {serviceSlugs.map((slug) => {
-            const qs = new URLSearchParams();
-            if (promoCode) qs.set("promoCode", promoCode);
-            if (campaignId) qs.set("campaignId", campaignId);
-            const href = `${appBase}/discount/${encodeURIComponent(slug)}?${qs.toString()}`;
-            return (
-              <Link
-                key={slug}
-                href={href}
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-              >
-                {slug}
-              </Link>
-            );
-          })}
-        </div>
+        {serviceSlugs.length ? (
+          <div className="mt-4 grid gap-2">
+            {serviceSlugs.map((slug) => {
+              const meta = serviceMeta(slug);
+              const qs = new URLSearchParams();
+              if (promoCode) qs.set("promoCode", promoCode);
+              if (campaignId) qs.set("campaignId", campaignId);
+              const href = `${appBase}/discount/${encodeURIComponent(slug)}?${qs.toString()}`;
+              return (
+                <Link
+                  key={slug}
+                  href={href}
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 hover:bg-zinc-50"
+                >
+                  <div className="text-sm font-semibold text-zinc-900">{meta.title}</div>
+                  <div className="mt-1 text-xs text-zinc-600">{meta.description}</div>
+                </Link>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+            No eligible services were included with this discount link.
+          </div>
+        )}
 
         <div className="mt-4">
           <Link href={`${appBase}/billing`} className="text-sm font-semibold text-zinc-700 hover:text-zinc-900">

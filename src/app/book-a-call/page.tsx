@@ -1,12 +1,39 @@
+import type { Metadata } from "next";
+
+import { headers } from "next/headers";
 import Link from "next/link";
 
+import DomainRouterNotFound from "@/app/domain-router/[domain]/not-found";
+import { buildCustomDomainNotFoundMetadata, hostnameFromHeader, isPlatformHostname } from "@/lib/customDomainMetadata";
 import { MarketingBookingWidget } from "@/components/marketing/MarketingBookingWidget";
+
+export const dynamic = "force-dynamic";
+
+export async function generateMetadata(): Promise<Metadata> {
+  const h = await headers();
+  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
+
+  if (!isPlatformHostname(host) && host) {
+    return buildCustomDomainNotFoundMetadata(host);
+  }
+
+  return {
+    title: "Book a Call | Purely Automation",
+    description: "Pick a time and map an automation plan with Purely Automation.",
+  };
+}
 
 export default async function BookACallPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const h = await headers();
+  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
+  if (!isPlatformHostname(host)) {
+    return <DomainRouterNotFound />;
+  }
+
   const sp = await searchParams;
   const r = sp.r;
   const requestId = typeof r === "string" ? r : Array.isArray(r) ? r[0] ?? null : null;

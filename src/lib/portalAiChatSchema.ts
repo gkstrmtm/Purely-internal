@@ -1,7 +1,25 @@
 import { prisma } from "@/lib/db";
 
-let ensuredAt = 0;
 const ENSURE_TTL_MS = 10 * 60 * 1000;
+
+type PortalAiChatSchemaEnsureState = {
+  ensuredAt: number;
+  inFlight: Promise<void> | null;
+};
+
+declare global {
+  var __paPortalAiChatSchemaEnsureState: PortalAiChatSchemaEnsureState | undefined;
+}
+
+function getPortalAiChatSchemaEnsureState(): PortalAiChatSchemaEnsureState {
+  if (!globalThis.__paPortalAiChatSchemaEnsureState) {
+    globalThis.__paPortalAiChatSchemaEnsureState = {
+      ensuredAt: 0,
+      inFlight: null,
+    };
+  }
+  return globalThis.__paPortalAiChatSchemaEnsureState;
+}
 
 async function aiChatSchemaLooksReady(): Promise<boolean> {
   try {
@@ -67,15 +85,24 @@ async function aiChatSchemaLooksReady(): Promise<boolean> {
 }
 
 export async function ensurePortalAiChatSchema(): Promise<void> {
+  const state = getPortalAiChatSchemaEnsureState();
   const now = Date.now();
-  if (ensuredAt && now - ensuredAt < ENSURE_TTL_MS) return;
-
-  if (await aiChatSchemaLooksReady()) {
-    ensuredAt = Date.now();
+  if (state.ensuredAt && now - state.ensuredAt < ENSURE_TTL_MS) return;
+  if (state.inFlight) {
+    await state.inFlight;
     return;
   }
 
-  const statements: string[] = [
+  state.inFlight = (async () => {
+    const runStartedAt = Date.now();
+    if (state.ensuredAt && runStartedAt - state.ensuredAt < ENSURE_TTL_MS) return;
+
+    if (await aiChatSchemaLooksReady()) {
+      state.ensuredAt = Date.now();
+      return;
+    }
+
+    const statements: string[] = [
     `
 CREATE TABLE IF NOT EXISTS "PortalAiChatThread" (
   "id" TEXT NOT NULL,
@@ -227,11 +254,18 @@ BEGIN
   END IF;
 END $$;
     `.trim(),
-  ];
+    ];
 
-  for (const statement of statements) {
-    await prisma.$executeRawUnsafe(statement);
+    for (const statement of statements) {
+      await prisma.$executeRawUnsafe(statement);
+    }
+
+    state.ensuredAt = Date.now();
+  })();
+
+  try {
+    await state.inFlight;
+  } finally {
+    if (state.inFlight) state.inFlight = null;
   }
-
-  ensuredAt = Date.now();
 }

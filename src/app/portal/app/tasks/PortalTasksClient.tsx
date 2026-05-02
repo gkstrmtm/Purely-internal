@@ -7,13 +7,13 @@ import {
   portalSidebarButtonActiveClass,
   portalSidebarButtonBaseClass,
   portalSidebarButtonInactiveClass,
-  portalSidebarIconActionButtonClass,
   portalSidebarMetaTextClass,
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
 import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass } from "@/components/portalGlass";
 import { useToast } from "@/components/ToastProvider";
+import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 
 type TaskRow = {
@@ -71,7 +71,21 @@ export function PortalTasksClient() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [assignedToUserId, setAssignedToUserId] = useState<string>("");
+  const [dueAtIso, setDueAtIso] = useState<string>("");
   const [creating, setCreating] = useState(false);
+
+  const formatDueAt = useCallback((value: string | null) => {
+    const iso = String(value || "").trim();
+    if (!iso) return "";
+    const date = new Date(iso);
+    if (!Number.isFinite(date.getTime())) return "";
+    return date.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }, []);
 
   const openTasks = useMemo(() => {
     const rows = tasks.filter((t) => String(t.status) === "OPEN");
@@ -133,6 +147,7 @@ export function PortalTasksClient() {
           title: t,
           description: description.trim() || undefined,
           assignedToUserId: assignedToUserId.trim() || null,
+          dueAtIso: dueAtIso.trim() || null,
         }),
       });
       const json = (await res.json().catch(() => null)) as any;
@@ -140,6 +155,7 @@ export function PortalTasksClient() {
       setTitle("");
       setDescription("");
       setAssignedToUserId("");
+      setDueAtIso("");
       setCreateOpen(false);
       toast.success("Task created.");
       await load();
@@ -201,6 +217,28 @@ export function PortalTasksClient() {
     }
   }
 
+  async function setDueDate(taskId: string, nextDueAtIso: string | null) {
+    try {
+      const res = await fetch(`/api/portal/tasks/${encodeURIComponent(taskId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dueAtIso: nextDueAtIso || null }),
+      });
+      const text = await res.text();
+      const json = (() => {
+        try {
+          return text ? JSON.parse(text) : null;
+        } catch {
+          return null;
+        }
+      })() as any;
+      if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Update failed"));
+      await load();
+    } catch (e: any) {
+      toast.error(String(e?.message || "Update failed"));
+    }
+  }
+
   async function deleteTask(taskId: string) {
     try {
       const res = await fetch(`/api/portal/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
@@ -217,22 +255,14 @@ export function PortalTasksClient() {
   const tasksSidebar = useMemo(() => {
     return (
       <div className="space-y-4">
-        <div>
-          <div className="flex items-center justify-between gap-3">
-            <div className={portalSidebarSectionTitleClass}>Tasks</div>
-            <button
-              type="button"
-              onClick={() => setCreateOpen(true)}
-              className={portalSidebarIconActionButtonClass}
-            >
-              +
-            </button>
-          </div>
-          <div className={portalSidebarSectionStackClass}>
-            <div className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonActiveClass}`}>Open {openTasks.length}</div>
+        <div className={portalSidebarSectionStackClass}>
+          <div className={`${portalSidebarButtonBaseClass} ${portalSidebarButtonActiveClass}`}>
+            <div className="text-[13px] font-semibold text-zinc-900">Open tasks</div>
+            <div className="mt-1 text-xs text-zinc-500">
+              {openTasks.length ? `${openTasks.length} active for your team` : "Everything is wrapped up."}
+            </div>
           </div>
         </div>
-
         <div>
           <div className={portalSidebarSectionTitleClass}>Done</div>
           <div className={portalSidebarSectionStackClass}>
@@ -245,7 +275,7 @@ export function PortalTasksClient() {
                     <button
                       type="button"
                       onClick={() => setStatus(task.id, "OPEN")}
-                      className="rounded-xl border border-zinc-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-50"
+                      className="rounded-xl bg-[rgba(29,78,216,0.12)] px-2.5 py-1.5 text-[11px] font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]"
                     >
                       Reopen
                     </button>
@@ -281,24 +311,41 @@ export function PortalTasksClient() {
 
   return (
     <div className="mx-auto w-full max-w-6xl">
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Tasks</h1>
-          <p className="mt-2 text-sm text-zinc-600">Internal tasks for your portal team.</p>
+          <p className="mt-2 max-w-2xl text-sm text-zinc-600">
+            Keep follow-ups, handoffs, and team reminders in one place so nothing slips between inbox, booking, and daily operations.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold">
+            <span className="inline-flex rounded-full bg-[rgba(29,78,216,0.12)] px-3 py-1 text-(--color-brand-blue)">
+              {openTasks.length} open
+            </span>
+            <span className="inline-flex rounded-full bg-zinc-100 px-3 py-1 text-zinc-600">
+              {doneTasks.length} done
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setCreateOpen(true)}
-            className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
+            className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]"
           >
-            + Task
+            New task
           </button>
         </div>
       </div>
 
       {loading ? (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
+        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="h-4 w-28 animate-pulse rounded-full bg-zinc-100" aria-hidden="true" />
+          <div className="mt-4 space-y-3" aria-hidden="true">
+            <div className="h-24 rounded-2xl bg-zinc-50" />
+            <div className="h-24 rounded-2xl bg-zinc-50" />
+          </div>
+          <p className="mt-4 text-sm text-zinc-600">Pulling in the latest tasks for your team.</p>
+        </div>
       ) : null}
 
       {!loading ? (
@@ -319,6 +366,11 @@ export function PortalTasksClient() {
                         {t.title}
                       </div>
                       {t.description ? <div className="mt-1 text-sm text-zinc-600">{t.description}</div> : null}
+                      {t.dueAtIso ? (
+                        <div className="mt-2 inline-flex rounded-full bg-[rgba(29,78,216,0.12)] px-3 py-1 text-xs font-semibold text-(--color-brand-blue)">
+                          Due {formatDueAt(t.dueAtIso)}
+                        </div>
+                      ) : null}
                       {!t.assignedToUserId ? (
                         <div className="mt-2 text-xs font-semibold text-zinc-500">Assigned to everyone</div>
                       ) : null}
@@ -338,18 +390,23 @@ export function PortalTasksClient() {
                           </div>
                         )}
                       </div>
+                      <div className="mt-3">
+                        <div className="text-xs font-semibold text-zinc-700">Due date</div>
+                        <div className="mt-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                          <LocalDateTimePicker
+                            value={t.dueAtIso || ""}
+                            onChange={(value) => void setDueDate(t.id, value || null)}
+                            placeholder="No due date"
+                          />
+                        </div>
+                      </div>
                     </div>
                     <div className="flex shrink-0 flex-col gap-2">
                       {(!t.assignedToUserId || (viewerUserId && String(t.assignedToUserId) === String(viewerUserId))) ? (
                         <button
                           type="button"
                           onClick={() => setStatus(t.id, !t.assignedToUserId && t.viewerDoneAtIso ? "OPEN" : "DONE")}
-                          className={classNames(
-                            "rounded-2xl px-3 py-2 text-xs font-semibold hover:brightness-95",
-                            !t.assignedToUserId && t.viewerDoneAtIso
-                              ? "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
-                              : "bg-(--color-brand-blue) text-white",
-                          )}
+                          className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-xs font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]"
                         >
                           {!t.assignedToUserId && t.viewerDoneAtIso ? "Undo" : "Mark done"}
                         </button>
@@ -366,7 +423,17 @@ export function PortalTasksClient() {
                 </div>
               ))
             ) : (
-              <div className="text-sm text-zinc-600">No open tasks.</div>
+              <div className="rounded-3xl border border-dashed border-zinc-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,248,255,0.95))] px-6 py-8 text-center">
+                <div className="text-base font-semibold text-zinc-900">You’re all caught up.</div>
+                <div className="mt-2 text-sm text-zinc-600">Add a new task whenever you want to track a follow-up, handoff, or reminder for the team.</div>
+                <button
+                  type="button"
+                  onClick={() => setCreateOpen(true)}
+                  className="mt-4 rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]"
+                >
+                  New task
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -384,7 +451,7 @@ export function PortalTasksClient() {
                 type="button"
                 onClick={() => setCreateOpen(false)}
                 aria-label="Close create task"
-                className={classNames("inline-flex h-10 w-10 items-center justify-center rounded-full text-lg font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
+                className={classNames("inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-lg font-semibold text-zinc-800 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white", portalGlassButtonClass)}
               >
                 ×
               </button>
@@ -394,7 +461,7 @@ export function PortalTasksClient() {
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Task title"
+                placeholder="What needs to get done?"
                 className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
               />
               <div>
@@ -407,9 +474,15 @@ export function PortalTasksClient() {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={4}
-                placeholder="Description (optional)"
+                placeholder="Add any details, context, or next steps for your team (optional)"
                 className="w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
               />
+              <div>
+                <div className="text-xs font-semibold text-zinc-700">Due date</div>
+                <div className="mt-1 rounded-2xl border border-zinc-200 bg-white px-3 py-3">
+                  <LocalDateTimePicker value={dueAtIso} onChange={setDueAtIso} placeholder="Optional due date" />
+                </div>
+              </div>
             </div>
 
             <div className="mt-4 flex items-center justify-end gap-2">

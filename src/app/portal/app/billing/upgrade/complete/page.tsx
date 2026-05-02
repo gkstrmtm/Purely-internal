@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AppModal } from "@/components/AppModal";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 export default function PortalBillingUpgradeCompletePage() {
   return (
@@ -44,7 +45,7 @@ function PortalBillingUpgradeCompleteInner() {
 
       const res = await fetch("/api/portal/billing/onboarding-confirm", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalBase === "/credit" ? "credit" : "portal" },
         body: JSON.stringify({ sessionId }),
       });
 
@@ -96,7 +97,7 @@ function PortalBillingUpgradeCompleteInner() {
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
-              className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
               onClick={() => {
                 setModalOpen(false);
                 router.replace(`${appBase}/billing`, { scroll: false });

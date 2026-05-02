@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { buildAiOutboundBookingPrompt, parseAiOutboundBookingConfig } from "@/lib/aiOutboundBooking";
+import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { getBookingFormConfig } from "@/lib/bookingForm";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
@@ -14,10 +17,10 @@ import {
   parseElevenLabsAgentPromptToVoiceAgentConfig,
   patchElevenLabsAgent,
 } from "@/lib/elevenLabsConvai";
-import { resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
+import { buildDefaultAiOutboundCallFirstMessage, resolveRequiredOutboundTooling } from "@/lib/portalAiOutboundCallVoiceAgent";
+import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 import { buildOutboundIntelligenceBrief } from "@/lib/portalAiOutboundIntelligence";
-import { resolveToolIdsForKeys } from "@/lib/voiceAgentTools";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,15 +44,6 @@ function envVoiceAgentId(): string {
 
 function envVoiceAgentApiKey(): string {
   return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
-}
-
-function normalizeToolKey(raw: unknown): string {
-  const s = typeof raw === "string" ? raw.trim() : "";
-  if (!s) return "";
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
 }
 
 function safeRecord(raw: unknown): Record<string, unknown> {
@@ -123,10 +117,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   await ensurePortalAiOutboundCallsSchema();
 
-  const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+  const campaign = (await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },
-    select: { id: true, name: true, voiceAgentId: true, manualVoiceAgentId: true, voiceAgentConfigJson: true, voiceId: true, knowledgeBaseJson: true },
-  });
+    select: { id: true, name: true, voiceAgentId: true, manualVoiceAgentId: true, voiceAgentConfigJson: true, voiceId: true, knowledgeBaseJson: true, bookingConfigJson: true } as any,
+  })) as any;
 
   if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
@@ -145,76 +139,117 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   }
 
   const config = parseVoiceAgentConfig(campaign.voiceAgentConfigJson);
+  const bookingConfig = parseAiOutboundBookingConfig((campaign as any).bookingConfigJson);
   const voiceId = typeof (campaign as any).voiceId === "string" ? String((campaign as any).voiceId).trim().slice(0, 200) : "";
   const knowledgeBase = parseKnowledgeBaseLocators((campaign as any).knowledgeBaseJson);
 
-  const [profile, ownerUser] = await Promise.all([
+  let bookingPrompt = "";
+  if (bookingConfig.enabled && bookingConfig.calendarId) {
+    const [calendarsConfig, bookingForm] = await Promise.all([
+      getBookingCalendarsConfig(ownerId).catch(() => null),
+      getBookingFormConfig(ownerId).catch(() => null),
+    ]);
+    const calendar = calendarsConfig?.calendars?.find((item) => String(item.id) === String(bookingConfig.calendarId)) ?? null;
+    if (calendar) {
+      bookingPrompt = buildAiOutboundBookingPrompt({
+        calendarTitle: calendar.title,
+        meetingLocation: calendar.meetingLocation ?? null,
+        meetingDetails: calendar.meetingDetails ?? null,
+        form: bookingForm
+          ? {
+              phone: bookingForm.phone,
+              notes: bookingForm.notes,
+              questions: bookingForm.questions,
+            }
+          : null,
+      });
+    }
+  }
+
+  const effectiveConfig = bookingPrompt
+    ? { ...config, environment: [config.environment.trim(), bookingPrompt].filter(Boolean).join("\n\n") }
+    : config;
+
+  const [profile, ownerUser, twilio] = await Promise.all([
     prisma.businessProfile
       .findUnique({ where: { ownerId }, select: { businessName: true } })
       .catch(() => null),
     prisma.user.findUnique({ where: { id: ownerId }, select: { name: true } }).catch(() => null),
+    getOwnerTwilioSmsConfig(ownerId).catch(() => null),
   ]);
   const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
   const outboundBrief = buildOutboundIntelligenceBrief({
     campaignName: campaign.name,
     kind: "calls",
     businessContext,
-    config,
+    config: effectiveConfig,
   });
 
-  const prompt = buildElevenLabsAgentPrompt(config, {
-    businessName: profile?.businessName || null,
-    ownerName: ownerUser?.name || null,
-  }, { outboundBrief, kind: "calls" });
-  const firstMessage = config.firstMessage.trim();
+  const firstMessage =
+    effectiveConfig.firstMessage.trim() ||
+    buildDefaultAiOutboundCallFirstMessage({ businessName: profile?.businessName || null, ownerName: ownerUser?.name || null, goal: effectiveConfig.goal || null });
+  if (!effectiveConfig.firstMessage.trim() && firstMessage) {
+    await prisma.portalAiOutboundCallCampaign
+      .updateMany({
+        where: { id: campaign.id, ownerId },
+        data: {
+          voiceAgentConfigJson: { ...effectiveConfig, firstMessage } as any,
+          updatedAt: new Date(),
+        },
+      })
+      .catch(() => null);
+  }
 
   const localConfigIsEmpty =
     !firstMessage &&
-    !config.goal.trim() &&
-    !config.personality.trim() &&
-    !config.tone.trim() &&
-    !config.environment.trim() &&
-    !config.guardRails.trim() &&
-    !(Array.isArray(config.toolIds) && config.toolIds.length) &&
-    !(Array.isArray(config.toolKeys) && config.toolKeys.length);
+    !effectiveConfig.goal.trim() &&
+    !effectiveConfig.personality.trim() &&
+    !effectiveConfig.tone.trim() &&
+    !effectiveConfig.environment.trim() &&
+    !effectiveConfig.guardRails.trim() &&
+    !(Array.isArray(effectiveConfig.toolIds) && effectiveConfig.toolIds.length) &&
+    !(Array.isArray(effectiveConfig.toolKeys) && effectiveConfig.toolKeys.length);
 
-  let resolvedToolIds: string[] = [];
-  if (Array.isArray(config.toolIds) && config.toolIds.length) {
-    resolvedToolIds = config.toolIds;
-  } else if (Array.isArray(config.toolKeys) && config.toolKeys.length) {
-    const resolved = await resolveElevenLabsConvaiToolIdsByKeys({ apiKey, toolKeys: config.toolKeys }).catch(() => null);
-    if (resolved && (resolved as any).ok === true) {
-      const map = (resolved as any).toolIds as Record<string, string[]>;
-      const flat = config.toolKeys
-        .map((k) => normalizeToolKey(k))
-        .filter(Boolean)
-        .flatMap((k) => (Array.isArray((map as any)[k]) ? (map as any)[k] : []));
-      resolvedToolIds = flat;
+  const tooling = await resolveRequiredOutboundTooling({ apiKey, config: effectiveConfig });
+  const desiredToolKeys = tooling.desiredToolKeys;
+  let resolvedToolIds = tooling.resolvedToolIds;
+  let missingRequiredToolKeys = tooling.missingRequiredToolKeys;
+  const fallbackRemoteAgentId = manualAgentId || (campaign.voiceAgentId || "").trim();
+
+  if (missingRequiredToolKeys.length && fallbackRemoteAgentId) {
+    const remoteAgent = await getElevenLabsAgent({ apiKey, agentId: fallbackRemoteAgentId }).catch(() => null);
+    if (remoteAgent?.ok && Array.isArray(remoteAgent.toolIds) && remoteAgent.toolIds.length) {
+      resolvedToolIds = Array.from(new Set([...resolvedToolIds, ...remoteAgent.toolIds])).slice(0, 50);
+      missingRequiredToolKeys = [];
     }
   }
 
-  // Last-resort fallback when env vars are set for tool IDs.
-  if (!resolvedToolIds.length && Array.isArray(config.toolKeys) && config.toolKeys.length) {
-    resolvedToolIds = resolveToolIdsForKeys(config.toolKeys);
-  }
+  const prompt = buildElevenLabsAgentPrompt(effectiveConfig, {
+    businessName: profile?.businessName || null,
+    ownerName: ownerUser?.name || null,
+    callbackNumber: twilio?.fromNumberE164 || null,
+  }, { outboundBrief, kind: "calls" }, { hasEndCallTool: resolvedToolIds.length > 0 });
 
-  resolvedToolIds = resolvedToolIds
-    .map((x) => (typeof x === "string" ? x.trim() : ""))
-    .filter(Boolean)
-    .filter((v, i, a) => a.indexOf(v) === i)
-    .slice(0, 50);
+  const nextVoiceAgentConfig = {
+    ...effectiveConfig,
+    firstMessage,
+    toolKeys: desiredToolKeys,
+    toolIds: resolvedToolIds,
+  };
+
+  await prisma.portalAiOutboundCallCampaign.updateMany({
+    where: { id: campaign.id, ownerId },
+    data: {
+      voiceAgentConfigJson: nextVoiceAgentConfig as any,
+      updatedAt: new Date(),
+    },
+  });
 
   const profileAgentId = await getProfileVoiceAgentId(ownerId);
-  let agentId = manualAgentId || (campaign.voiceAgentId || "").trim() || (profileAgentId || "").trim();
+  const existingCampaignAgentId = (campaign.voiceAgentId || "").trim();
+  const shouldCreateDedicatedAgent = !hasManualOverride && (!existingCampaignAgentId || (profileAgentId && existingCampaignAgentId === profileAgentId));
+  let agentId = manualAgentId || (shouldCreateDedicatedAgent ? "" : existingCampaignAgentId);
   let createdAgentId: string | null = null;
-
-  // If a Profile agent exists but the campaign doesn't, persist it so the UI (and campaign) have a stable agent id.
-  // Skip this when a manual override is set.
-  if (!hasManualOverride && !campaign.voiceAgentId && profileAgentId) {
-    await prisma.portalAiOutboundCallCampaign
-      .updateMany({ where: { id: campaign.id, ownerId }, data: { voiceAgentId: profileAgentId } })
-      .catch(() => null);
-  }
 
   if (!agentId && !hasManualOverride) {
     const create = await createElevenLabsAgent({
@@ -249,6 +284,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
         ...config,
         ...(remote.firstMessage ? { firstMessage: remote.firstMessage } : {}),
         ...parsedPrompt,
+        toolKeys: desiredToolKeys,
         ...(remote.toolIds.length ? { toolIds: remote.toolIds } : {}),
       };
 

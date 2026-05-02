@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type Props = {
   email: string;
   emailVerificationEmailSentAt: string | null;
+  creditsAdded?: number;
 };
 
 function formatSentAt(iso: string | null): string | null {
@@ -16,10 +19,12 @@ function formatSentAt(iso: string | null): string | null {
 }
 
 export function PortalVerifyEmailGate(props: Props) {
+  const pathname = usePathname() || "";
   const router = useRouter();
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<string>("");
   const [sentAtOverride, setSentAtOverride] = useState<string | null>(null);
+  const portalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -37,7 +42,10 @@ export function PortalVerifyEmailGate(props: Props) {
     setSending(true);
     setMessage("");
     try {
-      const res = await fetch("/api/portal/auth/resend-verification", { method: "POST" });
+      const res = await fetch("/api/portal/auth/resend-verification", {
+        method: "POST",
+        headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+      });
       const json = (await res.json().catch(() => ({}))) as any;
 
       if (res.ok && json?.ok) {
@@ -56,11 +64,20 @@ export function PortalVerifyEmailGate(props: Props) {
     } finally {
       setSending(false);
     }
-  }, [router]);
+  }, [portalVariant, router]);
 
   return (
     <div className="mx-auto w-full max-w-2xl">
       <div className="rounded-3xl border border-zinc-200 bg-white p-6 sm:p-8">
+        {props.creditsAdded && props.creditsAdded > 0 ? (
+          <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            <div className="font-semibold">Starter credits added</div>
+            <div className="mt-1 text-emerald-800">
+              We added {props.creditsAdded.toLocaleString()} credits to your account. Verify your email to continue into the portal with those credits ready.
+            </div>
+          </div>
+        ) : null}
+
         <div className="text-sm font-semibold text-zinc-900">Verify your email</div>
         <div className="mt-2 text-sm text-zinc-600">
           Before you continue onboarding, verify the email address <span className="font-semibold text-zinc-900">{props.email}</span>.

@@ -2,21 +2,73 @@
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { CreateContactTagDialog } from "@/components/CreateContactTagDialog";
 import { LocalTimePicker } from "@/components/LocalDateTimePicker";
 import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
-import { InlineSpinner } from "@/components/InlineSpinner";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { useToast } from "@/components/ToastProvider";
 import { portalGlassButtonClass } from "@/components/portalGlass";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
-import { IconEdit } from "@/app/portal/PortalIcons";
+import { IconEdit, IconFunnel, IconRedo, IconSearch, IconUndo } from "@/app/portal/PortalIcons";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function cloneAutomation(automation: Automation): Automation {
+  return JSON.parse(JSON.stringify(automation)) as Automation;
+}
+
+function automationSignature(automation: Automation | null | undefined) {
+  if (!automation) return "";
+  try {
+    return JSON.stringify(automation);
+  } catch {
+    return `${automation.id}:${automation.updatedAtIso ?? ""}`;
+  }
+}
+
+function triggerKindLabel(kind: TriggerKind | null | undefined) {
+  if (!kind) return "Manual";
+  return labelForConfig("trigger", { kind: "trigger", triggerKind: kind }).replace(/^Trigger:\s*/, "");
+}
+
+function demoValueForFormField(field: { key: string; label: string }) {
+  const key = String(field.key || "").toLowerCase();
+  const label = String(field.label || "").toLowerCase();
+  const combined = `${key} ${label}`;
+  if (combined.includes("email")) return "customer@example.com";
+  if (combined.includes("phone") || combined.includes("mobile")) return "+15555550123";
+  if (combined.includes("name") || combined.includes("first") || combined.includes("last")) return "Taylor Demo";
+  if (combined.includes("date")) return new Date().toISOString().slice(0, 10);
+  if (combined.includes("time")) return "09:00";
+  if (combined.includes("website") || combined.includes("url")) return "https://example.com";
+  if (combined.includes("company") || combined.includes("business")) return "Demo Company";
+  if (combined.includes("message") || combined.includes("notes") || combined.includes("comment")) return "Interested in learning more.";
+  return "Demo response";
+}
+
+function combineDateAndTime(dateValue: string, timeValue: string) {
+  const date = String(dateValue || "").trim();
+  const time = String(timeValue || "").trim();
+  if (!date || !time) return null;
+  const iso = `${date}T${time}:00`;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
+function BackArrowIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 const PORTAL_TIME_VARIABLES: TemplateVariable[] = [
@@ -222,51 +274,6 @@ type AccountMember = {
   implicit?: boolean;
 };
 
-const TAG_COLORS = [
-  "#0EA5E9", // sky
-  "#2563EB", // blue
-  "#7C3AED", // violet
-  "#EC4899", // pink
-  "#F97316", // orange
-  "#F59E0B", // amber
-  "#10B981", // emerald
-  "#22C55E", // green
-  "#64748B", // slate
-  "#111827", // gray-900
-] as const;
-
-function ColorSwatches({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
-  const colors = (TAG_COLORS as readonly string[]).includes(value)
-    ? (TAG_COLORS as readonly string[])
-    : ([value, ...TAG_COLORS] as const);
-
-  return (
-    <div className="mt-2 flex flex-wrap gap-2">
-      {colors.map((c) => {
-        const selected = c.toLowerCase() === value.toLowerCase();
-        return (
-          <button
-            key={c}
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onChange(c);
-            }}
-            className={
-              selected
-                ? "h-7 w-7 rounded-full ring-2 ring-zinc-900 ring-offset-2"
-                : "h-7 w-7 rounded-full ring-1 ring-zinc-300 hover:ring-zinc-400"
-            }
-            style={{ backgroundColor: c }}
-            aria-label={`Pick ${c}`}
-            title={c}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
 type BuilderNode = {
   id: string;
   type: BuilderNodeType;
@@ -321,16 +328,26 @@ function safeString(v: unknown, fallback: string) {
 function badgeForType(t: BuilderNodeType) {
   switch (t) {
     case "trigger":
-      return { label: "Trigger", cls: "bg-sky-50 text-sky-700 border-sky-200" };
+      return { label: "Trigger", cls: "bg-sky-50 text-sky-700" };
     case "action":
-      return { label: "Action", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+      return { label: "Action", cls: "bg-emerald-50 text-emerald-700" };
     case "delay":
-      return { label: "Delay", cls: "bg-amber-50 text-amber-700 border-amber-200" };
+      return { label: "Delay", cls: "bg-amber-50 text-amber-700" };
     case "condition":
-      return { label: "Condition", cls: "bg-violet-50 text-violet-700 border-violet-200" };
+      return { label: "Condition", cls: "bg-violet-50 text-violet-700" };
     default:
-      return { label: "Note", cls: "bg-zinc-50 text-zinc-700 border-zinc-200" };
+      return { label: "Note", cls: "bg-zinc-50 text-zinc-700" };
   }
+}
+
+function badgeChipClass(type: BuilderNodeType, extra?: string) {
+  const badge = badgeForType(type);
+  return classNames(
+    "rounded-full px-2 py-0.5 text-xs font-semibold",
+    badge.cls,
+    type === "note" ? "border border-zinc-200" : "",
+    extra,
+  );
 }
 
 type ActionKindOption = { value: ActionKind; label: string; disabled?: boolean; hint?: string };
@@ -416,9 +433,8 @@ function edgePath(x1: number, y1: number, x2: number, y2: number) {
   return `M ${x1} ${y1} C ${c1x} ${y1}, ${c2x} ${y2}, ${x2} ${y2}`;
 }
 
-function buildStarterAutomation(): Automation {
+function buildBlankAutomation(): Automation {
   const triggerId = uid("n");
-  const actionId = uid("n");
 
   return {
     id: uid("auto"),
@@ -434,16 +450,8 @@ function buildStarterAutomation(): Automation {
         y: 120,
         config: { kind: "trigger", triggerKind: "inbound_sms" },
       },
-      {
-        id: actionId,
-        type: "action",
-        label: "Action: Send SMS",
-        x: 420,
-        y: 120,
-        config: { kind: "action", actionKind: "send_sms", smsTo: "inbound_sender", body: "" },
-      },
     ],
-    edges: [{ id: uid("e"), from: triggerId, to: actionId }],
+    edges: [],
   };
 }
 
@@ -579,10 +587,438 @@ function shouldAutolabel(currentLabel: string) {
   return false;
 }
 
+function serializeAutomations(list: Automation[]) {
+  try {
+    return JSON.stringify(list);
+  } catch {
+    return "";
+  }
+}
+
+type TriggerNodeConfig = Extract<BuilderNodeConfig, { kind: "trigger" }>;
+type ActionNodeConfig = Extract<BuilderNodeConfig, { kind: "action" }>;
+type DelayNodeConfig = Extract<BuilderNodeConfig, { kind: "delay" }>;
+type ConditionNodeConfig = Extract<BuilderNodeConfig, { kind: "condition" }>;
+type NoteNodeConfig = Extract<BuilderNodeConfig, { kind: "note" }>;
+
+type AutomationTemplateBlueprintNode = {
+  key: string;
+  type: BuilderNodeType;
+  x: number;
+  y: number;
+  config?: BuilderNodeConfig;
+  label?: string;
+};
+
+type AutomationTemplateBlueprintEdge = {
+  from: string;
+  to: string;
+  fromPort?: EdgePort;
+};
+
+type AutomationTemplateDefinition = {
+  id: string;
+  name: string;
+  description: string;
+  nodes: AutomationTemplateBlueprintNode[];
+  edges: AutomationTemplateBlueprintEdge[];
+};
+
+const BLANK_AUTOMATION_TEMPLATE_ID = "__blank__";
+
+const triggerCfg = (triggerKind: TriggerKind, extra: Partial<Omit<TriggerNodeConfig, "kind" | "triggerKind">> = {}): TriggerNodeConfig => ({
+  kind: "trigger",
+  triggerKind,
+  ...extra,
+});
+
+const actionCfg = (actionKind: ActionKind, extra: Partial<Omit<ActionNodeConfig, "kind" | "actionKind">> = {}): ActionNodeConfig => ({
+  kind: "action",
+  actionKind,
+  ...extra,
+});
+
+const delayCfg = (value: number, unit: DelayUnit): DelayNodeConfig => ({
+  kind: "delay",
+  unit,
+  value,
+  minutes: delayMinutesFromValue(value, unit),
+});
+
+const conditionCfg = (left: string, op: ConditionOp, right = ""): ConditionNodeConfig => ({
+  kind: "condition",
+  left,
+  op,
+  right,
+});
+
+const noteCfg = (text: string): NoteNodeConfig => ({ kind: "note", text });
+
+const AUTOMATION_TEMPLATE_DEFINITIONS: AutomationTemplateDefinition[] = [
+  {
+    id: "inbound-sms-instant-reply",
+    name: "Inbound SMS instant reply",
+    description: "Reply to new texts fast, then look up the contact before a team handoff.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("inbound_sms") },
+      { key: "find", type: "action", x: 420, y: 120, config: actionCfg("find_contact", { contactPhone: "{{lead.phone}}" }) },
+      { key: "reply", type: "action", x: 760, y: 120, config: actionCfg("send_sms", { smsTo: "inbound_sender", body: "Thanks for texting us. A team member will jump in shortly." }) },
+    ],
+    edges: [{ from: "trigger", to: "find" }, { from: "find", to: "reply" }],
+  },
+  {
+    id: "inbound-mms-review-and-reply",
+    name: "Inbound MMS review and reply",
+    description: "Create a task to review media messages and send a quick acknowledgment.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("inbound_mms") },
+      { key: "task", type: "action", x: 420, y: 120, config: actionCfg("create_task", { subject: "Review incoming MMS request", body: "Check the new media message and respond if needed." }) },
+      { key: "reply", type: "action", x: 760, y: 120, config: actionCfg("send_sms", { smsTo: "inbound_sender", body: "We got your message and attachments. We will review them now." }) },
+    ],
+    edges: [{ from: "trigger", to: "task" }, { from: "task", to: "reply" }],
+  },
+  {
+    id: "inbound-call-callback-queue",
+    name: "Inbound call callback queue",
+    description: "Queue return-call work after an inbound call and send a text follow-up.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("inbound_call") },
+      { key: "task", type: "action", x: 420, y: 120, config: actionCfg("create_task", { subject: "Return inbound call", body: "Call the lead back and log the result." }) },
+      { key: "sms", type: "action", x: 760, y: 120, config: actionCfg("send_sms", { smsTo: "inbound_sender", body: "Thanks for calling. If we missed you, reply here and we will call you back." }) },
+    ],
+    edges: [{ from: "trigger", to: "task" }, { from: "task", to: "sms" }],
+  },
+  {
+    id: "missed-call-booking-link",
+    name: "Missed call booking link",
+    description: "Recover missed calls with a text response and a booking prompt.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("missed_call") },
+      { key: "sms", type: "action", x: 420, y: 120, config: actionCfg("send_sms", { smsTo: "inbound_sender", body: "Sorry we missed your call. Here is the fastest way to book time with us." }) },
+      { key: "booking", type: "action", x: 760, y: 120, config: actionCfg("send_booking_link", { smsTo: "inbound_sender" }) },
+    ],
+    edges: [{ from: "trigger", to: "sms" }, { from: "sms", to: "booking" }],
+  },
+  {
+    id: "inbound-email-acknowledgement",
+    name: "Inbound email acknowledgement",
+    description: "Log a task for the inbox team and send an email confirmation back.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("inbound_email") },
+      { key: "task", type: "action", x: 420, y: 120, config: actionCfg("create_task", { subject: "Review inbound email", body: "Check the new email thread and respond from the shared inbox." }) },
+      { key: "email", type: "action", x: 760, y: 120, config: actionCfg("send_email", { emailTo: "event_contact", subject: "We received your email", body: "Thanks for reaching out. Our team is reviewing your message now." }) },
+    ],
+    edges: [{ from: "trigger", to: "task" }, { from: "task", to: "email" }],
+  },
+  {
+    id: "form-submit-welcome-text",
+    name: "Form submit welcome text",
+    description: "Send a simple SMS confirmation whenever a form is submitted.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("form_submitted") },
+      { key: "sms", type: "action", x: 420, y: 120, config: actionCfg("send_sms", { smsTo: "event_contact", body: "Thanks for filling out our form. We will follow up soon." }) },
+    ],
+    edges: [{ from: "trigger", to: "sms" }],
+  },
+  {
+    id: "form-submit-nurture-handoff",
+    name: "Form submit nurture handoff",
+    description: "Tag form leads and hand them to a nurture service flow.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("form_submitted") },
+      { key: "tag", type: "action", x: 420, y: 120, config: actionCfg("add_tag") },
+      { key: "service", type: "action", x: 760, y: 120, config: actionCfg("trigger_service", { serviceSlug: "nurture-campaigns" }) },
+    ],
+    edges: [{ from: "trigger", to: "tag" }, { from: "tag", to: "service" }],
+  },
+  {
+    id: "new-lead-assignment",
+    name: "New lead assignment",
+    description: "Assign a new lead and create a follow-up task for the team.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("new_lead") },
+      { key: "assign", type: "action", x: 420, y: 120, config: actionCfg("assign_lead") },
+      { key: "task", type: "action", x: 760, y: 120, config: actionCfg("create_task", { subject: "Review new lead", body: "Check the lead details, verify source quality, and make first contact." }) },
+    ],
+    edges: [{ from: "trigger", to: "assign" }, { from: "assign", to: "task" }],
+  },
+  {
+    id: "lead-scraped-enrich-and-tag",
+    name: "Lead scraped enrich and tag",
+    description: "Run contact lookup on scraped leads and tag them for review.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("lead_scraped") },
+      { key: "find", type: "action", x: 420, y: 120, config: actionCfg("find_contact", { contactName: "{{lead.businessName}}", contactPhone: "{{lead.phone}}", contactEmail: "{{lead.email}}" }) },
+      { key: "tag", type: "action", x: 760, y: 120, config: actionCfg("add_tag") },
+    ],
+    edges: [{ from: "trigger", to: "find" }, { from: "find", to: "tag" }],
+  },
+  {
+    id: "tag-added-reengagement",
+    name: "Tag added re-engagement",
+    description: "Wait briefly after a tag is added, then send a re-engagement text.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("tag_added") },
+      { key: "delay", type: "delay", x: 420, y: 120, config: delayCfg(15, "minutes") },
+      { key: "sms", type: "action", x: 760, y: 120, config: actionCfg("send_sms", { smsTo: "event_contact", body: "We noticed your status changed. Want help with the next step?" }) },
+    ],
+    edges: [{ from: "trigger", to: "delay" }, { from: "delay", to: "sms" }],
+  },
+  {
+    id: "contact-created-welcome-email",
+    name: "Contact created welcome email",
+    description: "Delay a welcome email after a new contact record is created.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("contact_created") },
+      { key: "delay", type: "delay", x: 420, y: 120, config: delayCfg(30, "minutes") },
+      { key: "email", type: "action", x: 760, y: 120, config: actionCfg("send_email", { emailTo: "event_contact", subject: "Welcome to our workflow", body: "We are glad you are here. A specialist will be in touch soon." }) },
+    ],
+    edges: [{ from: "trigger", to: "delay" }, { from: "delay", to: "email" }],
+  },
+  {
+    id: "task-added-client-notification",
+    name: "Task added client notification",
+    description: "Text the contact after a new task gets added for them.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("task_added") },
+      { key: "sms", type: "action", x: 420, y: 120, config: actionCfg("send_sms", { smsTo: "event_contact", body: "Your request is in progress. We just created the next action item for our team." }) },
+    ],
+    edges: [{ from: "trigger", to: "sms" }],
+  },
+  {
+    id: "inbound-webhook-intake-sync",
+    name: "Inbound webhook intake sync",
+    description: "Create a contact from an inbound webhook and forward the payload onward.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("inbound_webhook", { webhookKey: "lead-intake" }) },
+      { key: "contact", type: "action", x: 420, y: 120, config: actionCfg("create_contact", { contactName: "Webhook lead", contactEmail: "lead@example.com", contactPhone: "+15555550123" }) },
+      { key: "hook", type: "action", x: 760, y: 120, config: actionCfg("send_webhook", { webhookUrl: "https://example.com/hooks/automation", webhookBodyJson: '{"source":"portal-automation","type":"lead-intake"}' }) },
+    ],
+    edges: [{ from: "trigger", to: "contact" }, { from: "contact", to: "hook" }],
+  },
+  {
+    id: "scheduled-daily-check-in",
+    name: "Scheduled daily check-in",
+    description: "Fire a daily outreach message from a scheduled-time trigger.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("scheduled_time", { scheduleMode: "specific", specificKind: "daily", specificTime: "09:00" }) },
+      { key: "sms", type: "action", x: 420, y: 120, config: actionCfg("send_sms", { smsTo: "custom", smsToNumber: "+15555550123", body: "Daily check-in: review priority conversations and reply to anything urgent." }) },
+    ],
+    edges: [{ from: "trigger", to: "sms" }],
+  },
+  {
+    id: "scheduled-weekly-recap",
+    name: "Scheduled weekly recap",
+    description: "Run a weekly email recap on a fixed weekday schedule.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("scheduled_time", { scheduleMode: "specific", specificKind: "weekly", specificWeekday: 1, specificTime: "10:00" }) },
+      { key: "email", type: "action", x: 420, y: 120, config: actionCfg("send_email", { emailTo: "internal_notification", subject: "Weekly automation recap", body: "Review the weekly pipeline, note blockers, and route work to the right owner." }) },
+    ],
+    edges: [{ from: "trigger", to: "email" }],
+  },
+  {
+    id: "appointment-booked-confirmation",
+    name: "Appointment booked confirmation",
+    description: "Send both SMS and email confirmations after a booking lands.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("appointment_booked") },
+      { key: "sms", type: "action", x: 420, y: 120, config: actionCfg("send_sms", { smsTo: "event_contact", body: "Your appointment is booked. We will send reminders before it starts." }) },
+      { key: "email", type: "action", x: 760, y: 120, config: actionCfg("send_email", { emailTo: "event_contact", subject: "Appointment confirmed", body: "Your booking is locked in. Reply if you need to reschedule." }) },
+    ],
+    edges: [{ from: "trigger", to: "sms" }, { from: "sms", to: "email" }],
+  },
+  {
+    id: "appointment-ended-review-request",
+    name: "Appointment ended review request",
+    description: "Wait a bit after the meeting ends, then ask for a review.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("appointment_ended") },
+      { key: "delay", type: "delay", x: 420, y: 120, config: delayCfg(2, "hours") },
+      { key: "review", type: "action", x: 760, y: 120, config: actionCfg("send_review_request") },
+    ],
+    edges: [{ from: "trigger", to: "delay" }, { from: "delay", to: "review" }],
+  },
+  {
+    id: "missed-appointment-recovery",
+    name: "Missed appointment recovery",
+    description: "Recover missed appointments with a text and a task for manual follow-up.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("missed_appointment") },
+      { key: "sms", type: "action", x: 420, y: 120, config: actionCfg("send_sms", { smsTo: "event_contact", body: "We missed you at your appointment. Reply here and we can help you rebook." }) },
+      { key: "task", type: "action", x: 760, y: 120, config: actionCfg("create_task", { subject: "Rescue missed appointment", body: "Reach out personally if there is no reply after the automated text." }) },
+    ],
+    edges: [{ from: "trigger", to: "sms" }, { from: "sms", to: "task" }],
+  },
+  {
+    id: "review-received-internal-alert",
+    name: "Review received internal alert",
+    description: "Forward review events and create a task for response management.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("review_received") },
+      { key: "hook", type: "action", x: 420, y: 120, config: actionCfg("send_webhook", { webhookUrl: "https://example.com/hooks/reviews", webhookBodyJson: '{"type":"review-received"}' }) },
+      { key: "task", type: "action", x: 760, y: 120, config: actionCfg("create_task", { subject: "Review new feedback", body: "Check whether the review needs a public response or an internal escalation." }) },
+    ],
+    edges: [{ from: "trigger", to: "hook" }, { from: "hook", to: "task" }],
+  },
+  {
+    id: "follow-up-sent-delayed-reminder",
+    name: "Follow-up sent delayed reminder",
+    description: "Wait after a follow-up and create a reminder if there is still no progress.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("follow_up_sent") },
+      { key: "delay", type: "delay", x: 420, y: 120, config: delayCfg(2, "days") },
+      { key: "task", type: "action", x: 760, y: 120, config: actionCfg("create_task", { subject: "Check unanswered follow-up", body: "Review the thread and decide whether to retry, call, or close the loop." }) },
+    ],
+    edges: [{ from: "trigger", to: "delay" }, { from: "delay", to: "task" }],
+  },
+  {
+    id: "outbound-sent-update-contact",
+    name: "Outbound sent update contact",
+    description: "Update a contact record after an outbound message has had time to settle.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("outbound_sent") },
+      { key: "delay", type: "delay", x: 420, y: 120, config: delayCfg(3, "days") },
+      { key: "update", type: "action", x: 760, y: 120, config: actionCfg("update_contact", { contactName: "Warm follow-up", contactEmail: "lead@example.com", contactPhone: "+15555550123" }) },
+    ],
+    edges: [{ from: "trigger", to: "delay" }, { from: "delay", to: "update" }],
+  },
+  {
+    id: "appointment-booked-channel-branch",
+    name: "Appointment booked channel branch",
+    description: "Choose SMS or email confirmation based on whether the booking includes a phone number.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("appointment_booked") },
+      { key: "condition", type: "condition", x: 420, y: 120, config: conditionCfg("booking.contactPhone", "is_not_empty") },
+      { key: "sms", type: "action", x: 760, y: 40, config: actionCfg("send_sms", { smsTo: "event_contact", body: "Your appointment is booked. Reply here if you need help before then." }) },
+      { key: "email", type: "action", x: 760, y: 200, config: actionCfg("send_email", { emailTo: "event_contact", subject: "Your appointment is confirmed", body: "We have your booking. Email us back any time with questions." }) },
+    ],
+    edges: [{ from: "trigger", to: "condition" }, { from: "condition", to: "sms", fromPort: "true" }, { from: "condition", to: "email", fromPort: "false" }],
+  },
+  {
+    id: "webhook-vip-branch",
+    name: "Inbound webhook VIP branch",
+    description: "Branch webhook traffic based on the webhook key to route VIP intake differently.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("inbound_webhook", { webhookKey: "customer-intake" }) },
+      { key: "condition", type: "condition", x: 420, y: 120, config: conditionCfg("event.webhookKey", "contains", "vip") },
+      { key: "tag", type: "action", x: 760, y: 40, config: actionCfg("add_tag") },
+      { key: "assign", type: "action", x: 760, y: 200, config: actionCfg("assign_lead") },
+    ],
+    edges: [{ from: "trigger", to: "condition" }, { from: "condition", to: "tag", fromPort: "true" }, { from: "condition", to: "assign", fromPort: "false" }],
+  },
+  {
+    id: "manual-ops-handoff",
+    name: "Manual ops handoff",
+    description: "A manual-start template for internal handoff flows and queued work.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("manual") },
+      { key: "note", type: "note", x: 420, y: 120, config: noteCfg("Use this when a teammate wants to kick off the workflow manually.") },
+      { key: "task", type: "action", x: 760, y: 120, config: actionCfg("create_task", { subject: "Manual handoff", body: "Review context from the handoff note and start the next action." }) },
+      { key: "assign", type: "action", x: 1100, y: 120, config: actionCfg("assign_lead") },
+    ],
+    edges: [{ from: "trigger", to: "note" }, { from: "note", to: "task" }, { from: "task", to: "assign" }],
+  },
+  {
+    id: "outbound-no-reply-booking-prompt",
+    name: "Outbound no-reply booking prompt",
+    description: "Send a booking link if an outbound message does not convert after a few days.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("outbound_sent") },
+      { key: "delay", type: "delay", x: 420, y: 120, config: delayCfg(4, "days") },
+      { key: "booking", type: "action", x: 760, y: 120, config: actionCfg("send_booking_link", { smsTo: "event_contact" }) },
+    ],
+    edges: [{ from: "trigger", to: "delay" }, { from: "delay", to: "booking" }],
+  },
+  {
+    id: "appointment-booked-tag-and-task",
+    name: "Appointment booked tag and task",
+    description: "Tag new appointments, then create a prep task for the team.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("appointment_booked") },
+      { key: "tag", type: "action", x: 420, y: 120, config: actionCfg("add_tag") },
+      { key: "task", type: "action", x: 760, y: 120, config: actionCfg("create_task", { subject: "Prepare for upcoming appointment", body: "Review notes, confirm assigned owner, and make sure prep materials are ready." }) },
+    ],
+    edges: [{ from: "trigger", to: "tag" }, { from: "tag", to: "task" }],
+  },
+  {
+    id: "follow-up-sent-review-branch",
+    name: "Follow-up sent review branch",
+    description: "Route long-running follow-ups based on whether a phone number is available.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("follow_up_sent") },
+      { key: "condition", type: "condition", x: 420, y: 120, config: conditionCfg("lead.phone", "is_not_empty") },
+      { key: "sms", type: "action", x: 760, y: 40, config: actionCfg("send_sms", { smsTo: "event_contact", body: "Still interested? Reply here and we will pick this back up with you." }) },
+      { key: "email", type: "action", x: 760, y: 200, config: actionCfg("send_email", { emailTo: "event_contact", subject: "Still need anything?", body: "We wanted to check back in and see if you still need help." }) },
+    ],
+    edges: [{ from: "trigger", to: "condition" }, { from: "condition", to: "sms", fromPort: "true" }, { from: "condition", to: "email", fromPort: "false" }],
+  },
+  {
+    id: "review-received-thank-you-email",
+    name: "Review received thank-you email",
+    description: "Thank a contact by email when positive feedback comes in.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("review_received") },
+      { key: "email", type: "action", x: 420, y: 120, config: actionCfg("send_email", { emailTo: "event_contact", subject: "Thanks for the review", body: "We appreciate the feedback and are grateful you took the time to share it." }) },
+    ],
+    edges: [{ from: "trigger", to: "email" }],
+  },
+  {
+    id: "contact-created-webhook-sync",
+    name: "Contact created webhook sync",
+    description: "Forward new contact events out to an external system right away.",
+    nodes: [
+      { key: "trigger", type: "trigger", x: 80, y: 120, config: triggerCfg("contact_created") },
+      { key: "hook", type: "action", x: 420, y: 120, config: actionCfg("send_webhook", { webhookUrl: "https://example.com/hooks/contact-created", webhookBodyJson: '{"type":"contact-created"}' }) },
+    ],
+    edges: [{ from: "trigger", to: "hook" }],
+  },
+];
+
+const AUTOMATION_TEMPLATE_OPTIONS = [
+  { value: BLANK_AUTOMATION_TEMPLATE_ID, label: "Start blank", hint: "Begin with a single trigger node and build the workflow yourself." },
+  ...AUTOMATION_TEMPLATE_DEFINITIONS.map((template) => ({ value: template.id, label: template.name, hint: template.description })),
+];
+
+function instantiateAutomationTemplate(
+  template: AutomationTemplateDefinition,
+  options: { name: string; viewer: { userId: string; email?: string; name?: string } | null | undefined },
+): Automation {
+  const nodeIds = new Map<string, string>();
+  const nodes: BuilderNode[] = template.nodes.map((node) => {
+    const nextId = uid("n");
+    nodeIds.set(node.key, nextId);
+    const config = node.config ? (JSON.parse(JSON.stringify(node.config)) as BuilderNodeConfig) : defaultConfigForType(node.type);
+    const label = node.label ?? (node.type === "note" ? safeString((config as NoteNodeConfig | undefined)?.text, "Note") : labelForConfig(node.type, config));
+    return { id: nextId, type: node.type, label, x: node.x, y: node.y, config };
+  });
+
+  const edges: BuilderEdge[] = template.edges
+    .map((edge) => {
+      const from = nodeIds.get(edge.from);
+      const to = nodeIds.get(edge.to);
+      if (!from || !to) return null;
+      return { id: uid("e"), from, to, fromPort: edge.fromPort };
+    })
+    .filter(Boolean) as BuilderEdge[];
+
+  const nowIso = new Date().toISOString();
+  return {
+    id: uid("auto"),
+    name: options.name,
+    updatedAtIso: nowIso,
+    createdAtIso: nowIso,
+    createdBy: options.viewer?.userId ? { userId: options.viewer.userId, email: options.viewer.email, name: options.viewer.name } : undefined,
+    nodes,
+    edges,
+  };
+}
+
 export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const mode = props.mode ?? "editor";
   const pathname = usePathname();
   const toast = useToast();
+  const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const isMobileApp = useMemo(() => {
     if (typeof window === "undefined") return false;
     const sp = new URLSearchParams(window.location.search);
@@ -591,7 +1027,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   }, []);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -604,6 +1040,8 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const [dirty, setDirty] = useState(false);
   const lastSavedSigRef = useRef<string>("");
   const autosaveTimerRef = useRef<number | null>(null);
+  const automationsRef = useRef<Automation[]>([]);
+  const saveInFlightRef = useRef<Promise<boolean> | null>(null);
 
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryMenuFor, setLibraryMenuFor] = useState<null | { automationId: string; left: number; top: number; maxHeight: number }>(null);
@@ -614,10 +1052,22 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const [testOpen, setTestOpen] = useState(false);
   const [testFrom, setTestFrom] = useState("+15555550123");
   const [testBody, setTestBody] = useState("Hello");
+  const [testing, setTesting] = useState(false);
+  const [testTagId, setTestTagId] = useState("");
+  const [testFormId, setTestFormId] = useState("");
+  const [testFormResponses, setTestFormResponses] = useState<Record<string, string>>({});
+  const [testWebhookKey, setTestWebhookKey] = useState("test-webhook");
+  const [testCalendarId, setTestCalendarId] = useState("");
+  const [testScheduleMode, setTestScheduleMode] = useState<"trigger" | "custom">("trigger");
+  const [testScheduleDate, setTestScheduleDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [testScheduleTime, setTestScheduleTime] = useState("09:00");
 
   const [listQuery, setListQuery] = useState("");
   const [listStatus, setListStatus] = useState<"all" | "active" | "paused">("all");
   const [listTrigger, setListTrigger] = useState<"all" | TriggerKind>("all");
+  const [listDateRange, setListDateRange] = useState<"all" | "7d" | "30d" | "90d" | "365d">("all");
+  const [listPage, setListPage] = useState(1);
+  const [openListFilters, setOpenListFilters] = useState<null | { left: number; top: number; maxHeight: number }>(null);
 
   const [openListMenu, setOpenListMenu] = useState<null | { automationId: string; left: number; top: number; maxHeight: number }>(null);
 
@@ -639,6 +1089,18 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       window.removeEventListener("resize", onScrollOrResize);
     };
   }, [openListMenu]);
+
+  useEffect(() => {
+    if (mode !== "editor" || typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("pa.portal.topbar.intent", { detail: { hidden: true } }));
+    return () => {
+      window.dispatchEvent(new CustomEvent("pa.portal.topbar.intent", { detail: { hidden: false } }));
+    };
+  }, [mode]);
+
+  useEffect(() => {
+    setListPage(1);
+  }, [listQuery, listStatus, listTrigger, listDateRange]);
 
   useEffect(() => {
     if (!libraryMenuFor) return;
@@ -717,6 +1179,32 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     });
   }
 
+  function toggleListFilters(el: HTMLElement) {
+    setOpenListFilters((prev) => {
+      if (prev) return null;
+      const rect = el.getBoundingClientRect();
+      const menuWidth = 320;
+      const VIEWPORT_PAD = 12;
+      const GAP = 8;
+      const EST_HEIGHT = 360;
+
+      const viewportW = window.innerWidth;
+      const viewportH = window.innerHeight;
+
+      const left = Math.max(VIEWPORT_PAD, Math.min(viewportW - menuWidth - VIEWPORT_PAD, rect.right - menuWidth));
+      const spaceBelow = viewportH - rect.bottom - GAP - VIEWPORT_PAD;
+      const spaceAbove = rect.top - GAP - VIEWPORT_PAD;
+      const placeDown = spaceBelow >= Math.min(EST_HEIGHT, 240) || spaceBelow >= spaceAbove;
+      const available = placeDown ? spaceBelow : spaceAbove;
+      const maxHeight = Math.max(160, Math.min(EST_HEIGHT, available));
+      const usedHeight = Math.min(EST_HEIGHT, maxHeight);
+      const rawTop = placeDown ? rect.bottom + GAP : rect.top - GAP - usedHeight;
+      const top = Math.max(VIEWPORT_PAD, Math.min(viewportH - VIEWPORT_PAD - usedHeight, rawTop));
+
+      return { left, top, maxHeight };
+    });
+  }
+
   function DotsIcon({ className }: { className?: string }) {
     return (
       <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
@@ -745,11 +1233,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const [bookingCalendars, setBookingCalendars] = useState<BookingCalendar[]>([]);
 
   const [createTagOpen, setCreateTagOpen] = useState(false);
-  const [createTagName, setCreateTagName] = useState("");
-  const [createTagColor, setCreateTagColor] = useState<string>("#2563EB");
-  const [createTagBusy, setCreateTagBusy] = useState(false);
-  const [createTagError, setCreateTagError] = useState<string | null>(null);
   const [createTagApplyTo, setCreateTagApplyTo] = useState<null | { nodeId: string; kind: "action" | "trigger" }>(null);
+  const [createAutomationOpen, setCreateAutomationOpen] = useState(false);
+  const [createAutomationName, setCreateAutomationName] = useState("");
+  const [createAutomationTemplateId, setCreateAutomationTemplateId] = useState<string>(BLANK_AUTOMATION_TEMPLATE_ID);
 
   useEffect(() => {
     if (!error) return;
@@ -761,10 +1248,6 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     lastErrorToastRef.current = { msg, at: now };
     toast.error(msg);
   }, [error, toast]);
-
-  useEffect(() => {
-    if (createTagError) toast.error(createTagError);
-  }, [createTagError, toast]);
 
   const [variablePickerOpen, setVariablePickerOpen] = useState(false);
   const [variablePickerTarget, setVariablePickerTarget] = useState<
@@ -792,7 +1275,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     let canceled = false;
     (async () => {
       try {
-        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", {
+          cache: "no-store",
+          headers: variantHeaders,
+        });
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
         const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
@@ -805,7 +1291,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     return () => {
       canceled = true;
     };
-  }, []);
+  }, [variantHeaders]);
 
   const [confirm, setConfirm] = useState<
     | null
@@ -832,9 +1318,14 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const conditionRightRef = useRef<HTMLInputElement | null>(null);
 
   const CREATE_TAG_VALUE = "__create_tag__";
+  const TEST_ANY_TAG_VALUE = "__any_tag__";
 
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
+
+  useEffect(() => {
+    automationsRef.current = automations;
+  }, [automations]);
 
   const [ownerFormFields, setOwnerFormFields] = useState<
     Array<{ key: string; label: string; formId: string; formSlug: string; formName: string }>
@@ -946,6 +1437,9 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   >(null);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const automationHistoryRef = useRef<Record<string, { past: Automation[]; future: Automation[] }>>({});
+  const [, setHistoryVersion] = useState(0);
+  const dragHistoryBaselineRef = useRef<Automation | null>(null);
 
   // Default to palette-first UX; open inspector only when a node is selected.
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -996,13 +1490,45 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     }
   }
 
+  function ensureAutomationHistory(automationId: string) {
+    const existing = automationHistoryRef.current[automationId];
+    if (existing) return existing;
+    const created = { past: [] as Automation[], future: [] as Automation[] };
+    automationHistoryRef.current[automationId] = created;
+    return created;
+  }
+
+  const pushHistorySnapshot = useCallback((snapshot: Automation | null | undefined) => {
+    if (!snapshot?.id) return;
+    const history = ensureAutomationHistory(snapshot.id);
+    const nextSnapshot = cloneAutomation(snapshot);
+    const prevSnapshot = history.past[history.past.length - 1] ?? null;
+    if (prevSnapshot && automationSignature(prevSnapshot) === automationSignature(nextSnapshot)) return;
+    history.past.push(nextSnapshot);
+    if (history.past.length > 100) history.past.shift();
+    history.future = [];
+    setHistoryVersion((value) => value + 1);
+  }, []);
+
+  function replaceAutomationInState(nextAutomation: Automation) {
+    setAutomations((prev) => prev.map((automation) => (automation.id === nextAutomation.id ? nextAutomation : automation)));
+  }
+
   const updateSelectedAutomation = useCallback(
-    (mutator: (a: Automation) => Automation) => {
-      setAutomations((prev) =>
-        prev.map((a) => (a.id === selectedAutomationId ? mutator(a) : a)),
-      );
+    (mutator: (a: Automation) => Automation, opts?: { recordHistory?: boolean; historySnapshot?: Automation | null }) => {
+      if (!selectedAutomationId) return;
+      setAutomations((prev) => {
+        const current = prev.find((automation) => automation.id === selectedAutomationId) ?? null;
+        if (!current) return prev;
+        const next = mutator(current);
+        if (automationSignature(next) === automationSignature(current)) return prev;
+        if (opts?.recordHistory !== false) {
+          pushHistorySnapshot(opts?.historySnapshot ?? current);
+        }
+        return prev.map((automation) => (automation.id === next.id ? next : automation));
+      });
     },
-    [selectedAutomationId]
+    [pushHistorySnapshot, selectedAutomationId]
   );
 
   function insertAtCursor(
@@ -1261,6 +1787,14 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     return automations.find((a) => a.id === selectedAutomationId) ?? null;
   }, [automations, selectedAutomationId]);
 
+  useEffect(() => {
+    if (!selectedNodeId) return;
+    if (!selectedAutomation?.nodes.some((node) => node.id === selectedNodeId)) {
+      setSelectedNodeId(null);
+      setAutolabelSelectedNode(true);
+    }
+  }, [selectedAutomation, selectedNodeId]);
+
   const selectedAutomationTriggerKind = useMemo((): TriggerKind | null => {
     const auto = selectedAutomation;
     if (!auto) return null;
@@ -1268,6 +1802,203 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     const k = t?.config?.triggerKind as TriggerKind | undefined;
     return k || null;
   }, [selectedAutomation]);
+
+  const selectedTriggerNode = useMemo(() => {
+    if (!selectedAutomation) return null;
+    return selectedAutomation.nodes.find((node) => node.type === "trigger" && (node.config as any)?.kind === "trigger") ?? null;
+  }, [selectedAutomation]);
+
+  const selectedTriggerConfig = useMemo(() => {
+    const cfg = selectedTriggerNode?.config;
+    return cfg && cfg.kind === "trigger" ? cfg : null;
+  }, [selectedTriggerNode]);
+
+  const selectedTestFormFields = useMemo(() => {
+    if (!testFormId) return [] as Array<{ key: string; label: string; formId: string; formSlug: string; formName: string }>;
+    return ownerFormFields.filter((field) => field.formId === testFormId);
+  }, [ownerFormFields, testFormId]);
+
+  useEffect(() => {
+    if (!testOpen || !testFormId) return;
+    setTestFormResponses((prev) => {
+      const next: Record<string, string> = {};
+      for (const field of selectedTestFormFields) {
+        const key = String(field.key || "").trim();
+        if (!key) continue;
+        next[key] = typeof prev[key] === "string" && prev[key].trim() ? prev[key] : demoValueForFormField(field);
+      }
+      return next;
+    });
+  }, [selectedTestFormFields, testFormId, testOpen]);
+
+  const canUndo = useMemo(() => {
+    if (!selectedAutomationId) return false;
+    return (automationHistoryRef.current[selectedAutomationId]?.past.length ?? 0) > 0;
+  }, [selectedAutomationId]);
+
+  const canRedo = useMemo(() => {
+    if (!selectedAutomationId) return false;
+    return (automationHistoryRef.current[selectedAutomationId]?.future.length ?? 0) > 0;
+  }, [selectedAutomationId]);
+
+  const testTriggerMeta = useMemo(() => {
+    const triggerKind = selectedAutomationTriggerKind ?? "manual";
+    const label = triggerKindLabel(triggerKind);
+    if (triggerKind === "manual") {
+      return {
+        title: `Test ${label}`,
+        description: "Runs this automation immediately as a manual trigger.",
+        fromLabel: "",
+        fromPlaceholder: "",
+        bodyLabel: "",
+        bodyPlaceholder: "",
+        showFrom: false,
+        showBody: false,
+      };
+    }
+    if (triggerKind === "tag_added") {
+      return {
+        title: `Test ${label}`,
+        description: "Simulates the selected tag being added so tag-specific automations only fire when the right tag is chosen.",
+        fromLabel: "Sample contact",
+        fromPlaceholder: "+15555550123",
+        bodyLabel: "",
+        bodyPlaceholder: "",
+        showFrom: true,
+        showBody: false,
+      };
+    }
+    if (triggerKind === "form_submitted") {
+      return {
+        title: `Test ${label}`,
+        description: "Submits a demo response payload for the selected form so form variables resolve correctly during the test.",
+        fromLabel: "Submitter contact",
+        fromPlaceholder: "customer@example.com",
+        bodyLabel: "",
+        bodyPlaceholder: "",
+        showFrom: true,
+        showBody: false,
+      };
+    }
+    if (triggerKind === "scheduled_time") {
+      return {
+        title: `Test ${label}`,
+        description: "Runs the automation at either the configured trigger time or a custom test time so time-based variables match your selection.",
+        fromLabel: "",
+        fromPlaceholder: "",
+        bodyLabel: "",
+        bodyPlaceholder: "",
+        showFrom: false,
+        showBody: false,
+      };
+    }
+    if (triggerKind === "inbound_webhook") {
+      return {
+        title: `Test ${label}`,
+        description: "Uses a webhook key that matches the trigger so only the intended webhook automation path runs.",
+        fromLabel: "Sample contact",
+        fromPlaceholder: "+15555550123",
+        bodyLabel: "Webhook payload note",
+        bodyPlaceholder: "Webhook test payload",
+        showFrom: true,
+        showBody: true,
+      };
+    }
+    if (triggerKind === "appointment_booked" || triggerKind === "appointment_ended" || triggerKind === "missed_appointment") {
+      return {
+        title: `Test ${label}`,
+        description: "Builds a test booking event against the selected calendar so calendar-scoped automations fire correctly.",
+        fromLabel: "Attendee contact",
+        fromPlaceholder: "customer@example.com",
+        bodyLabel: "Booking notes",
+        bodyPlaceholder: "Customer asked about availability",
+        showFrom: true,
+        showBody: true,
+      };
+    }
+    if (triggerKind === "inbound_email") {
+      return {
+        title: `Test ${label}`,
+        description: `Simulates ${label.toLowerCase()} so variables resolve against a realistic email event.`,
+        fromLabel: "From email",
+        fromPlaceholder: "customer@example.com",
+        bodyLabel: "Email body",
+        bodyPlaceholder: "Hello there",
+        showFrom: true,
+        showBody: true,
+      };
+    }
+    if (triggerKind === "inbound_call") {
+      return {
+        title: `Test ${label}`,
+        description: `Simulates ${label.toLowerCase()} so this automation runs against a sample caller event.`,
+        fromLabel: "Caller number (E.164)",
+        fromPlaceholder: "+15555550123",
+        bodyLabel: "Call notes",
+        bodyPlaceholder: "Caller asked about pricing",
+        showFrom: true,
+        showBody: true,
+      };
+    }
+    if (triggerKind === "follow_up_sent") {
+      return {
+        title: `Test ${label}`,
+        description: "Choose the exact follow-up message content to simulate what was sent during this automation test.",
+        fromLabel: "Recipient",
+        fromPlaceholder: "+15555550123",
+        bodyLabel: "Follow-up message",
+        bodyPlaceholder: "Just checking back in after our last conversation.",
+        showFrom: true,
+        showBody: true,
+      };
+    }
+    if (triggerKind === "review_received") {
+      return {
+        title: `Test ${label}`,
+        description: "Simulates an incoming review so you can test the exact review text that should flow through the automation.",
+        fromLabel: "Reviewer contact",
+        fromPlaceholder: "customer@example.com",
+        bodyLabel: "Review text",
+        bodyPlaceholder: "Amazing service and super fast response.",
+        showFrom: true,
+        showBody: true,
+      };
+    }
+    if (triggerKind === "outbound_sent") {
+      return {
+        title: `Test ${label}`,
+        description: "Simulates the outbound message that was sent so follow-on automations can evaluate the actual content.",
+        fromLabel: "Recipient",
+        fromPlaceholder: "+15555550123",
+        bodyLabel: "Outbound message",
+        bodyPlaceholder: "Here is the update we promised.",
+        showFrom: true,
+        showBody: true,
+      };
+    }
+    if (triggerKind === "inbound_sms" || triggerKind === "inbound_mms") {
+      return {
+        title: `Test ${label}`,
+        description: `Simulates ${label.toLowerCase()} so this automation runs against a sample message event.`,
+        fromLabel: "From number (E.164)",
+        fromPlaceholder: "+15555550123",
+        bodyLabel: triggerKind === "inbound_mms" ? "Message / media notes" : "Message",
+        bodyPlaceholder: "Hello",
+        showFrom: true,
+        showBody: true,
+      };
+    }
+    return {
+      title: `Test ${label}`,
+      description: `Simulates ${label.toLowerCase()} with trigger-specific sample data for this automation.`,
+      fromLabel: "Sample contact",
+      fromPlaceholder: "+15555550123",
+      bodyLabel: "Sample context",
+      bodyPlaceholder: "Demo trigger context",
+      showFrom: true,
+      showBody: true,
+    };
+  }, [selectedAutomationTriggerKind]);
 
   const selectedNode = useMemo(() => {
     if (!selectedAutomation || !selectedNodeId) return null;
@@ -1288,7 +2019,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
     let didLoad = false;
     try {
-      const res = await fetch("/api/portal/automations/settings", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/automations/settings", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!res?.ok) {
         setError("Failed to load.");
         return;
@@ -1302,6 +2033,8 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
       const list = Array.isArray((data as any).automations) ? ((data as any).automations as Automation[]) : [];
       setAutomations(list);
+      automationHistoryRef.current = {};
+      setHistoryVersion((value) => value + 1);
       try {
         lastSavedSigRef.current = JSON.stringify(list);
         setDirty(false);
@@ -1332,7 +2065,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       if (!selected && list[0]?.id) selected = list[0].id;
 
       if (!selected && mode === "editor") {
-        const starter = buildStarterAutomation();
+        const starter = buildBlankAutomation();
         setAutomations([starter]);
         lastSavedSigRef.current = "";
         setDirty(true);
@@ -1342,7 +2075,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       setSelectedAutomationId(selected);
       didLoad = true;
 
-      fetch("/api/portal/funnel-builder/form-field-keys", { cache: "no-store" })
+      fetch("/api/portal/funnel-builder/form-field-keys", { cache: "no-store", headers: variantHeaders })
         .then(async (r) => {
           if (!r?.ok) return null;
           return (await r.json().catch(() => null)) as any;
@@ -1363,7 +2096,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
         })
         .catch(() => null);
 
-      fetch("/api/portal/funnel-builder/forms", { cache: "no-store" })
+      fetch("/api/portal/funnel-builder/forms", { cache: "no-store", headers: variantHeaders })
         .then(async (r) => {
           if (!r?.ok) return null;
           return (await r.json().catch(() => null)) as any;
@@ -1387,7 +2120,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [mode]);
+  }, [mode, variantHeaders]);
 
   function disconnectIncoming(nodeId: string) {
     if (!selectedAutomation) return;
@@ -1417,49 +2150,83 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   }
 
   const saveAll = useCallback(async (next?: Automation[]) => {
+    const snapshot = (next ?? automationsRef.current).map((automation) => cloneAutomation(automation));
+    const snapshotSig = serializeAutomations(snapshot);
+
+    if (!snapshot.length) {
+      lastSavedSigRef.current = snapshotSig;
+      setDirty(false);
+      return true;
+    }
+
+    if (saveInFlightRef.current) {
+      await saveInFlightRef.current;
+      const latest = automationsRef.current.map((automation) => cloneAutomation(automation));
+      const latestSig = serializeAutomations(latest);
+      if (!latest.length || latestSig === lastSavedSigRef.current) {
+        setDirty(false);
+        return true;
+      }
+      return saveAll(latest);
+    }
+
     if (autosaveTimerRef.current) {
       window.clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
     }
 
     setSaving(true);
-    // Avoid clearing error on every autosave attempt (that causes toast spam).
     setNote(null);
 
-    const payload = { automations: next ?? automations };
+    const run = (async () => {
+      const res = await fetch("/api/portal/automations/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...variantHeaders },
+        body: JSON.stringify({ automations: snapshot }),
+      }).catch(() => null as any);
 
-    const res = await fetch("/api/portal/automations/settings", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    }).catch(() => null as any);
+      const data = (await res?.json?.().catch(() => null)) as ApiPayload | null;
+      if (!res?.ok || !data || (data as any).error) {
+        autosaveBlockedUntilRef.current = Date.now() + 6000;
+        const msg = String((data as any)?.error || "Save failed.");
+        setError((prev) => (prev === msg ? prev : msg));
+        return false;
+      }
 
-    const data = (await res?.json?.().catch(() => null)) as ApiPayload | null;
-    if (!res?.ok || !data || (data as any).error) {
-      setSaving(false);
-      autosaveBlockedUntilRef.current = Date.now() + 6000;
-      const msg = String((data as any)?.error || "Save failed.");
-      setError((prev) => (prev === msg ? prev : msg));
-      return;
-    }
+      const saved = ((data as any).automations || []) as Automation[];
+      const currentSig = serializeAutomations(automationsRef.current);
+      const shouldApplySavedState = currentSig === snapshotSig;
 
-    const saved = ((data as any).automations || []) as Automation[];
-    setAutomations(saved);
-    try {
-      lastSavedSigRef.current = JSON.stringify(saved);
-      setDirty(false);
+      if (shouldApplySavedState) {
+        automationsRef.current = saved;
+        setAutomations(saved);
+        lastSavedSigRef.current = serializeAutomations(saved);
+        setDirty(false);
+      } else {
+        setDirty(true);
+      }
+
       setLastSavedAtIso(new Date().toISOString());
-    } catch {
-      // ignore
-    }
-    setSaving(false);
 
-    const now = Date.now();
-    if (now - lastSavedToastAtRef.current > 8000) {
-      lastSavedToastAtRef.current = now;
-      toast.success("Saved");
+      if (shouldApplySavedState) {
+        const now = Date.now();
+        if (now - lastSavedToastAtRef.current > 8000) {
+          lastSavedToastAtRef.current = now;
+          toast.success("Saved");
+        }
+      }
+
+      return true;
+    })();
+
+    saveInFlightRef.current = run;
+    try {
+      return await run;
+    } finally {
+      if (saveInFlightRef.current === run) saveInFlightRef.current = null;
+      setSaving(false);
     }
-  }, [automations, toast]);
+  }, [toast, variantHeaders]);
 
   // Autosave: when automations change, debounce a save.
   useEffect(() => {
@@ -1498,7 +2265,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await fetch("/api/portal/people/users", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/people/users", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       const data = (await res?.json?.().catch(() => null)) as any;
       if (cancelled) return;
       if (res?.ok && data?.ok && Array.isArray(data?.members)) {
@@ -1523,27 +2290,23 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [variantHeaders]);
 
   async function createOwnerTag(name: string, color?: string | null) {
     const clean = String(name || "").trim().slice(0, 60);
-    if (!clean) return null;
+    if (!clean) throw new Error("Tag name is required.");
 
     const safeColor = typeof color === "string" && /^#[0-9a-fA-F]{6}$/.test(color.trim()) ? color.trim() : null;
 
-    setCreateTagBusy(true);
-    setCreateTagError(null);
     const res = await fetch("/api/portal/contact-tags", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify(safeColor ? { name: clean, color: safeColor } : { name: clean }),
     }).catch(() => null as any);
 
     const data = (await res?.json?.().catch(() => null)) as any;
     if (!res?.ok || !data?.ok || !data?.tag?.id) {
-      setCreateTagBusy(false);
-      setCreateTagError(String(data?.error || "Failed to create tag."));
-      return null;
+      throw new Error(String(data?.error || "Failed to create tag."));
     }
 
     const created: ContactTag = {
@@ -1558,14 +2321,36 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       return next;
     });
 
-    setCreateTagBusy(false);
     return created;
   }
+
+  const applyCreatedTagToSelection = useCallback(
+    (created: ContactTag) => {
+      if (!createTagApplyTo || !selectedAutomationId) return;
+      updateSelectedAutomation((a) => {
+        const nodes = a.nodes.map((n) => {
+          if (n.id !== createTagApplyTo.nodeId) return n;
+          if (createTagApplyTo.kind === "action") {
+            const prev = n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
+            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", tagId: created.id };
+            const nextLabel = autolabelSelectedNode && shouldAutolabel(n.label) ? labelForConfig("action", nextCfg) : n.label;
+            return { ...n, config: nextCfg, label: nextLabel };
+          }
+          const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+          const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", tagId: created.id };
+          const nextLabel = autolabelSelectedNode && shouldAutolabel(n.label) ? labelForConfig("trigger", nextCfg) : n.label;
+          return { ...n, config: nextCfg, label: nextLabel };
+        });
+        return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+      });
+    },
+    [autolabelSelectedNode, createTagApplyTo, selectedAutomationId, updateSelectedAutomation],
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await fetch("/api/portal/contact-tags", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       const data = (await res?.json?.().catch(() => null)) as any;
       if (cancelled) return;
       if (res?.ok && data?.ok && Array.isArray(data?.tags)) {
@@ -1581,12 +2366,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await fetch("/api/portal/ai-outbound-calls/campaigns", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/ai-outbound-calls/campaigns", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       const data = (await res?.json?.().catch(() => null)) as any;
       if (cancelled) return;
       if (res?.ok && data?.ok && Array.isArray(data?.campaigns)) {
@@ -1604,12 +2389,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await fetch("/api/portal/nurture/campaigns", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/nurture/campaigns", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       const data = (await res?.json?.().catch(() => null)) as any;
       if (cancelled) return;
       if (res?.ok && data?.ok && Array.isArray(data?.campaigns)) {
@@ -1627,12 +2412,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await fetch("/api/portal/booking/calendars", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/booking/calendars", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       const data = (await res?.json?.().catch(() => null)) as any;
       if (cancelled) return;
       const calendars = Array.isArray(data?.config?.calendars) ? (data.config.calendars as any[]) : [];
@@ -1652,7 +2437,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1821,7 +2606,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
             n.id === dragging.nodeId ? { ...n, x: clamp(nextX, -6000, 8000), y: clamp(nextY, -6000, 8000) } : n,
           );
           return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-        });
+        }, { recordHistory: false });
       }
 
       if (connecting) {
@@ -1841,6 +2626,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
         activePointersRef.current.delete(ev.pointerId);
         if (activePointersRef.current.size < 2) pinchRef.current = null;
       }
+      if (dragging && dragHistoryBaselineRef.current && selectedAutomation) {
+        if (automationSignature(dragHistoryBaselineRef.current) !== automationSignature(selectedAutomation)) {
+          pushHistorySnapshot(dragHistoryBaselineRef.current);
+        }
+        dragHistoryBaselineRef.current = null;
+      }
       if (dragging) setDragging(null);
       if (connecting) setConnecting(null);
       if (panning) setPanning(null);
@@ -1855,7 +2646,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [dragging, connecting, selectedAutomationId, updateSelectedAutomation, view.zoom, view.panX, view.panY, panning]);
+  }, [connecting, dragging, panning, pushHistorySnapshot, selectedAutomation, selectedAutomationId, updateSelectedAutomation, view.panX, view.panY, view.zoom]);
 
   function onCanvasDrop(ev: React.DragEvent) {
     ev.preventDefault();
@@ -1898,6 +2689,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     if (!node) return;
 
     (ev.currentTarget as HTMLElement).setPointerCapture?.(ev.pointerId);
+    dragHistoryBaselineRef.current = cloneAutomation(selectedAutomation);
     setDragging({
       nodeId,
       startClientX: ev.clientX,
@@ -1987,24 +2779,48 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     }
   }
 
-  function createAutomation() {
-    const nowIso = new Date().toISOString();
-    const next: Automation = {
-      id: uid("auto"),
-      name: `Automation ${automations.length + 1}`,
-      updatedAtIso: nowIso,
-      createdAtIso: nowIso,
-      createdBy: viewer?.userId ? { userId: viewer.userId, email: viewer.email, name: viewer.name } : undefined,
-      nodes: [{ id: uid("n"), type: "trigger", label: "Trigger: Inbound SMS", x: 100, y: 120 }],
-      edges: [],
-    };
+  const selectedCreateAutomationTemplate = useMemo(
+    () => AUTOMATION_TEMPLATE_DEFINITIONS.find((template) => template.id === createAutomationTemplateId) ?? null,
+    [createAutomationTemplateId],
+  );
 
-    next.nodes[0].config = defaultConfigForType("trigger");
+  function openCreateAutomationModal() {
+    setCreateAutomationName("");
+    setCreateAutomationTemplateId(BLANK_AUTOMATION_TEMPLATE_ID);
+    setLibraryMenuFor(null);
+    setOpenListMenu(null);
+    setCreateAutomationOpen(true);
+  }
+
+  function createAutomationFromSelection() {
+    const nextName =
+      String(createAutomationName || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 80) || "New automation";
+
+    const next =
+      createAutomationTemplateId === BLANK_AUTOMATION_TEMPLATE_ID || !selectedCreateAutomationTemplate
+        ? (() => {
+            const base = buildBlankAutomation();
+            const nowIso = new Date().toISOString();
+            return {
+              ...base,
+              name: nextName,
+              updatedAtIso: nowIso,
+              createdAtIso: nowIso,
+              createdBy: viewer?.userId ? { userId: viewer.userId, email: viewer.email, name: viewer.name } : undefined,
+            } satisfies Automation;
+          })()
+        : instantiateAutomationTemplate(selectedCreateAutomationTemplate, { name: nextName, viewer });
 
     const list = [next, ...automations].slice(0, 50);
     setAutomations(list);
     setSelectedAutomation(next.id);
+    setCreateAutomationOpen(false);
+    setLibraryOpen(false);
     void saveAll(list);
+    openAutomationEditorWindow(next.id);
   }
 
   function openRenameModal() {
@@ -2019,6 +2835,11 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       .trim()
       .slice(0, 80);
     if (!trimmed) return;
+
+    if (selectedAutomation?.id === automationId) {
+      updateSelectedAutomation((automation) => ({ ...automation, name: trimmed, updatedAtIso: new Date().toISOString() }));
+      return;
+    }
 
     const nextList = automations.map((a) =>
       a.id === automationId ? { ...a, name: trimmed, updatedAtIso: new Date().toISOString() } : a,
@@ -2135,45 +2956,175 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   }
 
   function openTestModal() {
-    if (!selectedAutomation || saving) return;
-    setTestFrom("+15555550123");
-    setTestBody("Hello");
+    if (!selectedAutomation) return;
+    const triggerKind = selectedAutomationTriggerKind ?? "manual";
+    const triggerCfg = selectedTriggerConfig;
+    const configuredFormId = String(triggerCfg?.formId || "").trim();
+    const configuredTagId = String(triggerCfg?.tagId || "").trim();
+    const configuredWebhookKey = String(triggerCfg?.webhookKey || "").trim();
+    const configuredCalendarId = String(triggerCfg?.calendarId || "").trim();
+    const configuredSpecificTime = String((triggerCfg as any)?.specificTime || "09:00").slice(0, 5) || "09:00";
+    const defaultFormId = configuredFormId || ownerForms[0]?.id || "";
+
+    if (selectedAutomationTriggerKind === "manual") {
+      setTestFrom("");
+      setTestBody("");
+    } else if (
+      selectedAutomationTriggerKind === "inbound_email" ||
+      selectedAutomationTriggerKind === "form_submitted" ||
+      selectedAutomationTriggerKind === "appointment_booked" ||
+      selectedAutomationTriggerKind === "appointment_ended" ||
+      selectedAutomationTriggerKind === "missed_appointment" ||
+      selectedAutomationTriggerKind === "review_received"
+    ) {
+      setTestFrom("customer@example.com");
+      setTestBody("Hello");
+    } else {
+      setTestFrom("+15555550123");
+      setTestBody("Hello");
+    }
+
+    if (triggerKind === "tag_added") {
+      setTestTagId(configuredTagId || TEST_ANY_TAG_VALUE);
+    } else {
+      setTestTagId("");
+    }
+
+    if (triggerKind === "form_submitted") {
+      setTestFormId(defaultFormId);
+      const fields = ownerFormFields.filter((field) => field.formId === defaultFormId);
+      const nextResponses: Record<string, string> = {};
+      for (const field of fields) {
+        const key = String(field.key || "").trim();
+        if (!key) continue;
+        nextResponses[key] = demoValueForFormField(field);
+      }
+      setTestFormResponses(nextResponses);
+      if (!testFrom) setTestFrom("customer@example.com");
+    } else {
+      setTestFormId("");
+      setTestFormResponses({});
+    }
+
+    setTestWebhookKey(configuredWebhookKey || "test-webhook");
+    setTestCalendarId(configuredCalendarId || bookingCalendars[0]?.id || "");
+    setTestScheduleMode(triggerKind === "scheduled_time" && String((triggerCfg as any)?.specificTime || "").trim() ? "trigger" : "custom");
+    setTestScheduleDate(new Date().toISOString().slice(0, 10));
+    setTestScheduleTime(configuredSpecificTime);
     setTestOpen(true);
   }
 
   async function runTestAutomation() {
     if (!selectedAutomation) return;
 
+    if (saving || dirty) {
+      const ok = await saveAll(automationsRef.current);
+      if (!ok) {
+        setError("Save failed. Fix that first, then run the test again.");
+        return;
+      }
+    }
+
     const from = String(testFrom || "").trim().slice(0, 64);
     const body = String(testBody ?? "").slice(0, 2000);
-    if (!from) return;
+    const triggerKind = selectedAutomationTriggerKind ?? "manual";
+    const triggerCfg = (selectedTriggerNode?.config as Extract<BuilderNodeConfig, { kind: "trigger" }> | undefined) ?? undefined;
+    const phoneLikeTriggers = new Set<TriggerKind>(["inbound_sms", "inbound_mms", "inbound_call", "missed_call", "outbound_sent", "follow_up_sent"]);
+    const emailLikeTriggers = new Set<TriggerKind>(["inbound_email", "review_received", "appointment_booked", "appointment_ended", "missed_appointment", "form_submitted"]);
+    if (triggerKind !== "manual" && !from) return;
 
-    setSaving(true);
+    const testNowIso =
+      triggerKind === "scheduled_time"
+        ? testScheduleMode === "trigger"
+          ? combineDateAndTime(new Date().toISOString().slice(0, 10), String((triggerCfg as any)?.specificTime || testScheduleTime || "09:00"))
+          : combineDateAndTime(testScheduleDate, testScheduleTime)
+        : null;
+
+    const selectedForm = ownerForms.find((form) => form.id === testFormId) ?? null;
+
+    const event =
+      triggerKind === "tag_added"
+        ? {
+            tagId:
+              testTagId === TEST_ANY_TAG_VALUE
+                ? undefined
+                : String(testTagId || triggerCfg?.tagId || "").trim() || undefined,
+          }
+        : triggerKind === "inbound_webhook"
+          ? { webhookKey: testWebhookKey || triggerCfg?.webhookKey || "test-webhook" }
+          : triggerKind === "form_submitted"
+            ? {
+                formId: testFormId || triggerCfg?.formId || "test-form",
+                formSlug: selectedForm?.slug || "test-form",
+                formName: selectedForm?.name || "Test Form",
+                submissionId: uid("submission"),
+                formData: testFormResponses,
+              }
+            : triggerKind === "appointment_booked" || triggerKind === "appointment_ended" || triggerKind === "missed_appointment"
+              ? { bookingId: uid("booking"), calendarId: testCalendarId || triggerCfg?.calendarId || "test-calendar" }
+              : undefined;
+
+    setTesting(true);
     setError(null);
     setNote(null);
 
     try {
-      const res = await fetch("/api/portal/automations/test-sms", {
+      const res = await fetch("/api/portal/automations/test-trigger", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ automationId: selectedAutomation.id, from, body }),
+        headers: { "content-type": "application/json", ...variantHeaders },
+        body: JSON.stringify({
+          automationId: selectedAutomation.id,
+          triggerKind,
+          from,
+          body,
+          nowIso: testNowIso || undefined,
+          event,
+          contact:
+            triggerKind === "manual"
+              ? undefined
+              : phoneLikeTriggers.has(triggerKind)
+                ? { phone: from, name: from }
+                : emailLikeTriggers.has(triggerKind)
+                  ? { email: from, name: from }
+                  : { phone: from, email: from.includes("@") ? from : undefined, name: from },
+        }),
       }).catch(() => null as any);
 
       const data = (await res?.json?.().catch(() => null)) as any;
       if (!res?.ok || !data?.ok) {
-        setSaving(false);
+        setTesting(false);
         setError(data?.error || "Test failed.");
         return;
       }
 
-      setSaving(false);
+      setTesting(false);
       setNote("Test started.");
       window.setTimeout(() => setNote(null), 1400);
       setTestOpen(false);
     } catch {
-      setSaving(false);
+      setTesting(false);
       setError("Test failed.");
     }
+  }
+
+  function undoSelectedAutomation() {
+    if (!selectedAutomationId || !selectedAutomation) return;
+    const history = ensureAutomationHistory(selectedAutomationId);
+    const previous = history.past.pop();
+    if (!previous) return;
+    history.future.push(cloneAutomation(selectedAutomation));
+    replaceAutomationInState(previous);
+    setHistoryVersion((value) => value + 1);
+  }
+
+  function redoSelectedAutomation() {
+    if (!selectedAutomationId || !selectedAutomation) return;
+    const history = ensureAutomationHistory(selectedAutomationId);
+    const next = history.future.pop();
+    if (!next) return;
+    history.past.push(cloneAutomation(selectedAutomation));
+    replaceAutomationInState(next);
+    setHistoryVersion((value) => value + 1);
   }
 
   const nodesById = useMemo(() => {
@@ -2184,8 +3135,8 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
   if (loading) {
     return (
-      <div className="p-6">
-        <PortalBackToOnboardingLink />
+      <div className={mode === "editor" ? "flex min-h-[320px] items-center justify-center" : "p-6"}>
+        {mode === "editor" ? null : <PortalBackToOnboardingLink />}
         <div className="text-sm text-zinc-600">Loading…</div>
       </div>
     );
@@ -2212,6 +3163,13 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
         const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
         const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
         if (listTrigger !== "all" && triggerKind !== listTrigger) return false;
+        if (listDateRange !== "all") {
+          const sourceIso = String(a.updatedAtIso || (a as any).createdAtIso || "").trim();
+          const sourceTs = sourceIso ? new Date(sourceIso).getTime() : Number.NaN;
+          if (!Number.isFinite(sourceTs)) return false;
+          const dayWindow = listDateRange === "7d" ? 7 : listDateRange === "30d" ? 30 : listDateRange === "90d" ? 90 : 365;
+          if (Date.now() - sourceTs > dayWindow * 24 * 60 * 60 * 1000) return false;
+        }
         if (!normalizedQuery) return true;
         return (
           String(a.name || "").toLowerCase().includes(normalizedQuery) ||
@@ -2234,6 +3192,20 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
         .map((t) => ({ value: t, label: String(t).replace(/_/g, " "), hint: t })),
     ];
 
+    const listDateOptions: Array<{ value: "all" | "7d" | "30d" | "90d" | "365d"; label: string }> = [
+      { value: "all", label: "Any time" },
+      { value: "7d", label: "Last 7 days" },
+      { value: "30d", label: "Last 30 days" },
+      { value: "90d", label: "Last 90 days" },
+      { value: "365d", label: "Last year" },
+    ];
+
+    const pageSize = 20;
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const currentPage = Math.min(listPage, totalPages);
+    const pageStart = (currentPage - 1) * pageSize;
+    const pagedAutomations = filtered.slice(pageStart, pageStart + pageSize);
+
     const formatUpdatedShort = (iso: string | null | undefined) => {
       if (!iso) return "-";
       const d = new Date(iso);
@@ -2241,120 +3213,193 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       return d.toLocaleString(undefined, { month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
     };
 
+    const hasListFiltersActive =
+      listStatus !== "all" || listTrigger !== "all" || listDateRange !== "all" || listQuery.trim().length > 0;
+
+    const automationZeroState = automations.length === 0 ? (
+      <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 px-5 py-10 text-center">
+        <div className="text-base font-semibold text-zinc-900">Create your first automation</div>
+        <div className="mt-2 mx-auto max-w-xl text-sm text-zinc-600">
+          Start with a blank workflow or pick a template for common jobs like missed-call follow-up, inbound replies, and nurture handoffs.
+        </div>
+        <div className="mt-4 flex flex-col items-center justify-center gap-2 sm:flex-row">
+          <button
+            type="button"
+            className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+            onClick={openCreateAutomationModal}
+          >
+            + New automation
+          </button>
+          <div className="text-xs text-zinc-500">Templates are available in the create flow.</div>
+        </div>
+      </div>
+    ) : (
+      <div className="rounded-3xl border border-zinc-200 bg-white px-4 py-10 text-center text-sm text-zinc-600">
+        {hasListFiltersActive ? "No automations match your search or filters." : "No automations available."}
+      </div>
+    );
+
     return (
-      <div className="p-6">
-        <PortalBackToOnboardingLink />
+      <>
+      <div className="px-6 pt-4 pb-6">
+        <PortalBackToOnboardingLink wrapperClassName="mb-2" />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">My Automations</h1>
-            <div className="mt-1 text-sm text-zinc-600">Create, filter, and open automations in a dedicated editor window.</div>
-            {refreshing ? (
-              <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
-                <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
-                Refreshing…
-              </div>
-            ) : null}
+            <div className="mt-1 text-sm text-zinc-600">Create fully custom automations from scratch and manage every workflow in one place.</div>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
             <SuggestedSetupModalLauncher serviceSlugs={["automations"]} buttonLabel="Suggested setup" />
             <button
               type="button"
-              className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-              onClick={() => {
-                const nowIso = new Date().toISOString();
-                const next: Automation = {
-                  ...buildStarterAutomation(),
-                  name: "New automation",
-                  updatedAtIso: nowIso,
-                  createdAtIso: nowIso,
-                  createdBy: viewer?.userId ? { userId: viewer.userId, email: viewer.email, name: viewer.name } : undefined,
-                };
-                const nextList = [next, ...automations].slice(0, 50);
-                setAutomations(nextList);
-                void saveAll(nextList);
-                openAutomationEditorWindow(next.id);
-              }}
-              disabled={saving}
+              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
+              onClick={openCreateAutomationModal}
             >
               + New automation
             </button>
           </div>
         </div>
 
-        <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
-          {isMobileApp ? (
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <PortalListboxDropdown
-                  value={listStatus}
-                  onChange={(v) => setListStatus(v as any)}
-                  options={listStatusOptions}
-                  buttonClassName="h-11 rounded-full border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                />
-                <PortalListboxDropdown
-                  value={listTrigger}
-                  onChange={(v) => setListTrigger(v as any)}
-                  options={listTriggerOptions}
-                  buttonClassName="h-11 rounded-full border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                />
-              </div>
-
-              <div className="relative">
-                <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                    <path d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" strokeWidth="2" />
-                    <path d="M16.5 16.5 21 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                </div>
-                <input
-                  value={listQuery}
-                  onChange={(e) => setListQuery(e.target.value)}
-                  className="h-11 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-                  placeholder="Search automations"
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-              <div className="md:col-span-6">
-                <label className="text-xs font-semibold text-zinc-600">Search</label>
-                <input
-                  value={listQuery}
-                  onChange={(e) => setListQuery(e.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
-                  placeholder="Search by name…"
-                />
-              </div>
-              <div className="md:col-span-3">
-                <label className="text-xs font-semibold text-zinc-600">Status</label>
-                <PortalListboxDropdown
-                  value={listStatus}
-                  onChange={(v) => setListStatus(v as any)}
-                  options={listStatusOptions}
-                  buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
-                />
-              </div>
-              <div className="md:col-span-3">
-                <label className="text-xs font-semibold text-zinc-600">Trigger</label>
-                <PortalListboxDropdown
-                  value={listTrigger}
-                  onChange={(v) => setListTrigger(v as any)}
-                  options={listTriggerOptions}
-                  buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
-                />
-              </div>
-            </div>
-          )}
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <label className="relative block h-11 w-full">
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-zinc-400">
+              <IconSearch size={16} />
+            </span>
+            <input
+              value={listQuery}
+              onChange={(e) => setListQuery(e.target.value)}
+              placeholder="Search automations"
+              className="h-11 w-full rounded-2xl border border-zinc-200 bg-white pl-10 pr-14 text-sm text-zinc-900 placeholder:text-zinc-500"
+            />
+            <button
+              type="button"
+              className={classNames(
+                portalGlassButtonClass,
+                "absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-zinc-500 transition-colors duration-150 hover:bg-white/80 hover:text-zinc-900",
+                listStatus !== "all" || listTrigger !== "all" || listDateRange !== "all" ? "text-(--color-brand-blue)" : "",
+              )}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleListFilters(e.currentTarget);
+              }}
+              aria-label="Open filters"
+              title="Filters"
+            >
+              <IconFunnel size={18} />
+            </button>
+          </label>
         </div>
+
+        {openListFilters ? (
+          <>
+            <div className="fixed inset-0 z-30" onMouseDown={() => setOpenListFilters(null)} onTouchStart={() => setOpenListFilters(null)} />
+            <div
+              className="fixed z-40 w-80"
+              style={{ left: openListFilters.left, top: openListFilters.top, maxHeight: openListFilters.maxHeight }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <LiquidGlassPopupSurface
+                className="w-full p-2 shadow-xl"
+                contentClassName="space-y-3"
+                overlayClassName="border-white/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,255,255,0.34))] shadow-[0_24px_64px_rgba(15,23,42,0.16)] backdrop-blur-[22px]"
+              >
+                <div className="flex items-center justify-end gap-3 px-2 pt-1">
+                  {(listStatus !== "all" || listTrigger !== "all" || listDateRange !== "all") ? (
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
+                      onClick={() => {
+                        setListStatus("all");
+                        setListTrigger("all");
+                        setListDateRange("all");
+                      }}
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="max-h-80 space-y-3 overflow-auto px-1 pb-1">
+                  <div>
+                    <div className="px-2 text-sm font-medium text-zinc-700">Status</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {listStatusOptions.map((option) => {
+                        const active = listStatus === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className={classNames(
+                              "rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150",
+                              active ? "bg-brand-blue/10 text-(--color-brand-blue)" : "bg-transparent text-zinc-700 hover:bg-brand-blue/5",
+                            )}
+                            onClick={() => setListStatus(option.value)}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="px-2 text-sm font-medium text-zinc-700">Trigger</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {listTriggerOptions.map((option) => {
+                        const active = listTrigger === option.value;
+                        return (
+                          <button
+                            key={String(option.value)}
+                            type="button"
+                            className={classNames(
+                              "rounded-full px-3 py-1.5 text-sm font-medium capitalize transition-colors duration-150",
+                              active ? "bg-brand-blue/10 text-(--color-brand-blue)" : "bg-transparent text-zinc-700 hover:bg-brand-blue/5",
+                            )}
+                            onClick={() => setListTrigger(option.value as "all" | TriggerKind)}
+                            title={option.hint}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="px-2 text-sm font-medium text-zinc-700">Date</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {listDateOptions.map((option) => {
+                        const active = listDateRange === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className={classNames(
+                              "rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150",
+                              active ? "bg-brand-blue/10 text-(--color-brand-blue)" : "bg-transparent text-zinc-700 hover:bg-brand-blue/5",
+                            )}
+                            onClick={() => setListDateRange(option.value)}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </LiquidGlassPopupSurface>
+            </div>
+          </>
+        ) : null}
 
         {isMobileApp ? (
           <div className="mt-6 space-y-3">
             {filtered.length === 0 ? (
-              <div className="rounded-3xl border border-zinc-200 bg-white px-4 py-10 text-center text-sm text-zinc-600">
-                No automations match your filters.
-              </div>
+              automationZeroState
             ) : (
-              filtered.map((a) => {
+              pagedAutomations.map((a) => {
                 const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
                 const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
                 const triggerLabel = triggerKind
@@ -2377,10 +3422,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-600">
                           <span
                             className={
-                              "inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold " +
+                              "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold " +
                               (a.paused
-                                ? "border-amber-200 bg-amber-50 text-amber-800"
-                                : "border-emerald-200 bg-emerald-50 text-emerald-800")
+                                ? "bg-amber-50 text-amber-800"
+                                : "bg-emerald-50 text-emerald-800")
                             }
                           >
                             {a.paused ? "Paused" : "Active"}
@@ -2395,7 +3440,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
                       <button
                         type="button"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                        className={classNames(
+                          portalGlassButtonClass,
+                          "inline-flex h-10 w-10 items-center justify-center rounded-full text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80",
+                        )}
                         onClick={(e) => {
                           e.stopPropagation();
                           toggleListMenu(a.id, e.currentTarget);
@@ -2423,9 +3471,9 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
             <div className="divide-y divide-zinc-100">
               {filtered.length === 0 ? (
-                <div className="px-4 py-10 text-center text-sm text-zinc-600">No automations match your filters.</div>
+                <div className="p-4">{automationZeroState}</div>
               ) : (
-                filtered.map((a) => {
+                pagedAutomations.map((a) => {
                   const triggerNode = (a.nodes || []).find((n: any) => n?.type === "trigger" && n?.config?.kind === "trigger") as any;
                   const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
                   const triggerLabel = triggerKind
@@ -2482,8 +3530,8 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       <div className="col-span-2">
                         <span
                           className={
-                            "inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold " +
-                            (a.paused ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800")
+                            "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold " +
+                            (a.paused ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800")
                           }
                         >
                           {a.paused ? "Paused" : "Active"}
@@ -2494,7 +3542,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                         {triggerKind === "manual" ? (
                           <div className="flex items-center gap-2">
                             <span
-                              className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800"
+                              className="inline-flex items-center rounded-full bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-800"
                               title="This automation can be triggered manually"
                             >
                               Manual
@@ -2509,7 +3557,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                 setManualRunBusyFor(a.id);
                                 const res = await fetch("/api/portal/automations/run", {
                                   method: "POST",
-                                  headers: { "content-type": "application/json" },
+                                  headers: { "content-type": "application/json", ...variantHeaders },
                                   body: JSON.stringify({ automationId: a.id }),
                                 }).catch(() => null as any);
                                 const data = (await res?.json?.().catch(() => null)) as any;
@@ -2543,7 +3591,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       <div className="col-span-1 md:col-span-2 lg:col-span-1 flex justify-end">
                         <button
                           type="button"
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                          className={classNames(
+                            portalGlassButtonClass,
+                            "inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80",
+                          )}
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleListMenu(a.id, e.currentTarget);
@@ -2561,11 +3612,35 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
           </div>
         )}
 
+        {filtered.length > 0 ? (
+          <div className="mt-4 flex flex-wrap items-center justify-start gap-3 text-sm text-zinc-600">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+              onClick={() => setListPage((prev) => Math.max(1, prev - 1))}
+              disabled={currentPage <= 1}
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+              onClick={() => setListPage((prev) => Math.min(totalPages, prev + 1))}
+              disabled={currentPage >= totalPages}
+            >
+              Next
+            </button>
+            <div>
+              Page {currentPage} of {totalPages} · Showing {pageStart + 1}-{Math.min(pageStart + pageSize, filtered.length)} of {filtered.length}
+            </div>
+          </div>
+        ) : null}
+
         {openListMenu ? (
           <>
             <div className="fixed inset-0 z-30" onMouseDown={() => setOpenListMenu(null)} onTouchStart={() => setOpenListMenu(null)} />
             <div
-              className="fixed z-40 w-[220px] overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+              className="fixed z-40 w-[220px]"
               style={{ left: openListMenu.left, top: openListMenu.top, maxHeight: openListMenu.maxHeight }}
               onMouseDown={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
@@ -2577,10 +3652,13 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 const triggerKind = triggerNode?.config?.triggerKind as TriggerKind | undefined;
                 const canManualRun = triggerKind === "manual";
                 return (
-                  <div className="py-2">
+                  <LiquidGlassPopupSurface
+                    className="w-full p-1.5 shadow-xl"
+                    overlayClassName="border-white/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.72),rgba(255,255,255,0.34))] shadow-[0_24px_64px_rgba(15,23,42,0.16)] backdrop-blur-[22px]"
+                  >
                     <button
                       type="button"
-                      className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                       onClick={() => {
                         setOpenListMenu(null);
                         openAutomationEditorWindow(a.id);
@@ -2591,7 +3669,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
                     <button
                       type="button"
-                      className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                       onClick={() => {
                         setOpenListMenu(null);
                         togglePausedById(a.id);
@@ -2603,7 +3681,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     {canManualRun ? (
                       <button
                         type="button"
-                        className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                        className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                         disabled={manualRunBusyFor === a.id}
                         onClick={async () => {
                           if (manualRunBusyFor) return;
@@ -2611,7 +3689,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                           setManualRunBusyFor(a.id);
                           const res = await fetch("/api/portal/automations/run", {
                             method: "POST",
-                            headers: { "content-type": "application/json" },
+                            headers: { "content-type": "application/json", ...variantHeaders },
                             body: JSON.stringify({ automationId: a.id }),
                           }).catch(() => null as any);
                           const data = (await res?.json?.().catch(() => null)) as any;
@@ -2630,7 +3708,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
                     <button
                       type="button"
-                      className="block w-full px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                      className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-white/16"
                       onClick={() => {
                         setOpenListMenu(null);
                         const nextId = duplicateAutomationById(a.id);
@@ -2640,10 +3718,9 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       Duplicate
                     </button>
 
-                    <div className="my-1 h-px bg-zinc-100" />
                     <button
                       type="button"
-                      className="block w-full px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                      className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 transition-colors duration-150 hover:bg-red-500/10"
                       onClick={() => {
                         setOpenListMenu(null);
                         deleteAutomationFromList(a.id);
@@ -2651,32 +3728,118 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     >
                       Delete
                     </button>
-                  </div>
+                  </LiquidGlassPopupSurface>
                 );
               })()}
             </div>
           </>
         ) : null}
       </div>
+
+      {createAutomationOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]" onMouseDown={() => setCreateAutomationOpen(false)}>
+          <LiquidGlassPopupSurface
+            className="relative w-full max-w-xl overflow-hidden rounded-4xl p-5 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+            overlayClassName="border-transparent bg-[rgba(255,255,255,0.54)] shadow-[0_24px_64px_rgba(15,23,42,0.16)] backdrop-blur-[28px]"
+            showGlass={false}
+            showTopGlow={false}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Create automation</div>
+                <div className="mt-1 text-sm text-zinc-600">Name it now or leave it blank to default to New automation, then choose Start blank or any template.</div>
+              </div>
+              <button
+                type="button"
+                className={classNames(
+                  portalGlassButtonClass,
+                  "inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-full border border-white/70 bg-white/75 text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30",
+                )}
+                onClick={() => setCreateAutomationOpen(false)}
+                aria-label="Close"
+                title="Close"
+              >
+                <span aria-hidden="true" className="text-xl leading-none">
+                  ×
+                </span>
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4">
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Automation name</label>
+                <input
+                  value={createAutomationName}
+                  autoFocus
+                  onChange={(e) => setCreateAutomationName(e.target.value.slice(0, 80))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setCreateAutomationOpen(false);
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      createAutomationFromSelection();
+                    }
+                  }}
+                  className="mt-1 w-full rounded-2xl border border-white/60 bg-white/70 px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
+                  placeholder="New automation"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Template</label>
+                <PortalListboxDropdown
+                  className="mt-1"
+                  value={createAutomationTemplateId}
+                  options={AUTOMATION_TEMPLATE_OPTIONS}
+                  onChange={(next) => setCreateAutomationTemplateId(next)}
+                  placeholder="Start blank"
+                />
+                {selectedCreateAutomationTemplate ? (
+                  <div className="mt-2 rounded-3xl border border-white/60 bg-white/35 px-3 py-3 text-sm text-zinc-600">
+                    {selectedCreateAutomationTemplate.description}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end">
+              <button
+                type="button"
+                className="rounded-full bg-brand-blue/10 px-4 py-2 text-sm font-semibold text-(--color-brand-blue) transition hover:bg-brand-blue/15 disabled:opacity-60"
+                onClick={createAutomationFromSelection}
+                disabled={saving}
+              >
+                {selectedCreateAutomationTemplate ? "Create from template" : "Create automation"}
+              </button>
+            </div>
+          </LiquidGlassPopupSurface>
+        </div>
+      ) : null}
+      </>
     );
   }
 
   return (
-    <div className={mode === "editor" ? "p-3" : "p-6"}>
-      <PortalBackToOnboardingLink wrapperClassName={mode === "editor" ? "mb-2" : undefined} />
+    <div className={mode === "editor" ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-100/70" : "p-6"}>
+      {mode === "editor" ? null : <PortalBackToOnboardingLink />}
       {mode === "editor" ? (
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/70 bg-white/80 px-4 py-3 backdrop-blur-xl">
           <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
-              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+              className={classNames(
+                portalGlassButtonClass,
+                "inline-flex h-10 w-10 items-center justify-center rounded-full text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80",
+              )}
               onClick={() => {
                 window.location.href = String(pathname || "").startsWith("/credit")
                   ? "/credit/app/services/automations"
                   : "/portal/app/services/automations";
               }}
+              aria-label="Back"
+              title="Back"
             >
-              Back
+              <BackArrowIcon className="h-5 w-5" />
             </button>
 
             <div className="min-w-0">
@@ -2715,27 +3878,61 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 </button>
               )}
             </div>
+
+            <div className="ml-1 flex items-center gap-1">
+              <button
+                type="button"
+                className={classNames(
+                  portalGlassButtonClass,
+                  "inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-600 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80 hover:text-zinc-900 disabled:opacity-40",
+                )}
+                onClick={() => undoSelectedAutomation()}
+                disabled={!canUndo || saving || !selectedAutomation}
+                aria-label="Undo"
+                title="Undo"
+              >
+                <IconUndo size={16} />
+              </button>
+              <button
+                type="button"
+                className={classNames(
+                  portalGlassButtonClass,
+                  "inline-flex h-9 w-9 items-center justify-center rounded-full text-zinc-600 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80 hover:text-zinc-900 disabled:opacity-40",
+                )}
+                onClick={() => redoSelectedAutomation()}
+                disabled={!canRedo || saving || !selectedAutomation}
+                aria-label="Redo"
+                title="Redo"
+              >
+                <IconRedo size={16} />
+              </button>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {refreshing ? (
-              <div className="mr-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
-                <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
-                Refreshing…
-              </div>
-            ) : null}
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <div className="mr-2 hidden flex-col items-end sm:flex">
               <div className="text-xs font-semibold text-zinc-700">{saving ? "Saving…" : dirty ? "Autosaving…" : "Saved"}</div>
               <div className="text-xs text-zinc-500">{lastSavedAtIso ? `Last saved ${new Date(lastSavedAtIso).toLocaleTimeString()}` : ""}</div>
             </div>
+            <button
+              type="button"
+              className={classNames(
+                portalGlassButtonClass,
+                "rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/80 disabled:opacity-60",
+              )}
+              onClick={() => openTestModal()}
+              disabled={testing || !selectedAutomation}
+            >
+              Test
+            </button>
             {selectedAutomation ? (
               <button
                 type="button"
                 className={
                   "rounded-2xl px-3 py-2 text-sm font-semibold transition disabled:opacity-60 " +
                   (selectedAutomation.paused
-                    ? "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
-                    : "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100")
+                    ? "bg-amber-50 text-amber-800 hover:bg-amber-100"
+                    : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100")
                 }
                 onClick={() => {
                   const nextPaused = !Boolean(selectedAutomation.paused);
@@ -2750,19 +3947,11 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
             ) : null}
             <button
               type="button"
-              className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              className="ml-1 rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
               onClick={() => void saveAll()}
               disabled={saving || !dirty}
             >
               {saving ? "Saving…" : dirty ? "Save" : "Saved"}
-            </button>
-            <button
-              type="button"
-              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-              onClick={() => openTestModal()}
-              disabled={saving || !selectedAutomation}
-            >
-              Test
             </button>
           </div>
         </div>
@@ -2796,9 +3985,11 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
             setConfirm(null);
           }}
         >
-          <div
-            className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+          <LiquidGlassPopupSurface
+            className="relative w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-[2rem] p-4 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
+            overlayClassName="border-white/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.76),rgba(255,255,255,0.42))] shadow-[0_24px_64px_rgba(15,23,42,0.16)] backdrop-blur-[24px]"
+            showTopGlow={false}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -2811,7 +4002,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               </div>
               <button
                 type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30 disabled:pointer-events-none disabled:opacity-60"
+                className={classNames(
+                  portalGlassButtonClass,
+                  "inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/70 bg-white/75 text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30 disabled:pointer-events-none disabled:opacity-60",
+                )}
                 onClick={() => setConfirm(null)}
                 disabled={confirmBusy}
                 aria-label="Close"
@@ -2826,14 +4020,6 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
-                onClick={() => setConfirm(null)}
-                disabled={confirmBusy}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
                 className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-60"
                 onClick={() => void runConfirm()}
                 disabled={confirmBusy}
@@ -2841,15 +4027,17 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 {confirmBusy ? "Deleting…" : "Delete"}
               </button>
             </div>
-          </div>
+          </LiquidGlassPopupSurface>
         </div>
       ) : null}
 
       {renameOpen && selectedAutomation ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]" onMouseDown={() => setRenameOpen(false)}>
-          <div
-            className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+          <LiquidGlassPopupSurface
+            className="relative w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-[2rem] p-4 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
+            overlayClassName="border-white/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.76),rgba(255,255,255,0.42))] shadow-[0_24px_64px_rgba(15,23,42,0.16)] backdrop-blur-[24px]"
+            showTopGlow={false}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -2858,7 +4046,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               </div>
               <button
                 type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30"
+                className={classNames(
+                  portalGlassButtonClass,
+                  "inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/70 bg-white/75 text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30",
+                )}
                 onClick={() => setRenameOpen(false)}
                 aria-label="Close"
                 title="Close"
@@ -2891,14 +4082,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
-                onClick={() => setRenameOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                className="rounded-full bg-brand-blue/10 px-4 py-2 text-sm font-semibold text-(--color-brand-blue) transition hover:bg-brand-blue/15 disabled:opacity-60"
                 onClick={() => {
                   applyRename(renameValue);
                   setRenameOpen(false);
@@ -2908,24 +4092,30 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 Save
               </button>
             </div>
-          </div>
+          </LiquidGlassPopupSurface>
         </div>
       ) : null}
 
       {testOpen && selectedAutomation ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]" onMouseDown={() => setTestOpen(false)}>
-          <div
-            className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+          <LiquidGlassPopupSurface
+            className="relative max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] w-full max-w-lg overflow-hidden rounded-4xl p-5 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
+            overlayClassName="border-transparent bg-[rgba(255,255,255,0.54)] shadow-[0_24px_64px_rgba(15,23,42,0.16)] backdrop-blur-[28px]"
+            showGlass={false}
+            showTopGlow={false}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Test inbound SMS</div>
-                <div className="mt-1 text-sm text-zinc-600">Runs this automation as if a text was received.</div>
+                <div className="text-sm font-semibold text-zinc-900">{testTriggerMeta.title}</div>
+                <div className="mt-1 text-sm text-zinc-600">{testTriggerMeta.description}</div>
               </div>
               <button
                 type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30"
+                className={classNames(
+                  portalGlassButtonClass,
+                  "inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-full border border-white/70 bg-white/75 text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30",
+                )}
                 onClick={() => setTestOpen(false)}
                 aria-label="Close"
                 title="Close"
@@ -2936,82 +4126,197 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               </button>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-zinc-600">From (E.164)</label>
-                <input
-                  value={testFrom}
-                  autoFocus
-                  onChange={(e) => setTestFrom(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") setTestOpen(false);
-                  }}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
-                  placeholder="+15555550123"
-                />
-              </div>
-              <div>
+            <div className="mt-4 grid max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-12rem)] grid-cols-1 gap-3 overflow-y-auto pr-1">
+              {selectedAutomationTriggerKind === "tag_added" ? (
+                <div>
+                  <label className="text-xs font-semibold text-zinc-600">Added tag</label>
+                  <PortalListboxDropdown
+                    className="mt-1"
+                    value={testTagId as string}
+                    options={[
+                      { value: TEST_ANY_TAG_VALUE, label: "Any tag added" },
+                      ...ownerTags.map((tag) => ({ value: tag.id, label: tag.name })),
+                    ]}
+                    onChange={(next) => setTestTagId(next)}
+                    placeholder="Any tag added"
+                  />
+                </div>
+              ) : null}
+
+              {selectedAutomationTriggerKind === "form_submitted" ? (
+                <>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Submitted form</label>
+                    <PortalListboxDropdown
+                      className="mt-1"
+                      value={testFormId as string}
+                      options={ownerForms.map((form) => ({ value: form.id, label: form.name ? `${form.name} (${form.slug})` : form.slug || form.id }))}
+                      onChange={(next) => setTestFormId(next)}
+                      placeholder="Select a form"
+                    />
+                  </div>
+                  {selectedTestFormFields.length ? (
+                    <div className="space-y-3 rounded-3xl border border-white/60 bg-white/35 p-3">
+                      <div className="text-xs font-semibold text-zinc-600">Demo responses</div>
+                      {selectedTestFormFields.map((field) => (
+                        <div key={field.key}>
+                          <label className="text-xs font-semibold text-zinc-600">{field.label || field.key}</label>
+                          <input
+                            value={testFormResponses[field.key] || ""}
+                            onChange={(e) => setTestFormResponses((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                            className="mt-1 w-full rounded-2xl border border-white/60 bg-white/70 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                            placeholder={demoValueForFormField(field)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-3xl border border-dashed border-white/60 bg-white/30 px-3 py-3 text-sm text-zinc-600">
+                      No saved demo fields found for this form yet.
+                    </div>
+                  )}
+                </>
+              ) : null}
+
+              {selectedAutomationTriggerKind === "scheduled_time" ? (
+                <div className="space-y-3 rounded-3xl border border-white/60 bg-white/35 p-3">
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Test time</label>
+                    <PortalListboxDropdown
+                      className="mt-1"
+                      value={testScheduleMode}
+                      options={[
+                        { value: "trigger", label: "Use trigger time" },
+                        { value: "custom", label: "Choose another time" },
+                      ]}
+                      onChange={(next) => setTestScheduleMode(next as "trigger" | "custom")}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Date</label>
+                    <input
+                      type="date"
+                      value={testScheduleDate}
+                      onChange={(e) => setTestScheduleDate(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-white/60 bg-white/70 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Time</label>
+                    <LocalTimePicker value={testScheduleMode === "trigger" ? String((selectedTriggerConfig as any)?.specificTime || testScheduleTime || "09:00") : testScheduleTime} onChange={setTestScheduleTime} />
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedAutomationTriggerKind === "inbound_webhook" ? (
+                <div>
+                  <label className="text-xs font-semibold text-zinc-600">Webhook key</label>
+                  <input
+                    value={testWebhookKey}
+                    onChange={(e) => setTestWebhookKey(e.target.value.slice(0, 200))}
+                    className="mt-1 w-full rounded-2xl border border-white/60 bg-white/70 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                    placeholder="test-webhook"
+                  />
+                </div>
+              ) : null}
+
+              {(selectedAutomationTriggerKind === "appointment_booked" || selectedAutomationTriggerKind === "appointment_ended" || selectedAutomationTriggerKind === "missed_appointment") ? (
+                <div>
+                  <label className="text-xs font-semibold text-zinc-600">Calendar</label>
+                  <PortalListboxDropdown
+                    className="mt-1"
+                    value={testCalendarId as string}
+                    options={bookingCalendars.map((calendar) => ({ value: calendar.id, label: calendar.title }))}
+                    onChange={(next) => setTestCalendarId(next)}
+                    placeholder="Select a calendar"
+                  />
+                </div>
+              ) : null}
+
+              {testTriggerMeta.showFrom ? (
+                <div>
+                  <label className="text-xs font-semibold text-zinc-600">{testTriggerMeta.fromLabel}</label>
+                  <input
+                    value={testFrom}
+                    autoFocus
+                    onChange={(e) => setTestFrom(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setTestOpen(false);
+                    }}
+                    className="mt-1 w-full rounded-2xl border border-white/60 bg-white/70 px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
+                    placeholder={testTriggerMeta.fromPlaceholder}
+                  />
+                </div>
+              ) : null}
+              {testTriggerMeta.showBody ? (
+                <div>
                   <div className="flex items-center justify-between gap-3">
-                    <label className="text-xs font-semibold text-zinc-600">Message</label>
+                    <label className="text-xs font-semibold text-zinc-600">{testTriggerMeta.bodyLabel}</label>
                     <button
                       type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                      className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold text-zinc-700 hover:bg-white/90"
                       onClick={() => openVariablePicker("test_sms_body")}
                     >
                       Add variable
                     </button>
                   </div>
-                <textarea
+                  <textarea
                     ref={testSmsBodyRef}
-                  value={testBody}
-                  onChange={(e) => setTestBody(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") setTestOpen(false);
-                  }}
-                  className="mt-1 min-h-[110px] w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-                  placeholder="Hello"
-                />
-              </div>
+                    value={testBody}
+                    onChange={(e) => setTestBody(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setTestOpen(false);
+                    }}
+                    className="mt-1 min-h-[110px] w-full resize-y rounded-2xl border border-white/60 bg-white/70 px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                    placeholder={testTriggerMeta.bodyPlaceholder}
+                  />
+                </div>
+              ) : null}
             </div>
 
-            <div className="mt-4 flex items-center justify-end gap-2">
+            <div className="mt-5 flex items-center justify-end">
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
-                onClick={() => setTestOpen(false)}
-                disabled={saving}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                className="rounded-full bg-brand-blue/10 px-4 py-2 text-sm font-semibold text-(--color-brand-blue) transition hover:bg-brand-blue/15 disabled:opacity-60"
                 onClick={() => void runTestAutomation()}
-                disabled={!String(testFrom || "").trim() || saving}
+                disabled={
+                  (testTriggerMeta.showFrom && !String(testFrom || "").trim()) ||
+                  (selectedAutomationTriggerKind === "tag_added" && !String(testTagId || "").trim()) ||
+                  (selectedAutomationTriggerKind === "form_submitted" && !testFormId) ||
+                  (selectedAutomationTriggerKind === "inbound_webhook" && !String(testWebhookKey || "").trim()) ||
+                  ((selectedAutomationTriggerKind === "appointment_booked" || selectedAutomationTriggerKind === "appointment_ended" || selectedAutomationTriggerKind === "missed_appointment") && !testCalendarId) ||
+                  (selectedAutomationTriggerKind === "scheduled_time" && !(testScheduleMode === "trigger" ? String((selectedTriggerConfig as any)?.specificTime || testScheduleTime || "").trim() : combineDateAndTime(testScheduleDate, testScheduleTime))) ||
+                  testing
+                }
               >
-                {saving ? "Running…" : "Run test"}
+                {testing ? "Running…" : "Run test"}
               </button>
             </div>
-          </div>
+          </LiquidGlassPopupSurface>
         </div>
       ) : null}
 
-      {createTagOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]" onMouseDown={() => setCreateTagOpen(false)}>
-          <div
-            className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+      {createAutomationOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]" onMouseDown={() => setCreateAutomationOpen(false)}>
+          <LiquidGlassPopupSurface
+            className="relative w-full max-w-xl overflow-hidden rounded-4xl p-5 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
+            overlayClassName="border-transparent bg-[rgba(255,255,255,0.54)] shadow-[0_24px_64px_rgba(15,23,42,0.16)] backdrop-blur-[28px]"
+            showGlass={false}
+            showTopGlow={false}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Create tag</div>
-                <div className="mt-1 text-sm text-zinc-600">Add a reusable tag you can use anywhere.</div>
+                <div className="text-sm font-semibold text-zinc-900">Create automation</div>
+                <div className="mt-1 text-sm text-zinc-600">Name it now or leave it blank to default to New automation, then choose Start blank or any template.</div>
               </div>
               <button
                 type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30 disabled:pointer-events-none disabled:opacity-60"
-                onClick={() => setCreateTagOpen(false)}
-                disabled={createTagBusy}
+                className={classNames(
+                  portalGlassButtonClass,
+                  "inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-full border border-white/70 bg-white/75 text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30",
+                )}
+                onClick={() => setCreateAutomationOpen(false)}
                 aria-label="Close"
                 title="Close"
               >
@@ -3021,104 +4326,68 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               </button>
             </div>
 
-            <div className="mt-4">
-              <label className="text-xs font-semibold text-zinc-600">Name</label>
-              <input
-                value={createTagName}
-                autoFocus
-                onChange={(e) => setCreateTagName(e.target.value)}
-                onKeyDown={async (e) => {
-                  if (e.key === "Escape") setCreateTagOpen(false);
-                  if (e.key === "Enter") {
-                    const created = await createOwnerTag(createTagName, createTagColor);
-                    if (!created) return;
-                    if (createTagApplyTo && selectedAutomationId) {
-                      updateSelectedAutomation((a) => {
-                        const nodes = a.nodes.map((n) => {
-                          if (n.id !== createTagApplyTo.nodeId) return n;
-                          if (createTagApplyTo.kind === "action") {
-                            const prev = n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
-                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", tagId: created.id };
-                            const nextLabel =
-                              autolabelSelectedNode && shouldAutolabel(n.label) ? labelForConfig("action", nextCfg) : n.label;
-                            return { ...n, config: nextCfg, label: nextLabel };
-                          }
-                          const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
-                          const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", tagId: created.id };
-                          const nextLabel =
-                            autolabelSelectedNode && shouldAutolabel(n.label) ? labelForConfig("trigger", nextCfg) : n.label;
-                          return { ...n, config: nextCfg, label: nextLabel };
-                        });
-                        return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                      });
+            <div className="mt-4 grid grid-cols-1 gap-4">
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Automation name</label>
+                <input
+                  value={createAutomationName}
+                  autoFocus
+                  onChange={(e) => setCreateAutomationName(e.target.value.slice(0, 80))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setCreateAutomationOpen(false);
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      createAutomationFromSelection();
                     }
-                    setCreateTagOpen(false);
-                    setCreateTagName("");
-                    setCreateTagApplyTo(null);
-                    setCreateTagError(null);
-                  }
-                }}
-                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
-                placeholder="e.g. Hot lead"
-                maxLength={60}
-                disabled={createTagBusy}
-              />
+                  }}
+                  className="mt-1 w-full rounded-2xl border border-white/60 bg-white/70 px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
+                  placeholder="New automation"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Template</label>
+                <PortalListboxDropdown
+                  className="mt-1"
+                  value={createAutomationTemplateId}
+                  options={AUTOMATION_TEMPLATE_OPTIONS}
+                  onChange={(next) => setCreateAutomationTemplateId(next)}
+                  placeholder="Start blank"
+                />
+                {selectedCreateAutomationTemplate ? (
+                  <div className="mt-2 rounded-3xl border border-white/60 bg-white/35 px-3 py-3 text-sm text-zinc-600">
+                    {selectedCreateAutomationTemplate.description}
+                  </div>
+                ) : null}
+              </div>
             </div>
 
-            <div className="mt-4">
-              <div className="text-xs font-semibold text-zinc-600">Color</div>
-              <ColorSwatches value={createTagColor} onChange={(hex) => setCreateTagColor(hex)} />
-              <div className="mt-1 text-[11px] text-zinc-500">Pick one of the standard tag colors.</div>
-            </div>
-
-            <div className="mt-4 flex items-center justify-end gap-2">
+            <div className="mt-5 flex items-center justify-end">
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
-                onClick={() => setCreateTagOpen(false)}
-                disabled={createTagBusy}
+                className="rounded-full bg-brand-blue/10 px-4 py-2 text-sm font-semibold text-(--color-brand-blue) transition hover:bg-brand-blue/15 disabled:opacity-60"
+                onClick={createAutomationFromSelection}
+                disabled={saving}
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                onClick={async () => {
-                  const created = await createOwnerTag(createTagName, createTagColor);
-                  if (!created) return;
-                  if (createTagApplyTo && selectedAutomationId) {
-                    updateSelectedAutomation((a) => {
-                      const nodes = a.nodes.map((n) => {
-                        if (n.id !== createTagApplyTo.nodeId) return n;
-                        if (createTagApplyTo.kind === "action") {
-                          const prev = n.config?.kind === "action" ? n.config : (defaultConfigForType("action") as any);
-                          const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "action", tagId: created.id };
-                          const nextLabel =
-                            autolabelSelectedNode && shouldAutolabel(n.label) ? labelForConfig("action", nextCfg) : n.label;
-                          return { ...n, config: nextCfg, label: nextLabel };
-                        }
-                        const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
-                        const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", tagId: created.id };
-                        const nextLabel =
-                          autolabelSelectedNode && shouldAutolabel(n.label) ? labelForConfig("trigger", nextCfg) : n.label;
-                        return { ...n, config: nextCfg, label: nextLabel };
-                      });
-                      return { ...a, nodes, updatedAtIso: new Date().toISOString() };
-                    });
-                  }
-                  setCreateTagOpen(false);
-                  setCreateTagName("");
-                  setCreateTagApplyTo(null);
-                  setCreateTagError(null);
-                }}
-                disabled={!String(createTagName || "").trim() || createTagBusy}
-              >
-                {createTagBusy ? "Creating…" : "Create"}
+                {selectedCreateAutomationTemplate ? "Create from template" : "Create automation"}
               </button>
             </div>
-          </div>
+          </LiquidGlassPopupSurface>
         </div>
       ) : null}
+
+      <CreateContactTagDialog
+        open={createTagOpen}
+        onClose={() => {
+          setCreateTagOpen(false);
+          setCreateTagApplyTo(null);
+        }}
+        onCreate={createOwnerTag}
+        onCreated={async (created) => {
+          applyCreatedTagToSelection(created);
+          setCreateTagApplyTo(null);
+        }}
+      />
 
       {libraryOpen ? (
         <div
@@ -3128,9 +4397,11 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
             setLibraryMenuFor(null);
           }}
         >
-          <div
-            className="w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+          <LiquidGlassPopupSurface
+            className="relative w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-4xl p-4 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
+            overlayClassName="border-white/45 bg-[linear-gradient(180deg,rgba(255,255,255,0.76),rgba(255,255,255,0.42))] shadow-[0_24px_64px_rgba(15,23,42,0.16)] backdrop-blur-[24px]"
+            showTopGlow={false}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -3139,7 +4410,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               </div>
               <button
                 type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30"
+                className={classNames(
+                  portalGlassButtonClass,
+                  "inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/70 bg-white/75 text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30",
+                )}
                 onClick={() => {
                   setLibraryOpen(false);
                   setLibraryMenuFor(null);
@@ -3241,7 +4515,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                             setManualRunBusyFor(a.id);
                             const res = await fetch("/api/portal/automations/run", {
                               method: "POST",
-                              headers: { "content-type": "application/json" },
+                              headers: { "content-type": "application/json", ...variantHeaders },
                               body: JSON.stringify({ automationId: a.id }),
                             }).catch(() => null as any);
                             const data = (await res?.json?.().catch(() => null)) as any;
@@ -3355,13 +4629,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               <button
                 type="button"
                 className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                onClick={createAutomation}
-                disabled={saving}
+                onClick={openCreateAutomationModal}
               >
                 + New
               </button>
             </div>
-          </div>
+          </LiquidGlassPopupSurface>
         </div>
       ) : null}
 
@@ -3383,8 +4656,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
             <button
               type="button"
               className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
-              onClick={createAutomation}
-              disabled={saving}
+              onClick={openCreateAutomationModal}
             >
               + New
             </button>
@@ -3395,8 +4667,8 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 className={
                   "rounded-2xl px-3 py-2 text-sm font-semibold " +
                   (selectedAutomation.paused
-                    ? "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                    : "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100")
+                    ? "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                    : "bg-amber-50 text-amber-800 hover:bg-amber-100")
                 }
                 onClick={() => {
                   const nextPaused = !Boolean(selectedAutomation.paused);
@@ -3449,7 +4721,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               type="button"
               className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
               onClick={() => openTestModal()}
-              disabled={saving || !selectedAutomation}
+              disabled={!selectedAutomation}
             >
               Test
             </button>
@@ -3510,7 +4782,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-sm font-semibold text-zinc-900">{x.title}</div>
-                    <div className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${b.cls}`}>{b.label}</div>
+                    <div className={badgeChipClass(x.type)}>{b.label}</div>
                   </div>
                   <div className="mt-1 text-xs text-zinc-600">
                     {disabled ? "Trigger already set (only one allowed)." : `Drop to add a ${x.title.toLowerCase()} node.`}
@@ -3523,23 +4795,30 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       </div>
       )}
 
-      <div className="mt-4">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+      <div className={mode === "editor" ? "flex min-h-0 flex-1 flex-col" : "mt-4"}>
+        <div className={mode === "editor" ? "flex min-h-0 flex-1 flex-col" : "rounded-3xl border border-zinc-200 bg-white p-4"}>
+            {mode === "editor" ? null : (
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Canvas</div>
                 <div className="mt-1 text-sm text-zinc-600">Connect nodes by dragging from the right handle to the left handle.</div>
               </div>
             </div>
+            )}
 
             {!selectedAutomation ? (
-              <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+              <div className={classNames("text-sm text-zinc-600", mode === "editor" ? "m-6 rounded-3xl border border-dashed border-zinc-200 bg-white/80 p-6" : "mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4")}>
                 Create an automation to start.
               </div>
             ) : (
               <div
                 ref={canvasRef}
-                className="relative mt-4 h-[660px] w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white"
+                className={classNames(
+                  "relative w-full overflow-hidden",
+                  mode === "editor"
+                    ? "flex-1 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(244,244,245,0.92))]"
+                    : "mt-4 h-[660px] rounded-2xl border border-zinc-200 bg-white",
+                )}
                 style={{
                   backgroundImage: "radial-gradient(#0f172a12 1px, transparent 1px)",
                   backgroundSize: `${24 * view.zoom}px ${24 * view.zoom}px`,
@@ -3648,7 +4927,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                         <div className="flex h-full flex-col justify-between p-3">
                           <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0 text-xs font-semibold text-zinc-600">{b.label}</div>
-                            <div className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${b.cls}`}>{n.type}</div>
+                            <div className={badgeChipClass(n.type)}>{n.type}</div>
                           </div>
                           <div className="mt-1 line-clamp-2 text-sm font-semibold text-zinc-900">{safeString(n.label, "(untitled)")}</div>
                         </div>
@@ -3729,12 +5008,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
                 <div
                   data-kind="ui"
-                  className="absolute right-3 top-3 z-30 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 shadow-sm"
+                  className="absolute right-3 top-3 z-30 flex items-center gap-2 rounded-2xl bg-white/80 px-2 py-1 text-xs text-zinc-700 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur-xl"
                   onPointerDown={(ev) => ev.stopPropagation()}
                 >
                   <button
                     type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-2 py-1 font-semibold hover:bg-zinc-50"
+                    className={classNames(portalGlassButtonClass, "rounded-xl px-2 py-1 font-semibold text-zinc-800 hover:bg-white/80")}
                     onClick={() => setView((prev) => ({ ...prev, zoom: clampZoom(prev.zoom / 1.1) }))}
                     title="Zoom out"
                   >
@@ -3743,7 +5022,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                   <div className="min-w-[52px] text-center font-semibold">{Math.round(view.zoom * 100)}%</div>
                   <button
                     type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-2 py-1 font-semibold hover:bg-zinc-50"
+                    className={classNames(portalGlassButtonClass, "rounded-xl px-2 py-1 font-semibold text-zinc-800 hover:bg-white/80")}
                     onClick={() => setView((prev) => ({ ...prev, zoom: clampZoom(prev.zoom * 1.1) }))}
                     title="Zoom in"
                   >
@@ -3751,7 +5030,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                   </button>
                   <button
                     type="button"
-                    className="ml-1 rounded-xl border border-zinc-200 bg-white px-2 py-1 font-semibold hover:bg-zinc-50"
+                    className={classNames(portalGlassButtonClass, "ml-1 rounded-xl px-2 py-1 font-semibold text-zinc-800 hover:bg-white/80")}
                     onClick={() => setView({ panX: mode === "editor" ? 420 : 80, panY: 80, zoom: 1 })}
                     title="Reset view"
                   >
@@ -3762,7 +5041,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 {mode === "editor" && !inspectorOpen ? (
                   <div
                     data-kind="ui"
-                    className="absolute left-0 top-0 z-30 h-full w-[360px] overflow-auto border-r border-zinc-200 bg-white p-3 shadow-lg"
+                    className="absolute left-0 top-0 z-30 h-full w-[360px] overflow-auto bg-white/82 p-3 shadow-[0_24px_80px_rgba(15,23,42,0.14)] backdrop-blur-xl"
                     onPointerDown={(ev) => ev.stopPropagation()}
                     onWheel={(ev) => ev.stopPropagation()}
                   >
@@ -3806,7 +5085,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                           >
                             <div className="flex items-center justify-between gap-3">
                               <div className="text-sm font-semibold text-zinc-900">{x.title}</div>
-                              <div className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${b.cls}`}>{b.label}</div>
+                              <div className={badgeChipClass(x.type)}>{b.label}</div>
                             </div>
                             <div className="mt-0.5 text-xs text-zinc-600">
                               {disabled ? "Trigger already set (only one allowed)." : `Drop to add a ${x.title.toLowerCase()} node.`}
@@ -3823,7 +5102,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     data-kind="ui"
                     className={
                       mode === "editor"
-                        ? "absolute left-0 top-0 z-30 h-full w-[360px] overflow-auto border-r border-zinc-200 bg-white p-3 shadow-lg"
+                        ? "absolute left-0 top-0 z-30 h-full w-[360px] overflow-auto bg-white/82 p-3 shadow-[0_24px_80px_rgba(15,23,42,0.14)] backdrop-blur-xl"
                         : "absolute left-3 top-3 z-30 w-[360px] max-w-[calc(100%-1.5rem)] rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-lg backdrop-blur"
                     }
                     onPointerDown={(ev) => ev.stopPropagation()}
@@ -3835,7 +5114,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                     </div>
                     <button
                       type="button"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-200 bg-white text-sm font-semibold leading-none hover:bg-zinc-50 touch-manipulation"
+                      className={classNames(
+                        portalGlassButtonClass,
+                        "inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold leading-none text-zinc-700 hover:bg-white/80 touch-manipulation",
+                      )}
                       onClick={() => {
                         setInspectorOpen(false);
                         setSelectedNodeId(null);
@@ -3956,9 +5238,6 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                       onChange={(next) => {
                                         if (next === CREATE_TAG_VALUE) {
                                           setCreateTagApplyTo({ nodeId: selectedNode.id, kind: "trigger" });
-                                          setCreateTagName("");
-                                          setCreateTagColor("#2563EB");
-                                          setCreateTagError(null);
                                           setCreateTagOpen(true);
                                           return;
                                         }
@@ -5344,9 +6623,6 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                       onChange={(nextTagId) => {
                                         if (nextTagId === CREATE_TAG_VALUE) {
                                           setCreateTagApplyTo({ nodeId: selectedNode.id, kind: "action" });
-                                          setCreateTagName("");
-                                          setCreateTagColor("#2563EB");
-                                          setCreateTagError(null);
                                           setCreateTagOpen(true);
                                           return;
                                         }
@@ -5893,7 +7169,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       <div className="mt-4 flex gap-2">
                         <button
                           type="button"
-                          className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                          className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
                           onClick={deleteSelectedNode}
                         >
                           Delete node
@@ -5904,7 +7180,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                   </div>
                 ) : null}
 
-                <div className="absolute bottom-3 right-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600">
+                <div className="absolute bottom-20 right-3 rounded-2xl bg-white/82 px-3 py-2 text-xs text-zinc-600 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur-xl sm:bottom-24">
                   Tip: double-click a dot to remove a connection.
                 </div>
               </div>

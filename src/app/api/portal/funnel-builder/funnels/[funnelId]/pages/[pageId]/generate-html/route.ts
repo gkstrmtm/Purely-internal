@@ -819,7 +819,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "Do not apply stored brand colors or fonts to the entire page, major section backgrounds, or core UI surfaces unless the user clearly asks for branding or redesign and that choice improves readability.",
     hasCurrentHtml
       ? wasBlocksExport
-        ? "Redesign mode: You will be given CURRENT_HTML auto-scaffolded from a block builder. Treat it only as a content and structure reference — ignore its default styling. Create a NEW, polished, fully-designed landing page from scratch that satisfies the user's request. Return the FULL HTML document."
+        ? "Redesign mode: You will be given CURRENT_HTML auto-scaffolded from a block builder. Treat it only as a content and structure reference - ignore its default styling. Create a NEW, polished, fully-designed landing page from scratch that satisfies the user's request. Return the FULL HTML document."
         : hasSelectedRegion
           ? wantsDesignQualityAudit
             ? "Region design-quality mode: You will be given CURRENT_HTML and SELECTED_REGION_HTML. Perform a design quality audit on SELECTED_REGION_HTML: fix ALL contrast failures, harmonize any colors that clash with the dominant page palette, make invisible or near-invisible text and elements legible, and ensure every CTA has clear contrast and a palette-compatible color. Preserve the region's layout and content. Return the FULL updated HTML document."
@@ -827,7 +827,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
             ? "Region redesign mode: You will be given CURRENT_HTML and SELECTED_REGION_HTML. Focus the redesign on SELECTED_REGION_HTML, keep the rest of CURRENT_HTML intact except for small supporting adjustments, and return the FULL updated HTML document."
             : "Region editing mode: You will be given CURRENT_HTML and SELECTED_REGION_HTML. Apply the user's request to SELECTED_REGION_HTML while preserving the rest of CURRENT_HTML unless a small surrounding adjustment is required. Return the FULL updated HTML document."
         : wantsDesignQualityAudit
-          ? "Design-quality mode: You will be given CURRENT_HTML. Perform a full design quality audit on the entire page. Fix ALL of the following issues you find: (1) any text/background combination with contrast below WCAG AA 4.5:1 for normal text or 3:1 for large text, (2) any button or CTA whose color clashes with the dominant page palette — identify the dominant palette and harmonize outliers, (3) any nav, header, label, link, or decorative text that is near-invisible due to low opacity, near-matching color, or missing color declaration, (4) any interactive element whose label has poor contrast against its own background. Preserve the page's layout, structure, content, and identity. Do not change copy, layout, or section order. Return the FULL updated HTML document."
+          ? "Design-quality mode: You will be given CURRENT_HTML. Perform a full design quality audit on the entire page. Fix ALL of the following issues you find: (1) any text/background combination with contrast below WCAG AA 4.5:1 for normal text or 3:1 for large text, (2) any button or CTA whose color clashes with the dominant page palette - identify the dominant palette and harmonize outliers, (3) any nav, header, label, link, or decorative text that is near-invisible due to low opacity, near-matching color, or missing color declaration, (4) any interactive element whose label has poor contrast against its own background. Preserve the page's layout, structure, content, and identity. Do not change copy, layout, or section order. Return the FULL updated HTML document."
         : wantsDesignRedesign
           ? "Redesign mode: You will be given CURRENT_HTML. Replace simplistic placeholder markup with a materially improved, polished landing page that fully satisfies the requested sections. Return the FULL updated HTML document."
           : "Editing mode: You will be given CURRENT_HTML. Apply the user's instruction as a minimal, precise change to CURRENT_HTML. Return the FULL updated HTML document."
@@ -962,11 +962,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       wantsDesignQualityAudit
         ? [
             "DESIGN_QUALITY_CHECKLIST (audit every item before writing output):",
-            "1. CONTRAST — Find every text/background pair. Fix any combination where the contrast ratio is below 4.5:1 for body text or 3:1 for headings/large text. This includes nav links, button labels, placeholder text, captions, and secondary/tertiary copy.",
-            "2. COLOR HARMONY — Identify the dominant palette from the existing page (e.g. if the hero and section backgrounds are warm brown/burgundy/earthy tones, that is the palette). Any buttons, links, or interactive elements using sharply contrasting hue families (e.g. bright purple buttons on a warm-tone page) must be replaced with a harmonious alternative that still has strong contrast and serves as a clear CTA.",
-            "3. INVISIBLE ELEMENTS — Find any nav items, header content, link text, labels, or decorative text that is near-invisible due to zero opacity, white-on-white, very light gray on white, or undeclared color inheriting a near-invisible ancestor color. Make every piece of UI text fully legible.",
-            "4. CTA LEGIBILITY — Every button and CTA must clearly read. Fix button text color if it does not contrast against the button's own background. Fix button background if it does not stand out enough from the section behind it.",
-            "5. SECTION BACKGROUNDS — Any section that currently has no background differentiation and uses default page background, where a subtle contrast would help structure the page, should receive a light background tint consistent with the existing palette.",
+            "1. CONTRAST - Find every text/background pair. Fix any combination where the contrast ratio is below 4.5:1 for body text or 3:1 for headings/large text. This includes nav links, button labels, placeholder text, captions, and secondary/tertiary copy.",
+            "2. COLOR HARMONY - Identify the dominant palette from the existing page (e.g. if the hero and section backgrounds are warm brown/burgundy/earthy tones, that is the palette). Any buttons, links, or interactive elements using sharply contrasting hue families (e.g. bright purple buttons on a warm-tone page) must be replaced with a harmonious alternative that still has strong contrast and serves as a clear CTA.",
+            "3. INVISIBLE ELEMENTS - Find any nav items, header content, link text, labels, or decorative text that is near-invisible due to zero opacity, white-on-white, very light gray on white, or undeclared color inheriting a near-invisible ancestor color. Make every piece of UI text fully legible.",
+            "4. CTA LEGIBILITY - Every button and CTA must clearly read. Fix button text color if it does not contrast against the button's own background. Fix button background if it does not stand out enough from the section behind it.",
+            "5. SECTION BACKGROUNDS - Any section that currently has no background differentiation and uses default page background, where a subtle contrast would help structure the page, should receive a light background tint consistent with the existing palette.",
             "Apply all of the above silently. Do not explain the changes in comments. Just return the fixed page.",
           ].join("\n")
         : wantsDesignRedesign
@@ -1077,7 +1077,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     where: { id: normalizedPage.id },
     data: applyDraftHtmlWriteCompat({
       editorMode: "CUSTOM_HTML",
-      // Write AI output to draftHtml only — user must explicitly Publish to go live.
+      // Write AI output to draftHtml only - user must explicitly Publish to go live.
       ...createFunnelPageDraftUpdate(cleanHtml),
       customChatJson: nextChat,
     }, hasDraftHtml),

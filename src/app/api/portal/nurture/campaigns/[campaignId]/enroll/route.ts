@@ -13,6 +13,7 @@ export const revalidate = 0;
 const postSchema = z
   .object({
     tagIds: z.array(z.string().min(1)).max(100).optional(),
+    contactIds: z.array(z.string().min(1)).max(500).optional(),
     dryRun: z.boolean().optional(),
   })
   .strict();
@@ -58,18 +59,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     Boolean,
   );
 
-  if (!tagIds.length) {
-    return NextResponse.json({ ok: false, error: "Select at least one audience tag before enrolling." }, { status: 400 });
+  const directContactIds = Array.from(
+    new Set(
+      (parsed.data.contactIds ?? [])
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+
+  if (!directContactIds.length && !tagIds.length) {
+    return NextResponse.json({ ok: false, error: "Select at least one contact or audience tag before enrolling." }, { status: 400 });
   }
 
-  // Find contacts that have ANY of the selected tags.
-  const matches = await prisma.portalContactTagAssignment.findMany({
-    where: { ownerId, tagId: { in: tagIds } },
-    select: { contactId: true },
-    take: 5000,
-  });
+  let contactIds = directContactIds;
+  if (!contactIds.length) {
+    const matches = await prisma.portalContactTagAssignment.findMany({
+      where: { ownerId, tagId: { in: tagIds } },
+      select: { contactId: true },
+      take: 5000,
+    });
 
-  const contactIds = Array.from(new Set(matches.map((m) => String(m.contactId))));
+    contactIds = Array.from(new Set(matches.map((m) => String(m.contactId))));
+  }
 
   if (parsed.data.dryRun) {
     return NextResponse.json({ ok: true, wouldEnroll: contactIds.length });

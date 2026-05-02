@@ -105,8 +105,6 @@ export function PortalListboxDropdown<T extends string>(props: {
   const menuNode = useMemo(() => {
     if (!open) return null;
 
-    const menuBorderRadius = 28;
-
     const menu = (
       <LiquidGlassPopupSurface
         ref={menuRef}

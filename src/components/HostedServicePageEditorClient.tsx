@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { PublicBookingClient } from "@/app/book/[slug]/PublicBookingClient";
 import { PublicReviewsClient } from "@/app/[siteSlug]/reviews/PublicReviewsClient";
 import { IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
@@ -16,6 +17,7 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { coerceBlocksJson, renderCreditFunnelBlocks, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { hostedTemplateStyleDescription, resolveHostedTemplatePageKey } from "@/lib/hostedPageTemplateIntents";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type HostedEditorService = "BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS";
 
@@ -171,8 +173,98 @@ const BASE_BLOCK_TEMPLATES: BlockTemplate[] = [
   },
 ];
 function serviceBlockTemplates(service: HostedEditorService): BlockTemplate[] {
-  void service;
-  return [];
+  switch (service) {
+    case "BOOKING":
+      return [
+        {
+          label: "Booking calendar",
+          hint: "Add the live booking calendar as a block you can move, resize, and style.",
+          build: () =>
+            ({
+              id: crypto.randomUUID(),
+              type: "hostedBookingApp",
+              props: {
+                style: {
+                  maxWidthPx: 980,
+                  paddingPx: 16,
+                  borderRadiusPx: 24,
+                  backgroundColor: "#ffffff",
+                  borderColor: "rgba(148,163,184,0.18)",
+                  borderWidthPx: 1,
+                },
+              },
+            }) as CreditFunnelBlock,
+        },
+      ];
+    case "REVIEWS":
+      return [
+        {
+          label: "Reviews form and feed",
+          hint: "Add the live reviews form, review feed, and Q&A module as one editable block.",
+          build: () =>
+            ({
+              id: crypto.randomUUID(),
+              type: "hostedReviewsApp",
+              props: {
+                style: {
+                  maxWidthPx: 1080,
+                  paddingPx: 16,
+                  borderRadiusPx: 24,
+                  backgroundColor: "#ffffff",
+                  borderColor: "rgba(148,163,184,0.18)",
+                  borderWidthPx: 1,
+                },
+              },
+            }) as CreditFunnelBlock,
+        },
+      ];
+    case "NEWSLETTER":
+      return [
+        {
+          label: "Newsletter archive",
+          hint: "Add the live newsletter archive block for your published issues.",
+          build: () =>
+            ({
+              id: crypto.randomUUID(),
+              type: "hostedNewsletterArchive",
+              props: {
+                style: {
+                  maxWidthPx: 1080,
+                  paddingPx: 16,
+                  borderRadiusPx: 24,
+                  backgroundColor: "#ffffff",
+                  borderColor: "rgba(148,163,184,0.18)",
+                  borderWidthPx: 1,
+                },
+              },
+            }) as CreditFunnelBlock,
+        },
+      ];
+    case "BLOGS":
+      return [
+        {
+          label: "Blog archive",
+          hint: "Add the live blog archive block so the page lists your recent posts.",
+          build: () =>
+            ({
+              id: crypto.randomUUID(),
+              type: "hostedBlogsArchive",
+              props: {
+                style: {
+                  maxWidthPx: 1080,
+                  paddingPx: 16,
+                  borderRadiusPx: 24,
+                  backgroundColor: "#ffffff",
+                  borderColor: "rgba(148,163,184,0.18)",
+                  borderWidthPx: 1,
+                },
+              },
+            }) as CreditFunnelBlock,
+        },
+      ];
+    default:
+      return [];
+  }
 }
 
 function blockTitle(block: CreditFunnelBlock) {
@@ -183,6 +275,14 @@ function blockTitle(block: CreditFunnelBlock) {
       return block.props.text || "Paragraph";
     case "button":
       return block.props.text || "Button";
+    case "hostedBookingApp":
+      return "Booking calendar";
+    case "hostedReviewsApp":
+      return "Reviews form and feed";
+    case "hostedNewsletterArchive":
+      return "Newsletter archive";
+    case "hostedBlogsArchive":
+      return "Blog archive";
     case "image":
       return block.props.alt || block.props.src || "Image";
     case "spacer":
@@ -191,6 +291,33 @@ function blockTitle(block: CreditFunnelBlock) {
       return block.props.anchorLabel || block.props.anchorId || block.props.markdown || "Section";
     default:
       return block.type;
+  }
+}
+
+function hostedBlockNotice(block: CreditFunnelBlock): { title: string; description: string } | null {
+  switch (block.type) {
+    case "hostedBookingApp":
+      return {
+        title: "Booking calendar block",
+        description: "This block renders the live booking calendar. Use the controls below to change its size, frame styling, and booking colors.",
+      };
+    case "hostedReviewsApp":
+      return {
+        title: "Reviews block",
+        description: "This block renders the live reviews experience, including the submission form, review feed, and Q&A content for the selected service page.",
+      };
+    case "hostedNewsletterArchive":
+      return {
+        title: "Newsletter archive block",
+        description: "This block renders the live newsletter archive so visitors can browse your published issues on the hosted page.",
+      };
+    case "hostedBlogsArchive":
+      return {
+        title: "Blog archive block",
+        description: "This block renders the live blog archive so the hosted page can list your recent posts automatically.",
+      };
+    default:
+      return null;
   }
 }
 
@@ -207,7 +334,7 @@ function blockTypeLabel(block: CreditFunnelBlock) {
     case "calendarEmbed":
       return "Calendar embed";
     case "hostedBookingApp":
-      return "Booking app";
+      return "Booking calendar";
     case "hostedNewsletterArchive":
       return "Newsletter archive";
     case "hostedReviewsApp":
@@ -284,19 +411,20 @@ function replacePreviewTokens(value: string, previewData: HostedPagePreviewData 
   const primaryUrl = previewData?.primaryUrl?.trim() || `/${siteHandle}`;
   const runtimeFrame = (src: string, label: string) =>
     `<iframe title="${label} for ${businessName}" src="${src}" style="width:100%;min-height:920px;border:0;border-radius:20px;background:#fff;display:block;" loading="lazy"></iframe>`;
-  const bookingFrame = previewData?.service === "BOOKING" && primaryUrl ? runtimeFrame(primaryUrl, "Booking preview") : `<div style="padding:24px;border:1px dashed #cbd5e1;border-radius:20px;background:#f8fafc;color:#334155;font:600 14px Inter,system-ui,sans-serif;">Preview unavailable.</div>`;
+  const previewFallback = `<div style="padding:24px;border:1px solid #dbe7f5;border-radius:20px;background:#f8fbff;color:#334155;font:600 14px Inter,system-ui,sans-serif;">Live preview content will render here once the page data is ready.</div>`;
+  const bookingFrame = previewData?.service === "BOOKING" && primaryUrl ? runtimeFrame(primaryUrl, "Booking preview") : previewFallback;
   const newsletterFrame =
     previewData?.service === "NEWSLETTER" && primaryUrl
       ? runtimeFrame(primaryUrl, "Newsletter archive preview")
-      : `<div style="padding:24px;border:1px dashed #cbd5e1;border-radius:20px;background:#f8fafc;color:#334155;font:600 14px Inter,system-ui,sans-serif;">Preview unavailable.</div>`;
+      : previewFallback;
   const reviewsFrame =
     previewData?.service === "REVIEWS" && primaryUrl
       ? runtimeFrame(primaryUrl, "Reviews preview")
-      : `<div style="padding:24px;border:1px dashed #cbd5e1;border-radius:20px;background:#f8fafc;color:#334155;font:600 14px Inter,system-ui,sans-serif;">Preview unavailable.</div>`;
+      : previewFallback;
   const blogsFrame =
     previewData?.service === "BLOGS" && primaryUrl
       ? runtimeFrame(primaryUrl, "Blog archive preview")
-      : `<div style="padding:24px;border:1px dashed #cbd5e1;border-radius:20px;background:#f8fafc;color:#334155;font:600 14px Inter,system-ui,sans-serif;">Preview unavailable.</div>`;
+      : previewFallback;
   return value
     .replaceAll("{{BUSINESS_NAME}}", businessName)
     .replaceAll("{{PAGE_TITLE}}", fallbackTitle)
@@ -306,7 +434,7 @@ function replacePreviewTokens(value: string, previewData: HostedPagePreviewData 
     .replaceAll("{{NEWSLETTER_ARCHIVE}}", newsletterFrame)
     .replaceAll("{{REVIEWS_APP}}", reviewsFrame)
     .replaceAll("{{BLOGS_ARCHIVE}}", blogsFrame)
-    .replaceAll("{{BLOG_POST_BODY}}", `<div style=\"padding:24px;border:1px dashed #cbd5e1;border-radius:20px;background:#f8fafc;color:#334155;font:600 14px Inter,system-ui,sans-serif;\">Preview unavailable.</div>`)
+    .replaceAll("{{BLOG_POST_BODY}}", previewFallback)
     .replaceAll("href=\"#back\"", `href=\"${primaryUrl}\"`);
 }
 
@@ -325,6 +453,8 @@ export function HostedServicePageEditorClient({
   const toast = useToast();
   const setSidebarOverride = useSetPortalSidebarOverride();
   const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
+  const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -375,7 +505,10 @@ export function HostedServicePageEditorClient({
   const loadDocuments = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/portal/hosted-pages/documents?service=${serviceQueryValue(service)}`, { cache: "no-store" });
+      const res = await fetch(`/api/portal/hosted-pages/documents?service=${serviceQueryValue(service)}`, {
+        cache: "no-store",
+        headers: variantHeaders,
+      });
       const data = (await res.json().catch(() => null)) as HostedListResponse | null;
       if (!res.ok || !data?.ok || !Array.isArray(data.documents)) {
         throw new Error(data?.error || `Failed to load ${serviceLabel.toLowerCase()} hosted page documents`);
@@ -394,7 +527,7 @@ export function HostedServicePageEditorClient({
     } finally {
       setLoading(false);
     }
-  }, [defaultPageKey, service, serviceLabel, syncFromDocument, toast]);
+  }, [defaultPageKey, service, serviceLabel, syncFromDocument, toast, variantHeaders]);
 
   useEffect(() => {
     void loadDocuments();
@@ -406,7 +539,10 @@ export function HostedServicePageEditorClient({
       return;
     }
     let cancelled = false;
-    void fetch(`/api/portal/hosted-pages/documents/${encodeURIComponent(selectedDocumentId)}/preview-data`, { cache: "no-store" })
+    void fetch(`/api/portal/hosted-pages/documents/${encodeURIComponent(selectedDocumentId)}/preview-data`, {
+      cache: "no-store",
+      headers: variantHeaders,
+    })
       .then((res) => res.json().catch(() => null).then((data) => ({ ok: res.ok, data })))
       .then(({ ok, data }) => {
         if (cancelled) return;
@@ -420,7 +556,7 @@ export function HostedServicePageEditorClient({
     return () => {
       cancelled = true;
     };
-  }, [selectedDocumentId]);
+  }, [selectedDocumentId, variantHeaders]);
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent(TOPBAR_INTENT_EVENT, { detail: { hidden: true } }));
@@ -447,7 +583,7 @@ export function HostedServicePageEditorClient({
       setSelectedBlockId("");
       return;
     }
-    if (!parsedBlocks.some((block) => block.id === selectedBlockId)) {
+    if (!selectedBlockId || !findBlockInTree(parsedBlocks, selectedBlockId)) {
       setSelectedBlockId(preferredSelectedBlockId(parsedBlocks));
     }
   }, [parsedBlocks, selectedBlockId]);
@@ -500,6 +636,7 @@ export function HostedServicePageEditorClient({
     try {
       const res = await fetch(`/api/portal/hosted-pages/documents/${encodeURIComponent(selectedDocument.id)}/reset-to-default`, {
         method: "POST",
+        headers: variantHeaders,
       });
       const data = (await res.json().catch(() => null)) as { ok?: boolean; document?: HostedPageDocument; error?: string } | null;
       if (!res.ok || !data?.ok || !data.document) {
@@ -513,7 +650,7 @@ export function HostedServicePageEditorClient({
     } finally {
       setBusy(false);
     }
-  }, [replaceDocument, selectedDocument, serviceLabel, toast]);
+  }, [replaceDocument, selectedDocument, serviceLabel, toast, variantHeaders]);
 
   const addBlock = useCallback(
     (template: BlockTemplate) => {
@@ -542,7 +679,7 @@ export function HostedServicePageEditorClient({
     try {
       const res = await fetch(`/api/portal/hosted-pages/documents/${encodeURIComponent(selectedDocument.id)}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...variantHeaders },
         body: JSON.stringify({
           title,
           slug: slug.trim() || null,
@@ -564,7 +701,7 @@ export function HostedServicePageEditorClient({
     } finally {
       setBusy(false);
     }
-  }, [customHtml, editorMode, markdown, parsedBlocks, replaceDocument, selectedDocument, serviceLabel, slug, status, title, toast]);
+  }, [customHtml, editorMode, markdown, parsedBlocks, replaceDocument, selectedDocument, serviceLabel, slug, status, title, toast, variantHeaders]);
 
   const exportBlocksToHtml = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -578,7 +715,7 @@ export function HostedServicePageEditorClient({
       try {
         const res = await fetch(`/api/portal/hosted-pages/documents/${encodeURIComponent(selectedDocument.id)}/export-custom-html`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...variantHeaders },
           body: JSON.stringify({ title, blocksJson: parsedBlocks, setEditorMode: "CUSTOM_HTML" }),
         });
         const data = (await res.json().catch(() => null)) as { ok?: boolean; html?: string; document?: HostedPageDocument; error?: string } | null;
@@ -596,7 +733,7 @@ export function HostedServicePageEditorClient({
         setBusy(false);
       }
     },
-    [parsedBlocks, replaceDocument, selectedDocument, title, toast],
+    [parsedBlocks, replaceDocument, selectedDocument, title, toast, variantHeaders],
   );
 
   const runPura = useCallback(async () => {
@@ -617,7 +754,7 @@ export function HostedServicePageEditorClient({
       if (targetDocument.editorMode === "BLOCKS") {
         const res = await fetch(`/api/portal/hosted-pages/documents/${encodeURIComponent(targetDocument.id)}/export-custom-html`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...variantHeaders },
           body: JSON.stringify({ title: targetDocument.title, blocksJson: targetDocument.blocksJson, setEditorMode: "CUSTOM_HTML" }),
         });
         const data = (await res.json().catch(() => null)) as { ok?: boolean; html?: string; document?: HostedPageDocument; error?: string } | null;
@@ -630,7 +767,7 @@ export function HostedServicePageEditorClient({
 
       const res = await fetch(`/api/portal/hosted-pages/documents/${encodeURIComponent(targetDocument.id)}/generate-html`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...variantHeaders },
         body: JSON.stringify({ prompt: cleanPrompt, currentHtml }),
       });
       const data = (await res.json().catch(() => null)) as { ok?: boolean; document?: HostedPageDocument; html?: string; question?: string; error?: string } | null;
@@ -650,9 +787,9 @@ export function HostedServicePageEditorClient({
     } finally {
       setPuraBusy(false);
     }
-  }, [customHtml, documents, puraPrompt, replaceDocument, selectedDocument, service, serviceLabel, toast]);
+  }, [customHtml, documents, puraPrompt, replaceDocument, selectedDocument, service, serviceLabel, toast, variantHeaders]);
 
-  const blockTemplates = useMemo(() => [...serviceBlockTemplates(service), ...BASE_BLOCK_TEMPLATES], [service]);
+  const serviceTemplates = useMemo(() => serviceBlockTemplates(service), [service]);
   const livePageHref = previewData?.primaryUrl?.trim() || "";
   const sortedDocuments = useMemo(
     () => [...documents].sort((a, b) => a.title.localeCompare(b.title) || a.pageKey.localeCompare(b.pageKey)),
@@ -662,274 +799,444 @@ export function HostedServicePageEditorClient({
   const sidebarContent = useMemo(
     () => {
       const selectedStyle = ((selectedBlock?.props as any)?.style || {}) as Record<string, unknown>;
+      const selectedHostedBlockNotice = selectedBlock ? hostedBlockNotice(selectedBlock) : null;
       const inspectorInputClassName = "mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-(--color-brand-blue)";
       const pageBlock = parsedBlocks?.find((block) => block.type === "page") ?? null;
+      const prioritizeInspector = true;
 
-      return (
-        <div className="flex h-full flex-col gap-3 p-3 text-zinc-900">
-          {editorMode === "BLOCKS" ? (
-            <>
-              <div className="px-1">
-                <div className="text-sm font-semibold text-zinc-900">Block library</div>
-                <div className="mt-3 grid gap-2">
-                  {blockTemplates.map((template) => (
+      const blockLibrary = (
+        <div className="rounded-[28px] border border-[rgba(37,99,235,0.10)] bg-[rgba(255,255,255,0.78)] p-4 shadow-[0_18px_45px_rgba(37,99,235,0.08)] supports-backdrop-filter:bg-[rgba(255,255,255,0.6)] supports-backdrop-filter:backdrop-blur-xl">
+          <div className="text-sm font-semibold text-zinc-900">Block library</div>
+          <div className={classNames("mt-3 space-y-4 overflow-y-auto pr-1", prioritizeInspector ? "max-h-56" : "max-h-72")}>
+            {serviceTemplates.length ? (
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">{serviceLabel} block</div>
+                <div className="mt-2 grid gap-2">
+                  {serviceTemplates.map((template) => (
                     <button
                       key={template.label}
                       type="button"
                       onClick={() => addBlock(template)}
-                      className="flex items-start justify-between gap-3 rounded-2xl border border-[rgba(37,99,235,0.08)] bg-white/65 px-3 py-3 text-left transition hover:border-[rgba(37,99,235,0.16)] hover:bg-white/90 supports-backdrop-filter:bg-white/45 supports-backdrop-filter:backdrop-blur-xl"
+                      className="flex items-start justify-between gap-3 rounded-2xl border border-[rgba(37,99,235,0.10)] bg-[rgba(29,78,216,0.08)] px-3 py-3 text-left transition hover:border-[rgba(37,99,235,0.18)] hover:bg-[rgba(29,78,216,0.12)]"
                     >
                       <div>
                         <div className="text-sm font-semibold text-zinc-900">{template.label}</div>
-                        {template.hint ? <div className="mt-1 text-xs leading-5 text-zinc-500">{template.hint}</div> : null}
+                        {template.hint ? <div className="mt-1 text-xs leading-5 text-zinc-600">{template.hint}</div> : null}
                       </div>
                       <div className="text-sm font-semibold text-(--color-brand-blue)">+</div>
                     </button>
                   ))}
                 </div>
               </div>
+            ) : null}
 
-              <div className="rounded-[28px] border border-[rgba(37,99,235,0.10)] bg-[rgba(255,255,255,0.78)] p-4 shadow-[0_18px_45px_rgba(37,99,235,0.08)] supports-backdrop-filter:bg-[rgba(255,255,255,0.6)] supports-backdrop-filter:backdrop-blur-xl">
-                <div className="text-sm font-semibold text-zinc-900">Page structure</div>
-                <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
-                  {(parsedBlocks || []).map((block, index) => {
-                    const active = block.id === selectedBlockId;
-                    return (
-                      <button
-                        key={block.id}
-                        type="button"
-                        onClick={() => setSelectedBlockId(block.id)}
-                        className={classNames(
-                          "flex w-full items-start justify-between gap-3 rounded-2xl px-3 py-3 text-left transition",
-                          active ? "bg-brand-blue text-white shadow-sm" : "bg-white/85 text-zinc-900 hover:bg-white",
-                        )}
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Basic blocks</div>
+              <div className="mt-2 grid gap-2">
+                {BASE_BLOCK_TEMPLATES.map((template) => (
+                  <button
+                    key={template.label}
+                    type="button"
+                    onClick={() => addBlock(template)}
+                    className="flex items-start justify-between gap-3 rounded-2xl border border-[rgba(37,99,235,0.08)] bg-white/65 px-3 py-3 text-left transition hover:border-[rgba(37,99,235,0.16)] hover:bg-white/90 supports-backdrop-filter:bg-white/45 supports-backdrop-filter:backdrop-blur-xl"
+                  >
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">{template.label}</div>
+                      {template.hint ? <div className="mt-1 text-xs leading-5 text-zinc-500">{template.hint}</div> : null}
+                    </div>
+                    <div className="text-sm font-semibold text-(--color-brand-blue)">+</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
+      const pageStructure = (
+        <div className="rounded-[28px] border border-[rgba(37,99,235,0.10)] bg-[rgba(255,255,255,0.78)] p-4 shadow-[0_18px_45px_rgba(37,99,235,0.08)] supports-backdrop-filter:bg-[rgba(255,255,255,0.6)] supports-backdrop-filter:backdrop-blur-xl">
+          <div className="text-sm font-semibold text-zinc-900">Page structure</div>
+          <div className={classNames("mt-3 space-y-2 overflow-y-auto pr-1", prioritizeInspector ? "max-h-48" : "max-h-64")}>
+            {(parsedBlocks || []).map((block, index) => {
+              const active = block.id === selectedBlockId;
+              return (
+                <button
+                  key={block.id}
+                  type="button"
+                  onClick={() => setSelectedBlockId(block.id)}
+                  data-hosted-page-structure-block-id={block.id}
+                  data-selected={active ? "true" : "false"}
+                  className={classNames(
+                    "flex w-full items-start justify-between gap-3 rounded-2xl px-3 py-3 text-left transition",
+                    active ? "bg-brand-blue text-white shadow-sm" : "bg-white/85 text-zinc-900 hover:bg-white",
+                  )}
+                >
+                  <div className="min-w-0">
+                    <div className={classNames("text-xs font-medium", active ? "text-white/75" : "text-zinc-500")}>{blockTypeLabel(block)}</div>
+                    <div className="truncate text-sm font-semibold">{blockTitle(block)}</div>
+                  </div>
+                  <div className={classNames("shrink-0 text-xs font-semibold", active ? "text-white/80" : "text-zinc-500")}>{index + 1}</div>
+                </button>
+              );
+            })}
+            {!parsedBlocks?.length ? <div className="rounded-2xl bg-white/80 px-4 py-5 text-sm text-zinc-500">No blocks yet. Add one to start building this page.</div> : null}
+            {!parsedBlocks ? <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-600">Blocks are invalid.</div> : null}
+          </div>
+        </div>
+      );
+
+      const selectedBlockInspector = (
+        <div
+          data-hosted-selected-block-id={selectedBlock?.id || ""}
+          data-hosted-selected-block-type={selectedBlock?.type || ""}
+          className={classNames(
+            "min-h-0 overflow-y-auto rounded-[28px] border border-[rgba(37,99,235,0.10)] bg-[rgba(255,255,255,0.78)] p-4 shadow-[0_18px_45px_rgba(37,99,235,0.08)] supports-backdrop-filter:bg-[rgba(255,255,255,0.6)] supports-backdrop-filter:backdrop-blur-xl",
+            prioritizeInspector ? "flex-[2_1_30rem] min-h-120" : "flex-1",
+          )}
+        >
+          <div className="text-sm font-semibold text-zinc-900">Selected block</div>
+          {selectedBlock ? (
+            <div className="mt-3 space-y-4">
+              <div>
+                <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Type</div>
+                <div className="mt-1 text-sm font-semibold text-zinc-900">{blockTypeLabel(selectedBlock)}</div>
+              </div>
+
+              {selectedBlock.type === "page" ? null : (
+                <button
+                  type="button"
+                  onClick={() => pageBlock && setSelectedBlockId(pageBlock.id)}
+                  className="text-sm font-semibold text-(--color-brand-blue) hover:underline"
+                >
+                  Edit page colors and fonts
+                </button>
+              )}
+
+              {selectedHostedBlockNotice ? (
+                <div className="rounded-2xl border border-[rgba(37,99,235,0.10)] bg-blue-50/60 px-4 py-4 text-sm text-zinc-700">
+                  <div className="font-semibold text-zinc-900">{selectedHostedBlockNotice.title}</div>
+                  <div className="mt-2 leading-6 text-zinc-600">{selectedHostedBlockNotice.description}</div>
+                </div>
+              ) : null}
+
+              {selectedBlock.type === "heading" ? (
+                <>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Text
+                    <textarea
+                      value={selectedBlock.props.text}
+                      onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, text: event.target.value } as any }))}
+                      className={`${inspectorInputClassName} min-h-24 resize-y`}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Level
+                    <select
+                      value={selectedBlock.props.level ?? 2}
+                      onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, level: Number(event.target.value) as 1 | 2 | 3 } as any }))}
+                      className={inspectorInputClassName}
+                    >
+                      <option value={1}>H1</option>
+                      <option value={2}>H2</option>
+                      <option value={3}>H3</option>
+                    </select>
+                  </label>
+                </>
+              ) : null}
+
+              {selectedBlock.type === "paragraph" ? (
+                <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Text
+                  <textarea
+                    value={selectedBlock.props.text}
+                    onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, text: event.target.value } as any }))}
+                    className={`${inspectorInputClassName} min-h-28 resize-y`}
+                  />
+                </label>
+              ) : null}
+
+              {selectedBlock.type === "button" ? (
+                <>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Label
+                    <input
+                      value={selectedBlock.props.text}
+                      onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, text: event.target.value } as any }))}
+                      className={inspectorInputClassName}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Link
+                    <input
+                      value={selectedBlock.props.href}
+                      onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, href: event.target.value } as any }))}
+                      className={inspectorInputClassName}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Variant
+                    <select
+                      value={selectedBlock.props.variant ?? "primary"}
+                      onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, variant: event.target.value as "primary" | "secondary" } as any }))}
+                      className={inspectorInputClassName}
+                    >
+                      <option value="primary">Primary</option>
+                      <option value="secondary">Secondary</option>
+                    </select>
+                  </label>
+                </>
+              ) : null}
+
+              {selectedBlock.type === "image" ? (
+                <>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Image URL
+                    <input
+                      value={selectedBlock.props.src}
+                      onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, src: event.target.value } as any }))}
+                      className={inspectorInputClassName}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Alt text
+                    <input
+                      value={selectedBlock.props.alt ?? ""}
+                      onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, alt: event.target.value } as any }))}
+                      className={inspectorInputClassName}
+                    />
+                  </label>
+                </>
+              ) : null}
+
+              {selectedBlock.type === "spacer" ? (
+                <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Height
+                  <input
+                    type="number"
+                    value={selectedBlock.props.height ?? 32}
+                    onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, height: Number(event.target.value || 0) || 0 } as any }))}
+                    className={inspectorInputClassName}
+                  />
+                </label>
+              ) : null}
+
+              {selectedBlock.type === "section" ? (
+                <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Anchor ID
+                  <input
+                    value={selectedBlock.props.anchorId ?? ""}
+                    onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, anchorId: event.target.value } as any }))}
+                    className={inspectorInputClassName}
+                  />
+                </label>
+              ) : null}
+
+              <div className="border-t border-zinc-200 pt-4">
+                <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Style</div>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                    <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                      Align
+                      <select
+                        value={typeof selectedStyle.align === "string" ? selectedStyle.align : "left"}
+                        onChange={(event) => updateSelectedBlockStyle({ align: event.target.value as "left" | "center" | "right" })}
+                        className={inspectorInputClassName}
                       >
-                        <div className="min-w-0">
-                          <div className={classNames("text-xs font-medium", active ? "text-white/75" : "text-zinc-500")}>{blockTypeLabel(block)}</div>
-                          <div className="truncate text-sm font-semibold">{blockTitle(block)}</div>
-                        </div>
-                        <div className={classNames("shrink-0 text-xs font-semibold", active ? "text-white/80" : "text-zinc-500")}>{index + 1}</div>
-                      </button>
-                    );
-                  })}
-                  {!parsedBlocks?.length ? <div className="rounded-2xl bg-white/80 px-4 py-5 text-sm text-zinc-500">No blocks yet. Add one to start building this page.</div> : null}
-                  {!parsedBlocks ? <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-600">Blocks are invalid.</div> : null}
+                        <option value="left">Left</option>
+                        <option value="center">Center</option>
+                        <option value="right">Right</option>
+                      </select>
+                    </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Text color
+                    <input
+                      value={typeof selectedStyle.textColor === "string" ? selectedStyle.textColor : ""}
+                      onChange={(event) => updateSelectedBlockStyle({ textColor: event.target.value || undefined })}
+                      className={inspectorInputClassName}
+                      placeholder="#0f172a"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Background
+                    <input
+                      value={typeof selectedStyle.backgroundColor === "string" ? selectedStyle.backgroundColor : ""}
+                      onChange={(event) => updateSelectedBlockStyle({ backgroundColor: event.target.value || undefined })}
+                      className={inspectorInputClassName}
+                      placeholder="#ffffff"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Font family
+                    <input
+                      value={typeof selectedStyle.fontFamily === "string" ? selectedStyle.fontFamily : ""}
+                      onChange={(event) => updateSelectedBlockStyle({ fontFamily: event.target.value || undefined })}
+                      className={inspectorInputClassName}
+                      placeholder="Inter, sans-serif"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Google font
+                    <input
+                      value={typeof selectedStyle.fontGoogleFamily === "string" ? selectedStyle.fontGoogleFamily : ""}
+                      onChange={(event) => updateSelectedBlockStyle({ fontGoogleFamily: event.target.value || undefined })}
+                      className={inspectorInputClassName}
+                      placeholder="Inter"
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Font size
+                    <input
+                      type="number"
+                      value={typeof selectedStyle.fontSizePx === "number" ? selectedStyle.fontSizePx : ""}
+                      onChange={(event) => updateSelectedBlockStyle({ fontSizePx: event.target.value ? Number(event.target.value) : undefined })}
+                      className={inspectorInputClassName}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Max width
+                    <input
+                      type="number"
+                      value={typeof selectedStyle.maxWidthPx === "number" ? selectedStyle.maxWidthPx : ""}
+                      onChange={(event) => updateSelectedBlockStyle({ maxWidthPx: event.target.value ? Number(event.target.value) : undefined })}
+                      className={inspectorInputClassName}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Top margin
+                    <input
+                      type="number"
+                      value={typeof selectedStyle.marginTopPx === "number" ? selectedStyle.marginTopPx : ""}
+                      onChange={(event) => updateSelectedBlockStyle({ marginTopPx: event.target.value ? Number(event.target.value) : undefined })}
+                      className={inspectorInputClassName}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Bottom margin
+                    <input
+                      type="number"
+                      value={typeof selectedStyle.marginBottomPx === "number" ? selectedStyle.marginBottomPx : ""}
+                      onChange={(event) => updateSelectedBlockStyle({ marginBottomPx: event.target.value ? Number(event.target.value) : undefined })}
+                      className={inspectorInputClassName}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Padding
+                    <input
+                      type="number"
+                      value={typeof selectedStyle.paddingPx === "number" ? selectedStyle.paddingPx : ""}
+                      onChange={(event) => updateSelectedBlockStyle({ paddingPx: event.target.value ? Number(event.target.value) : undefined })}
+                      className={inspectorInputClassName}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Radius
+                    <input
+                      type="number"
+                      value={typeof selectedStyle.borderRadiusPx === "number" ? selectedStyle.borderRadiusPx : ""}
+                      onChange={(event) => updateSelectedBlockStyle({ borderRadiusPx: event.target.value ? Number(event.target.value) : undefined })}
+                      className={inspectorInputClassName}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    Border width
+                    <input
+                      type="number"
+                      value={typeof selectedStyle.borderWidthPx === "number" ? selectedStyle.borderWidthPx : ""}
+                      onChange={(event) => updateSelectedBlockStyle({ borderWidthPx: event.target.value ? Number(event.target.value) : undefined })}
+                      className={inspectorInputClassName}
+                    />
+                  </label>
+                  {selectedBlock.type === "hostedBookingApp" ? (
+                    <>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Calendar background
+                        <input
+                          value={typeof (selectedStyle as any).bookingBgHex === "string" ? (selectedStyle as any).bookingBgHex : ""}
+                          onChange={(event) => updateSelectedBlockStyle({ bookingBgHex: event.target.value || undefined })}
+                          className={inspectorInputClassName}
+                          placeholder="#ffffff"
+                        />
+                      </label>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Surface
+                        <input
+                          value={typeof (selectedStyle as any).bookingSurfaceHex === "string" ? (selectedStyle as any).bookingSurfaceHex : ""}
+                          onChange={(event) => updateSelectedBlockStyle({ bookingSurfaceHex: event.target.value || undefined })}
+                          className={inspectorInputClassName}
+                          placeholder="#ffffff"
+                        />
+                      </label>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Soft background
+                        <input
+                          value={typeof (selectedStyle as any).bookingSoftHex === "string" ? (selectedStyle as any).bookingSoftHex : ""}
+                          onChange={(event) => updateSelectedBlockStyle({ bookingSoftHex: event.target.value || undefined })}
+                          className={inspectorInputClassName}
+                          placeholder="#f8fafc"
+                        />
+                      </label>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Calendar border
+                        <input
+                          value={typeof (selectedStyle as any).bookingBorderHex === "string" ? (selectedStyle as any).bookingBorderHex : ""}
+                          onChange={(event) => updateSelectedBlockStyle({ bookingBorderHex: event.target.value || undefined })}
+                          className={inspectorInputClassName}
+                          placeholder="#cbd5e1"
+                        />
+                      </label>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Calendar text
+                        <input
+                          value={typeof (selectedStyle as any).bookingTextHex === "string" ? (selectedStyle as any).bookingTextHex : ""}
+                          onChange={(event) => updateSelectedBlockStyle({ bookingTextHex: event.target.value || undefined })}
+                          className={inspectorInputClassName}
+                          placeholder="#0f172a"
+                        />
+                      </label>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Muted text
+                        <input
+                          value={typeof (selectedStyle as any).bookingMutedTextHex === "string" ? (selectedStyle as any).bookingMutedTextHex : ""}
+                          onChange={(event) => updateSelectedBlockStyle({ bookingMutedTextHex: event.target.value || undefined })}
+                          className={inspectorInputClassName}
+                          placeholder="#64748b"
+                        />
+                      </label>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Button color
+                        <input
+                          value={typeof (selectedStyle as any).bookingPrimaryHex === "string" ? (selectedStyle as any).bookingPrimaryHex : ""}
+                          onChange={(event) => updateSelectedBlockStyle({ bookingPrimaryHex: event.target.value || undefined })}
+                          className={inspectorInputClassName}
+                          placeholder="#2563eb"
+                        />
+                      </label>
+                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        Link color
+                        <input
+                          value={typeof (selectedStyle as any).bookingLinkHex === "string" ? (selectedStyle as any).bookingLinkHex : ""}
+                          onChange={(event) => updateSelectedBlockStyle({ bookingLinkHex: event.target.value || undefined })}
+                          className={inspectorInputClassName}
+                          placeholder="#1d4ed8"
+                        />
+                      </label>
+                    </>
+                  ) : null}
                 </div>
               </div>
+            </div>
+          ) : (
+            <div className="mt-3 rounded-2xl bg-white/80 px-4 py-5 text-sm text-zinc-500">Select a block from the preview or page structure to edit its content and style.</div>
+          )}
+        </div>
+      );
 
-              <div className="min-h-0 flex-1 overflow-y-auto rounded-[28px] border border-[rgba(37,99,235,0.10)] bg-[rgba(255,255,255,0.78)] p-4 shadow-[0_18px_45px_rgba(37,99,235,0.08)] supports-backdrop-filter:bg-[rgba(255,255,255,0.6)] supports-backdrop-filter:backdrop-blur-xl">
-                <div className="text-sm font-semibold text-zinc-900">Selected block</div>
-                {selectedBlock ? (
-                  <div className="mt-3 space-y-4">
-                    <div>
-                      <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Type</div>
-                      <div className="mt-1 text-sm font-semibold text-zinc-900">{blockTypeLabel(selectedBlock)}</div>
-                    </div>
-
-                    {selectedBlock.type === "page" ? null : (
-                      <button
-                        type="button"
-                        onClick={() => pageBlock && setSelectedBlockId(pageBlock.id)}
-                        className="text-sm font-semibold text-(--color-brand-blue) hover:underline"
-                      >
-                        Edit page colors and fonts
-                      </button>
-                    )}
-
-                    {selectedBlock.type === "heading" ? (
-                      <>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Text
-                          <textarea
-                            value={selectedBlock.props.text}
-                            onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, text: event.target.value } as any }))}
-                            className={`${inspectorInputClassName} min-h-24 resize-y`}
-                          />
-                        </label>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Level
-                          <select
-                            value={selectedBlock.props.level ?? 2}
-                            onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, level: Number(event.target.value) as 1 | 2 | 3 } as any }))}
-                            className={inspectorInputClassName}
-                          >
-                            <option value={1}>H1</option>
-                            <option value={2}>H2</option>
-                            <option value={3}>H3</option>
-                          </select>
-                        </label>
-                      </>
-                    ) : null}
-
-                    {selectedBlock.type === "paragraph" ? (
-                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                        Text
-                        <textarea
-                          value={selectedBlock.props.text}
-                          onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, text: event.target.value } as any }))}
-                          className={`${inspectorInputClassName} min-h-28 resize-y`}
-                        />
-                      </label>
-                    ) : null}
-
-                    {selectedBlock.type === "button" ? (
-                      <>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Label
-                          <input
-                            value={selectedBlock.props.text}
-                            onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, text: event.target.value } as any }))}
-                            className={inspectorInputClassName}
-                          />
-                        </label>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Link
-                          <input
-                            value={selectedBlock.props.href}
-                            onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, href: event.target.value } as any }))}
-                            className={inspectorInputClassName}
-                          />
-                        </label>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Variant
-                          <select
-                            value={selectedBlock.props.variant ?? "primary"}
-                            onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, variant: event.target.value as "primary" | "secondary" } as any }))}
-                            className={inspectorInputClassName}
-                          >
-                            <option value="primary">Primary</option>
-                            <option value="secondary">Secondary</option>
-                          </select>
-                        </label>
-                      </>
-                    ) : null}
-
-                    {selectedBlock.type === "image" ? (
-                      <>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Image URL
-                          <input
-                            value={selectedBlock.props.src}
-                            onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, src: event.target.value } as any }))}
-                            className={inspectorInputClassName}
-                          />
-                        </label>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Alt text
-                          <input
-                            value={selectedBlock.props.alt ?? ""}
-                            onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, alt: event.target.value } as any }))}
-                            className={inspectorInputClassName}
-                          />
-                        </label>
-                      </>
-                    ) : null}
-
-                    {selectedBlock.type === "spacer" ? (
-                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                        Height
-                        <input
-                          type="number"
-                          value={selectedBlock.props.height ?? 32}
-                          onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, height: Number(event.target.value || 0) || 0 } as any }))}
-                          className={inspectorInputClassName}
-                        />
-                      </label>
-                    ) : null}
-
-                    {selectedBlock.type === "section" ? (
-                      <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                        Anchor ID
-                        <input
-                          value={selectedBlock.props.anchorId ?? ""}
-                          onChange={(event) => updateSelectedBlock((block) => ({ ...block, props: { ...block.props, anchorId: event.target.value } as any }))}
-                          className={inspectorInputClassName}
-                        />
-                      </label>
-                    ) : null}
-
-                    <div className="border-t border-zinc-200 pt-4">
-                      <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Style</div>
-                      <div className="mt-3 grid grid-cols-2 gap-3">
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Text color
-                          <input
-                            value={typeof selectedStyle.textColor === "string" ? selectedStyle.textColor : ""}
-                            onChange={(event) => updateSelectedBlockStyle({ textColor: event.target.value || undefined })}
-                            className={inspectorInputClassName}
-                            placeholder="#0f172a"
-                          />
-                        </label>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Background
-                          <input
-                            value={typeof selectedStyle.backgroundColor === "string" ? selectedStyle.backgroundColor : ""}
-                            onChange={(event) => updateSelectedBlockStyle({ backgroundColor: event.target.value || undefined })}
-                            className={inspectorInputClassName}
-                            placeholder="#ffffff"
-                          />
-                        </label>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Font family
-                          <input
-                            value={typeof selectedStyle.fontFamily === "string" ? selectedStyle.fontFamily : ""}
-                            onChange={(event) => updateSelectedBlockStyle({ fontFamily: event.target.value || undefined })}
-                            className={inspectorInputClassName}
-                            placeholder="Inter, sans-serif"
-                          />
-                        </label>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Google font
-                          <input
-                            value={typeof selectedStyle.fontGoogleFamily === "string" ? selectedStyle.fontGoogleFamily : ""}
-                            onChange={(event) => updateSelectedBlockStyle({ fontGoogleFamily: event.target.value || undefined })}
-                            className={inspectorInputClassName}
-                            placeholder="Inter"
-                          />
-                        </label>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Font size
-                          <input
-                            type="number"
-                            value={typeof selectedStyle.fontSizePx === "number" ? selectedStyle.fontSizePx : ""}
-                            onChange={(event) => updateSelectedBlockStyle({ fontSizePx: event.target.value ? Number(event.target.value) : undefined })}
-                            className={inspectorInputClassName}
-                          />
-                        </label>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Max width
-                          <input
-                            type="number"
-                            value={typeof selectedStyle.maxWidthPx === "number" ? selectedStyle.maxWidthPx : ""}
-                            onChange={(event) => updateSelectedBlockStyle({ maxWidthPx: event.target.value ? Number(event.target.value) : undefined })}
-                            className={inspectorInputClassName}
-                          />
-                        </label>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Padding
-                          <input
-                            type="number"
-                            value={typeof selectedStyle.paddingPx === "number" ? selectedStyle.paddingPx : ""}
-                            onChange={(event) => updateSelectedBlockStyle({ paddingPx: event.target.value ? Number(event.target.value) : undefined })}
-                            className={inspectorInputClassName}
-                          />
-                        </label>
-                        <label className="block text-xs font-medium uppercase tracking-wide text-zinc-500">
-                          Radius
-                          <input
-                            type="number"
-                            value={typeof selectedStyle.borderRadiusPx === "number" ? selectedStyle.borderRadiusPx : ""}
-                            onChange={(event) => updateSelectedBlockStyle({ borderRadiusPx: event.target.value ? Number(event.target.value) : undefined })}
-                            className={inspectorInputClassName}
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-3 rounded-2xl bg-white/80 px-4 py-5 text-sm text-zinc-500">Select a block from the preview or page structure to edit its content and style.</div>
-                )}
-              </div>
+      return (
+        <div className="flex h-full min-h-0 flex-col gap-3 p-3 text-zinc-900">
+          {editorMode === "BLOCKS" ? (
+            <>
+              {prioritizeInspector ? selectedBlockInspector : blockLibrary}
+              {pageStructure}
+              {prioritizeInspector ? blockLibrary : selectedBlockInspector}
             </>
           ) : (
           <div className="flex min-h-0 flex-1 flex-col rounded-[28px] border border-[rgba(37,99,235,0.10)] bg-[rgba(255,255,255,0.78)] p-4 shadow-[0_18px_45px_rgba(37,99,235,0.08)] supports-backdrop-filter:bg-[rgba(255,255,255,0.6)] supports-backdrop-filter:backdrop-blur-xl">
@@ -945,7 +1252,7 @@ export function HostedServicePageEditorClient({
         </div>
       );
     },
-    [addBlock, blockTemplates, customHtml, editorMode, parsedBlocks, selectedBlock, selectedBlockId, updateSelectedBlock, updateSelectedBlockStyle],
+    [addBlock, customHtml, editorMode, parsedBlocks, selectedBlock, selectedBlockId, serviceLabel, serviceTemplates, updateSelectedBlock, updateSelectedBlockStyle],
   );
 
   const topActions = useMemo(
@@ -988,15 +1295,7 @@ export function HostedServicePageEditorClient({
   const previewBusinessName = previewData?.businessName?.trim() || title.trim() || serviceLabel;
   const previewRuntimeBlocks = useMemo(() => {
     const siteHandle = previewData?.siteHandle?.trim() || "";
-    const primaryUrl = previewData?.primaryUrl?.trim() || "";
-    const bookingPreviewFrame = primaryUrl ? (
-      <iframe
-        title={`${previewBusinessName} booking preview`}
-        src={primaryUrl}
-        style={{ width: "100%", minHeight: 920, border: 0, borderRadius: 24, background: "#fff", display: "block" }}
-        loading="lazy"
-      />
-    ) : undefined;
+    const bookingPreviewFrame = siteHandle ? <PublicBookingClient target={{ kind: "slug", slug: siteHandle }} showBranding={false} embedded /> : undefined;
     const newsletterLatest = Array.isArray(previewData?.summary?.latest)
       ? (previewData?.summary?.latest as Array<Record<string, unknown>>)
           .map((item) => ({
@@ -1049,20 +1348,52 @@ export function HostedServicePageEditorClient({
         ? (previewData.summary.previewPost as Record<string, unknown>)
         : null;
     const themedWrap = (node: React.ReactNode) => <div style={hostedPreviewThemeStyle}>{node}</div>;
+    const previewCard = (heading: string, description: string, detailLines: string[] = []) =>
+      themedWrap(
+        <div className="rounded-3xl border border-[rgba(37,99,235,0.14)] bg-white px-6 py-5 shadow-[0_12px_30px_rgba(37,99,235,0.08)]">
+          <div className="text-sm font-semibold text-zinc-900">{heading}</div>
+          <p className="mt-2 text-sm leading-6 text-zinc-600">{description}</p>
+          {detailLines.length ? (
+            <div className="mt-4 grid gap-2">
+              {detailLines.slice(0, 4).map((line) => (
+                <div key={line} className="rounded-2xl bg-[rgba(37,99,235,0.06)] px-3 py-2 text-sm text-zinc-700">
+                  {line}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>,
+      );
+    const bookingSummaryLines = [
+      typeof previewData?.summary?.title === "string" && previewData.summary.title.trim() ? `Calendar: ${previewData.summary.title.trim()}` : "Calendar details load from your booking setup.",
+      Number.isFinite(Number(previewData?.summary?.durationMinutes)) ? `Duration: ${Number(previewData?.summary?.durationMinutes)} minutes` : "Duration will appear here when set.",
+      typeof previewData?.summary?.timeZone === "string" && previewData.summary.timeZone.trim() ? `Time zone: ${previewData.summary.timeZone.trim()}` : "Time zone will appear here when available.",
+    ].filter(Boolean) as string[];
+    const newsletterSummaryLines = newsletterLatest.length
+      ? newsletterLatest.slice(0, 4).map((item) => item.title)
+      : ["Your latest newsletter issues will appear in this preview."];
+    const reviewSummaryLines = reviewLatest.length
+      ? reviewLatest.slice(0, 3).map((item) => `${item.name || "Guest"}: ${item.body || `${item.rating}/5 review`}`)
+      : reviewQuestions.length
+        ? reviewQuestions.slice(0, 3).map((item) => `${item.name || "Guest"}: ${item.question}`)
+        : ["Recent reviews and answered questions will appear in this preview."];
+    const blogSummaryLines = blogLatest.length
+      ? blogLatest.slice(0, 4).map((item) => item.title)
+      : ["Published posts will appear in this preview once they are available."];
 
     return {
-      bookingApp: bookingPreviewFrame,
+      bookingApp: bookingPreviewFrame ?? previewCard("Booking preview", "Live booking availability will render here once the interactive calendar is ready.", bookingSummaryLines),
       newsletterArchive:
-        siteHandle
+        newsletterLatest.length
           ? themedWrap(
               <HostedNewsletterArchive
                 newsletters={newsletterLatest}
-                basePath={`/${siteHandle}/newsletters`}
+                basePath={siteHandle ? `/${siteHandle}/newsletters` : "#"}
                 emptyTitle="No newsletters yet."
                 emptyDescription="Send your first issue to populate the archive preview."
               />,
             )
-          : undefined,
+          : previewCard("Recent editions", "Published issues will appear here once you have newsletter content ready to browse.", newsletterSummaryLines),
       reviewsApp:
         siteHandle ? (
           themedWrap(
@@ -1078,13 +1409,13 @@ export function HostedServicePageEditorClient({
               initialQuestions={reviewQuestions}
             />,
           )
-        ) : undefined,
+        ) : previewCard("Reviews preview", "Public reviews will render here once the public reviews page is connected.", reviewSummaryLines),
       blogsArchive:
-        siteHandle
+        blogLatest.length
           ? themedWrap(
-              <HostedBlogArchiveSection brandName={previewBusinessName} posts={blogLatest} page={1} pageSize={50} basePath={`/${siteHandle}/blogs`} />,
+              <HostedBlogArchiveSection brandName={previewBusinessName} posts={blogLatest} page={1} pageSize={50} basePath={siteHandle ? `/${siteHandle}/blogs` : "#"} />,
             )
-          : undefined,
+          : previewCard("Latest posts", "Published posts will appear here once your blog has content to browse.", blogSummaryLines),
       blogPostBody:
         siteHandle && previewPost && typeof previewPost.title === "string" && typeof previewPost.content === "string"
           ? themedWrap(
@@ -1106,9 +1437,9 @@ export function HostedServicePageEditorClient({
                 learnMoreHref={`/${siteHandle}/blogs`}
               />,
             )
-          : undefined,
+          : previewCard("Article preview", "The selected article body will render here once a published post is available.", blogSummaryLines),
     };
-  }, [previewBusinessName, previewData?.primaryUrl, previewData?.siteHandle, previewData?.summary]);
+  }, [previewBusinessName, previewData?.siteHandle, previewData?.summary]);
 
   if (loading) {
     return (

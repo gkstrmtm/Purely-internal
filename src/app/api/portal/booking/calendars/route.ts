@@ -21,6 +21,7 @@ const putSchema = z.object({
         meetingLocation: z.string().trim().max(120).optional(),
         meetingDetails: z.string().trim().max(600).optional(),
         notificationEmails: z.array(z.string().trim().email()).max(20).optional(),
+        assignedUserId: z.string().trim().min(1).max(120).optional().nullable(),
       }),
     )
     .max(25),
@@ -85,6 +86,7 @@ export async function PUT(req: Request) {
     calendars: parsed.data.calendars.map((c) => ({
       ...c,
       enabled: c.enabled ?? true,
+      assignedUserId: c.assignedUserId?.trim() || undefined,
       availabilityBlocks: prevById.get(c.id)?.availabilityBlocks,
     })),
   });

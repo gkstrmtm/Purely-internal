@@ -84,6 +84,7 @@ function mutedTextClasses(accent: "blue" | "coral" | "ink") {
 }
 
 export default function SalesLoopPackagePage() {
+  const getStartedHref = "/portal/get-started?package=sales-loop";
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Service",
@@ -146,7 +147,7 @@ export default function SalesLoopPackagePage() {
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/portal/get-started"
+                  href={getStartedHref}
                   className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-6 py-3 text-base font-semibold text-white shadow-sm hover:opacity-90"
                 >
                   Start free
@@ -264,7 +265,7 @@ export default function SalesLoopPackagePage() {
 
               <div className="mt-10 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/portal/get-started"
+                  href={getStartedHref}
                   className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-6 py-3 text-base font-semibold text-white shadow-sm hover:opacity-90"
                 >
                   Start free
@@ -442,7 +443,7 @@ export default function SalesLoopPackagePage() {
 
                 <div className="mt-10 flex flex-col gap-3 sm:flex-row">
                   <Link
-                    href="/portal/get-started"
+                    href={getStartedHref}
                     className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 sm:w-auto"
                   >
                     Get started
@@ -501,7 +502,7 @@ export default function SalesLoopPackagePage() {
                 </div>
                 <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
                   <Link
-                    href="/portal/get-started"
+                    href={getStartedHref}
                     className="inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-(--color-brand-blue) hover:bg-zinc-50 sm:w-auto"
                   >
                     Get started

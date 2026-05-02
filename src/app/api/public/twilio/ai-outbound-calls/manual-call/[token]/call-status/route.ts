@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 
+import { buildAiOutboundVoicemailTwiml, indicatesMachineAnswered } from "@/lib/aiOutboundVoicemail";
+import { appendAiOutboundManualCallWebhookLog } from "@/lib/aiOutboundCallDebug";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
+import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,6 +95,34 @@ async function requestTranscription(opts: { ownerId: string; recordingSid: strin
   return Boolean(res?.ok);
 }
 
+async function updateTwilioCallTwiml(opts: {
+  ownerId: string;
+  callSid: string;
+  twiml: string;
+}): Promise<boolean> {
+  const callSid = String(opts.callSid || "").trim();
+  if (!callSid) return false;
+
+  const twilio = await getOwnerTwilioSmsConfig(opts.ownerId);
+  if (!twilio) return false;
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilio.accountSid)}/Calls/${encodeURIComponent(callSid)}.json`;
+  const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
+  const form = new URLSearchParams();
+  form.set("Twiml", opts.twiml);
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${basic}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: form.toString(),
+  }).catch(() => null as any);
+
+  return Boolean(res?.ok);
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
   const t = String(token || "").trim();
@@ -101,7 +132,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   const manual = await prisma.portalAiOutboundCallManualCall.findFirst({
     where: { webhookToken: t },
-    select: { id: true, ownerId: true, status: true, callSid: true, recordingSid: true },
+    select: { id: true, ownerId: true, campaignId: true, status: true, callSid: true, recordingSid: true },
   });
 
   if (!manual) {
@@ -111,15 +142,67 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const form = await req.formData().catch(() => null);
   const callSidRaw = form?.get("CallSid");
   const callStatusRaw = form?.get("CallStatus");
+  const answeredByRaw = form?.get("AnsweredBy");
 
   const callSid = typeof callSidRaw === "string" ? callSidRaw.trim() : "";
   const effectiveCallSid = callSid || String(manual.callSid || "").trim();
   const nextStatus = terminalStatusFromTwilio(callStatusRaw);
 
+  await appendAiOutboundManualCallWebhookLog({
+    route: "manual-call:call-status",
+    token: t,
+    manualCallId: manual.id,
+    callSid: effectiveCallSid,
+    details: {
+      callStatus: callStatusRaw,
+      answeredBy: answeredByRaw,
+    },
+  });
+
   const updates: Record<string, any> = {};
 
   if (callSid && !manual.callSid) {
     updates.callSid = callSid;
+  }
+
+  if (indicatesMachineAnswered(answeredByRaw) && effectiveCallSid) {
+    const [campaign, profile, ownerUser] = await Promise.all([
+      typeof manual.campaignId === "string" && manual.campaignId.trim()
+        ? prisma.portalAiOutboundCallCampaign.findFirst({
+            where: { ownerId: manual.ownerId, id: manual.campaignId },
+            select: { voiceAgentConfigJson: true },
+          }).catch(() => null)
+        : Promise.resolve(null),
+      prisma.businessProfile.findUnique({ where: { ownerId: manual.ownerId }, select: { businessName: true } }).catch(() => null),
+      prisma.user.findUnique({ where: { id: manual.ownerId }, select: { name: true } }).catch(() => null),
+    ]);
+
+    const config = parseVoiceAgentConfig(campaign?.voiceAgentConfigJson);
+    const redirected = await updateTwilioCallTwiml({
+      ownerId: manual.ownerId,
+      callSid: effectiveCallSid,
+      twiml: buildAiOutboundVoicemailTwiml({
+        businessName: profile?.businessName || null,
+        ownerName: ownerUser?.name || null,
+        goal: config.goal || null,
+        callbackNumber: (await getOwnerTwilioSmsConfig(manual.ownerId).catch(() => null))?.fromNumberE164 || null,
+      }),
+    });
+
+    await appendAiOutboundManualCallWebhookLog({
+      route: "manual-call:call-status:update-call",
+      token: t,
+      manualCallId: manual.id,
+      callSid: effectiveCallSid,
+      details: {
+        answeredBy: answeredByRaw,
+        redirected,
+      },
+    });
+
+    if (!redirected) {
+      updates.lastError = "Machine-detected call could not be redirected to the voicemail fallback.";
+    }
   }
 
   // Don’t clobber COMPLETED if we already have it.

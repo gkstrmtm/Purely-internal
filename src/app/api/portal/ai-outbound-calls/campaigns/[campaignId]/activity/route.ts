@@ -3,7 +3,6 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
-import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,8 +23,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ campaignId: str
   const params = await ctx.params;
   const campaignId = idSchema.safeParse(params.campaignId);
   if (!campaignId.success) return NextResponse.json({ ok: false, error: "Invalid campaign id" }, { status: 400 });
-
-  await ensurePortalAiOutboundCallsSchema();
 
   const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },

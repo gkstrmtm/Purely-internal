@@ -5,9 +5,17 @@ import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
 import { PortalOnboardingClient } from "@/app/portal/app/onboarding/PortalOnboardingClient";
 import { PortalVerifyEmailGate } from "@/app/portal/app/onboarding/PortalVerifyEmailGate";
 
-export default async function PortalOnboardingPage() {
+type PortalOnboardingPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function PortalOnboardingPage({ searchParams }: PortalOnboardingPageProps) {
+  const resolvedSearchParams = (await searchParams) ?? {};
   const sessionUser = await requirePortalUserForService("businessProfile", "edit");
   const memberId = sessionUser.memberId || sessionUser.id;
+  const rawCreditsAdded = Array.isArray(resolvedSearchParams.creditsAdded) ? resolvedSearchParams.creditsAdded[0] : resolvedSearchParams.creditsAdded;
+  const creditsAddedNumber = Number(rawCreditsAdded || 0);
+  const creditsAdded = Number.isFinite(creditsAddedNumber) ? Math.max(0, Math.trunc(creditsAddedNumber)) : 0;
 
   const [hasEmailVerifiedAt, hasEmailSentAt] = await Promise.all([
     dbHasPublicColumn({ tableNames: ["User", "user"], columnName: "emailVerifiedAt" }).catch(() => false),
@@ -43,7 +51,7 @@ export default async function PortalOnboardingPage() {
         <p className="mt-2 text-sm text-zinc-600">First, verify your email address.</p>
 
         <div className="mt-6">
-          <PortalVerifyEmailGate email={email} emailVerificationEmailSentAt={emailSentAtIso} />
+          <PortalVerifyEmailGate email={email} emailVerificationEmailSentAt={emailSentAtIso} creditsAdded={creditsAdded} />
         </div>
       </div>
     );

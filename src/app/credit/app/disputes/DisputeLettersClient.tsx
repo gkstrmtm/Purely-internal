@@ -11,6 +11,7 @@ import { PortalListboxDropdown, type PortalListboxOption } from "@/components/Po
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
 import { CONTACT_SIGNATURE_MARKDOWN, normalizeDisputeLetterText, readContactAddress, readContactCustomValue, readContactSignature, readContactSignatureImage } from "@/lib/creditDisputeLetters";
 import { extractCreditInquiryDate } from "@/lib/creditReports";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type ContactLite = {
   id: string;
@@ -291,6 +292,8 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const router = useRouter();
   const searchParams = useSearchParams();
   const routeSet = useMemo(() => routesFor(pathname), [pathname]);
+  const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   const [error, setError] = useState<string | null>(null);
   const [letters, setLetters] = useState<LetterLite[]>([]);
@@ -382,28 +385,37 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const loadContacts = useCallback(async (query = "") => {
     setContactsLoading(true);
     try {
-      const data = await fetchJson<{ ok: true; contacts: ContactLite[] }>(`/api/portal/credit/contacts${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`, { cache: "no-store" });
+      const data = await fetchJson<{ ok: true; contacts: ContactLite[] }>(`/api/portal/credit/contacts${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`, {
+        cache: "no-store",
+        headers: variantHeaders,
+      });
       setContacts(data.contacts || []);
     } finally {
       setContactsLoading(false);
     }
-  }, []);
+  }, [variantHeaders]);
 
   const loadLetters = useCallback(async () => {
     setLettersLoading(true);
     try {
-      const data = await fetchJson<{ ok: true; letters: LetterLite[] }>("/api/portal/credit/disputes", { cache: "no-store" });
+      const data = await fetchJson<{ ok: true; letters: LetterLite[] }>("/api/portal/credit/disputes", {
+        cache: "no-store",
+        headers: variantHeaders,
+      });
       setLetters(data.letters || []);
     } finally {
       setLettersLoading(false);
     }
-  }, []);
+  }, [variantHeaders]);
 
   const loadLetter = useCallback(async (letterId: string) => {
     if (!letterId) return;
     setLetterLoading(true);
     try {
-      const data = await fetchJson<{ ok: true; letter: LetterFull }>(`/api/portal/credit/disputes/${encodeURIComponent(letterId)}`, { cache: "no-store" });
+      const data = await fetchJson<{ ok: true; letter: LetterFull }>(`/api/portal/credit/disputes/${encodeURIComponent(letterId)}`, {
+        cache: "no-store",
+        headers: variantHeaders,
+      });
       setSelectedLetter(data.letter);
       setSubject(data.letter.subject || "");
       setBodyText(normalizeDisputeLetterText(data.letter.bodyText || "", {
@@ -422,7 +434,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     } finally {
       setLetterLoading(false);
     }
-  }, []);
+  }, [variantHeaders]);
 
   const loadComposerReportItems = useCallback(async (nextContactId: string) => {
     if (!nextContactId) {
@@ -432,14 +444,20 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     }
     setComposerItemsLoading(true);
     try {
-      const reportList = await fetchJson<{ ok: true; reports: CreditReportLite[] }>("/api/portal/credit/reports", { cache: "no-store" });
+      const reportList = await fetchJson<{ ok: true; reports: CreditReportLite[] }>("/api/portal/credit/reports", {
+        cache: "no-store",
+        headers: variantHeaders,
+      });
       const latestReport = (reportList.reports || []).find((report) => report.contactId === nextContactId) || null;
       if (!latestReport) {
         setComposerReportItems([]);
         setComposerReportLabel("");
         return;
       }
-      const reportDetail = await fetchJson<{ ok: true; report: CreditReportFull }>(`/api/portal/credit/reports/${encodeURIComponent(latestReport.id)}`, { cache: "no-store" });
+      const reportDetail = await fetchJson<{ ok: true; report: CreditReportFull }>(`/api/portal/credit/reports/${encodeURIComponent(latestReport.id)}`, {
+        cache: "no-store",
+        headers: variantHeaders,
+      });
       setComposerReportItems(reportDetail.report.items || []);
       setComposerReportLabel(`${reportDetail.report.provider} • ${formatDateTime(reportDetail.report.importedAt)}`);
     } catch {
@@ -448,7 +466,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     } finally {
       setComposerItemsLoading(false);
     }
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     void Promise.all([loadContacts(), loadLetters()]).catch((cause: unknown) => {
@@ -607,6 +625,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       const subjectLine = `Round ${roundNumber} - ${contactLabel} - ${baseRecipient}`.trim();
       const data = await fetchJson<{ ok: true; letter: LetterFull; pdf?: { downloadUrl?: string | null } }>("/api/portal/credit/disputes", {
         method: "POST",
+        headers: variantHeaders,
         body: JSON.stringify({
           contactId,
           recipientName: recipientName.trim(),
@@ -637,6 +656,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             `/api/portal/credit/reports/${encodeURIComponent(sourceReportId)}/items/${encodeURIComponent(sourceReportItemId)}`,
             {
               method: "PATCH",
+              headers: variantHeaders,
               body: JSON.stringify({ disputeStatus: "Dispute created (not mailed)" }),
             },
           );
@@ -652,7 +672,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     } finally {
       setWorking(null);
     }
-  }, [cleanItems, contactId, contacts, followUpDays, loadLetters, nextTemplate.label, recipientAddress, recipientName, roundNumber, routeSet, selectedContact?.name, sourceReportId, sourceReportItemId, template]);
+  }, [cleanItems, contactId, contacts, followUpDays, loadLetters, nextTemplate.label, recipientAddress, recipientName, roundNumber, routeSet, selectedContact?.name, sourceReportId, sourceReportItemId, template, variantHeaders]);
 
   const saveLetter = useCallback(async () => {
     if (!selectedLetterId) return;
@@ -660,6 +680,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     try {
       await fetchJson(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}`, {
         method: "PATCH",
+        headers: variantHeaders,
         body: JSON.stringify({ subject: subject.trim(), bodyText }),
       });
       await loadLetter(selectedLetterId);
@@ -667,13 +688,17 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     } finally {
       setWorking(null);
     }
-  }, [bodyText, loadLetter, loadLetters, selectedLetterId, subject]);
+  }, [bodyText, loadLetter, loadLetters, selectedLetterId, subject, variantHeaders]);
 
   const markLetterMailed = useCallback(async () => {
     if (!selectedLetterId) return;
     setWorking("mail");
     try {
-      await fetchJson(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/send`, { method: "POST", body: JSON.stringify({}) });
+      await fetchJson(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/send`, {
+        method: "POST",
+        headers: variantHeaders,
+        body: JSON.stringify({}),
+      });
 
       if (sourceReportId && sourceReportItemId) {
         try {
@@ -681,6 +706,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             `/api/portal/credit/reports/${encodeURIComponent(sourceReportId)}/items/${encodeURIComponent(sourceReportItemId)}`,
             {
               method: "PATCH",
+              headers: variantHeaders,
               body: JSON.stringify({ disputeStatus: "Dispute mailed" }),
             },
           );
@@ -694,7 +720,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     } finally {
       setWorking(null);
     }
-  }, [loadLetter, loadLetters, selectedLetterId, sourceReportId, sourceReportItemId]);
+  }, [loadLetter, loadLetters, selectedLetterId, sourceReportId, sourceReportItemId, variantHeaders]);
 
   const refreshPdf = useCallback(async (options?: { force?: boolean }) => {
     if (!selectedLetterId) return;
@@ -702,6 +728,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     try {
       const data = await fetchJson<{ ok: true; pdf: { downloadUrl: string } }>(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/pdf`, {
         method: "POST",
+        headers: variantHeaders,
         body: JSON.stringify({ force: Boolean(options?.force) }),
       });
       setPdfDownloadUrl(data.pdf.downloadUrl);
@@ -710,7 +737,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     } finally {
       setWorking(null);
     }
-  }, [loadLetter, loadLetters, selectedLetterId]);
+  }, [loadLetter, loadLetters, selectedLetterId, variantHeaders]);
 
   useEffect(() => {
     if (mode !== "editor") return;

@@ -6,6 +6,7 @@ import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBloc
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
 import { listHostedTemplateOptions } from "@/lib/hostedPageTemplateIntents";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
+import { ensureNewsletterSiteForOwner } from "@/lib/portalNewsletter";
 import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
 
 export type HostedPageService = "BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS";
@@ -156,120 +157,6 @@ export function portalServiceKeyForHostedPageService(service: HostedPageService)
     default:
       return "blogs";
   }
-}
-
-function sectionBlock(
-  id: string,
-  opts: {
-    anchorId?: string;
-    heading: string;
-    body: string;
-    primaryCta?: { text: string; href: string };
-    secondaryCta?: { text: string; href: string };
-  },
-): CreditFunnelBlock {
-  const children: CreditFunnelBlock[] = [
-    {
-      id: `${id}-heading`,
-      type: "heading",
-      props: {
-        level: 1,
-        text: opts.heading,
-        style: { fontSizePx: 42, marginBottomPx: 12, maxWidthPx: 760 } as any,
-      },
-    },
-    {
-      id: `${id}-body`,
-      type: "paragraph",
-      props: {
-        text: opts.body,
-        style: { fontSizePx: 17, marginBottomPx: 18, maxWidthPx: 760 } as any,
-      },
-    },
-  ];
-
-  if (opts.primaryCta || opts.secondaryCta) {
-    children.push({
-      id: `${id}-ctas`,
-      type: "columns",
-      props: {
-        gapPx: 14,
-        stackOnMobile: true,
-        columns: [
-          {
-            markdown: "",
-            children: [
-              ...(opts.primaryCta
-                ? [
-                    {
-                      id: `${id}-primary`,
-                      type: "button" as const,
-                      props: {
-                        text: opts.primaryCta.text,
-                        href: opts.primaryCta.href,
-                      },
-                    },
-                  ]
-                : []),
-              ...(opts.secondaryCta
-                ? [
-                    {
-                      id: `${id}-secondary`,
-                      type: "button" as const,
-                      props: {
-                        text: opts.secondaryCta.text,
-                        href: opts.secondaryCta.href,
-                        variant: "secondary" as const,
-                      },
-                    },
-                  ]
-                : []),
-            ],
-          },
-        ],
-        style: { marginTopPx: 6 } as any,
-      },
-    });
-  }
-
-  return {
-    id,
-    type: "section",
-    props: {
-      anchorId: opts.anchorId,
-      layout: "one",
-      children,
-      style: {
-        maxWidthPx: CONTAINER_WIDTH,
-        paddingPx: 36,
-        borderRadiusPx: 28,
-        backgroundColor: SOFT_BG,
-        borderColor: SOFT_ACCENT,
-        borderWidthPx: 1,
-      } as any,
-    },
-  };
-}
-
-function featuresColumns(id: string, items: string[]): CreditFunnelBlock {
-  return {
-    id,
-    type: "columns",
-    props: {
-      gapPx: 16,
-      stackOnMobile: true,
-      columns: items.map((item, index) => ({
-        markdown: `### ${index + 1}\n${item}`,
-        style: {
-          paddingPx: 18,
-          borderRadiusPx: 20,
-          backgroundColor: "rgba(255,255,255,0.92)",
-          borderColor: SOFT_ACCENT,
-          borderWidthPx: 1,
-        } as any,
-      })),
-    },
-  };
 }
 
 function cardColumn(
@@ -2256,10 +2143,11 @@ export async function getHostedPagePreviewData(ownerId: string, documentId: stri
   }
 
   if (document.service === "NEWSLETTER") {
-    const site = await prisma.clientBlogSite.findUnique({
-      where: { ownerId },
+    const site = await ensureNewsletterSiteForOwner({
+      ownerId,
+      desiredName: businessName,
       select: { id: true, slug: true, name: true, primaryDomain: true },
-    });
+    }).catch(() => null);
     const [externalCount, internalCount, latest] = await Promise.all([
       prisma.clientNewsletter.count({ where: { siteId: site?.id ?? "", kind: "EXTERNAL" } as any }).catch(() => 0),
       prisma.clientNewsletter.count({ where: { siteId: site?.id ?? "", kind: "INTERNAL" } as any }).catch(() => 0),

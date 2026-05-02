@@ -32,6 +32,14 @@ export type BlockStyle = {
   borderColor?: string;
   borderWidthPx?: number;
   maxWidthPx?: number;
+  bookingBgHex?: string;
+  bookingSurfaceHex?: string;
+  bookingSoftHex?: string;
+  bookingBorderHex?: string;
+  bookingTextHex?: string;
+  bookingMutedTextHex?: string;
+  bookingPrimaryHex?: string;
+  bookingLinkHex?: string;
 };
 
 export type ColumnsColumn = {
@@ -535,6 +543,14 @@ function coerceStyle(raw: unknown): BlockStyle | undefined {
     borderColor: coerceCssColor(r.borderColor),
     borderWidthPx: clampNum(r.borderWidthPx, 0, 24),
     maxWidthPx: clampNum(r.maxWidthPx, 0, 1600),
+    bookingBgHex: coerceCssColor(r.bookingBgHex),
+    bookingSurfaceHex: coerceCssColor(r.bookingSurfaceHex),
+    bookingSoftHex: coerceCssColor(r.bookingSoftHex),
+    bookingBorderHex: coerceCssColor(r.bookingBorderHex),
+    bookingTextHex: coerceCssColor(r.bookingTextHex),
+    bookingMutedTextHex: coerceCssColor(r.bookingMutedTextHex),
+    bookingPrimaryHex: coerceCssColor(r.bookingPrimaryHex),
+    bookingLinkHex: coerceCssColor(r.bookingLinkHex),
   };
 
   const hasAny = Object.values(style).some((v) => v !== undefined && v !== "");
@@ -983,6 +999,21 @@ function wrapperStyle(style?: BlockStyle): React.CSSProperties {
     out.marginRight = out.textAlign === "center" ? "auto" : undefined;
   }
   return out;
+}
+
+function bookingThemeOverridesFromStyle(style?: BlockStyle): Record<string, string> | undefined {
+  if (!style) return undefined;
+  const overrides = {
+    ...(style.bookingBgHex ? { bgHex: style.bookingBgHex } : null),
+    ...(style.bookingSurfaceHex ? { surfaceHex: style.bookingSurfaceHex } : null),
+    ...(style.bookingSoftHex ? { softHex: style.bookingSoftHex } : null),
+    ...(style.bookingBorderHex ? { borderHex: style.bookingBorderHex } : null),
+    ...(style.bookingTextHex ? { textHex: style.bookingTextHex } : null),
+    ...(style.bookingMutedTextHex ? { mutedTextHex: style.bookingMutedTextHex } : null),
+    ...(style.bookingPrimaryHex ? { accentHex: style.bookingPrimaryHex } : null),
+    ...(style.bookingLinkHex ? { linkHex: style.bookingLinkHex } : null),
+  };
+  return Object.keys(overrides).length ? overrides : undefined;
 }
 
 function backgroundVideoNode(style?: BlockStyle): React.ReactNode {
@@ -1436,16 +1467,27 @@ export function renderCreditFunnelBlocks({
         return false;
       }
     };
+    const closestBlockId = (evtTarget: any): string | null => {
+      try {
+        const el: any = evtTarget && evtTarget.nodeType === 1 ? evtTarget : evtTarget?.parentElement;
+        const value = el?.closest?.("[data-block-id]")?.getAttribute?.("data-block-id");
+        return typeof value === "string" && value.trim() ? value : null;
+      } catch {
+        return null;
+      }
+    };
     return {
       "data-block-id": id,
+      "data-block-selected": editor?.selectedBlockId === id ? "true" : "false",
+      "data-block-hovered": editor?.hoveredBlockId === id ? "true" : "false",
       className: "relative",
       onMouseDownCapture: (e: any) => {
-        // Always select on click/tap, even if the target is an interactive widget.
-        // Don't preventDefault/stopPropagation so the widget remains usable.
         if (typeof e?.button === "number" && e.button !== 0) return;
+        if (closestBlockId(e?.target) !== id) return;
         editor?.onSelectBlockId?.(id);
       },
       onClick: (e: any) => {
+        if (closestBlockId(e?.target) !== id) return;
         if (isInteractiveTarget(e?.target)) return;
         e.preventDefault?.();
         e.stopPropagation?.();
@@ -1484,7 +1526,13 @@ export function renderCreditFunnelBlocks({
     description: string,
   ): React.ReactNode => {
     const runtimeNode = context?.hostedRuntimeBlocks?.[kind];
-    const wrapper = wrapperStyle((block.props as any)?.style as BlockStyle | undefined);
+    const style = (block.props as any)?.style as BlockStyle | undefined;
+    const bookingThemeOverrides = kind === "bookingApp" ? bookingThemeOverridesFromStyle(style) : undefined;
+    const themedRuntimeNode =
+      bookingThemeOverrides && React.isValidElement(runtimeNode) && typeof runtimeNode.type !== "string"
+        ? React.cloneElement(runtimeNode, { themeOverrides: bookingThemeOverrides } as any)
+        : runtimeNode;
+    const wrapper = wrapperStyle(style);
     const placeholder = React.createElement(
       "div",
       {
@@ -1502,7 +1550,7 @@ export function renderCreditFunnelBlocks({
         style: { ...wrapper, ...(blockWrapStyle(block.id) || {}) },
       },
       renderMoveControls(block.id),
-      runtimeNode ?? placeholder,
+      themedRuntimeNode ?? placeholder,
     );
   };
 

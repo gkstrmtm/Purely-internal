@@ -4,10 +4,13 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { IconFunnel } from "@/app/portal/PortalIcons";
+import { AppModal } from "@/components/AppModal";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
 import { useToast } from "@/components/ToastProvider";
 import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { creditScopeLabel, extractCreditInquiryDate, type CreditReportSnapshot, type CreditScope } from "@/lib/creditReports";
 
 type ContactLite = { id: string; name: string; email: string | null };
@@ -154,9 +157,10 @@ const BUTTON_MOTION_CLASS = "transition-colors duration-150 focus-visible:outlin
 const PRIMARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:opacity-60`;
 const SECONDARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60`;
 const ICON_BUTTON_CLASS = classNames(
-  "inline-flex h-10 w-10 items-center justify-center rounded-2xl text-base font-semibold text-zinc-500 transition-colors duration-150 hover:bg-white/80 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60",
+  "inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-base font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-150 hover:bg-white hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60",
   portalGlassButtonClass,
 );
+const FILTER_OPTION_CLASS = "rounded-xl px-3 py-2 text-left text-xs font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20";
 
 function reportRoutesFor(pathname: string | null) {
   const current = String(pathname || "");
@@ -250,6 +254,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const searchParams = useSearchParams();
   const toast = useToast();
   const routeSet = useMemo(() => reportRoutesFor(pathname), [pathname]);
+  const portalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -280,7 +286,10 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const showAdvancedImport = false;
 
   const loadReports = useCallback(async () => {
-    const json = await fetchJson<{ ok: true; reports: ReportLite[] }>("/api/portal/credit/reports", { cache: "no-store" as any });
+    const json = await fetchJson<{ ok: true; reports: ReportLite[] }>("/api/portal/credit/reports", {
+      cache: "no-store" as any,
+      headers: variantHeaders,
+    });
     const nextReports = json.reports || [];
     const previousIds = loadedReportIdsRef.current;
     const nextIds = nextReports.map((report) => report.id);
@@ -290,17 +299,23 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     }
     loadedReportIdsRef.current = nextIds;
     setReports(nextReports);
-  }, [toast]);
+  }, [toast, variantHeaders]);
 
   const loadReport = useCallback(async (reportId: string) => {
     if (!reportId) return;
-    const json = await fetchJson<{ ok: true; report: ReportFull }>(`/api/portal/credit/reports/${encodeURIComponent(reportId)}`, { cache: "no-store" as any });
+    const json = await fetchJson<{ ok: true; report: ReportFull }>(`/api/portal/credit/reports/${encodeURIComponent(reportId)}`, {
+      cache: "no-store" as any,
+      headers: variantHeaders,
+    });
     setSelectedReport(json.report);
-  }, []);
+  }, [variantHeaders]);
 
   const loadContacts = useCallback(async (q: string) => {
     const url = `/api/portal/credit/contacts${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`;
-    const json = await fetchJson<{ ok: true; contacts: Array<any> }>(url, { cache: "no-store" as any });
+    const json = await fetchJson<{ ok: true; contacts: Array<any> }>(url, {
+      cache: "no-store" as any,
+      headers: variantHeaders,
+    });
     const next: ContactLite[] = (json.contacts || []).map((c: any) => ({
       id: String(c.id),
       name: String(c.name || ""),
@@ -308,7 +323,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     }));
     setContacts(next);
     setSelectedContactId((prev) => prev || next[0]?.id || "");
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     let cancelled = false;
@@ -493,6 +508,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
       const rawJson = JSON.parse(rawText);
       const json = await fetchJson<{ ok: true; report: ReportLite }>("/api/portal/credit/reports/import", {
         method: "POST",
+        headers: variantHeaders,
         body: JSON.stringify({
           contactId: selectedContactId || undefined,
           rawJson,
@@ -521,6 +537,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
       }
       const json = await fetchJson<{ ok: true; report: ReportLite }>("/api/portal/credit/reports/pull", {
         method: "POST",
+        headers: variantHeaders,
         body: JSON.stringify({
           contactId: selectedContactId,
           provider,
@@ -561,6 +578,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     try {
       await fetchJson<{ ok: true; item: ReportItemLite }>(`/api/portal/credit/reports/${encodeURIComponent(selectedReportId)}/items/${encodeURIComponent(item.id)}`, {
         method: "PATCH",
+        headers: variantHeaders,
         body: JSON.stringify(next),
       });
       await loadReport(selectedReportId);
@@ -570,7 +588,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     } finally {
       setItemDecisionBusyId(null);
     }
-  }, [loadReport, selectedReportId]);
+  }, [loadReport, selectedReportId, variantHeaders]);
 
   const markItemNoDisputeNeeded = useCallback(async (item: ReportItemLite) => {
     await updateReportItemDecision(item, { auditTag: "POSITIVE", disputeStatus: null });
@@ -649,14 +667,15 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     onTouchStart={() => setReportFiltersMenu(null)}
                     aria-hidden
                   />
-                  <div
-                    className="fixed z-40 w-72 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                  <LiquidGlassPopupSurface
+                    data-inline-menu-root="true"
+                    className="fixed z-40 w-72 overflow-hidden rounded-3xl"
                     style={{ left: reportFiltersMenu.left, top: reportFiltersMenu.top, maxHeight: reportFiltersMenu.maxHeight }}
                     onMouseDown={(event) => event.stopPropagation()}
                     onTouchStart={(event) => event.stopPropagation()}
                   >
-                    <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
-                    <div className="px-4 py-3">
+                    <div className="border-b border-white/35 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                    <div className="overflow-auto px-4 py-3" style={{ maxHeight: reportFiltersMenu.maxHeight }}>
                       <div className="text-xs font-semibold text-zinc-700">Report type</div>
                       <div className="mt-2 grid grid-cols-2 gap-2">
                         {([
@@ -669,10 +688,10 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                             key={value}
                             type="button"
                             className={classNames(
-                              "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
+                              FILTER_OPTION_CLASS,
                               reportView === value
-                                ? "border-brand-ink bg-brand-ink text-white"
-                                : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                                ? "bg-brand-ink text-white shadow-sm"
+                                : classNames("text-zinc-800 hover:bg-white/90", portalGlassButtonClass),
                             )}
                             onClick={() => setReportView(value)}
                           >
@@ -687,14 +706,14 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                           value={providerFilter}
                           onChange={setProviderFilter}
                           options={providerFilterOptions}
-                          buttonClassName="flex h-11 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm transition-all duration-150 hover:border-zinc-300 hover:bg-zinc-50"
+                          buttonClassName={classNames("flex h-11 w-full items-center justify-between gap-2 rounded-xl px-3 text-sm transition-all duration-150 hover:bg-white/90", portalGlassButtonClass)}
                         />
                       </div>
 
                       {(reportView !== "ALL" || providerFilter !== "ALL") ? (
                         <button
                           type="button"
-                          className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                          className={classNames("mt-3 w-full rounded-xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/90", portalGlassButtonClass)}
                           onClick={() => {
                             setReportView("ALL");
                             setProviderFilter("ALL");
@@ -704,7 +723,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         </button>
                       ) : null}
                     </div>
-                  </div>
+                  </LiquidGlassPopupSurface>
                 </>
               ) : null}
 
@@ -805,17 +824,23 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           </section>
 
           {newReportOpen ? (
-            <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => !busy && setNewReportOpen(false)}>
-              <div className="my-auto w-full max-w-3xl rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="New credit report" data-overlay-root="true">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-lg font-semibold text-zinc-900">New report</div>
-                    <div className="mt-1 text-sm text-zinc-600">Choose the contact and provider, then pull the latest report into the queue.</div>
-                  </div>
-                  <button type="button" onClick={() => setNewReportOpen(false)} aria-label="Close new report" className={ICON_BUTTON_CLASS}>×</button>
+            <AppModal
+              open={newReportOpen}
+              title="New report"
+              description="Choose the contact and provider, then pull the latest report into the queue."
+              onClose={() => {
+                if (!busy) setNewReportOpen(false);
+              }}
+              widthClassName="w-[min(760px,calc(100vw-32px))]"
+              bodyClassName="space-y-4"
+              footer={
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <button type="button" onClick={() => setNewReportOpen(false)} className={classNames("rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-white/80 disabled:opacity-60", portalGlassButtonClass)} disabled={busy}>Cancel</button>
+                  <button type="button" disabled={busy || !selectedContactId} onClick={requestProviderPull} className={PRIMARY_BUTTON_CLASS}>{busy ? "Working..." : "Pull report"}</button>
                 </div>
-
-                <div className="mt-5 grid gap-4">
+              }
+            >
+              <div className="grid gap-4">
                   <label className="block">
                     <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
                     <PortalSearchableCombobox
@@ -843,25 +868,25 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       onChange={setProvider}
                       disabled={busy}
                       options={providerOptions}
-                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm transition-colors duration-150 hover:border-zinc-300 hover:bg-zinc-50"
+                      buttonClassName={classNames("flex w-full items-center justify-between gap-2 rounded-2xl px-4 py-3 text-sm transition-colors duration-150 hover:bg-white/90", portalGlassButtonClass)}
                     />
                   </label>
 
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                  <div className={classNames("rounded-2xl px-4 py-3 text-sm text-zinc-700", portalGlassSectionClass)}>
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selection</div>
                     <div className="mt-2 font-semibold text-zinc-900">{selectedContact?.name || "No contact selected"}</div>
                     <div className="mt-1 text-xs text-zinc-500">{selectedContact?.email || provider}</div>
                   </div>
 
                   {showAdvancedImport ? (
-                    <details className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                    <details className={classNames("rounded-3xl p-4", portalGlassSectionClass)}>
                       <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Advanced import</summary>
                       <label className="mt-3 block">
                         <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report JSON</div>
                         <textarea
                           value={rawText}
                           onChange={(e) => setRawText(e.target.value)}
-                          className="min-h-45 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                          className={classNames("min-h-45 w-full rounded-2xl px-3 py-2 font-mono text-xs text-zinc-900 outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20", portalGlassSectionClass)}
                           placeholder="Paste JSON here"
                         />
                       </label>
@@ -878,13 +903,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     </details>
                   ) : null}
                 </div>
-
-                <div className="mt-6 flex justify-end gap-2">
-                  <button type="button" onClick={() => setNewReportOpen(false)} className={SECONDARY_BUTTON_CLASS}>Cancel</button>
-                  <button type="button" disabled={busy || !selectedContactId} onClick={requestProviderPull} className={PRIMARY_BUTTON_CLASS}>{busy ? "Working..." : "Pull report"}</button>
-                </div>
-              </div>
-            </div>
+            </AppModal>
           ) : null}
         </>
       ) : !selectedReport ? (
@@ -1009,14 +1028,15 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 {itemFiltersMenu ? (
                   <>
                     <div className="fixed inset-0 z-30" onMouseDown={() => setItemFiltersMenu(null)} onTouchStart={() => setItemFiltersMenu(null)} aria-hidden />
-                    <div
-                      className="fixed z-40 w-72 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                    <LiquidGlassPopupSurface
+                      data-inline-menu-root="true"
+                      className="fixed z-40 w-72 overflow-hidden rounded-3xl"
                       style={{ left: itemFiltersMenu.left, top: itemFiltersMenu.top, maxHeight: itemFiltersMenu.maxHeight }}
                       onMouseDown={(event) => event.stopPropagation()}
                       onTouchStart={(event) => event.stopPropagation()}
                     >
-                      <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
-                      <div className="px-4 py-3">
+                      <div className="border-b border-white/35 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                      <div className="overflow-auto px-4 py-3" style={{ maxHeight: itemFiltersMenu.maxHeight }}>
                         <div className="text-xs font-semibold text-zinc-700">Report items</div>
                         <div className="mt-2 grid grid-cols-2 gap-2">
                           {([
@@ -1030,10 +1050,10 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                               key={value}
                               type="button"
                               className={classNames(
-                                "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
+                                FILTER_OPTION_CLASS,
                                 itemFilter === value
-                                  ? "border-brand-ink bg-brand-ink text-white"
-                                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                                  ? "bg-brand-ink text-white shadow-sm"
+                                  : classNames("text-zinc-800 hover:bg-white/90", portalGlassButtonClass),
                               )}
                               onClick={() => setItemFilter(value)}
                             >
@@ -1045,14 +1065,14 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         {itemFilter !== "ALL" ? (
                           <button
                             type="button"
-                            className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            className={classNames("mt-3 w-full rounded-xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/90", portalGlassButtonClass)}
                             onClick={() => setItemFilter("ALL")}
                           >
                             Clear filters
                           </button>
                         ) : null}
                       </div>
-                    </div>
+                    </LiquidGlassPopupSurface>
                   </>
                 ) : null}
                 <button

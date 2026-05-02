@@ -1,6 +1,6 @@
 import { generatePuraText as generateText } from "@/lib/puraAi";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
-import { getDefaultHostedPagePrompt, getHostedPageDocument, updateHostedPageDocument } from "@/lib/hostedPageDocuments";
+import { getDefaultHostedPagePrompt, getHostedPageDocument, getHostedPagePreviewData, updateHostedPageDocument } from "@/lib/hostedPageDocuments";
 
 type HostedPageAiAttachment = {
   url: string;
@@ -102,6 +102,82 @@ function extractExplicitAudienceOverride(promptRaw: string): string | null {
   return null;
 }
 
+function normalizeWhitespace(value: unknown, maxLen: number): string {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLen);
+}
+
+function buildHostedPageFallbackHtml(opts: {
+  title: string;
+  service: string;
+  prompt: string;
+  primaryUrl?: string | null;
+}) {
+  const title = normalizeWhitespace(opts.title, 160) || "Hosted page";
+  const promptText = normalizeWhitespace(opts.prompt, 260);
+  const lowerPrompt = promptText.toLowerCase();
+  const isBooking = String(opts.service || "").toUpperCase() === "BOOKING";
+  const isWebinar = /webinar/.test(lowerPrompt);
+  const ctaHref = normalizeWhitespace(opts.primaryUrl, 300) || (isBooking ? "/book" : "/");
+  const ctaText = isBooking ? (isWebinar ? "Book the strategy call" : "Book now") : "Explore the page";
+  const eyebrow = isBooking ? "Premium booking experience" : "Hosted page fallback";
+  const subheadline = promptText || "A polished fallback page is live so you can keep refining this surface while AI generation catches up.";
+
+  return [
+    "<!doctype html>",
+    '<html lang="en">',
+    "<head>",
+    '  <meta charset="utf-8" />',
+    '  <meta name="viewport" content="width=device-width, initial-scale=1" />',
+    `  <title>${title}</title>`,
+    "  <style>",
+    "    :root{color-scheme:light;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}",
+    "    *{box-sizing:border-box}body{margin:0;background:#08111f;color:#e2e8f0;line-height:1.6}a{text-decoration:none}main{display:block}",
+    "    .shell{max-width:1120px;margin:0 auto;padding:24px}.hero,.section{border:1px solid rgba(148,163,184,.18);background:linear-gradient(180deg,rgba(15,23,42,.92),rgba(15,23,42,.82));border-radius:28px;box-shadow:0 24px 80px rgba(2,6,23,.28)}",
+    "    .hero{padding:72px 32px 40px}.eyebrow{display:inline-flex;padding:8px 14px;border-radius:999px;background:rgba(56,189,248,.16);color:#bae6fd;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}",
+    "    h1,h2,h3,p{margin:0}h1{font-size:clamp(2.3rem,5vw,4.2rem);line-height:1.05;margin-top:18px;max-width:12ch}h2{font-size:clamp(1.6rem,3vw,2.3rem);margin-bottom:14px}",
+    "    .lede{max-width:62ch;margin-top:18px;color:#cbd5e1;font-size:1.05rem}.actions{display:flex;flex-wrap:wrap;gap:14px;margin-top:28px}.btn{display:inline-flex;align-items:center;justify-content:center;padding:14px 20px;border-radius:999px;font-weight:700}.btn-primary{background:#38bdf8;color:#082f49}.btn-secondary{border:1px solid rgba(148,163,184,.3);color:#e2e8f0}",
+    "    .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}.card{padding:20px;border-radius:22px;background:rgba(15,23,42,.72);border:1px solid rgba(148,163,184,.14)}.section{padding:32px;margin-top:22px}.muted{color:#94a3b8}",
+    "    .cta{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:18px}.cta-copy{max-width:56ch}",
+    "    @media (max-width:720px){.hero,.section{padding:24px}.actions{flex-direction:column}.btn{width:100%}}",
+    "  </style>",
+    "</head>",
+    "<body>",
+    "  <main class=\"shell\">",
+    "    <section class=\"hero\">",
+    `      <span class=\"eyebrow\">${eyebrow}</span>`,
+    `      <h1>${title}</h1>`,
+    `      <p class=\"lede\">${subheadline}</p>`,
+    "      <div class=\"actions\">",
+    `        <a class=\"btn btn-primary\" href=\"${ctaHref}\">${ctaText}</a>`,
+    "        <a class=\"btn btn-secondary\" href=\"#details\">See details</a>",
+    "      </div>",
+    "    </section>",
+    "    <section id=\"details\" class=\"section\">",
+    "      <h2>Why this page feels more intentional</h2>",
+    "      <div class=\"grid\">",
+    "        <article class=\"card\"><h3>Clear next step</h3><p class=\"muted\">Visitors get one obvious action instead of a scattered layout.</p></article>",
+    "        <article class=\"card\"><h3>Premium pacing</h3><p class=\"muted\">Spacing, hierarchy, and contrast are tuned for a cleaner first impression.</p></article>",
+    "        <article class=\"card\"><h3>Ready for a richer pass</h3><p class=\"muted\">This fallback keeps the page moving now and leaves room for a deeper AI rewrite later.</p></article>",
+    "      </div>",
+    "    </section>",
+    "    <section class=\"section\">",
+    "      <div class=\"cta\">",
+    "        <div class=\"cta-copy\">",
+    `          <h2>${isBooking ? (isWebinar ? "Book the webinar strategy call" : "Book your next appointment") : "Take the next step"}</h2>`,
+    "          <p class=\"muted\">You can keep refining this page now instead of waiting on the generation provider to come back.</p>",
+    "        </div>",
+    `        <a class=\"btn btn-primary\" href=\"${ctaHref}\">${ctaText}</a>`,
+    "      </div>",
+    "    </section>",
+    "  </main>",
+    "</body>",
+    "</html>",
+  ].join("\n");
+}
+
 export async function generateHostedPageHtml(opts: {
   ownerId: string;
   documentId: string;
@@ -119,10 +195,16 @@ export async function generateHostedPageHtml(opts: {
   if (!document) return null;
 
   const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+  const previewData = await getHostedPagePreviewData(ownerId, documentId).catch(() => null);
   const attachments = coerceAttachments(opts.attachments);
   const effectiveCurrentHtml =
     (typeof opts.currentHtml === "string" && opts.currentHtml.trim() ? opts.currentHtml : document.customHtml || "").trim();
   const hasCurrentHtml = Boolean(effectiveCurrentHtml);
+  const canUseFallbackHostedScaffold =
+    !hasCurrentHtml
+    || document.editorMode !== "CUSTOM_HTML"
+    || effectiveCurrentHtml.length < 1400
+    || !/<section\b/i.test(effectiveCurrentHtml);
   const generatorPrompt = getDefaultHostedPagePrompt(document.service, document);
   const explicitAudienceOverride = extractExplicitAudienceOverride(prompt);
 
@@ -178,7 +260,51 @@ export async function generateHostedPageHtml(opts: {
     .filter(Boolean)
     .join("\n");
 
-  const aiRaw = String(await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" })).trim();
+  let aiRaw = "";
+  try {
+    aiRaw = String(await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" })).trim();
+  } catch {
+    const prevChat = Array.isArray(document.customChatJson) ? (document.customChatJson as any[]) : [];
+    const userMsg = { role: "user", content: prompt, at: new Date().toISOString() };
+    const html = canUseFallbackHostedScaffold
+      ? sanitizeGeneratedHtmlLinks(
+          buildHostedPageFallbackHtml({
+            title: document.title,
+            service: document.service,
+            prompt,
+            primaryUrl: previewData?.primaryUrl ?? null,
+          }),
+        )
+      : sanitizeGeneratedHtmlLinks(effectiveCurrentHtml);
+    const assistantMsg = canUseFallbackHostedScaffold
+      ? {
+          role: "assistant",
+          content: "Done. I generated a polished fallback hosted page you can preview and refine next.",
+          at: new Date().toISOString(),
+        }
+      : {
+          role: "assistant",
+          content: "Done. I kept the current hosted page in place so you can keep moving while generation catches up.",
+          at: new Date().toISOString(),
+        };
+    const updated = await updateHostedPageDocument(ownerId, documentId, canUseFallbackHostedScaffold
+      ? {
+          customHtml: html,
+          editorMode: "CUSTOM_HTML",
+          customChatJson: [...prevChat, userMsg, assistantMsg].slice(-40),
+        }
+      : {
+          customChatJson: [...prevChat, userMsg, assistantMsg].slice(-40),
+        });
+
+    return {
+      ok: true as const,
+      html,
+      document: updated ?? document,
+      generatorPrompt,
+      question: null,
+    };
+  }
   const question = extractAiQuestion(aiRaw);
 
   const prevChat = Array.isArray(document.customChatJson) ? (document.customChatJson as any[]) : [];

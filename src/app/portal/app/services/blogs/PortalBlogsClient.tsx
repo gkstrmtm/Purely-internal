@@ -1,5 +1,6 @@
 "use client";
 
+import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,14 +20,14 @@ import {
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
 import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
+import { PortalFontDropdown } from "@/components/PortalFontDropdown";
+import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
-import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { InlineSpinner } from "@/components/InlineSpinner";
-import { portalGlassButtonClass } from "@/components/portalGlass";
-import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
 import {
@@ -39,8 +40,10 @@ import {
   savePreviewAutomationSettings,
   savePreviewBlogAppearance,
   savePreviewBlogSite,
+  updatePreviewBlogState,
 } from "@/lib/portalBlogsPreview.client";
 import { IconEdit, IconEyeGlyph, IconGlobeGlyph, IconServiceGlyph } from "@/app/portal/PortalIcons";
+import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 
 const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(" ");
 
@@ -66,10 +69,15 @@ type Site = {
   verifiedAt: string | null;
 };
 
-type FunnelBuilderDomain = {
+type AutomationContextFile = {
   id: string;
-  domain: string;
-  status: "PENDING" | "VERIFIED";
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  tag: string;
+  shareUrl: string;
+  previewUrl?: string;
+  createdAt?: string;
 };
 
 type PostRow = {
@@ -87,6 +95,7 @@ type AutomationSettings = {
   enabled: boolean;
   frequencyDays: number;
   topics: string[];
+  contextFiles: AutomationContextFile[];
   autoPublish: boolean;
   lastGeneratedAt: string | null;
   nextDueAt: string | null;
@@ -142,6 +151,79 @@ function previewText(value: string | null | undefined, maxLen = 240) {
   return cleaned.slice(0, maxLen).trimEnd() + "…";
 }
 
+function formatBytes(n: number) {
+  if (!Number.isFinite(n) || n <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"] as const;
+  let idx = 0;
+  let value = n;
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024;
+    idx += 1;
+  }
+  return `${value.toFixed(value >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+function normalizeDomain(raw: string | null | undefined) {
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "";
+  const withoutProtocol = v.replace(/^https?:\/\//, "");
+  const withoutPath = withoutProtocol.split("/")[0] ?? "";
+  return withoutPath.replace(/:\d+$/, "").trim();
+}
+
+function describeAutomationHealth(automation: AutomationSettings | null, site: Site | null) {
+  if (!automation?.enabled) {
+    return {
+      label: "Automation off",
+      tone: "bg-zinc-100 text-zinc-700",
+      message: "Turn automation on when you want the scheduler checking for the next post.",
+    };
+  }
+
+  if (!site?.id) {
+    return {
+      label: "Finish setup",
+      tone: "bg-amber-50 text-amber-800",
+      message: "Create the blog workspace first so scheduled generations have a destination.",
+    };
+  }
+
+  const now = Date.now();
+  const lastRunTs = automation.lastRunAt ? new Date(automation.lastRunAt).getTime() : NaN;
+  const nextDueTs = automation.nextDueAt ? new Date(automation.nextDueAt).getTime() : NaN;
+  const lastGeneratedTs = automation.lastGeneratedAt ? new Date(automation.lastGeneratedAt).getTime() : NaN;
+  const hasRecentHeartbeat = Number.isFinite(lastRunTs) && now - lastRunTs <= 90 * 60 * 1000;
+  const dueSoon = Number.isFinite(nextDueTs) && nextDueTs <= now + 60 * 60 * 1000;
+  const overdue = Number.isFinite(nextDueTs) && nextDueTs < now - 90 * 60 * 1000;
+  const caughtUp = !Number.isFinite(nextDueTs) || (Number.isFinite(lastGeneratedTs) && lastGeneratedTs >= nextDueTs - 1000);
+
+  if (overdue && !hasRecentHeartbeat) {
+    return {
+      label: "Needs attention",
+      tone: "bg-rose-50 text-rose-700",
+      message: "The next post is overdue and the scheduler heartbeat looks stale. Refresh status or verify cron health.",
+    };
+  }
+
+  if (dueSoon) {
+    return {
+      label: hasRecentHeartbeat ? "In queue" : "Due soon",
+      tone: "bg-amber-50 text-amber-800",
+      message: hasRecentHeartbeat
+        ? "The next post is due and the scheduler has checked in recently. A new post should land shortly."
+        : "The next post is nearly due. Save any changes, then keep an eye on the next scheduler heartbeat.",
+    };
+  }
+
+  return {
+    label: caughtUp && hasRecentHeartbeat ? "Healthy" : "Watching",
+    tone: caughtUp && hasRecentHeartbeat ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-700",
+    message: caughtUp && hasRecentHeartbeat
+      ? "Automation is on, the scheduler is checking in, and the next post is scheduled normally."
+      : "Automation is on. Refresh status if you want a newer scheduler heartbeat.",
+  };
+}
+
 function inferFrequencyPreset(days: number): { count: number; unit: FrequencyUnit } {
   const d = Math.min(30, Math.max(1, Math.floor(Number(days) || 7)));
   if (d === 30) return { count: 1, unit: "months" };
@@ -170,6 +252,8 @@ export function PortalBlogsClient({
   const uiPreview = usePortalUiPreview();
   const pathname = usePathname();
   const appBase = currentAppBase(pathname);
+  const portalVariant: PortalVariant = pathname?.startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const searchParams = useSearchParams();
   const fromOnboarding = (searchParams?.get("from") || "").trim().toLowerCase() === "onboarding";
 
@@ -192,15 +276,12 @@ export function PortalBlogsClient({
   const [posts, setPosts] = useState<PostRow[]>([]);
   const [automation, setAutomation] = useState<AutomationSettings | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const hasLoadedOnceRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const [appearance, setAppearance] = useState<BlogAppearance | null>(null);
   const [appearanceSaving, setAppearanceSaving] = useState(false);
-
-  const [funnelDomains, setFunnelDomains] = useState<FunnelBuilderDomain[] | null>(null);
-  const [funnelDomainsBusy, setFunnelDomainsBusy] = useState(false);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -230,48 +311,36 @@ export function PortalBlogsClient({
   const [autoFrequencyCount, setAutoFrequencyCount] = useState(1);
   const [autoFrequencyUnit, setAutoFrequencyUnit] = useState<FrequencyUnit>("weeks");
   const [autoTopics, setAutoTopics] = useState<string[]>([]);
+  const [autoContextFiles, setAutoContextFiles] = useState<AutomationContextFile[]>([]);
   const [autoPublish, setAutoPublish] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
+  const [autoContextUploadBusy, setAutoContextUploadBusy] = useState(false);
+  const [autoMediaPickerOpen, setAutoMediaPickerOpen] = useState(false);
   const lastSavedAutoSigRef = useRef<string>("");
-
-  const domainStatus = useMemo(() => {
-    const d = String(siteDomain || "").trim().toLowerCase();
-    if (!d) return null as FunnelBuilderDomain["status"] | null;
-    const match = (funnelDomains || []).find((x) => String(x.domain || "").trim().toLowerCase() === d) ?? null;
-    return match?.status ?? null;
-  }, [funnelDomains, siteDomain]);
-
-  const savedDomainStatus = useMemo(() => {
-    const d = String(site?.primaryDomain || "").trim().toLowerCase();
-    if (!d) return null as FunnelBuilderDomain["status"] | null;
-    const match = (funnelDomains || []).find((x) => String(x.domain || "").trim().toLowerCase() === d) ?? null;
-    return match?.status ?? null;
-  }, [funnelDomains, site?.primaryDomain]);
-
-  const domainOptions = useMemo(() => {
-    const base: PortalListboxOption<string>[] = [{ value: "", label: "No custom domain" }];
-    const items = (funnelDomains || []).map((d) => ({
-      value: d.domain,
-      label: d.domain,
-      hint: d.status === "PENDING" ? "Pending DNS verification" : undefined,
-    }));
-    return [...base, ...items];
-  }, [funnelDomains]);
-
-  const fontOptions = useMemo(() => {
-    return buildFontDropdownOptions() as PortalListboxOption<string>[];
-  }, []);
+  const [domainModalOpen, setDomainModalOpen] = useState(false);
+  const [domainDraft, setDomainDraft] = useState("");
+  const [domainVerifyBusy, setDomainVerifyBusy] = useState(false);
+  const [domainVerificationMessage, setDomainVerificationMessage] = useState<string | null>(null);
+  const [domainVerificationTone, setDomainVerificationTone] = useState<"neutral" | "success" | "warning">("neutral");
+  const [domainVerificationDetails, setDomainVerificationDetails] = useState<null | {
+    recordName: string;
+    expected: string;
+    found?: string[];
+  }>(null);
 
   const entitled = Boolean(me?.entitlements?.blog);
 
+  const normalizedSavedDomain = useMemo(() => normalizeDomain(site?.primaryDomain), [site?.primaryDomain]);
+  const normalizedSelectedDomain = useMemo(() => normalizeDomain(siteDomain), [siteDomain]);
+  const hasVerifiedCustomDomain = Boolean(normalizedSavedDomain && site?.verifiedAt);
+  const selectedDomainStatus = useMemo(() => {
+    if (!normalizedSelectedDomain) return null;
+    if (normalizedSelectedDomain !== normalizedSavedDomain) return "UNSAVED" as const;
+    return site?.verifiedAt ? ("VERIFIED" as const) : ("PENDING" as const);
+  }, [normalizedSavedDomain, normalizedSelectedDomain, site?.verifiedAt]);
+
   const siteHandle = useMemo(() => site?.slug ?? site?.id ?? null, [site?.id, site?.slug]);
   const hostedBlogPath = siteHandle ? `/${siteHandle}/blogs` : null;
-
-  const customBlogUrl = useMemo(() => {
-    const d = siteDomain ? String(siteDomain).trim() : "";
-    if (!d) return null;
-    return `https://${d}/blogs`;
-  }, [siteDomain]);
 
   const previewBlogsHref = useMemo(() => {
     // Preview is always the Purely Automation hosted page.
@@ -280,9 +349,9 @@ export function PortalBlogsClient({
 
   const liveBlogsHref = useMemo(() => {
     // Live prefers the verified custom domain, otherwise falls back to the hosted preview.
-    if (site?.primaryDomain && savedDomainStatus === "VERIFIED") return `https://${site.primaryDomain}/blogs`;
+    if (site?.primaryDomain && site?.verifiedAt) return `https://${site.primaryDomain}/blogs`;
     return hostedBlogPath ? toPurelyHostedUrl(hostedBlogPath) : null;
-  }, [hostedBlogPath, savedDomainStatus, site?.primaryDomain]);
+  }, [hostedBlogPath, site?.primaryDomain, site?.verifiedAt]);
 
   const setSidebarOverride = useSetPortalSidebarOverride();
   const blogsSidebar = useMemo(() => {
@@ -367,9 +436,13 @@ export function PortalBlogsClient({
   }, [site?.id, site?.slug, siteSlug]);
 
   const liveBlogUrlPreview = useMemo(() => {
-    if (site?.primaryDomain && savedDomainStatus === "VERIFIED") return `https://${site.primaryDomain}/blogs`;
+    if (site?.primaryDomain && site?.verifiedAt) return `https://${site.primaryDomain}/blogs`;
     return publicBlogUrlPreview;
-  }, [publicBlogUrlPreview, savedDomainStatus, site?.primaryDomain]);
+  }, [publicBlogUrlPreview, site?.primaryDomain, site?.verifiedAt]);
+
+  const blogPageEditorHref = useMemo(() => `${appBase}/services/blogs/page-editor?pageKey=blogs_index`, [appBase]);
+
+  const automationHealth = useMemo(() => describeAutomationHealth(automation, site), [automation, site]);
 
   const autoFrequencyDays = useMemo(() => {
     const unit = autoFrequencyUnit;
@@ -386,9 +459,17 @@ export function PortalBlogsClient({
       enabled: Boolean(autoEnabled),
       frequencyDays,
       topics: autoTopicsSanitized,
+      contextFiles: autoContextFiles.map((file) => ({
+        id: file.id,
+        fileName: file.fileName,
+        mimeType: file.mimeType,
+        fileSize: file.fileSize,
+        tag: file.tag,
+        shareUrl: file.shareUrl,
+      })),
       autoPublish: Boolean(autoPublish),
     });
-  }, [autoEnabled, autoFrequencyDays, autoPublish, autoTopicsSanitized]);
+  }, [autoContextFiles, autoEnabled, autoFrequencyDays, autoPublish, autoTopicsSanitized]);
   const autoDirty = autoSig !== lastSavedAutoSigRef.current;
 
   const creditsPerWeekEstimate = useMemo(() => {
@@ -405,7 +486,6 @@ export function PortalBlogsClient({
     setPosts(snapshot.posts);
     setAutomation(snapshot.automation);
     setAppearance(snapshot.appearance);
-    setFunnelDomains(snapshot.funnelDomains);
     setCredits(snapshot.credits);
     setBlogCreditsUsed30d(snapshot.blogCreditsUsed30d);
     setBlogGenerations30d(snapshot.blogGenerations30d);
@@ -425,11 +505,22 @@ export function PortalBlogsClient({
     setAutoFrequencyUnit(preset.unit);
     setAutoFrequencyCount(preset.count);
     setAutoTopics(nextTopics);
+    setAutoContextFiles(Array.isArray(snapshot.automation.contextFiles) ? snapshot.automation.contextFiles : []);
     setAutoPublish(Boolean(snapshot.automation.autoPublish));
     lastSavedAutoSigRef.current = JSON.stringify({
       enabled: Boolean(snapshot.automation.enabled),
       frequencyDays: Math.min(30, Math.max(1, Math.floor(Number(snapshot.automation.frequencyDays) || 7))),
       topics: nextTopics,
+      contextFiles: Array.isArray(snapshot.automation.contextFiles)
+        ? snapshot.automation.contextFiles.map((file) => ({
+            id: file.id,
+            fileName: file.fileName,
+            mimeType: file.mimeType,
+            fileSize: file.fileSize,
+            tag: file.tag,
+            shareUrl: file.shareUrl,
+          }))
+        : [],
       autoPublish: Boolean(snapshot.automation.autoPublish),
     });
   }, []);
@@ -449,7 +540,7 @@ export function PortalBlogsClient({
     // or throw the whole Blogs UI into a loading screen.
     setAutomationStatusBusy(true);
     try {
-      const res = await fetch("/api/portal/blogs/automation/settings", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/blogs/automation/settings", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!res?.ok) return;
       const json = (await res.json().catch(() => null)) as any;
       if (!json || json.ok !== true || !json.settings) return;
@@ -467,20 +558,18 @@ export function PortalBlogsClient({
     } finally {
       setAutomationStatusBusy(false);
     }
-  }, [applyPreviewSnapshot, uiPreview]);
+  }, [applyPreviewSnapshot, uiPreview, variantHeaders]);
 
   const refreshAll = useCallback(async () => {
     const firstLoad = !hasLoadedOnceRef.current;
     if (firstLoad) setLoading(true);
     else setRefreshing(true);
     setError(null);
-    setFunnelDomainsBusy(true);
 
     if (uiPreview) {
       try {
         applyPreviewSnapshot(readPreviewBlogState());
       } finally {
-        setFunnelDomainsBusy(false);
         if (!hasLoadedOnceRef.current) hasLoadedOnceRef.current = true;
         if (firstLoad) setLoading(false);
         else setRefreshing(false);
@@ -489,21 +578,20 @@ export function PortalBlogsClient({
     }
 
     try {
-      const [meRes, siteRes, postsRes, autoRes, creditsRes, usageRes, domainsRes, appearanceRes] = await Promise.all([
+      const [meRes, siteRes, postsRes, autoRes, creditsRes, usageRes, appearanceRes] = await Promise.all([
         fetch("/api/customer/me", {
           cache: "no-store",
           headers: {
             "x-pa-app": "portal",
-            "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
+            ...variantHeaders,
           },
         }),
-        fetch("/api/portal/blogs/site", { cache: "no-store" }),
-        fetch("/api/portal/blogs/posts?take=100", { cache: "no-store" }),
-        fetch("/api/portal/blogs/automation/settings", { cache: "no-store" }),
-        fetch("/api/portal/credits", { cache: "no-store" }),
-        fetch("/api/portal/blogs/usage?range=30d", { cache: "no-store" }),
-        fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }),
-        fetch("/api/portal/blogs/appearance", { cache: "no-store" }),
+        fetch("/api/portal/blogs/site", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/blogs/posts?take=100", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/blogs/automation/settings", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/credits", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/blogs/usage?range=30d", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/blogs/appearance", { cache: "no-store", headers: variantHeaders }),
       ]);
 
       const meJson = (await meRes.json().catch(() => ({}))) as Partial<Me>;
@@ -515,7 +603,6 @@ export function PortalBlogsClient({
         creditsUsed?: { range?: number };
         generations?: { range?: number };
       };
-      const domainsJson = (await domainsRes.json().catch(() => ({}))) as { domains?: FunnelBuilderDomain[] };
       const appearanceJson = (await appearanceRes.json().catch(() => ({}))) as {
         ok?: boolean;
         appearance?: BlogAppearance;
@@ -544,12 +631,6 @@ export function PortalBlogsClient({
         primaryDomain: String(s?.primaryDomain ?? "").trim(),
       });
 
-      if (domainsRes.ok) {
-        setFunnelDomains(Array.isArray(domainsJson.domains) ? (domainsJson.domains as FunnelBuilderDomain[]) : []);
-      } else {
-        setFunnelDomains([]);
-      }
-
       setPosts(Array.isArray(postsJson.posts) ? postsJson.posts : []);
 
       if (appearanceRes.ok && appearanceJson.ok && appearanceJson.appearance) {
@@ -577,21 +658,31 @@ export function PortalBlogsClient({
         setAutoFrequencyCount(preset.count);
         const nextTopics = sanitizeTopics((autoJson.settings.topics ?? []) as any);
         setAutoTopics(nextTopics);
+        setAutoContextFiles(Array.isArray(autoJson.settings.contextFiles) ? autoJson.settings.contextFiles : []);
         setAutoPublish(Boolean(autoJson.settings.autoPublish));
         lastSavedAutoSigRef.current = JSON.stringify({
           enabled: Boolean(autoJson.settings.enabled),
           frequencyDays: Math.min(30, Math.max(1, Math.floor(Number(autoJson.settings.frequencyDays) || 7))),
           topics: nextTopics,
+          contextFiles: Array.isArray(autoJson.settings.contextFiles)
+            ? autoJson.settings.contextFiles.map((file) => ({
+                id: file.id,
+                fileName: file.fileName,
+                mimeType: file.mimeType,
+                fileSize: file.fileSize,
+                tag: file.tag,
+                shareUrl: file.shareUrl,
+              }))
+            : [],
           autoPublish: Boolean(autoJson.settings.autoPublish),
         });
       }
     } finally {
-      setFunnelDomainsBusy(false);
       if (!hasLoadedOnceRef.current) hasLoadedOnceRef.current = true;
       if (firstLoad) setLoading(false);
       else setRefreshing(false);
     }
-  }, [applyPreviewSnapshot, uiPreview]);
+  }, [applyPreviewSnapshot, uiPreview, variantHeaders]);
 
   const saveAppearance = useCallback(
     async (next: Partial<BlogAppearance>) => {
@@ -606,7 +697,7 @@ export function PortalBlogsClient({
 
         const res = await fetch("/api/portal/blogs/appearance", {
           method: "PUT",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify(next),
         });
         const json = (await res.json().catch(() => ({}))) as { ok?: boolean; appearance?: BlogAppearance; error?: string };
@@ -619,7 +710,7 @@ export function PortalBlogsClient({
         setAppearanceSaving(false);
       }
     },
-    [appearanceSaving, toast, uiPreview],
+    [appearanceSaving, toast, uiPreview, variantHeaders],
   );
 
   useEffect(() => {
@@ -714,7 +805,7 @@ export function PortalBlogsClient({
 
     const res = await fetch(`/api/portal/blogs/posts/${postId}/archive`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ archived }),
     });
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
@@ -748,7 +839,7 @@ export function PortalBlogsClient({
       return;
     }
 
-    const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE" });
+    const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE", headers: variantHeaders });
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     if (!res.ok || !json.ok) {
       setError(json.error ?? "Unable to delete post");
@@ -772,7 +863,7 @@ export function PortalBlogsClient({
 
     const res = await fetch("/api/portal/blogs/site", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ name: siteName || "My Blog", slug: siteSlug, primaryDomain: siteDomain }),
     });
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; site?: Site; error?: string };
@@ -796,14 +887,15 @@ export function PortalBlogsClient({
     void refreshAutomationStatus();
   }
 
-  async function saveSite() {
+  async function saveSite(overrides?: { primaryDomain?: string | null }) {
     const nextName = siteName.trim() ? siteName : "My Blog";
+    const nextPrimaryDomain = normalizeDomain(overrides?.primaryDomain ?? siteDomain);
 
     setSiteSaving(true);
     setError(null);
 
     if (uiPreview) {
-      savePreviewBlogSite({ name: nextName, slug: siteSlug, primaryDomain: siteDomain || null });
+      savePreviewBlogSite({ name: nextName, slug: siteSlug, primaryDomain: nextPrimaryDomain || null });
       applyPreviewSnapshot(readPreviewBlogState());
       setSiteSaving(false);
       toast.success("Blog settings saved.");
@@ -812,11 +904,11 @@ export function PortalBlogsClient({
 
     const res = await fetch("/api/portal/blogs/site", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({
         name: nextName,
         slug: siteSlug,
-        primaryDomain: siteDomain,
+        primaryDomain: nextPrimaryDomain,
       }),
     });
 
@@ -857,7 +949,7 @@ export function PortalBlogsClient({
 
     const res = await fetch("/api/portal/blogs/posts", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ title: "" }),
     });
 
@@ -880,6 +972,14 @@ export function PortalBlogsClient({
       enabled: Boolean(autoEnabled),
       frequencyDays: nextFrequencyDays,
       topics,
+      contextFiles: autoContextFiles.map((file) => ({
+        id: file.id,
+        fileName: file.fileName,
+        mimeType: file.mimeType,
+        fileSize: file.fileSize,
+        tag: file.tag,
+        shareUrl: file.shareUrl,
+      })),
       autoPublish: Boolean(autoPublish),
     });
 
@@ -888,6 +988,7 @@ export function PortalBlogsClient({
         enabled: Boolean(autoEnabled),
         frequencyDays: nextFrequencyDays,
         topics,
+        contextFiles: autoContextFiles,
         autoPublish: Boolean(autoPublish),
       });
       applyPreviewSnapshot(readPreviewBlogState());
@@ -899,11 +1000,12 @@ export function PortalBlogsClient({
 
     const res = await fetch("/api/portal/blogs/automation/settings", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({
         enabled: Boolean(autoEnabled),
         frequencyDays: nextFrequencyDays,
         topics,
+        contextFiles: autoContextFiles,
         autoPublish: Boolean(autoPublish),
       }),
     });
@@ -925,12 +1027,14 @@ export function PortalBlogsClient({
             enabled: Boolean(autoEnabled),
             frequencyDays: nextFrequencyDays,
             topics: nextTopics,
+            contextFiles: autoContextFiles,
             autoPublish: Boolean(autoPublish),
           }
         : {
             enabled: Boolean(autoEnabled),
             frequencyDays: nextFrequencyDays,
             topics: nextTopics,
+            contextFiles: autoContextFiles,
             autoPublish: Boolean(autoPublish),
             lastGeneratedAt: null,
             nextDueAt: null,
@@ -941,6 +1045,149 @@ export function PortalBlogsClient({
     lastSavedAutoSigRef.current = nextSig;
     toast.success("Automation saved.");
     await refreshAutomationStatus();
+  }
+
+  function addAutomationContextFile(item: AutomationContextFile | PortalMediaPickItem) {
+    setAutoContextFiles((prev) => {
+      const normalized: AutomationContextFile = {
+        id: String(item.id || "").trim(),
+        fileName: String(item.fileName || "Reference file").trim() || "Reference file",
+        mimeType: String(item.mimeType || "application/octet-stream").trim() || "application/octet-stream",
+        fileSize: Number.isFinite(item.fileSize) ? Number(item.fileSize) : 0,
+        tag: String((item as any).tag || "").trim(),
+        shareUrl: String((item as any).shareUrl || "").trim(),
+        ...(String((item as any).previewUrl || "").trim() ? { previewUrl: String((item as any).previewUrl || "").trim() } : {}),
+        ...(String((item as any).createdAt || "").trim() ? { createdAt: String((item as any).createdAt || "").trim() } : {}),
+      };
+      if (!normalized.id || !normalized.fileName || !normalized.shareUrl) return prev;
+      const withoutExisting = prev.filter((file) => file.id !== normalized.id);
+      return [...withoutExisting, normalized].slice(-12);
+    });
+  }
+
+  async function uploadAutomationContextFiles(files: FileList | null) {
+    if (!files?.length || autoContextUploadBusy) return;
+
+    if (uiPreview) {
+      const previewFiles = Array.from(files).slice(0, Math.max(0, 12 - autoContextFiles.length));
+      if (!previewFiles.length) return;
+      const nextFiles = previewFiles.map((file, index) => ({
+        id: `preview-context-upload-${Date.now()}-${index}`,
+        fileName: file.name || "Reference file",
+        mimeType: file.type || "application/octet-stream",
+        fileSize: Number.isFinite(file.size) ? file.size : 0,
+        tag: "preview",
+        shareUrl: `preview://${encodeURIComponent(file.name || `file-${index + 1}`)}`,
+      }));
+      setAutoContextFiles((prev) => [...prev, ...nextFiles].slice(-12));
+      toast.success(nextFiles.length === 1 ? "Context file added." : "Context files added.");
+      return;
+    }
+
+    setAutoContextUploadBusy(true);
+    try {
+      const list = Array.from(files).slice(0, Math.max(0, 12 - autoContextFiles.length));
+      for (const file of list) {
+        const blob = await uploadToVercelBlob(file.name || "upload.bin", file, {
+          access: "public",
+          handleUploadUrl: "/api/portal/media/blob-upload",
+          headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+        });
+
+        const finalizeRes = await fetch("/api/portal/media/items/from-blob", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...variantHeaders,
+          },
+          body: JSON.stringify({
+            url: blob.url,
+            fileName: file.name || blob.pathname || "upload.bin",
+            mimeType: file.type || blob.contentType || "application/octet-stream",
+            fileSize: Number.isFinite(file.size) ? file.size : 0,
+            folderId: null,
+          }),
+        });
+        const finalizeJson = (await finalizeRes.json().catch(() => null)) as any;
+        if (!finalizeRes.ok || !finalizeJson || finalizeJson.ok !== true || !finalizeJson.item) {
+          throw new Error(typeof finalizeJson?.error === "string" ? finalizeJson.error : "Upload failed");
+        }
+
+        addAutomationContextFile(finalizeJson.item as PortalMediaPickItem);
+      }
+
+      toast.success(list.length === 1 ? "Context file added." : "Context files added.");
+    } catch (uploadError) {
+      toast.error(uploadError instanceof Error ? uploadError.message : "Unable to add context files.");
+    } finally {
+      setAutoContextUploadBusy(false);
+    }
+  }
+
+  async function verifyCustomDomain(domainRaw?: string) {
+    const domain = normalizeDomain(domainRaw ?? siteDomain);
+    if (!domain) {
+      setDomainVerificationTone("warning");
+      setDomainVerificationMessage("Enter a domain first.");
+      setDomainVerificationDetails(null);
+      return;
+    }
+
+    if (uiPreview) {
+      updatePreviewBlogState((state) => ({
+        ...state,
+        site: state.site
+          ? {
+              ...state.site,
+              primaryDomain: domain,
+              verifiedAt: new Date().toISOString(),
+            }
+          : state.site,
+      }));
+      applyPreviewSnapshot(readPreviewBlogState());
+      setDomainVerificationTone("success");
+      setDomainVerificationMessage("Preview domain verified.");
+      setDomainVerificationDetails({
+        recordName: `_purelyautomation.${domain}`,
+        expected: `verify=${site?.verificationToken || "preview-token"}`,
+      });
+      return;
+    }
+
+    setDomainVerifyBusy(true);
+    setDomainVerificationMessage(null);
+    try {
+      const res = await fetch("/api/portal/blogs/site/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...variantHeaders },
+        body: JSON.stringify({ domain }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      setDomainVerificationDetails(
+        json?.recordName && json?.expected
+          ? {
+              recordName: String(json.recordName),
+              expected: String(json.expected),
+              found: Array.isArray(json.found) ? json.found.map((value: unknown) => String(value)).slice(0, 8) : undefined,
+            }
+          : null,
+      );
+
+      if (!res.ok || json?.ok !== true || json?.verified !== true) {
+        setDomainVerificationTone("warning");
+        setDomainVerificationMessage(String(json?.error || "Verification did not pass yet."));
+        return;
+      }
+
+      setSite((prev) => (prev ? { ...prev, primaryDomain: domain, verifiedAt: json?.site?.verifiedAt || new Date().toISOString() } : prev));
+      setSiteDomain(domain);
+      setDomainDraft(domain);
+      setDomainVerificationTone("success");
+      setDomainVerificationMessage("Domain verified and ready for the live blog.");
+      toast.success("Custom domain verified.");
+    } finally {
+      setDomainVerifyBusy(false);
+    }
   }
 
   if (loading && !hasLoadedOnceRef.current) {
@@ -995,14 +1242,7 @@ export function PortalBlogsClient({
   return (
     <div className="mx-auto w-full max-w-6xl">
       <PortalBackToOnboardingLink />
-      <div className="flex justify-between gap-3">
-        {refreshing ? (
-          <div className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
-            <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
-            <span>Refreshing…</span>
-          </div>
-        ) : <div />}
-      </div>
+      <div className="flex justify-between gap-3" />
 
       {routeTab === "posts" ? (
         <>
@@ -1056,12 +1296,18 @@ export function PortalBlogsClient({
                   >
                     Business info
                   </Link>
-                  <Link
-                    href={`${appBase}/services/funnel-builder/settings`}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDomainDraft(siteDomain || "");
+                      setDomainVerificationMessage(null);
+                      setDomainVerificationDetails(null);
+                      setDomainModalOpen(true);
+                    }}
                     className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
                   >
                     Domains
-                  </Link>
+                  </button>
                 </div>
               </div>
             ) : (
@@ -1202,6 +1448,29 @@ export function PortalBlogsClient({
           </div>
 
           <div className="mt-5 space-y-4">
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Automation health</div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${automationHealth.tone}`}>
+                      {automationHealth.label}
+                    </span>
+                    {automationStatusBusy ? <InlineSpinner label="Refreshing automation status" /> : null}
+                  </div>
+                  <div className="mt-2 max-w-3xl text-sm text-zinc-600">{automationHealth.message}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={refreshAutomationStatus}
+                  disabled={automationStatusBusy}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  {automationStatusBusy ? "Refreshing…" : "Refresh status"}
+                </button>
+              </div>
+            </div>
+
             <label className="flex items-center justify-between gap-3 text-sm">
               <span className="font-semibold text-zinc-800">Enable automation</span>
               <div className="flex items-center gap-2">
@@ -1315,6 +1584,76 @@ export function PortalBlogsClient({
               <div className="mt-1 text-xs text-zinc-500">Topics in queue: {sanitizeTopics(autoTopics).length}</div>
             </div>
 
+            <div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-600">Context files</label>
+                  <div className="mt-1 text-sm text-zinc-600">Attach files from Media Library so generation stays grounded in your own assets and references.</div>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60">
+                    {autoContextUploadBusy ? "Uploading…" : uiPreview ? "Preview upload" : "Upload file"}
+                    <input
+                      type="file"
+                      multiple
+                      className="hidden"
+                      disabled={autoContextUploadBusy}
+                      onChange={(e) => {
+                        void uploadAutomationContextFiles(e.target.files);
+                        if (e.target) e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={uiPreview}
+                    onClick={() => setAutoMediaPickerOpen(true)}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    {uiPreview ? "Media library disabled in preview" : "Choose from media library"}
+                  </button>
+                </div>
+              </div>
+
+              {autoContextFiles.length ? (
+                <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  {autoContextFiles.map((file) => (
+                    <div key={file.id} className={`flex items-center justify-between gap-3 rounded-2xl p-3 ${portalGlassSectionClass}`}>
+                      <div className="flex min-w-0 items-center gap-3">
+                        {file.previewUrl && file.mimeType.startsWith("image/") ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img src={file.previewUrl} alt={file.fileName} className="h-10 w-10 rounded-2xl object-cover" />
+                        ) : (
+                          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
+                            {file.mimeType.startsWith("image/") ? "IMG" : file.mimeType.startsWith("video/") ? "VIDEO" : "FILE"}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-zinc-900">{file.fileName}</div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                            {file.tag ? <span className="font-mono">tag: {file.tag}</span> : null}
+                            {file.tag ? <span>•</span> : null}
+                            <span>{formatBytes(file.fileSize)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAutoContextFiles((prev) => prev.filter((entry) => entry.id !== file.id))}
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
+                  Add PDFs, images, or other reference files from your media library. The generator uses those filenames, tags, and links as blog context.
+                </div>
+              )}
+            </div>
+
             <label className="flex items-center justify-between gap-3 text-sm">
               <span className="font-semibold text-zinc-800">Auto-publish (optional)</span>
               <div className="flex items-center gap-2">
@@ -1370,7 +1709,7 @@ export function PortalBlogsClient({
                   setGeneratingNow(true);
                   setError(null);
 
-                  const res = await fetch("/api/portal/blogs/automation/generate-now", { method: "POST" });
+                  const res = await fetch("/api/portal/blogs/automation/generate-now", { method: "POST", headers: variantHeaders });
                   const json = (await res.json().catch(() => ({}))) as any;
 
                   if (res.status === 402 && json?.code === "INSUFFICIENT_CREDITS") {
@@ -1387,7 +1726,7 @@ export function PortalBlogsClient({
 
                   window.location.href = `${appBase}/services/blogs/${json.postId}`;
                 }}
-                className="inline-flex w-full items-center justify-center rounded-2xl bg-sky-100 px-5 py-3 text-sm font-semibold text-sky-900 hover:bg-sky-200 disabled:opacity-60"
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-fuchsia-500 via-sky-500 to-cyan-400 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(14,165,233,0.28)] transition hover:scale-[1.01] hover:opacity-95 disabled:scale-100 disabled:opacity-60"
               >
                 {generatingNow ? "Generating…" : "Generate next post now"}
               </button>
@@ -1398,17 +1737,7 @@ export function PortalBlogsClient({
                 <div>Last generated: {automation.lastGeneratedAt ? formatDate(automation.lastGeneratedAt) : "N/A"}</div>
                 <div>Next due: {automation.nextDueAt ? formatDate(automation.nextDueAt) : "N/A"}</div>
                 <div>Scheduler last ran: {automation.lastRunAt ? formatDate(automation.lastRunAt) : "N/A"}</div>
-                <div className="mt-1 flex flex-col gap-2 text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
-                  <div>Scheduler checks about hourly. If Next due is in the past, a new post should appear within ~1 hour.</div>
-                  <button
-                    type="button"
-                    onClick={refreshAutomationStatus}
-                    disabled={automationStatusBusy}
-                    className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                  >
-                    {automationStatusBusy ? "Refreshing…" : "Refresh status"}
-                  </button>
-                </div>
+                <div className="mt-1 text-zinc-500">Scheduler checks about hourly. If Next due is in the past, a new post should appear within about an hour when the heartbeat is healthy.</div>
               </div>
             ) : null}
           </div>
@@ -1430,11 +1759,6 @@ export function PortalBlogsClient({
                 <input
                   value={siteName}
                   onChange={(e) => setSiteName(e.target.value)}
-                  onBlur={() => {
-                    if (!site) return;
-                    if (siteSaving) return;
-                    void saveSite();
-                  }}
                   className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                   placeholder="My Company Blog"
                 />
@@ -1445,11 +1769,6 @@ export function PortalBlogsClient({
                 <input
                   value={siteSlug}
                   onChange={(e) => setSiteSlug(e.target.value)}
-                  onBlur={() => {
-                    if (!site) return;
-                    if (siteSaving) return;
-                    void saveSite();
-                  }}
                   className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                   placeholder="Purely Automation"
                 />
@@ -1512,6 +1831,15 @@ export function PortalBlogsClient({
                   >
                     Copy live
                   </button>
+                  <Link
+                    href={blogPageEditorHref}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <IconEdit size={16} />
+                      <span>Edit live page</span>
+                    </span>
+                  </Link>
                   <a
                     href={liveBlogUrlPreview ?? undefined}
                     target="_blank"
@@ -1537,97 +1865,24 @@ export function PortalBlogsClient({
               <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Custom domain (optional)</div>
-
-              <div className="mt-8 border-t border-zinc-200 pt-6">
-                <div className="text-sm font-semibold text-zinc-900">Typography</div>
-                <div className="mt-2 text-sm text-zinc-600">Choose fonts for your hosted blog titles and body.</div>
-
-                <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-zinc-800">Use brand font</div>
-                    <div className="mt-0.5 text-xs text-zinc-500">Uses your Business font from Profile → Business info.</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <ToggleSwitch
-                      checked={Boolean(appearance?.useBrandFont ?? true)}
-                      disabled={appearanceSaving}
-                      ariaLabel="Use brand font"
-                      onChange={(useBrandFont) => {
-                        setAppearance((prev) => ({
-                          version: 1,
-                          useBrandFont,
-                          titleFontKey: prev?.titleFontKey ?? "brand",
-                          bodyFontKey: prev?.bodyFontKey ?? "brand",
-                        }));
-                        void saveAppearance({ useBrandFont });
-                      }}
-                    />
-                    <span
-                      className={
-                        Boolean(appearance?.useBrandFont ?? true)
-                          ? "text-sm font-semibold text-emerald-700"
-                          : "text-sm text-zinc-500"
-                      }
-                    >
-                      {Boolean(appearance?.useBrandFont ?? true) ? "On" : "Off"}
-                    </span>
-                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">Add the domain here, copy the TXT record, and verify it without leaving Blogs.</div>
                 </div>
-
-                <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-600">Title font</label>
-                    <div className="mt-1">
-                      <PortalListboxDropdown<string>
-                        value={appearance?.titleFontKey ?? "brand"}
-                        options={fontOptions}
-                        disabled={appearanceSaving || Boolean(appearance?.useBrandFont ?? true)}
-                        onChange={(v) => {
-                          const titleFontKey = String(v || "brand");
-                          setAppearance((prev) => ({
-                            version: 1,
-                            useBrandFont: Boolean(prev?.useBrandFont ?? true),
-                            titleFontKey,
-                            bodyFontKey: prev?.bodyFontKey ?? "brand",
-                          }));
-                          void saveAppearance({ titleFontKey });
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-600">Body font</label>
-                    <div className="mt-1">
-                      <PortalListboxDropdown<string>
-                        value={appearance?.bodyFontKey ?? "brand"}
-                        options={fontOptions}
-                        disabled={appearanceSaving || Boolean(appearance?.useBrandFont ?? true)}
-                        onChange={(v) => {
-                          const bodyFontKey = String(v || "brand");
-                          setAppearance((prev) => ({
-                            version: 1,
-                            useBrandFont: Boolean(prev?.useBrandFont ?? true),
-                            titleFontKey: prev?.titleFontKey ?? "brand",
-                            bodyFontKey,
-                          }));
-                          void saveAppearance({ bodyFontKey });
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-                  <div className="mt-1 text-xs text-zinc-500">Pulls from Funnel Builder → Settings → Custom domains.</div>
-                </div>
-                {siteDomain.trim() ? (
+                {selectedDomainStatus ? (
                   <span
                     className={
                       "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold " +
-                      (domainStatus === "VERIFIED" ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-700")
+                      (selectedDomainStatus === "VERIFIED"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : selectedDomainStatus === "PENDING"
+                          ? "bg-amber-50 text-amber-800"
+                          : "bg-zinc-100 text-zinc-700")
                     }
                   >
-                    {domainStatus === "VERIFIED" ? "Verified" : domainStatus === "PENDING" ? "Pending" : "Not verified"}
+                    {selectedDomainStatus === "VERIFIED"
+                      ? "Verified"
+                      : selectedDomainStatus === "PENDING"
+                        ? "Pending verification"
+                        : "Unsaved"}
                   </span>
                 ) : null}
               </div>
@@ -1635,32 +1890,30 @@ export function PortalBlogsClient({
               <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <div>
                   <label className="text-xs font-semibold text-zinc-600">Domain</label>
-                  <div className="mt-1">
-                    <PortalListboxDropdown<string>
-                      value={siteDomain}
-                      disabled={siteSaving || !funnelDomains || funnelDomainsBusy}
-                      options={domainOptions}
-                      onChange={(v) => setSiteDomain(String(v || ""))}
-                      placeholder={
-                        funnelDomainsBusy
-                          ? "Loading domains…"
-                          : (funnelDomains || []).length
-                            ? "Choose a domain"
-                            : "No domains yet"
-                      }
-                    />
+                  <div className="mt-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
+                    <div className="truncate">{normalizedSelectedDomain || "No custom domain yet"}</div>
                   </div>
 
                   <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
                     <div className="text-xs text-zinc-500">
-                      {!site ? "Pick a domain now and it will be applied when you create your blog workspace." : "Manage domains in Funnel Builder."}
+                      {!site
+                        ? "You can prefill a domain now. Save or create the workspace before verifying DNS."
+                        : hasVerifiedCustomDomain
+                          ? "This domain is already live for your blog."
+                          : "Open domain setup to save the domain, copy DNS values, and verify it here."}
                     </div>
-                    <Link
-                      href={`${appBase}/services/funnel-builder/settings`}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDomainDraft(siteDomain || site?.primaryDomain || "");
+                        setDomainVerificationMessage(null);
+                        setDomainVerificationDetails(null);
+                        setDomainModalOpen(true);
+                      }}
                       className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
                     >
                       Add / manage domains
-                    </Link>
+                    </button>
                   </div>
                 </div>
 
@@ -1668,25 +1921,112 @@ export function PortalBlogsClient({
                   <label className="text-xs font-semibold text-zinc-600">Custom domain (Live)</label>
                   <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
                     <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-                      <div className="truncate">{customBlogUrl ?? "Select a domain"}</div>
+                      <div className="truncate">{normalizedSelectedDomain ? `https://${normalizedSelectedDomain}/blogs` : "Select a domain"}</div>
                     </div>
                     <a
-                      href={site?.primaryDomain && savedDomainStatus === "VERIFIED" ? `https://${site.primaryDomain}/blogs` : undefined}
+                      href={hasVerifiedCustomDomain && site?.primaryDomain ? `https://${site.primaryDomain}/blogs` : undefined}
                       target="_blank"
                       rel="noreferrer"
                       className={
                         "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
-                        (site?.primaryDomain && savedDomainStatus === "VERIFIED" ? "" : "pointer-events-none opacity-60")
+                        (hasVerifiedCustomDomain && site?.primaryDomain ? "" : "pointer-events-none opacity-60")
                       }
                     >
                       Live
                     </a>
                   </div>
-                  {site?.primaryDomain && savedDomainStatus === "PENDING" ? (
+                  {site?.primaryDomain && !site?.verifiedAt ? (
                     <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                      This domain is pending verification in Funnel Builder.
+                      This domain is saved to Blogs and waiting on DNS verification.
                     </div>
                   ) : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 border-t border-zinc-200 pt-6">
+              <div className="text-sm font-semibold text-zinc-900">Typography</div>
+              <div className="mt-2 text-sm text-zinc-600">Choose fonts for your hosted blog titles and body.</div>
+
+              <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-zinc-800">Use brand font</div>
+                  <div className="mt-0.5 text-xs text-zinc-500">Uses your Business font from Profile → Business info.</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ToggleSwitch
+                    checked={Boolean(appearance?.useBrandFont ?? true)}
+                    disabled={appearanceSaving}
+                    ariaLabel="Use brand font"
+                    onChange={(useBrandFont) => {
+                      setAppearance((prev) => ({
+                        version: 1,
+                        useBrandFont,
+                        titleFontKey: prev?.titleFontKey ?? "brand",
+                        bodyFontKey: prev?.bodyFontKey ?? "brand",
+                      }));
+                      void saveAppearance({ useBrandFont });
+                    }}
+                  />
+                  <span
+                    className={
+                      Boolean(appearance?.useBrandFont ?? true)
+                        ? "text-sm font-semibold text-emerald-700"
+                        : "text-sm text-zinc-500"
+                    }
+                  >
+                    {Boolean(appearance?.useBrandFont ?? true) ? "On" : "Off"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-600">Title font</label>
+                  <div className="mt-1">
+                    <PortalFontDropdown
+                      value={appearance?.titleFontKey ?? "brand"}
+                      extraOptions={[{ value: "brand", label: "Brand" }]}
+                      disabled={appearanceSaving || Boolean(appearance?.useBrandFont ?? true)}
+                      onChange={(v) => {
+                        const titleFontKey = String(v || "brand");
+                        setAppearance((prev) => ({
+                          version: 1,
+                          useBrandFont: Boolean(prev?.useBrandFont ?? true),
+                          titleFontKey,
+                          bodyFontKey: prev?.bodyFontKey ?? "brand",
+                        }));
+                        void saveAppearance({ titleFontKey });
+                      }}
+                      className="w-full"
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                      placeholder="Choose a title font"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-600">Body font</label>
+                  <div className="mt-1">
+                    <PortalFontDropdown
+                      value={appearance?.bodyFontKey ?? "brand"}
+                      extraOptions={[{ value: "brand", label: "Brand" }]}
+                      disabled={appearanceSaving || Boolean(appearance?.useBrandFont ?? true)}
+                      onChange={(v) => {
+                        const bodyFontKey = String(v || "brand");
+                        setAppearance((prev) => ({
+                          version: 1,
+                          useBrandFont: Boolean(prev?.useBrandFont ?? true),
+                          titleFontKey: prev?.titleFontKey ?? "brand",
+                          bodyFontKey,
+                        }));
+                        void saveAppearance({ bodyFontKey });
+                      }}
+                      className="w-full"
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                      placeholder="Choose a body font"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1704,7 +2044,9 @@ export function PortalBlogsClient({
               ) : (
                 <button
                   type="button"
-                  onClick={saveSite}
+                  onClick={() => {
+                    void saveSite();
+                  }}
                   disabled={siteSaving || !siteDirty}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 >
@@ -1778,9 +2120,193 @@ export function PortalBlogsClient({
         </div>
       ) : null}
 
+      <PortalMediaPickerModal
+        open={autoMediaPickerOpen}
+        onClose={() => setAutoMediaPickerOpen(false)}
+        onPick={(item) => {
+          addAutomationContextFile(item);
+          setAutoMediaPickerOpen(false);
+          toast.success("Context file added.");
+        }}
+        title="Add blog context from media library"
+        confirmLabel="Use as context"
+        variant={portalVariant}
+      />
+
+      {domainModalOpen ? (
+        <div className="fixed inset-0 z-80" role="dialog" aria-modal="true">
+          <div className={`absolute inset-0 ${portalGlassBackdropClass}`} onMouseDown={() => setDomainModalOpen(false)} onTouchStart={() => setDomainModalOpen(false)} />
+          <div className="fixed inset-x-0 top-0 flex justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]">
+            <div
+              className={`w-full max-w-2xl overflow-hidden rounded-4xl border border-white/45 p-5 ${portalGlassPanelClass}`}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Custom domain setup</div>
+                  <div className="mt-1 text-sm text-zinc-600">Save a blog domain, copy the TXT record, and verify DNS right here.</div>
+                </div>
+                <button
+                  type="button"
+                  className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 text-zinc-600 hover:text-zinc-900 ${portalGlassButtonClass}`}
+                  onClick={() => setDomainModalOpen(false)}
+                  aria-label="Close domain setup"
+                  title="Close"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+                <div className="space-y-4">
+                  <div className={`rounded-3xl p-4 ${portalGlassSectionClass}`}>
+                    <label className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Domain</label>
+                    <input
+                      value={domainDraft}
+                      onChange={(e) => setDomainDraft(normalizeDomain(e.target.value))}
+                      placeholder="blog.yourdomain.com"
+                      className="mt-3 w-full rounded-2xl border border-white/45 bg-white/60 px-4 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-500"
+                    />
+                    <div className="mt-2 text-xs text-zinc-500">Use a full subdomain like `blog.yourdomain.com` or a root domain if that is how you plan to serve the blog.</div>
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        disabled={siteSaving || (!site && !siteName.trim())}
+                        onClick={async () => {
+                          const nextDomain = normalizeDomain(domainDraft);
+                          setDomainVerificationMessage(null);
+                          setDomainVerificationDetails(null);
+                          setSiteDomain(nextDomain);
+                          if (site) {
+                            await saveSite({ primaryDomain: nextDomain || null });
+                          }
+                        }}
+                        className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      >
+                        {siteSaving ? "Saving…" : site ? "Save domain to Blogs" : "Use this when creating the workspace"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!domainDraft}
+                        onClick={async () => {
+                          if (!domainDraft) return;
+                          await navigator.clipboard.writeText(domainDraft);
+                          toast.success("Domain copied.");
+                        }}
+                        className="inline-flex items-center justify-center rounded-2xl border border-white/50 bg-white/65 px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80 disabled:opacity-60"
+                      >
+                        Copy domain
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className={`rounded-3xl p-4 ${portalGlassSectionClass}`}>
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">DNS record to add</div>
+                    {site?.verificationToken && normalizeDomain(domainDraft || siteDomain || site?.primaryDomain) ? (
+                      <>
+                        <div className="mt-3 rounded-2xl border border-white/45 bg-white/60 px-4 py-3 text-sm text-zinc-900">
+                          <div className="text-xs font-semibold text-zinc-500">TXT name</div>
+                          <div className="mt-1 break-all font-mono text-[13px]">{`_purelyautomation.${normalizeDomain(domainDraft || siteDomain || site?.primaryDomain)}`}</div>
+                        </div>
+                        <div className="mt-3 rounded-2xl border border-white/45 bg-white/60 px-4 py-3 text-sm text-zinc-900">
+                          <div className="text-xs font-semibold text-zinc-500">TXT value</div>
+                          <div className="mt-1 break-all font-mono text-[13px]">{`verify=${site.verificationToken}`}</div>
+                        </div>
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const value = `_purelyautomation.${normalizeDomain(domainDraft || siteDomain || site?.primaryDomain)}`;
+                              await navigator.clipboard.writeText(value);
+                              toast.success("TXT record name copied.");
+                            }}
+                            className="inline-flex items-center justify-center rounded-2xl border border-white/50 bg-white/65 px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80"
+                          >
+                            Copy TXT name
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const value = `verify=${site.verificationToken}`;
+                              await navigator.clipboard.writeText(value);
+                              toast.success("TXT record value copied.");
+                            }}
+                            className="inline-flex items-center justify-center rounded-2xl border border-white/50 bg-white/65 px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80"
+                          >
+                            Copy TXT value
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="mt-3 rounded-2xl border border-dashed border-white/45 bg-white/45 px-4 py-4 text-sm text-zinc-600">
+                        Save or create the blog workspace with a domain first, then the TXT record appears here for copy-paste.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className={`rounded-3xl p-4 ${portalGlassSectionClass}`}>
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Verify</div>
+                  <div className="mt-3 text-sm text-zinc-600">After DNS propagates, verify here and the live blog will switch to your custom domain.</div>
+                  <button
+                    type="button"
+                    disabled={domainVerifyBusy || !site?.id || !normalizeDomain(domainDraft || siteDomain || site?.primaryDomain)}
+                    onClick={() => void verifyCustomDomain(domainDraft || siteDomain || site?.primaryDomain || "")}
+                    className="mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-fuchsia-500 via-sky-500 to-cyan-400 px-4 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(14,165,233,0.28)] hover:opacity-95 disabled:opacity-60"
+                  >
+                    {domainVerifyBusy ? "Verifying…" : "Verify now"}
+                  </button>
+
+                  {domainVerificationMessage ? (
+                    <div
+                      className={
+                        "mt-4 rounded-2xl border p-3 text-sm " +
+                        (domainVerificationTone === "success"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : domainVerificationTone === "warning"
+                            ? "border-amber-200 bg-amber-50 text-amber-800"
+                            : "border-zinc-200 bg-white/60 text-zinc-700")
+                      }
+                    >
+                      {domainVerificationMessage}
+                    </div>
+                  ) : null}
+
+                  {domainVerificationDetails ? (
+                    <div className="mt-4 space-y-3 text-xs text-zinc-600">
+                      <div>
+                        <div className="font-semibold text-zinc-700">Expected TXT name</div>
+                        <div className="mt-1 break-all font-mono">{domainVerificationDetails.recordName}</div>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-zinc-700">Expected TXT value</div>
+                        <div className="mt-1 break-all font-mono">{domainVerificationDetails.expected}</div>
+                      </div>
+                      {domainVerificationDetails.found?.length ? (
+                        <div>
+                          <div className="font-semibold text-zinc-700">TXT values found</div>
+                          <div className="mt-1 space-y-1">
+                            {domainVerificationDetails.found.map((value) => (
+                              <div key={value} className="break-all font-mono">{value}</div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 text-xs text-zinc-500">No cancel button here by design. Close with the X once your domain is saved or verified.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {openPostMenu && openPostMenuPost && typeof document !== "undefined"
         ? createPortal(
-            <div className="fixed inset-0 z-30" aria-hidden>
+            <div className="fixed inset-0 z-30">
               <div className="absolute inset-0" onMouseDown={() => setOpenPostMenu(null)} onTouchStart={() => setOpenPostMenu(null)} />
               <LiquidGlassPopupSurface
                 className="fixed z-40 w-56 p-1.5"
@@ -1871,7 +2397,7 @@ export function PortalBlogsClient({
 
       {openPreviewMenu && typeof document !== "undefined"
         ? createPortal(
-            <div className="fixed inset-0 z-30" aria-hidden>
+            <div className="fixed inset-0 z-30">
               <div className="absolute inset-0" onMouseDown={() => setOpenPreviewMenu(null)} onTouchStart={() => setOpenPreviewMenu(null)} />
               <div
                 className="fixed z-40 w-72 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
@@ -1897,30 +2423,24 @@ export function PortalBlogsClient({
                   if (site?.primaryDomain) {
                     items.push({
                       label: `Custom domain (saved): ${site.primaryDomain}`,
-                      href: savedDomainStatus === "VERIFIED" ? `https://${site.primaryDomain}/blogs` : null,
-                      disabled: savedDomainStatus !== "VERIFIED",
+                      href: hasVerifiedCustomDomain ? `https://${site.primaryDomain}/blogs` : null,
+                      disabled: !hasVerifiedCustomDomain,
                       hint:
-                        savedDomainStatus === "VERIFIED"
+                        hasVerifiedCustomDomain
                           ? "Live"
-                          : savedDomainStatus === "PENDING"
-                            ? "Pending DNS verification"
-                            : "Not verified",
+                          : "Pending DNS verification",
                     });
                   }
 
-                  const selected = siteDomain.trim();
-                  const selectedIsDifferent = selected && selected !== (site?.primaryDomain ?? "");
+                  const selected = normalizeDomain(siteDomain);
+                  const selectedIsDifferent = selected && selected !== normalizeDomain(site?.primaryDomain);
                   if (selected && selectedIsDifferent) {
                     items.push({
                       label: `Custom domain (selected): ${selected}`,
-                      href: domainStatus === "VERIFIED" ? `https://${selected}/blogs` : null,
-                      disabled: domainStatus !== "VERIFIED",
+                      href: null,
+                      disabled: true,
                       hint:
-                        domainStatus === "VERIFIED"
-                          ? "Selected (not saved)"
-                          : domainStatus === "PENDING"
-                            ? "Pending DNS verification"
-                            : "Not verified",
+                        "Selected here, but not saved to Blogs yet",
                     });
                   }
 

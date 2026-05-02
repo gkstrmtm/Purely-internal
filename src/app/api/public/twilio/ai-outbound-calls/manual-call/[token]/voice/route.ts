@@ -1,31 +1,17 @@
 import { NextResponse } from "next/server";
 
+import { buildAiOutboundVoicemailTwiml, fallbackTwiml, indicatesMachineAnswered } from "@/lib/aiOutboundVoicemail";
+import { appendAiOutboundManualCallWebhookLog } from "@/lib/aiOutboundCallDebug";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
+import { ensureAiOutboundCallCampaignVoiceAgent } from "@/lib/portalAiOutboundCallVoiceAgent";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { registerElevenLabsTwilioCall } from "@/lib/elevenLabsConvai";
+import { parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
-
-function envFirst(keys: string[]): string {
-  for (const key of keys) {
-    const v = (process.env[key] ?? "").trim();
-    if (v) return v;
-  }
-  return "";
-}
-
-function envVoiceAgentId(): string {
-  return envFirst(["VOICE_AGENT_ID", "ELEVENLABS_AGENT_ID", "ELEVEN_LABS_AGENT_ID"]).slice(0, 120);
-}
-
-function envVoiceAgentApiKey(): string {
-  return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
-}
 
 function xmlResponse(xml: string, status = 200) {
   return new NextResponse(xml, {
@@ -42,45 +28,35 @@ function safeE164(raw: unknown): string {
   return s && s.length <= 32 ? s : "";
 }
 
-async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
-  const row = await prisma.portalServiceSetup.findUnique({
-    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
-    select: { dataJson: true },
-  });
+async function fetchTwilioAnsweredBy(opts: {
+  ownerId: string;
+  callSid: string;
+}): Promise<string> {
+  const callSid = String(opts.callSid || "").trim();
+  if (!callSid) return "";
 
-  const rec =
-    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
-      ? (row.dataJson as Record<string, unknown>)
-      : null;
+  const twilio = await getOwnerTwilioSmsConfig(opts.ownerId).catch(() => null);
+  if (!twilio) return "";
 
-  const raw = rec?.voiceAgentId;
-  const id = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
-  return id || envVoiceAgentId() || null;
-}
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilio.accountSid)}/Calls/${encodeURIComponent(callSid)}.json`;
+  const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
 
-async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
-  const row = await prisma.portalServiceSetup.findUnique({
-    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
-    select: { dataJson: true },
-  });
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { authorization: `Basic ${basic}` },
+  }).catch(() => null);
 
-  const rec =
-    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
-      ? (row.dataJson as Record<string, unknown>)
-      : null;
+  if (!res?.ok) return "";
+  const text = await res.text().catch(() => "");
+  if (!text.trim()) return "";
 
-  const raw = rec?.voiceAgentApiKey;
-  const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
-  return key || envVoiceAgentApiKey() || null;
-}
-
-function fallbackTwiml(message?: string) {
-  const safe = String(message || "").trim().slice(0, 200);
-  const say = safe
-    ? `  <Say voice="Polly.Joanna">${safe.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</Say>\n`
-    : "";
-
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n${say}  <Hangup/>\n</Response>`;
+  try {
+    const json = JSON.parse(text) as any;
+    const answeredBy = typeof json?.answered_by === "string" ? json.answered_by : typeof json?.answeredBy === "string" ? json.answeredBy : "";
+    return answeredBy.trim();
+  } catch {
+    return "";
+  }
 }
 
 function extractConversationIdFromTwiml(twiml: string): string {
@@ -93,10 +69,23 @@ function extractConversationIdFromTwiml(twiml: string): string {
   return id && id.length <= 200 ? id : "";
 }
 
+function stripRedirectVerbs(twiml: string): string {
+  const xml = String(twiml || "");
+  if (!xml) return "";
+
+  return xml
+    .replace(/<Redirect\b[^>]*>[^]*?<\/Redirect>/gi, "")
+    .replace(/<Redirect\b[^>]*\/\s*>/gi, "");
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
   const t = String(token || "").trim();
   if (!t) return xmlResponse(fallbackTwiml(), 200);
+
+  const form = await req.formData().catch(() => null);
+  const answeredBy = form?.get("AnsweredBy");
+  const callSid = typeof form?.get("CallSid") === "string" ? String(form?.get("CallSid") || "").trim() : "";
 
   await ensurePortalAiOutboundCallsSchema();
 
@@ -106,6 +95,53 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   });
 
   if (!manual) return xmlResponse(fallbackTwiml(), 200);
+
+  const answeredByText = typeof answeredBy === "string" ? answeredBy.trim() : "";
+  const twilioAnsweredBy = answeredByText || (callSid ? await fetchTwilioAnsweredBy({ ownerId: manual.ownerId, callSid }) : "");
+
+  await appendAiOutboundManualCallWebhookLog({
+    route: "manual-call:voice",
+    token: t,
+    manualCallId: manual.id,
+    callSid,
+    details: {
+      answeredBy: answeredByText,
+      twilioAnsweredBy,
+      campaignId: manual.campaignId,
+    },
+  });
+
+  console.log(
+    JSON.stringify({
+      route: "manual-call:voice",
+      manualCallId: manual.id,
+      callSid,
+      answeredBy: answeredByText,
+      twilioAnsweredBy,
+    }),
+  );
+
+  if (indicatesMachineAnswered(twilioAnsweredBy || answeredByText) && typeof manual.campaignId === "string" && manual.campaignId.trim()) {
+    const [campaign, profile, ownerUser] = await Promise.all([
+      prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId: manual.ownerId, id: manual.campaignId },
+        select: { voiceAgentConfigJson: true },
+      }).catch(() => null),
+      prisma.businessProfile.findUnique({ where: { ownerId: manual.ownerId }, select: { businessName: true } }).catch(() => null),
+      prisma.user.findUnique({ where: { id: manual.ownerId }, select: { name: true } }).catch(() => null),
+    ]);
+
+    const config = parseVoiceAgentConfig(campaign?.voiceAgentConfigJson);
+    return xmlResponse(
+      buildAiOutboundVoicemailTwiml({
+        businessName: profile?.businessName || null,
+        ownerName: ownerUser?.name || null,
+        goal: config.goal || null,
+        callbackNumber: (await getOwnerTwilioSmsConfig(manual.ownerId).catch(() => null))?.fromNumberE164 || null,
+      }),
+      200,
+    );
+  }
 
   const toNumberE164 = safeE164(manual.toNumberE164);
   const twilio = await getOwnerTwilioSmsConfig(manual.ownerId);
@@ -121,17 +157,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     return xmlResponse(fallbackTwiml("Sorry. We couldn't connect this call."), 200);
   }
 
-  const campaignId = typeof manual.campaignId === "string" ? manual.campaignId : null;
-  const campaign = campaignId
-    ? await prisma.portalAiOutboundCallCampaign.findFirst({
-        where: { ownerId: manual.ownerId, id: campaignId },
-        select: { voiceAgentId: true },
-      })
-    : null;
+  const ensured = typeof manual.campaignId === "string" && manual.campaignId.trim()
+    ? await ensureAiOutboundCallCampaignVoiceAgent({ ownerId: manual.ownerId, campaignId: manual.campaignId })
+    : { ok: false as const, error: "Manual call is missing its campaign." };
 
-  const apiKey = ((await getProfileVoiceAgentApiKey(manual.ownerId).catch(() => null)) || "").trim();
-  const profileAgentId = await getProfileVoiceAgentId(manual.ownerId);
-  const agentId = String(campaign?.voiceAgentId || "").trim() || String(profileAgentId || "").trim();
+  const apiKey = ensured.ok ? ensured.apiKey.trim() : "";
+  const agentId = ensured.ok ? ensured.agentId.trim() : "";
 
   if (!apiKey || !agentId) {
     await prisma.portalAiOutboundCallManualCall
@@ -139,7 +170,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         where: { id: manual.id },
         data: {
           status: "FAILED",
-          lastError: "Voice agent is not configured. Add a voice API key and agent ID in Profile (or set an agent ID on this campaign).",
+          lastError: ensured.ok ? "Voice agent is not configured for this campaign." : String(ensured.error || "Voice agent is not configured for this campaign.").slice(0, 500),
         },
         select: { id: true },
       })
@@ -189,5 +220,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       .catch(() => null);
   }
 
-  return xmlResponse(register.twiml, 200);
+  return xmlResponse(stripRedirectVerbs(register.twiml), 200);
 }

@@ -45,6 +45,18 @@ function computeHelpHref(pathname: string | null): string {
     return `${base}/tutorials/people`;
   }
 
+  if (internal.startsWith("/portal/app/settings/")) {
+    if (internal.startsWith("/portal/app/settings/billing")) {
+      return `${base}/tutorials/billing`;
+    }
+
+    if (internal.startsWith("/portal/app/settings/profile") || internal.startsWith("/portal/app/settings/integrations")) {
+      return `${base}/tutorials/profile`;
+    }
+
+    return `${base}/tutorials`;
+  }
+
   if (internal.startsWith("/portal/app/billing")) {
     return `${base}/tutorials/billing`;
   }

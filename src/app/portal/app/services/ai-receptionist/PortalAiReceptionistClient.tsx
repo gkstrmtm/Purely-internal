@@ -23,17 +23,23 @@ import {
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
+import { CreateContactTagDialog, type CreateContactTagResult } from "@/components/CreateContactTagDialog";
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
-import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { PortalContactDetailsModal } from "@/components/PortalContactDetailsModal";
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
-import { useToast } from "@/components/ToastProvider";
+import { useOptionalToast } from "@/components/ToastProvider";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
+
+const EMPTY_TAG_OPTION_VALUE = "";
+const NEW_TAG_OPTION_VALUE = "__new_tag__";
 
 type Settings = {
   version: 1;
@@ -48,6 +54,8 @@ type Settings = {
 
   smsEnabled: boolean;
   smsSystemPrompt: string;
+  voiceIncludeTagIds: string[];
+  voiceExcludeTagIds: string[];
   smsIncludeTagIds: string[];
   smsExcludeTagIds: string[];
 
@@ -189,7 +197,7 @@ function ensureKnowledgeBase(kb: ReceptionistKnowledgeBase | null): Receptionist
   };
 }
 
-function buildAddTagOptionsFromTags(tags: ContactTag[], excludeTagIds: string[], search: string) {
+function buildAddTagOptionsFromTags(tags: ContactTag[], excludeTagIds: string[], search: string, includeNewTagOption = false) {
   const excluded = new Set(excludeTagIds);
   const q = String(search || "").trim().toLowerCase();
   const usable = tags
@@ -197,7 +205,11 @@ function buildAddTagOptionsFromTags(tags: ContactTag[], excludeTagIds: string[],
     .filter((t) => (!q ? true : t.name.toLowerCase().includes(q)))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  return [{ value: "", label: "Add a tag…" }, ...usable.map((t) => ({ value: t.id, label: t.name }))];
+  return [
+    { value: EMPTY_TAG_OPTION_VALUE, label: "Add a tag…" },
+    ...usable.map((t) => ({ value: t.id, label: t.name })),
+    ...(includeNewTagOption ? [{ value: NEW_TAG_OPTION_VALUE, label: "New tag…" }] : []),
+  ];
 }
 
 function sanitizeClientNotes(notes?: string | null) {
@@ -313,16 +325,18 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
 
   const remaining = Math.max(0, (duration || 0) - (currentTime || 0));
   const canScrub = ready && duration > 0;
+  const scrubValue = canScrub ? Math.min(duration, currentTime) : 0;
+  const scrubMax = canScrub ? duration : 1;
+  const scrubPercent = scrubMax > 0 ? Math.max(0, Math.min(100, (scrubValue / scrubMax) * 100)) : 0;
 
   return (
-    <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+    <div className="mt-2">
       <audio ref={audioRef} preload="metadata" src={props.src} />
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           className={classNames(
-            "inline-flex h-10 w-10 items-center justify-center rounded-xl text-white disabled:opacity-60",
-            playing ? "bg-zinc-900 hover:bg-zinc-800" : "bg-(--color-brand-blue) hover:opacity-95",
+            "inline-flex h-10 w-10 items-center justify-center rounded-xl bg-brand-blue/12 text-(--color-brand-blue) transition-colors duration-150 hover:bg-brand-blue/18 disabled:opacity-60",
           )}
           disabled={!props.src}
           aria-label={playing ? "Pause recording" : "Play recording"}
@@ -342,12 +356,12 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
           }}
         >
           {playing ? (
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <rect x="3" y="2.5" width="3.5" height="11" rx="1" />
-              <rect x="9.5" y="2.5" width="3.5" height="11" rx="1" />
+            <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <rect x="3" y="2.25" width="3.5" height="11.5" rx="1" />
+              <rect x="9.5" y="2.25" width="3.5" height="11.5" rx="1" />
             </svg>
           ) : (
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
               <path d="M4.5 3.2c0-.7.76-1.13 1.36-.77l6.2 3.8c.57.35.57 1.18 0 1.53l-6.2 3.8c-.6.36-1.36-.07-1.36-.77V3.2Z" />
             </svg>
           )}
@@ -357,9 +371,9 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
           <input
             type="range"
             min={0}
-            max={canScrub ? duration : 1}
+            max={scrubMax}
             step={0.01}
-            value={canScrub ? Math.min(duration, currentTime) : 0}
+            value={scrubValue}
             disabled={!canScrub}
             onChange={(ev) => {
               const el = audioRef.current;
@@ -369,7 +383,10 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
               el.currentTime = Math.max(0, Math.min(duration, next));
               setCurrentTime(el.currentTime);
             }}
-            className="w-full"
+            className="pa-audio-scrubber w-full"
+            style={{
+              background: `linear-gradient(90deg, #93c5fd 0%, #93c5fd ${scrubPercent}%, rgba(191,219,254,0.45) ${scrubPercent}%, rgba(191,219,254,0.45) 100%)`,
+            }}
           />
           <div className="mt-1 flex items-center justify-between text-xs text-zinc-600">
             <span>{formatTime(currentTime)}</span>
@@ -394,7 +411,9 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
 
 export function PortalAiReceptionistClient() {
   const pathname = usePathname() || "";
-  const toast = useToast();
+  const toast = useOptionalToast();
+  const portalVariant = useMemo(() => (pathname.startsWith("/credit") ? "credit" : "portal"), [pathname]);
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
 
   const isMobileApp = useMemo(() => {
@@ -412,7 +431,7 @@ export function PortalAiReceptionistClient() {
 
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingEnabled, setSavingEnabled] = useState(false);
   const [callSyncBusy, setCallSyncBusy] = useState(false);
@@ -460,7 +479,18 @@ export function PortalAiReceptionistClient() {
   }, [error, toast]);
 
 
-  const [tab, setTab] = useState<"settings" | "testing" | "activity" | "missed-call-textback">("activity");
+  const [tab, setTab] = useState<"settings" | "testing" | "activity" | "missed-call-textback">(() => {
+    if (typeof window === "undefined") return "activity";
+    try {
+      const next = new URL(window.location.href).searchParams.get("tab");
+      if (next === "settings" || next === "testing" || next === "activity" || next === "missed-call-textback") {
+        return next;
+      }
+    } catch {
+      // ignore
+    }
+    return "activity";
+  });
   const [settingsSubTab, setSettingsSubTab] = useState<"voice" | "sms">("voice");
 
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -475,21 +505,26 @@ export function PortalAiReceptionistClient() {
   }, [settings]);
 
   const [contactTags, setContactTags] = useState<ContactTag[]>([]);
-  const [smsIncludeTagSearch, setSmsIncludeTagSearch] = useState("");
-  const [smsExcludeTagSearch, setSmsExcludeTagSearch] = useState("");
+  const [voiceIncludeAddTagValue, setVoiceIncludeAddTagValue] = useState("");
+  const [voiceExcludeAddTagValue, setVoiceExcludeAddTagValue] = useState("");
   const [smsIncludeAddTagValue, setSmsIncludeAddTagValue] = useState("");
   const [smsExcludeAddTagValue, setSmsExcludeAddTagValue] = useState("");
+  const [createTagOpen, setCreateTagOpen] = useState(false);
+  const [createTagTarget, setCreateTagTarget] = useState<null | "voiceInclude" | "voiceExclude" | "smsInclude" | "smsExclude">(null);
 
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
+  const [contactDetailsOpen, setContactDetailsOpen] = useState(false);
+  const [contactDetailsContactId, setContactDetailsContactId] = useState<string | null>(null);
 
   const [smsTestInbound, setSmsTestInbound] = useState<string>("");
   const [smsTestTagIds, setSmsTestTagIds] = useState<string[]>([]);
-  const [smsTestTagSearch, setSmsTestTagSearch] = useState<string>("");
   const [smsTestAddTagValue, setSmsTestAddTagValue] = useState<string>("");
   const [smsTestBusy, setSmsTestBusy] = useState<boolean>(false);
   const [smsTestWouldReply, setSmsTestWouldReply] = useState<boolean | null>(null);
   const [smsTestReason, setSmsTestReason] = useState<string | null>(null);
   const [smsTestReply, setSmsTestReply] = useState<string>("");
+  const smsTestAbortRef = useRef<AbortController | null>(null);
+  const [testingCallActive, setTestingCallActive] = useState(false);
 
   const [smsPromptBusy, setSmsPromptBusy] = useState<boolean>(false);
 
@@ -509,7 +544,7 @@ export function PortalAiReceptionistClient() {
     if (voiceLibraryLoading) return;
     setVoiceLibraryLoading(true);
     try {
-      const res = await fetch("/api/portal/voice-agent/voices", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/voice-agent/voices", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!res?.ok) {
         setVoiceLibraryVoices([]);
         return;
@@ -533,7 +568,7 @@ export function PortalAiReceptionistClient() {
     } finally {
       setVoiceLibraryLoading(false);
     }
-  }, [voiceLibraryLoading]);
+  }, [variantHeaders, voiceLibraryLoading]);
 
   useEffect(() => {
     if (tab !== "settings") return;
@@ -555,7 +590,7 @@ export function PortalAiReceptionistClient() {
         const text = DEFAULT_VOICE_PREVIEW_TEXT;
         const res = await fetch("/api/portal/voice-agent/voices/preview", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify({ voiceId: id, text }),
         });
 
@@ -593,7 +628,7 @@ export function PortalAiReceptionistClient() {
         setVoicePreviewBusyVoiceId(null);
       }
     },
-    [toast, voicePreviewBusyVoiceId],
+    [toast, variantHeaders, voicePreviewBusyVoiceId],
   );
 
   useEffect(() => {
@@ -610,7 +645,7 @@ export function PortalAiReceptionistClient() {
     try {
       const res = await fetch("/api/portal/ai-receptionist/generate-settings", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({
           context: generateContext,
           mode: settings.mode,
@@ -640,7 +675,7 @@ export function PortalAiReceptionistClient() {
     try {
       const res = await fetch("/api/portal/ai-receptionist/generate-sms-system-prompt", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ context: smsGenerateContext }),
       }).catch(() => null as any);
 
@@ -684,7 +719,7 @@ export function PortalAiReceptionistClient() {
 
       const res = await fetch("/api/portal/ai-receptionist/polish", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ kind, channel, text: inputText }),
       }).catch(() => null as any);
 
@@ -720,7 +755,7 @@ export function PortalAiReceptionistClient() {
     try {
       const res = await fetch("/api/portal/ai-receptionist/voice-knowledge-base/sync", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ knowledgeBase: ensureKnowledgeBase(settings.voiceKnowledgeBase) }),
       }).catch(() => null as any);
 
@@ -750,6 +785,7 @@ export function PortalAiReceptionistClient() {
 
       const res = await fetch("/api/portal/ai-receptionist/voice-knowledge-base/upload", {
         method: "POST",
+        headers: variantHeaders,
         body: fd,
       }).catch(() => null as any);
 
@@ -774,7 +810,7 @@ export function PortalAiReceptionistClient() {
     try {
       const res = await fetch("/api/portal/ai-receptionist/sms-knowledge-base/sync", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ knowledgeBase: ensureKnowledgeBase(settings.smsKnowledgeBase) }),
       }).catch(() => null as any);
 
@@ -804,6 +840,7 @@ export function PortalAiReceptionistClient() {
 
       const res = await fetch("/api/portal/ai-receptionist/sms-knowledge-base/upload", {
         method: "POST",
+        headers: variantHeaders,
         body: fd,
       }).catch(() => null as any);
 
@@ -825,6 +862,34 @@ export function PortalAiReceptionistClient() {
     setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, contactTags: next } : e)));
   }
 
+  const updateEventContact = useCallback(
+    (
+      contactId: string,
+      next: { contact: { id: string; name: string; email: string | null; phone: string | null } | null; tags: ContactTag[] },
+    ) => {
+      setEvents((prev) =>
+        prev.map((event) => {
+          if (String(event.contactId || "") !== contactId) return event;
+          return {
+            ...event,
+            contactName: next.contact?.name ?? event.contactName,
+            contactEmail: next.contact?.email ?? event.contactEmail,
+            contactPhone: next.contact?.phone ?? event.contactPhone,
+            contactTags: next.tags,
+          };
+        }),
+      );
+    },
+    [],
+  );
+
+  const openContactDetails = useCallback((contactId: string | null | undefined) => {
+    const stableContactId = String(contactId || "").trim();
+    if (!stableContactId) return;
+    setContactDetailsContactId(stableContactId);
+    setContactDetailsOpen(true);
+  }, []);
+
   const setSelectedCallWithUrl = useCallback((nextId: string | null) => {
     setSelectedCallId(nextId);
     try {
@@ -845,12 +910,37 @@ export function PortalAiReceptionistClient() {
   );
 
   const loadContactTags = useCallback(async () => {
-    const res = await fetch("/api/portal/contact-tags", { cache: "no-store" }).catch(() => null as any);
+    const res = await fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
     const json = (await res?.json?.().catch(() => null)) as any;
     if (res?.ok && json?.ok === true && Array.isArray(json.tags)) {
       setContactTags(json.tags as ContactTag[]);
     }
-  }, []);
+  }, [variantHeaders]);
+
+  const handleCreatedContactTag = useCallback(
+    (created: CreateContactTagResult) => {
+      setContactTags((prev) => {
+        const next = [...prev.filter((tag) => tag.id !== created.id), created as ContactTag];
+        next.sort((a, b) => a.name.localeCompare(b.name));
+        return next;
+      });
+      setSettings((prev) => {
+        if (!prev || !createTagTarget) return prev;
+        const addUnique = (ids: string[]) => (ids.includes(created.id) ? ids : [...ids, created.id]);
+        if (createTagTarget === "voiceInclude") return { ...prev, voiceIncludeTagIds: addUnique(prev.voiceIncludeTagIds || []) };
+        if (createTagTarget === "voiceExclude") return { ...prev, voiceExcludeTagIds: addUnique(prev.voiceExcludeTagIds || []) };
+        if (createTagTarget === "smsInclude") return { ...prev, smsIncludeTagIds: addUnique(prev.smsIncludeTagIds || []) };
+        if (createTagTarget === "smsExclude") return { ...prev, smsExcludeTagIds: addUnique(prev.smsExcludeTagIds || []) };
+        return prev;
+      });
+      setVoiceIncludeAddTagValue(EMPTY_TAG_OPTION_VALUE);
+      setVoiceExcludeAddTagValue(EMPTY_TAG_OPTION_VALUE);
+      setSmsIncludeAddTagValue(EMPTY_TAG_OPTION_VALUE);
+      setSmsExcludeAddTagValue(EMPTY_TAG_OPTION_VALUE);
+      setCreateTagTarget(null);
+    },
+    [createTagTarget],
+  );
 
   const load = useCallback(async (): Promise<ApiPayload | null> => {
     const isFirstLoad = !hasLoadedOnceRef.current;
@@ -862,7 +952,7 @@ export function PortalAiReceptionistClient() {
 
     let didLoad = false;
     try {
-      const res = await fetch("/api/portal/ai-receptionist/settings", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/ai-receptionist/settings", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!res?.ok) {
         const rawError = res ? await readJsonError(res) : null;
         setError(friendlyApiError({ status: res?.status, rawError, action: "load" }));
@@ -879,7 +969,7 @@ export function PortalAiReceptionistClient() {
       let settingsToUse = data.settings;
       if (!settingsToUse.businessName?.trim()) {
         try {
-          const profileRes = await fetch("/api/portal/business-profile", { cache: "no-store" }).catch(() => null as any);
+          const profileRes = await fetch("/api/portal/business-profile", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
           if (profileRes?.ok) {
             const profileJson = (await profileRes.json().catch(() => null)) as any;
             if (profileJson?.ok && profileJson?.profile?.businessName) {
@@ -907,16 +997,16 @@ export function PortalAiReceptionistClient() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [friendlyApiError, readJsonError]);
+  }, [friendlyApiError, readJsonError, variantHeaders]);
 
   const loadEventsOnly = useCallback(async (): Promise<boolean> => {
-    const res = await fetch("/api/portal/ai-receptionist/settings", { cache: "no-store" }).catch(() => null as any);
+    const res = await fetch("/api/portal/ai-receptionist/settings", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
     if (!res?.ok) return false;
     const data = (await res.json().catch(() => null)) as ApiPayload | null;
     if (!data?.ok || !Array.isArray(data.events)) return false;
     setEvents(data.events);
     return true;
-  }, []);
+  }, [variantHeaders]);
 
   const syncCallArtifacts = useCallback(
     async (callSid: string) => {
@@ -928,7 +1018,7 @@ export function PortalAiReceptionistClient() {
       try {
         const res = await fetch(`/api/portal/ai-receptionist/events/${encodeURIComponent(sid)}`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: "{}",
         }).catch(() => null as any);
 
@@ -947,7 +1037,7 @@ export function PortalAiReceptionistClient() {
         setCallSyncBusy(false);
       }
     },
-    [callSyncBusy, load, loadEventsOnly, toast],
+    [callSyncBusy, load, loadEventsOnly, toast, variantHeaders],
   );
 
   const [confirmDeleteCallSid, setConfirmDeleteCallSid] = useState<string | null>(null);
@@ -963,6 +1053,7 @@ export function PortalAiReceptionistClient() {
         const res = await fetch(`/api/portal/ai-receptionist/events/${encodeURIComponent(sid)}`, {
           method: "DELETE",
           cache: "no-store",
+          headers: variantHeaders,
         }).catch(() => null as any);
 
         const json = (await res?.json?.().catch(() => null)) as any;
@@ -980,7 +1071,7 @@ export function PortalAiReceptionistClient() {
         setCallSyncBusy(false);
       }
     },
-    [callSyncBusy, load, loadEventsOnly, toast],
+    [callSyncBusy, load, loadEventsOnly, toast, variantHeaders],
   );
 
   const deleteCallEvent = useCallback(
@@ -1087,16 +1178,16 @@ export function PortalAiReceptionistClient() {
     const nameLine = (call.contactName || "").trim() || "Unknown caller";
     const phoneLine = (call.contactPhone || "").trim() || call.from;
     const dt = `${formatDate(call.createdAtIso)} ${formatTimeOfDay(call.createdAtIso)}`.trim();
-    const contactHref = call.contactId ? `${portalBase}/app/people/contacts?contactId=${encodeURIComponent(call.contactId)}` : null;
     return (
       <>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             {variant === "desktop" ? <div className="text-sm font-semibold text-zinc-900">Call details</div> : null}
-            {contactHref ? (
-              <Link
-                href={contactHref}
-                className="mt-2 block rounded-2xl border border-[rgba(29,78,216,0.16)] bg-white/80 px-3 py-3 transition hover:border-[rgba(29,78,216,0.35)] hover:bg-[rgba(29,78,216,0.06)]"
+            {call.contactId ? (
+              <button
+                type="button"
+                onClick={() => openContactDetails(call.contactId)}
+                className="mt-2 block w-full rounded-2xl border border-[rgba(29,78,216,0.16)] bg-white/80 px-3 py-3 text-left transition hover:border-[rgba(29,78,216,0.35)] hover:bg-[rgba(29,78,216,0.06)]"
               >
                 <div className={classNames("text-sm font-semibold text-zinc-900", variant === "desktop" ? "font-medium" : "")}>
                   {nameLine}
@@ -1108,7 +1199,7 @@ export function PortalAiReceptionistClient() {
                 <div className="mt-1 text-xs text-zinc-500">
                   {dt} · {call.status.toLowerCase()}
                 </div>
-              </Link>
+              </button>
             ) : (
               <div className="mt-2 rounded-2xl border border-zinc-200 bg-white/70 px-3 py-3">
                 <div className={classNames("text-sm font-semibold text-zinc-900", variant === "desktop" ? "font-medium" : "")}>
@@ -1126,14 +1217,12 @@ export function PortalAiReceptionistClient() {
           </div>
 
           <div className="text-right text-xs text-zinc-500">
-            {call.recordingDurationSec ? <div>{Math.max(0, Math.floor(call.recordingDurationSec))}s</div> : null}
-
             <button
               type="button"
               disabled={saving || callSyncBusy}
               onClick={() => void deleteCallEvent(call.callSid)}
               className={
-                "mt-2 inline-flex items-center justify-center rounded-xl px-2.5 py-1.5 text-[11px] font-semibold " +
+                "mt-2 inline-flex items-center justify-center rounded-xl px-3.5 py-2 text-sm font-semibold " +
                 (saving || callSyncBusy
                   ? "bg-zinc-100 text-zinc-500"
                   : "bg-red-50 text-red-600 hover:bg-red-100")
@@ -1234,7 +1323,7 @@ export function PortalAiReceptionistClient() {
           <div className={portalSidebarSectionStackClass}>
             {sectionButton("activity", "Activity", <IconReceptionistActivity />)}
             {sectionButton("testing", "Testing", <IconReceptionistTesting />)}
-            {sectionButton("missed-call-textback", "Missed call, text back", <IconMissedCallTextBack />)}
+            {sectionButton("missed-call-textback", "Missed call text back", <IconMissedCallTextBack />)}
             {sectionButton("settings", "Settings", <IconSidebarSettings />)}
           </div>
         </div>
@@ -1332,7 +1421,7 @@ export function PortalAiReceptionistClient() {
 
     const res = await fetch("/api/portal/ai-receptionist/settings", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ settings: next }),
     });
 
@@ -1361,7 +1450,7 @@ export function PortalAiReceptionistClient() {
 
     const res = await fetch("/api/portal/ai-receptionist/settings", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify(manualChatAgentId ? { settings: next } : { settings: next, syncChatAgent: true }),
     });
 
@@ -1390,7 +1479,7 @@ export function PortalAiReceptionistClient() {
 
     const res = await fetch("/api/portal/ai-receptionist/settings", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ settings: { enabled: nextEnabled } }),
     }).catch(() => null as any);
 
@@ -1416,49 +1505,37 @@ export function PortalAiReceptionistClient() {
     });
     setSavingEnabled(false);
   }
-
-
-  if (loading && !hasLoadedOnceRef.current) {
-    return (
-      <div className="mx-auto w-full max-w-6xl rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-        Loading…
-      </div>
-    );
-  }
+  const showInitialShell = loading && !hasLoadedOnceRef.current;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-h-9">
-          {refreshing ? (
-            <div className="flex items-center gap-2 text-xs font-semibold text-zinc-500">
-              <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
-              Refreshing…
+    <div className={tab === "testing" ? "flex h-full flex-col" : ""}>
+      <div className={classNames(tab === "testing" ? "flex h-full w-full flex-1 flex-col" : "mx-auto w-full max-w-6xl px-4 sm:px-6")}>
+        {isMobileApp || (tab !== "activity" && tab !== "testing") ? (
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div />
+            <div className="ml-auto flex items-start gap-3">
+              <div className="w-full sm:w-auto">
+                <SuggestedSetupModalLauncher serviceSlugs={["ai-receptionist"]} buttonLabel="Suggested setup" />
+              </div>
             </div>
-          ) : null}
-        </div>
-        <div className="ml-auto flex items-start gap-3">
-          <div className="w-full sm:w-auto">
-            <SuggestedSetupModalLauncher serviceSlugs={["ai-receptionist"]} buttonLabel="Suggested setup" />
           </div>
-        </div>
-      </div>
+        ) : null}
 
-      {note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
+        {!showInitialShell && note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
 
-      {!twilioConfigured ? (
-        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <div className="font-semibold">Connect Twilio to take calls</div>
-          <div className="mt-1 text-amber-900/80">
-            Add your Twilio details in your Profile to enable inbound calls.
-            <span className="ml-2">
-              <Link href={`${portalBase}/app/profile`} className="underline">
-                Open Profile
-              </Link>
-            </span>
+        {!showInitialShell && !twilioConfigured ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="font-semibold">Connect Twilio to take calls</div>
+            <div className="mt-1 text-amber-900/80">
+              Add your Twilio details in your Profile to enable inbound calls.
+              <span className="ml-2">
+                <Link href={`${portalBase}/app/profile`} className="underline">
+                  Open Profile
+                </Link>
+              </span>
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
       {tab === "settings" ? (
         <div className="mt-4">
@@ -1473,7 +1550,7 @@ export function PortalAiReceptionistClient() {
                     { value: "activity", label: "Activity" },
                     { value: "settings", label: "Settings" },
                     { value: "testing", label: "Testing" },
-                    { value: "missed-call-textback", label: "Missed call, text back" },
+                    { value: "missed-call-textback", label: "Missed call text back" },
                   ]}
                   className="w-57.5 max-w-[60vw]"
                   buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
@@ -1508,107 +1585,102 @@ export function PortalAiReceptionistClient() {
               </button>
             </div>
 
-            {settingsSubTab === "voice" ? (
+            {showInitialShell ? (
+              <PortalPageLoadingShell embedded sections={2} minHeightClassName="min-h-[26rem]" />
+            ) : settingsSubTab === "voice" ? (
               <>
-                {settings?.mode === "AI" ? (
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:col-span-2 mb-6">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-900">Generate with AI</div>
-                        <div className="mt-0.5 text-xs text-zinc-600">
-                          Automatically uses your Business Profile. Add context below if needed.
-                        </div>
+                <div className="mb-4 space-y-4">
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-zinc-900">{settings?.enabled ? "Enabled" : "Disabled"}</div>
+                        <div className="mt-0.5 text-xs text-zinc-600">Picks up inbound calls when enabled.</div>
                       </div>
-                      <button
-                        type="button"
-                        disabled={saving || !settings || generateBusy}
-                        onClick={() => void generateReceptionistCopy()}
-                        className={classNames(
-                          "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
-                          saving || !settings || generateBusy
-                            ? "bg-zinc-200 text-zinc-600"
-                            : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
-                        )}
-                      >
-                        <svg
-                          aria-hidden="true"
-                          viewBox="0 0 24 24"
-                          className="h-4 w-4"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
-                          <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
-                        </svg>
-                        <span>{generateBusy ? "Generating…" : "Generate"}</span>
-                      </button>
+                      <span className="relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center">
+                        <input
+                          type="checkbox"
+                          className="peer sr-only"
+                          checked={Boolean(settings?.enabled)}
+                          disabled={saving || savingEnabled || !settings}
+                          onChange={(e) => {
+                            if (!settings) return;
+                            const nextEnabled = e.target.checked;
+                            setSettings({ ...settings, enabled: nextEnabled });
+                            void saveEnabled(nextEnabled);
+                          }}
+                        />
+                        <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
+                        <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+                      </span>
                     </div>
 
-                    <div className="mt-3">
-                      <div className="text-xs font-semibold text-zinc-600">Additional context (optional)</div>
-                      <textarea
-                        className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        value={generateContext}
-                        onChange={(e) => setGenerateContext(e.target.value)}
-                        placeholder="Example: We answer calls for a boutique dental practice. If it's a new patient, ask what they're looking for and offer to book a consultation. Office hours are Mon-Fri 9-5."
+                    <div className="mt-4 max-w-sm">
+                      <div className="text-xs font-semibold text-zinc-600">Mode</div>
+                      <PortalListboxDropdown
+                        value={settings?.mode ?? "AI"}
+                        disabled={saving || !settings}
+                        onChange={(v) => settings && setSettings({ ...settings, mode: v })}
+                        options={[
+                          { value: "AI", label: "AI receptionist" },
+                          { value: "FORWARD", label: "Forward calls" },
+                        ]}
+                        className="mt-2 w-full"
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                       />
                     </div>
                   </div>
-                ) : null}
 
-                <div className="text-sm font-semibold text-zinc-900">Core</div>
-                <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-zinc-900">Enabled</div>
-                  <div className="mt-0.5 text-xs text-zinc-600">Turns on AI Receptionist for inbound calls.</div>
+                  {settings?.mode === "AI" ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-900">Generate with AI</div>
+                          <div className="mt-0.5 text-xs text-zinc-600">
+                            Uses your Business Profile, including the custom business context blurb.
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={saving || !settings || generateBusy}
+                          onClick={() => void generateReceptionistCopy()}
+                          className={classNames(
+                            "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
+                            saving || !settings || generateBusy
+                              ? "bg-zinc-200 text-zinc-600"
+                              : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
+                          )}
+                        >
+                          <svg
+                            aria-hidden="true"
+                            viewBox="0 0 24 24"
+                            className="h-4 w-4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                            <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                          </svg>
+                          <span>{generateBusy ? "Generating…" : "Generate"}</span>
+                        </button>
+                      </div>
+
+                      <div className="mt-3">
+                        <div className="text-xs font-semibold text-zinc-600">Additional context (optional)</div>
+                        <textarea
+                          className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          value={generateContext}
+                          onChange={(e) => setGenerateContext(e.target.value)}
+                          placeholder="Example: We answer calls for a boutique dental practice. If it's a new patient, ask what they're looking for and offer to book a consultation. Office hours are Mon-Fri 9-5."
+                        />
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-                <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
-                  <input
-                    type="checkbox"
-                    className="peer sr-only"
-                    checked={Boolean(settings?.enabled)}
-                    disabled={saving || savingEnabled || !settings}
-                    onChange={(e) => {
-                      if (!settings) return;
-                      const nextEnabled = e.target.checked;
-                      setSettings({ ...settings, enabled: nextEnabled });
-                      void saveEnabled(nextEnabled);
-                    }}
-                  />
-                  <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
-                  <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
-                </span>
-              </label>
 
-              <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
-                <div className="text-xs font-semibold text-zinc-600">Mode</div>
-                <PortalListboxDropdown
-                  value={settings?.mode ?? "AI"}
-                  disabled={saving || !settings}
-                  onChange={(v) => settings && setSettings({ ...settings, mode: v })}
-                  options={[
-                    { value: "AI", label: "AI receptionist" },
-                    { value: "FORWARD", label: "Forward calls" },
-                  ]}
-                  className="mt-2 w-full"
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                />
-              </label>
-
-              <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
-                <div className="text-xs font-semibold text-zinc-600">Business name</div>
-                <input
-                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings?.businessName ?? ""}
-                  onChange={(e) => settings && setSettings({ ...settings, businessName: e.target.value })}
-                  placeholder="Purely Automation"
-                />
-              </label>
-
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-xs font-semibold text-zinc-600">Greeting</div>
@@ -1683,6 +1755,114 @@ export function PortalAiReceptionistClient() {
                 />
                 <div className="mt-2 text-xs text-zinc-600">This guides how your receptionist responds.</div>
               </label>
+
+              <div className="grid grid-cols-1 gap-4 sm:col-span-2 xl:grid-cols-2">
+                <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                  <div className="text-xs font-semibold text-zinc-600">Always answer these tags (optional)</div>
+                  <PortalListboxDropdown
+                    value={voiceIncludeAddTagValue}
+                    options={buildAddTagOptionsFromTags(contactTags, settings?.voiceIncludeTagIds ?? [], "", true) as any}
+                    onChange={(v) => {
+                      const id = String(v || "");
+                      if (!id) {
+                        setVoiceIncludeAddTagValue("");
+                        return;
+                      }
+                      if (id === NEW_TAG_OPTION_VALUE) {
+                        setCreateTagTarget("voiceInclude");
+                        setCreateTagOpen(true);
+                        setVoiceIncludeAddTagValue(EMPTY_TAG_OPTION_VALUE);
+                        return;
+                      }
+                      if (!settings) return;
+                      const next = new Set(settings.voiceIncludeTagIds || []);
+                      next.add(id);
+                      setVoiceIncludeAddTagValue("");
+                      setSettings({ ...settings, voiceIncludeTagIds: Array.from(next).slice(0, 60) });
+                    }}
+                    disabled={!settings || saving}
+                    placeholder="Add tag"
+                    className="mt-3 w-full"
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                  />
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {(settings?.voiceIncludeTagIds ?? []).length ? (
+                      (settings?.voiceIncludeTagIds ?? []).map((id) => {
+                        const t = contactTags.find((x) => x.id === id);
+                        const label = t?.name ? t.name : id;
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
+                            onClick={() => {
+                              if (!settings) return;
+                              setSettings({ ...settings, voiceIncludeTagIds: (settings.voiceIncludeTagIds || []).filter((x) => x !== id) });
+                            }}
+                          >
+                            {label} <span className="ml-1 text-zinc-500">×</span>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="text-xs text-zinc-500">Leave empty to answer all callers by default.</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                  <div className="text-xs font-semibold text-zinc-600">Never answer these tags (optional)</div>
+                  <PortalListboxDropdown
+                    value={voiceExcludeAddTagValue}
+                    options={buildAddTagOptionsFromTags(contactTags, settings?.voiceExcludeTagIds ?? [], "", true) as any}
+                    onChange={(v) => {
+                      const id = String(v || "");
+                      if (!id) {
+                        setVoiceExcludeAddTagValue("");
+                        return;
+                      }
+                      if (id === NEW_TAG_OPTION_VALUE) {
+                        setCreateTagTarget("voiceExclude");
+                        setCreateTagOpen(true);
+                        setVoiceExcludeAddTagValue(EMPTY_TAG_OPTION_VALUE);
+                        return;
+                      }
+                      if (!settings) return;
+                      const next = new Set(settings.voiceExcludeTagIds || []);
+                      next.add(id);
+                      setVoiceExcludeAddTagValue("");
+                      setSettings({ ...settings, voiceExcludeTagIds: Array.from(next).slice(0, 60) });
+                    }}
+                    disabled={!settings || saving}
+                    placeholder="Add tag"
+                    className="mt-3 w-full"
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                  />
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {(settings?.voiceExcludeTagIds ?? []).length ? (
+                      (settings?.voiceExcludeTagIds ?? []).map((id) => {
+                        const t = contactTags.find((x) => x.id === id);
+                        const label = t?.name ? t.name : id;
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
+                            onClick={() => {
+                              if (!settings) return;
+                              setSettings({ ...settings, voiceExcludeTagIds: (settings.voiceExcludeTagIds || []).filter((x) => x !== id) });
+                            }}
+                          >
+                            {label} <span className="ml-1 text-zinc-500">×</span>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="text-xs text-zinc-500">Exclude rules win over include rules.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1799,7 +1979,7 @@ export function PortalAiReceptionistClient() {
                       "rounded-xl px-3 py-2 text-xs font-semibold",
                       saving || savingEnabled || !settings || voiceKnowledgeBaseSyncBusy
                         ? "bg-zinc-200 text-zinc-600"
-                        : "bg-(--color-brand-blue) text-white hover:opacity-95",
+                        : "bg-sky-50 text-(--color-brand-blue) hover:bg-sky-100",
                     )}
                   >
                     {voiceKnowledgeBaseSyncBusy ? "Syncing…" : "Sync knowledge base"}
@@ -2004,7 +2184,29 @@ export function PortalAiReceptionistClient() {
               </>
             ) : (
               <>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 mb-6">
+                <div className="mb-6 grid grid-cols-1 gap-4">
+                  <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-zinc-900">Enable inbound SMS replies</div>
+                      <div className="mt-0.5 text-xs text-zinc-600">
+                        When enabled, inbound texts to your Twilio number can get an AI reply.
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-600">SMS activity will show up in your Inbox/Outbox.</div>
+                    </div>
+                    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                      <input
+                        type="checkbox"
+                        className="peer sr-only"
+                        checked={Boolean(settings?.smsEnabled)}
+                        disabled={saving || savingEnabled || !settings}
+                        onChange={(e) => settings && setSettings({ ...settings, smsEnabled: e.target.checked })}
+                      />
+                      <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
+                      <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+                    </span>
+                  </label>
+
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div>
                       <div className="text-sm font-semibold text-zinc-900">Generate SMS prompt with AI</div>
@@ -2050,30 +2252,10 @@ export function PortalAiReceptionistClient() {
                     />
                   </div>
                 </div>
+                </div>
 
                 <div className="text-sm font-semibold text-zinc-900">Inbound SMS auto-replies (optional)</div>
                 <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-zinc-900">Enable inbound SMS replies</div>
-                      <div className="mt-0.5 text-xs text-zinc-600">
-                        When enabled, inbound texts to your Twilio number can get an AI reply.
-                      </div>
-                      <div className="mt-1 text-xs text-zinc-600">SMS activity will show up in your Inbox/Outbox.</div>
-                    </div>
-                    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
-                      <input
-                        type="checkbox"
-                        className="peer sr-only"
-                        checked={Boolean(settings?.smsEnabled)}
-                        disabled={saving || savingEnabled || !settings}
-                        onChange={(e) => settings && setSettings({ ...settings, smsEnabled: e.target.checked })}
-                      />
-                      <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
-                      <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
-                    </span>
-                  </label>
-
                   <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
                     <div className="min-w-0">
                       <div className="flex items-center justify-between gap-3">
@@ -2139,7 +2321,7 @@ export function PortalAiReceptionistClient() {
                           "rounded-xl px-3 py-2 text-xs font-semibold",
                           saving || savingEnabled || !settings || smsKnowledgeBaseSyncBusy
                             ? "bg-zinc-200 text-zinc-600"
-                            : "bg-(--color-brand-blue) text-white hover:opacity-95",
+                            : "bg-sky-50 text-(--color-brand-blue) hover:bg-sky-100",
                         )}
                       >
                         {smsKnowledgeBaseSyncBusy ? "Syncing…" : "Sync knowledge base"}
@@ -2280,48 +2462,22 @@ export function PortalAiReceptionistClient() {
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
-                    <div className="text-xs font-semibold text-zinc-600">Only reply to contacts with these tags (optional)</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {(settings?.smsIncludeTagIds ?? []).length ? (
-                        (settings?.smsIncludeTagIds ?? []).map((id) => {
-                          const t = contactTags.find((x) => x.id === id);
-                          const label = t?.name ? t.name : id;
-                          return (
-                            <button
-                              key={id}
-                              type="button"
-                              className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
-                              title="Remove"
-                              onClick={() => {
-                                if (!settings) return;
-                                const next = (settings.smsIncludeTagIds || []).filter((x) => x !== id);
-                                setSettings({ ...settings, smsIncludeTagIds: next });
-                              }}
-                            >
-                              {label} <span className="ml-1 text-zinc-500">×</span>
-                            </button>
-                          );
-                        })
-                      ) : (
-                        <div className="text-xs text-zinc-500">No include tags</div>
-                      )}
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <input
-                        value={smsIncludeTagSearch}
-                        onChange={(e) => setSmsIncludeTagSearch(e.target.value)}
-                        placeholder="Search tags…"
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      />
+                  <div className="grid grid-cols-1 gap-4 sm:col-span-2 xl:grid-cols-2">
+                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                      <div className="text-xs font-semibold text-zinc-600">Always reply to contacts with these tags (optional)</div>
                       <PortalListboxDropdown
                         value={smsIncludeAddTagValue}
-                        options={buildAddTagOptionsFromTags(contactTags, settings?.smsIncludeTagIds ?? [], smsIncludeTagSearch) as any}
+                        options={buildAddTagOptionsFromTags(contactTags, settings?.smsIncludeTagIds ?? [], "", true) as any}
                         onChange={(v) => {
                           const id = String(v || "");
                           if (!id) {
                             setSmsIncludeAddTagValue("");
+                            return;
+                          }
+                          if (id === NEW_TAG_OPTION_VALUE) {
+                            setCreateTagTarget("smsInclude");
+                            setCreateTagOpen(true);
+                            setSmsIncludeAddTagValue(EMPTY_TAG_OPTION_VALUE);
                             return;
                           }
                           if (!settings) return;
@@ -2331,55 +2487,52 @@ export function PortalAiReceptionistClient() {
                           setSettings({ ...settings, smsIncludeTagIds: Array.from(next).slice(0, 60) });
                         }}
                         disabled={!settings || saving}
-                        className="w-full"
+                        placeholder="Select tags"
+                        className="mt-3 w-full"
                         buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
                       />
-                    </div>
-                    <div className="mt-2 text-xs text-zinc-600">If you leave this empty, we’ll reply to any contact (unless excluded below).</div>
-                  </div>
-
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
-                    <div className="text-xs font-semibold text-zinc-600">Never reply to contacts with these tags (optional)</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {(settings?.smsExcludeTagIds ?? []).length ? (
-                        (settings?.smsExcludeTagIds ?? []).map((id) => {
-                          const t = contactTags.find((x) => x.id === id);
-                          const label = t?.name ? t.name : id;
-                          return (
-                            <button
-                              key={id}
-                              type="button"
-                              className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
-                              title="Remove"
-                              onClick={() => {
-                                if (!settings) return;
-                                const next = (settings.smsExcludeTagIds || []).filter((x) => x !== id);
-                                setSettings({ ...settings, smsExcludeTagIds: next });
-                              }}
-                            >
-                              {label} <span className="ml-1 text-zinc-500">×</span>
-                            </button>
-                          );
-                        })
-                      ) : (
-                        <div className="text-xs text-zinc-500">No exclude tags</div>
-                      )}
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {(settings?.smsIncludeTagIds ?? []).length ? (
+                          (settings?.smsIncludeTagIds ?? []).map((id) => {
+                            const t = contactTags.find((x) => x.id === id);
+                            const label = t?.name ? t.name : id;
+                            return (
+                              <button
+                                key={id}
+                                type="button"
+                                className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
+                                title="Remove"
+                                onClick={() => {
+                                  if (!settings) return;
+                                  const next = (settings.smsIncludeTagIds || []).filter((x) => x !== id);
+                                  setSettings({ ...settings, smsIncludeTagIds: next });
+                                }}
+                              >
+                                {label} <span className="ml-1 text-zinc-500">×</span>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="text-xs text-zinc-500">No tag rules here means replies go to everyone.</div>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <input
-                        value={smsExcludeTagSearch}
-                        onChange={(e) => setSmsExcludeTagSearch(e.target.value)}
-                        placeholder="Search tags…"
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      />
+                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                      <div className="text-xs font-semibold text-zinc-600">Never reply to contacts with these tags (optional)</div>
                       <PortalListboxDropdown
                         value={smsExcludeAddTagValue}
-                        options={buildAddTagOptionsFromTags(contactTags, settings?.smsExcludeTagIds ?? [], smsExcludeTagSearch) as any}
+                        options={buildAddTagOptionsFromTags(contactTags, settings?.smsExcludeTagIds ?? [], "", true) as any}
                         onChange={(v) => {
                           const id = String(v || "");
                           if (!id) {
                             setSmsExcludeAddTagValue("");
+                            return;
+                          }
+                          if (id === NEW_TAG_OPTION_VALUE) {
+                            setCreateTagTarget("smsExclude");
+                            setCreateTagOpen(true);
+                            setSmsExcludeAddTagValue(EMPTY_TAG_OPTION_VALUE);
                             return;
                           }
                           if (!settings) return;
@@ -2389,11 +2542,36 @@ export function PortalAiReceptionistClient() {
                           setSettings({ ...settings, smsExcludeTagIds: Array.from(next).slice(0, 60) });
                         }}
                         disabled={!settings || saving}
-                        className="w-full"
+                        placeholder="Select tags"
+                        className="mt-3 w-full"
                         buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
                       />
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {(settings?.smsExcludeTagIds ?? []).length ? (
+                          (settings?.smsExcludeTagIds ?? []).map((id) => {
+                            const t = contactTags.find((x) => x.id === id);
+                            const label = t?.name ? t.name : id;
+                            return (
+                              <button
+                                key={id}
+                                type="button"
+                                className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
+                                title="Remove"
+                                onClick={() => {
+                                  if (!settings) return;
+                                  const next = (settings.smsExcludeTagIds || []).filter((x) => x !== id);
+                                  setSettings({ ...settings, smsExcludeTagIds: next });
+                                }}
+                              >
+                                {label} <span className="ml-1 text-zinc-500">×</span>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="text-xs text-zinc-500">Exclude rules win over include rules.</div>
+                        )}
+                      </div>
                     </div>
-                    <div className="mt-2 text-xs text-zinc-600">Exclude rules win over include rules.</div>
                   </div>
                 </div>
 
@@ -2421,30 +2599,24 @@ export function PortalAiReceptionistClient() {
               </>
             )}
 
-            <div className="mt-6 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50 disabled:opacity-60"
-                disabled={saving}
-                onClick={() => void load()}
-              >
-                Reload
-              </button>
-              <button
-                type="button"
-                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
-                disabled={saving || !settings || !canSave || !isDirty}
-                onClick={() => settings && void (settingsSubTab === "sms" ? saveSms(settings) : save(settings))}
-              >
-                {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
-              </button>
-            </div>
+            {!showInitialShell ? (
+              <div className="mt-6 flex items-center justify-start gap-2">
+                <button
+                  type="button"
+                  className="rounded-2xl bg-sky-100 px-4 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-sky-200 disabled:opacity-60"
+                  disabled={saving || !settings || !canSave || !isDirty}
+                  onClick={() => settings && void (settingsSubTab === "sms" ? saveSms(settings) : save(settings))}
+                >
+                  {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
 
       {tab === "testing" ? (
-        <div className="mt-4">
+        <div className={classNames("flex min-h-0 flex-1 flex-col", testingCallActive ? "bg-emerald-50" : "bg-white")}>
           <div className="flex items-center justify-end gap-3">
             {isMobileApp ? (
               <PortalSelectDropdown
@@ -2454,7 +2626,7 @@ export function PortalAiReceptionistClient() {
                   { value: "activity", label: "Activity" },
                   { value: "settings", label: "Settings" },
                   { value: "testing", label: "Testing" },
-                  { value: "missed-call-textback", label: "Missed call, text back" },
+                  { value: "missed-call-textback", label: "Missed call text back" },
                 ]}
                 className="w-57.5 max-w-[60vw]"
                 buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
@@ -2462,17 +2634,29 @@ export function PortalAiReceptionistClient() {
             ) : null}
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)]">
-            <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <div className="flex min-h-168 flex-col">
-                <div className="text-sm font-semibold text-zinc-900">Test calls</div>
-                <div className="mt-3 min-h-0 flex-1 overflow-hidden">
-                  <InlineElevenLabsAgentTester agentId={settings?.voiceAgentId} />
-                </div>
-              </div>
+          <div
+            className={classNames(
+              "grid min-h-0 flex-1 grid-cols-1",
+              isMobileApp ? "mt-4 gap-4" : "mt-0 xl:grid-cols-[minmax(0,30rem)_minmax(0,1fr)] xl:gap-0",
+            )}
+          >
+            <div
+              className={classNames(
+                isMobileApp
+                  ? "rounded-3xl border border-zinc-200 p-5 shadow-sm"
+                  : "min-h-0 border-b border-zinc-200 px-6 py-6 xl:border-b-0 xl:border-r xl:px-8",
+                testingCallActive ? "bg-emerald-50" : "bg-white",
+              )}
+            >
+              <InlineElevenLabsAgentTester
+                agentId={settings?.voiceAgentId}
+                participantLabel="Receptionist"
+                onCallActiveChange={setTestingCallActive}
+                className="flex h-full min-h-168 flex-col"
+              />
             </div>
 
-            <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className={classNames(isMobileApp ? "rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm" : "min-h-0 bg-white px-6 py-6 xl:px-8")}>
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Messaging</div>
@@ -2481,14 +2665,24 @@ export function PortalAiReceptionistClient() {
                 <button
                   type="button"
                   className={classNames(
-                    "rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-xs font-semibold text-white transition-opacity duration-150 hover:opacity-95",
+                    "rounded-2xl bg-brand-blue/12 px-4 py-2 text-xs font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-brand-blue/18",
                     smsTestBusy ? "opacity-60" : "",
                   )}
-                  disabled={smsTestBusy || !smsTestInbound.trim()}
+                  disabled={!smsTestBusy && !smsTestInbound.trim()}
                   onClick={async () => {
-                    if (smsTestBusy) return;
+                    if (smsTestBusy) {
+                      try {
+                        smsTestAbortRef.current?.abort();
+                      } catch {
+                        // ignore
+                      }
+                      return;
+                    }
                     const inbound = smsTestInbound.trim();
                     if (!inbound) return;
+
+                    const abortController = new AbortController();
+                    smsTestAbortRef.current = abortController;
 
                     setSmsTestBusy(true);
                     setSmsTestWouldReply(null);
@@ -2498,9 +2692,14 @@ export function PortalAiReceptionistClient() {
                     try {
                       const res = await fetch("/api/portal/ai-receptionist/preview-sms-reply", {
                         method: "POST",
-                        headers: { "content-type": "application/json" },
+                        headers: { "content-type": "application/json", ...variantHeaders },
                         body: JSON.stringify({ inbound, contactTagIds: smsTestTagIds }),
+                        signal: abortController.signal,
                       }).catch(() => null as any);
+
+                      if (abortController.signal.aborted) {
+                        return;
+                      }
 
                       const json = (await res?.json?.().catch(() => null)) as any;
                       if (!res || !res.ok || !json || json.ok !== true) {
@@ -2511,13 +2710,19 @@ export function PortalAiReceptionistClient() {
                       setSmsTestReason(typeof json.reason === "string" ? json.reason : null);
                       setSmsTestReply(typeof json.reply === "string" ? json.reply : "");
                     } catch (e) {
+                      if (abortController.signal.aborted) {
+                        return;
+                      }
                       toast.error(e instanceof Error ? e.message : "Unable to preview reply");
                     } finally {
+                      if (smsTestAbortRef.current === abortController) {
+                        smsTestAbortRef.current = null;
+                      }
                       setSmsTestBusy(false);
                     }
                   }}
                 >
-                  {smsTestBusy ? "Generating…" : "Preview reply"}
+                  {smsTestBusy ? "Cancel preview" : "Preview reply"}
                 </button>
               </div>
 
@@ -2555,16 +2760,10 @@ export function PortalAiReceptionistClient() {
                   )}
                 </div>
 
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <input
-                    value={smsTestTagSearch}
-                    onChange={(e) => setSmsTestTagSearch(e.target.value)}
-                    placeholder="Search tags…"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  />
+                <div className="mt-3">
                   <PortalListboxDropdown
                     value={smsTestAddTagValue}
-                    options={buildAddTagOptionsFromTags(contactTags, smsTestTagIds, smsTestTagSearch) as any}
+                    options={buildAddTagOptionsFromTags(contactTags, smsTestTagIds, "") as any}
                     onChange={(v) => {
                       const id = String(v || "");
                       if (!id) {
@@ -2607,7 +2806,7 @@ export function PortalAiReceptionistClient() {
         <div className={isMobileApp ? "mt-4 rounded-3xl border border-zinc-200 bg-white p-6" : "mt-4"}>
           {isMobileApp ? (
             <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-zinc-900">Missed call, text back</div>
+              <div className="text-sm font-semibold text-zinc-900">Missed call text back</div>
               <PortalSelectDropdown
                 value={tab}
                 onChange={(v) => setTabWithUrl(v as any)}
@@ -2615,7 +2814,7 @@ export function PortalAiReceptionistClient() {
                   { value: "activity", label: "Activity" },
                   { value: "settings", label: "Settings" },
                   { value: "testing", label: "Testing" },
-                  { value: "missed-call-textback", label: "Missed call, text back" },
+                  { value: "missed-call-textback", label: "Missed call text back" },
                 ]}
                 className="w-57.5 max-w-[60vw]"
                 buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
@@ -2626,8 +2825,8 @@ export function PortalAiReceptionistClient() {
         </div>
       ) : null}
 
-      {tab === "activity" ? (
-        <div className="mt-4">
+        {tab === "activity" ? (
+          <div className={isMobileApp ? "mt-4 min-h-full bg-white p-6" : "mt-0 min-h-full bg-white px-6 pb-6 pt-1"}>
           <div className="flex items-center justify-end gap-3">
             {isMobileApp ? (
               <PortalSelectDropdown
@@ -2637,7 +2836,7 @@ export function PortalAiReceptionistClient() {
                   { value: "activity", label: "Activity" },
                   { value: "settings", label: "Settings" },
                   { value: "testing", label: "Testing" },
-                  { value: "missed-call-textback", label: "Missed call, text back" },
+                  { value: "missed-call-textback", label: "Missed call text back" },
                 ]}
                 className="w-57.5 max-w-[60vw]"
                 buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
@@ -2650,12 +2849,47 @@ export function PortalAiReceptionistClient() {
               No calls yet.
             </div>
           ) : (
-            <div className="mt-4">
+            <div className={isMobileApp ? "mt-4" : "mt-0"}>
               <CallDetailsContent call={selectedCall} variant={isMobileApp ? "mobile" : "desktop"} />
             </div>
           )}
-        </div>
-      ) : null}
+          </div>
+        ) : null}
+        <PortalContactDetailsModal
+          open={contactDetailsOpen}
+          contactId={contactDetailsContactId}
+          onClose={() => {
+            setContactDetailsOpen(false);
+            setContactDetailsContactId(null);
+          }}
+          onContactUpdated={(next) => {
+            const stableContactId = String(contactDetailsContactId || "").trim();
+            if (!stableContactId) return;
+            updateEventContact(stableContactId, next);
+          }}
+          zIndex={130160}
+        />
+        <CreateContactTagDialog
+          open={createTagOpen}
+          onClose={() => {
+            setCreateTagOpen(false);
+            setCreateTagTarget(null);
+          }}
+          onCreate={async (name, color) => {
+            const res = await fetch("/api/portal/contact-tags", {
+              method: "POST",
+              headers: { "content-type": "application/json", ...variantHeaders },
+              body: JSON.stringify({ name, color }),
+            }).catch(() => null as any);
+
+            const json = (await res?.json().catch(() => null)) as any;
+            if (!res?.ok || !json?.ok || !json?.tag?.id) {
+              throw new Error(String(json?.error || "Failed to create tag."));
+            }
+            return json.tag as CreateContactTagResult;
+          }}
+          onCreated={handleCreatedContactTag}
+        />
 
       {confirmDeleteEvent ? (
         <div
@@ -2696,6 +2930,8 @@ export function PortalAiReceptionistClient() {
           </div>
         </div>
       ) : null}
+
+      </div>
     </div>
   );
 }

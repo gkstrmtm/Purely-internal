@@ -2,9 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
+import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { parseAiOutboundBookingConfig } from "@/lib/aiOutboundBooking";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
+import { ensureAiOutboundCallCampaignVoiceAgent } from "@/lib/portalAiOutboundCallVoiceAgent";
 import { normalizeToolIdList, normalizeToolKeyList, parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 
 export const runtime = "nodejs";
@@ -32,6 +35,14 @@ const callOutcomeTaggingPatchSchema = z
     onCompletedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
     onFailedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
     onSkippedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+    rules: z.array(z.object({
+      id: z.string().trim().min(1).max(120),
+      label: z.string().trim().min(1).max(80),
+      outcome: z.enum(["any", "completed", "failed", "skipped"]),
+      matchType: z.enum(["any", "contains"]),
+      matchText: z.string().trim().max(240).optional(),
+      tagIds: z.array(z.string().trim().min(1).max(120)).max(50),
+    }).strict()).max(25).optional(),
   })
   .strict();
 
@@ -41,6 +52,14 @@ const messageOutcomeTaggingPatchSchema = z
     onSentTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
     onFailedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
     onSkippedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+    rules: z.array(z.object({
+      id: z.string().trim().min(1).max(120),
+      label: z.string().trim().min(1).max(80),
+      outcome: z.enum(["any", "sent", "failed", "skipped"]),
+      matchType: z.enum(["any", "contains"]),
+      matchText: z.string().trim().max(240).optional(),
+      tagIds: z.array(z.string().trim().min(1).max(120)).max(50),
+    }).strict()).max(25).optional(),
   })
   .strict();
 
@@ -81,11 +100,43 @@ const patchSchema = z
     chatAgentConfig: voiceAgentConfigPatchSchema.optional(),
     callOutcomeTagging: callOutcomeTaggingPatchSchema.optional(),
     messageOutcomeTagging: messageOutcomeTaggingPatchSchema.optional(),
+    bookingConfig: z
+      .object({
+        enabled: z.boolean().optional(),
+        calendarId: z.string().trim().max(120).optional().nullable(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
 function safeRecord(raw: unknown): Record<string, unknown> {
   return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function normalizeOutcomeRules<T extends string>(raw: unknown, allowedOutcomes: readonly T[]) {
+  const allowed = new Set<string>(allowedOutcomes);
+  const arr = Array.isArray(raw) ? raw : [];
+  const seen = new Set<string>();
+  const out: Array<{ id: string; label: string; outcome: T; matchType: "any" | "contains"; matchText: string; tagIds: string[] }> = [];
+  for (const item of arr) {
+    const rec = safeRecord(item);
+    const id = String(rec.id || "").trim().slice(0, 120);
+    const outcome = String(rec.outcome || "").trim().toLowerCase();
+    if (!id || !allowed.has(outcome)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      label: String(rec.label || "").trim().slice(0, 80) || `${outcome} rule`,
+      outcome: outcome as T,
+      matchType: String(rec.matchType || "contains").trim().toLowerCase() === "any" ? "any" : "contains",
+      matchText: String(rec.matchText || "").trim().slice(0, 240),
+      tagIds: normalizeTagIdList(rec.tagIds),
+    });
+    if (out.length >= 25) break;
+  }
+  return out;
 }
 
 function parseCallOutcomeTagging(raw: unknown) {
@@ -95,6 +146,7 @@ function parseCallOutcomeTagging(raw: unknown) {
     onCompletedTagIds: normalizeTagIdList(rec.onCompletedTagIds),
     onFailedTagIds: normalizeTagIdList(rec.onFailedTagIds),
     onSkippedTagIds: normalizeTagIdList(rec.onSkippedTagIds),
+    rules: normalizeOutcomeRules(rec.rules, ["any", "completed", "failed", "skipped"] as const),
   };
 }
 
@@ -105,6 +157,7 @@ function parseMessageOutcomeTagging(raw: unknown) {
     onSentTagIds: normalizeTagIdList(rec.onSentTagIds),
     onFailedTagIds: normalizeTagIdList(rec.onFailedTagIds),
     onSkippedTagIds: normalizeTagIdList(rec.onSkippedTagIds),
+    rules: normalizeOutcomeRules(rec.rules, ["any", "sent", "failed", "skipped"] as const),
   };
 }
 
@@ -127,6 +180,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
 
   await ensurePortalAiOutboundCallsSchema();
 
+  const hasBookingConfigJson = await dbHasPublicColumn({
+    tableNames: ["PortalAiOutboundCallCampaign", "portalaioutboundcallcampaign"],
+    columnName: "bookingConfigJson",
+  }).catch(() => false);
+
   const existing = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },
     select: {
@@ -138,7 +196,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
       voiceId: true,
       knowledgeBaseJson: true,
       chatKnowledgeBaseJson: true,
-    },
+      ...(hasBookingConfigJson ? { bookingConfigJson: true } : {}),
+    } as any,
   });
   if (!existing) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
@@ -272,6 +331,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
       ...(patch.onCompletedTagIds !== undefined ? { onCompletedTagIds: normalizeTagIdList(patch.onCompletedTagIds) } : {}),
       ...(patch.onFailedTagIds !== undefined ? { onFailedTagIds: normalizeTagIdList(patch.onFailedTagIds) } : {}),
       ...(patch.onSkippedTagIds !== undefined ? { onSkippedTagIds: normalizeTagIdList(patch.onSkippedTagIds) } : {}),
+      ...(patch.rules !== undefined ? { rules: normalizeOutcomeRules(patch.rules, ["completed", "failed", "skipped"] as const) } : {}),
     };
 
     data.callOutcomeTaggingJson = next as any;
@@ -287,14 +347,72 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
       ...(patch.onSentTagIds !== undefined ? { onSentTagIds: normalizeTagIdList(patch.onSentTagIds) } : {}),
       ...(patch.onFailedTagIds !== undefined ? { onFailedTagIds: normalizeTagIdList(patch.onFailedTagIds) } : {}),
       ...(patch.onSkippedTagIds !== undefined ? { onSkippedTagIds: normalizeTagIdList(patch.onSkippedTagIds) } : {}),
+      ...(patch.rules !== undefined ? { rules: normalizeOutcomeRules(patch.rules, ["sent", "failed", "skipped"] as const) } : {}),
     };
 
     data.messageOutcomeTaggingJson = next as any;
   }
 
+  if (parsed.data.bookingConfig !== undefined) {
+    if (hasBookingConfigJson) {
+      const base = parseAiOutboundBookingConfig((existing as any).bookingConfigJson);
+      const patch = parsed.data.bookingConfig;
+      data.bookingConfigJson = {
+        enabled: patch.enabled !== undefined ? Boolean(patch.enabled) : base.enabled,
+        calendarId: patch.calendarId !== undefined ? patch.calendarId?.trim() || null : base.calendarId || null,
+      } as any;
+    }
+  }
+
   await prisma.portalAiOutboundCallCampaign.update({
     where: { id: campaignId.data },
     data,
+    select: { id: true },
+  });
+
+  const shouldEnsureVoiceAgent =
+    parsed.data.status === "ACTIVE" ||
+    parsed.data.voiceAgentConfig !== undefined ||
+    parsed.data.voiceId !== undefined ||
+    parsed.data.knowledgeBase !== undefined;
+
+  if (shouldEnsureVoiceAgent) {
+    const ensured = await ensureAiOutboundCallCampaignVoiceAgent({ ownerId, campaignId: campaignId.data });
+    if (!ensured.ok) {
+      return NextResponse.json({ ok: false, error: ensured.error, partial: true }, { status: ensured.status || 400 });
+    }
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(_req: Request, ctx: { params: Promise<{ campaignId: string }> }) {
+  await ensurePortalAiOutboundCallsSchema();
+  const auth = await requireClientSessionForService("aiOutboundCalls", "edit");
+  if (!auth.ok) {
+    return NextResponse.json(
+      { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { status: auth.status },
+    );
+  }
+  const ownerId = auth.access.ownerId;
+
+  const params = await ctx.params;
+  const campaignId = idSchema.safeParse(params.campaignId);
+  if (!campaignId.success) {
+    return NextResponse.json({ ok: false, error: "Invalid campaign id" }, { status: 400 });
+  }
+
+  const existing = await prisma.portalAiOutboundCallCampaign.findFirst({
+    where: { id: campaignId.data, ownerId },
+    select: { id: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ ok: false, error: "Campaign not found" }, { status: 404 });
+  }
+
+  await prisma.portalAiOutboundCallCampaign.delete({
+    where: { id: campaignId.data },
     select: { id: true },
   });
 

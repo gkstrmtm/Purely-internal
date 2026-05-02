@@ -2,28 +2,22 @@ import type { Metadata } from "next";
 
 import { headers } from "next/headers";
 
+import { generateMetadata as generateDomainRouterMetadata } from "@/app/domain-router/[domain]/[[...path]]/page";
 import { MarketingLanding } from "@/components/marketing/MarketingLanding";
 import DomainRouterCatchallPage from "@/app/domain-router/[domain]/[[...path]]/page";
+import { PLATFORM_METADATA, hostnameFromHeader, isPlatformHostname } from "@/lib/customDomainMetadata";
 
-export const metadata: Metadata = {
-  title: "Purely Automation",
-  description: "Automation systems for businesses so you can focus on higher leverage tasks.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const h = await headers();
+  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
 
-function hostnameFromHeader(value: string | null): string | null {
-  if (!value) return null;
-  const first = value.split(",")[0]?.trim().toLowerCase() || "";
-  if (!first) return null;
-  return first.replace(/:\d+$/, "");
-}
+  if (!isPlatformHostname(host) && host) {
+    return generateDomainRouterMetadata({
+      params: Promise.resolve({ domain: encodeURIComponent(host), path: [] }),
+    });
+  }
 
-function isPlatformHostname(host: string | null): boolean {
-  const h = String(host || "").trim().toLowerCase();
-  if (!h) return true;
-  if (h === "localhost" || h === "127.0.0.1") return true;
-  if (h === "purelyautomation.com" || h.endsWith(".purelyautomation.com")) return true;
-  if (h.endsWith(".vercel.app")) return true;
-  return false;
+  return PLATFORM_METADATA;
 }
 
 export default async function Home({

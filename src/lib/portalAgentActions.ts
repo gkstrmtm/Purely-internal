@@ -75,6 +75,90 @@ function looksLikeHtml(raw: unknown): raw is string {
   return /<\s*\w+[\s>]/.test(s);
 }
 
+function pickTrimmedString(rec: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = rec[key];
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return undefined;
+}
+
+function coerceInt(raw: unknown): number | undefined {
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.trunc(raw);
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return undefined;
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed)) return Math.trunc(parsed);
+  }
+  return undefined;
+}
+
+function coerceDelayMinutes(raw: unknown): number | undefined {
+  const direct = coerceInt(raw);
+  if (typeof direct === "number") return direct;
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim().toLowerCase();
+  if (!value) return undefined;
+  if (value === "one day" || value === "one day later" || value === "1 day" || value === "1 day later") return 24 * 60;
+  if (value === "one hour" || value === "one hour later" || value === "1 hour" || value === "1 hour later") return 60;
+  const dayMatch = value.match(/^(\d+)\s+day(?:s)?(?:\s+later)?$/);
+  if (dayMatch?.[1]) return Number(dayMatch[1]) * 24 * 60;
+  const hourMatch = value.match(/^(\d+)\s+hour(?:s)?(?:\s+later)?$/);
+  if (hourMatch?.[1]) return Number(hourMatch[1]) * 60;
+  const minuteMatch = value.match(/^(\d+)\s+minute(?:s)?(?:\s+later)?$/);
+  if (minuteMatch?.[1]) return Number(minuteMatch[1]);
+  return undefined;
+}
+
+function normalizeDateLocalInput(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim();
+  if (!value) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  const lowered = value.toLowerCase();
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  if (lowered === "today") return today.toISOString().slice(0, 10);
+  if (lowered === "tomorrow") {
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+    return tomorrow.toISOString().slice(0, 10);
+  }
+
+  const parsed = new Date(value);
+  if (Number.isFinite(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+  return value;
+}
+
+function normalizeTimeLocalInput(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim().toLowerCase().replace(/\./g, "");
+  if (!value) return undefined;
+  if (/^\d{2}:\d{2}$/.test(value)) return value;
+  if (/^\d{1,2}:\d{2}$/.test(value)) {
+    const [hourText, minuteText] = value.split(":");
+    const hour = Number(hourText);
+    const minute = Number(minuteText);
+    if (Number.isFinite(hour) && Number.isFinite(minute) && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    }
+  }
+  if (value === "noon") return "12:00";
+  if (value === "midnight") return "00:00";
+  const match = value.match(/^(\d{1,2})(?::(\d{1,2}))?\s*(am|pm|a|p)$/);
+  if (!match) return value;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || "0");
+  const meridiem = match[3];
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute < 0 || minute > 59 || hour < 1 || hour > 12) return value;
+  hour = hour % 12;
+  if (meridiem === "pm" || meridiem === "p") hour += 12;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
 export const PortalAgentActionKeySchema = z.enum([
   "tasks.create",
   "tasks.create_for_all",
@@ -1263,22 +1347,39 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .passthrough(),
 
-  "blogs.posts.update": z
-    .object({
-      postId: z.string().trim().min(1).max(120),
-      title: z.string().trim().min(1).max(180),
-      slug: z.string().trim().min(1).max(120),
-      excerpt: z.string().max(6000),
-      content: z.string().max(200000),
-      seoKeywords: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
-      publishedAt: z
-        .string()
-        .datetime({ offset: true })
-        .nullable()
-        .optional(),
-      archived: z.boolean().optional(),
-    })
-    .passthrough(),
+  "blogs.posts.update": z.preprocess(
+    (raw) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+      const rec = raw as Record<string, unknown>;
+      const title = pickTrimmedString(rec, "title", "name", "postTitle");
+      const slug = pickTrimmedString(rec, "slug");
+      const excerpt = pickTrimmedString(rec, "excerpt", "summary", "description", "subtitle");
+      const content = pickTrimmedString(rec, "content", "body", "text", "markdown", "html");
+      return {
+        ...rec,
+        ...(title ? { title } : {}),
+        ...(slug ? { slug } : {}),
+        ...(excerpt ? { excerpt } : {}),
+        ...(content ? { content } : {}),
+      };
+    },
+    z
+      .object({
+        postId: z.string().trim().min(1).max(120),
+        title: z.string().trim().min(1).max(180).optional(),
+        slug: z.string().trim().min(1).max(120).optional(),
+        excerpt: z.string().max(6000).optional(),
+        content: z.string().max(200000).optional(),
+        seoKeywords: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+        publishedAt: z
+          .string()
+          .datetime({ offset: true })
+          .nullable()
+          .optional(),
+        archived: z.boolean().optional(),
+      })
+      .passthrough(),
+  ),
 
   "blogs.posts.delete": z
     .object({
@@ -2176,6 +2277,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       take: z.number().int().min(1).max(500).optional(),
       q: z.string().trim().max(200).optional(),
       kind: z.enum(["B2B", "B2C"]).optional(),
+      leadIds: z.array(z.string().trim().min(1).max(64)).max(100).optional(),
     })
     .passthrough(),
 
@@ -2543,8 +2645,18 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "reviews.reply": z
     .object({
-      reviewId: z.string().trim().min(1).max(120),
+      reviewId: z.string().trim().min(1).max(120).optional(),
+      reviewName: z.string().trim().min(1).max(160).optional(),
       reply: z.string().max(2000).optional().nullable(),
+      body: z.string().max(2000).optional().nullable(),
+      message: z.string().max(2000).optional().nullable(),
+      text: z.string().max(2000).optional().nullable(),
+      response: z.string().max(2000).optional().nullable(),
+      content: z.string().max(2000).optional().nullable(),
+    })
+    .refine((value) => Boolean(String(value.reviewId || "").trim() || String(value.reviewName || "").trim()), {
+      message: "reviewId or reviewName is required",
+      path: ["reviewId"],
     })
     .strict(),
 
@@ -2663,15 +2775,40 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .passthrough(),
 
-  "media.items.create_from_blob": z
-    .object({
-      url: z.string().trim().url().max(500),
-      fileName: z.string().trim().min(1).max(200),
-      mimeType: z.string().trim().min(1).max(120),
-      fileSize: z.number().int().nonnegative(),
-      folderId: z.string().trim().min(1).optional().nullable(),
-    })
-    .passthrough(),
+  "media.items.create_from_blob": z.preprocess(
+    (raw) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+      const rec = raw as Record<string, unknown>;
+      const url = pickTrimmedString(rec, "url", "blobUrl", "sourceUrl");
+      const fileName = pickTrimmedString(rec, "fileName", "filename", "name");
+      const mimeType = pickTrimmedString(rec, "mimeType", "contentType", "type");
+      const folderId = pickTrimmedString(rec, "folderId");
+      const folderName = pickTrimmedString(rec, "folderName");
+      const parentId = pickTrimmedString(rec, "parentId");
+      const fileSize = coerceInt((rec as any).fileSize ?? (rec as any).size ?? (rec as any).bytes);
+      return {
+        ...rec,
+        ...(url ? { url } : {}),
+        ...(fileName ? { fileName } : {}),
+        ...(mimeType ? { mimeType } : {}),
+        ...(typeof fileSize === "number" ? { fileSize } : {}),
+        ...(folderId ? { folderId } : {}),
+        ...(folderName ? { folderName } : {}),
+        ...(parentId ? { parentId } : {}),
+      };
+    },
+    z
+      .object({
+        url: z.string().trim().url().max(500),
+        fileName: z.string().trim().min(1).max(200).optional().nullable(),
+        mimeType: z.string().trim().min(1).max(120).optional().nullable(),
+        fileSize: z.number().int().nonnegative().optional().nullable(),
+        folderId: z.string().trim().min(1).optional().nullable(),
+        folderName: z.string().trim().min(1).max(120).optional().nullable(),
+        parentId: z.string().trim().min(1).optional().nullable(),
+      })
+      .passthrough(),
+  ),
 
   "media.import_remote_image": z
     .object({
@@ -2795,7 +2932,7 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .passthrough(),
 
-  "dashboard.analysis.get": z.object({}).strict(),
+  "dashboard.analysis.get": z.object({}).passthrough(),
 
   "dashboard.analysis.generate": z
     .object({
@@ -2868,17 +3005,34 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({})
     .strict(),
 
-  "booking.availability.set_daily": z
-    .object({
-      startDateLocal: z.string().trim().min(8).max(10),
-      endDateLocal: z.string().trim().min(8).max(10),
-      startTimeLocal: z.string().trim().min(4).max(5),
-      endTimeLocal: z.string().trim().min(4).max(5),
-      timeZone: z.string().trim().min(1).max(80).optional(),
-      isoWeekdays: z.array(z.number().int().min(1).max(7)).max(7).optional(),
-      replaceExisting: z.boolean().optional(),
-    })
-    .strict(),
+  "booking.availability.set_daily": z.preprocess(
+    (raw) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+      const rec = raw as Record<string, unknown>;
+      const startDateLocal = normalizeDateLocalInput((rec as any).startDateLocal ?? (rec as any).startDate ?? (rec as any).fromDate ?? (rec as any).date);
+      const endDateLocal = normalizeDateLocalInput((rec as any).endDateLocal ?? (rec as any).endDate ?? (rec as any).toDate ?? (rec as any).throughDate ?? (rec as any).date);
+      const startTimeLocal = normalizeTimeLocalInput((rec as any).startTimeLocal ?? (rec as any).startTime ?? (rec as any).fromTime ?? (rec as any).opensAt);
+      const endTimeLocal = normalizeTimeLocalInput((rec as any).endTimeLocal ?? (rec as any).endTime ?? (rec as any).toTime ?? (rec as any).closesAt);
+      return {
+        ...rec,
+        ...(startDateLocal ? { startDateLocal } : {}),
+        ...(endDateLocal ? { endDateLocal } : {}),
+        ...(startTimeLocal ? { startTimeLocal } : {}),
+        ...(endTimeLocal ? { endTimeLocal } : {}),
+      };
+    },
+    z
+      .object({
+        startDateLocal: z.string().trim().min(8).max(10),
+        endDateLocal: z.string().trim().min(8).max(10),
+        startTimeLocal: z.string().trim().min(5).max(5),
+        endTimeLocal: z.string().trim().min(5).max(5),
+        timeZone: z.string().trim().min(1).max(80).optional(),
+        isoWeekdays: z.array(z.number().int().min(1).max(7)).max(7).optional(),
+        replaceExisting: z.boolean().optional(),
+      })
+      .strict(),
+  ),
 
   "booking.calendars.update": z
     .union([
@@ -3214,36 +3368,70 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
-  "nurture.campaigns.steps.add": z
-    .object({
-      campaignId: z.string().trim().min(1).max(120),
-      kind: z.enum(["SMS", "EMAIL", "TAG"]).optional(),
-      delayMinutes: z.number().int().min(0).max(60 * 24 * 365).optional().nullable(),
-      subject: z.string().max(200).optional().nullable(),
-      body: z.string().max(8000).optional().nullable(),
-      step: z
-        .object({
-          kind: z.enum(["SMS", "EMAIL", "TAG"]).optional().nullable(),
-          delayMinutes: z.number().int().min(0).max(60 * 24 * 365).optional().nullable(),
-          subject: z.string().max(200).optional().nullable(),
-          body: z.string().max(8000).optional().nullable(),
-        })
-        .partial()
-        .optional()
-        .nullable(),
-    })
-    .passthrough(),
+  "nurture.campaigns.steps.add": z.preprocess(
+    (raw) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+      const rec = raw as Record<string, unknown>;
+      const step = isPlainObject(rec.step) ? { ...rec.step } : undefined;
+      const delayMinutes = coerceDelayMinutes((rec as any).delayMinutes ?? (rec as any).delay);
+      const nestedDelayMinutes = step ? coerceDelayMinutes((step as any).delayMinutes ?? (step as any).delay) : undefined;
+      return {
+        ...rec,
+        ...(typeof delayMinutes === "number" ? { delayMinutes } : {}),
+        ...(step
+          ? {
+              step: {
+                ...step,
+                ...(typeof nestedDelayMinutes === "number" ? { delayMinutes: nestedDelayMinutes } : {}),
+              },
+            }
+          : {}),
+      };
+    },
+    z
+      .object({
+        campaignId: z.string().trim().min(1).max(120),
+        kind: z.enum(["SMS", "EMAIL", "TAG"]).optional(),
+        delayMinutes: z.number().int().min(0).max(60 * 24 * 365).optional().nullable(),
+        subject: z.string().max(200).optional().nullable(),
+        body: z.string().max(8000).optional().nullable(),
+        step: z
+          .object({
+            kind: z.enum(["SMS", "EMAIL", "TAG"]).optional().nullable(),
+            delayMinutes: z.number().int().min(0).max(60 * 24 * 365).optional().nullable(),
+            subject: z.string().max(200).optional().nullable(),
+            body: z.string().max(8000).optional().nullable(),
+          })
+          .partial()
+          .optional()
+          .nullable(),
+      })
+      .passthrough(),
+  ),
 
-  "nurture.steps.update": z
-    .object({
-      stepId: z.string().trim().min(1).max(120),
-      ord: z.number().int().min(0).max(200).optional(),
-      kind: z.enum(["SMS", "EMAIL", "TAG"]).optional(),
-      delayMinutes: z.number().int().min(0).max(60 * 24 * 365).optional(),
-      subject: z.string().max(200).optional().nullable(),
-      body: z.string().min(1).max(8000).optional(),
-    })
-    .strict(),
+  "nurture.steps.update": z.preprocess(
+    (raw) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+      const rec = raw as Record<string, unknown>;
+      const ord = coerceInt((rec as any).ord ?? (rec as any).order);
+      const delayMinutes = coerceDelayMinutes((rec as any).delayMinutes ?? (rec as any).delay);
+      return {
+        ...rec,
+        ...(typeof ord === "number" ? { ord } : {}),
+        ...(typeof delayMinutes === "number" ? { delayMinutes } : {}),
+      };
+    },
+    z
+      .object({
+        stepId: z.string().trim().min(1).max(120),
+        ord: z.number().int().min(0).max(200).optional(),
+        kind: z.enum(["SMS", "EMAIL", "TAG"]).optional(),
+        delayMinutes: z.number().int().min(0).max(60 * 24 * 365).optional(),
+        subject: z.string().max(200).optional().nullable(),
+        body: z.string().min(1).max(8000).optional(),
+      })
+      .strict(),
+  ),
 
   "nurture.steps.delete": z
     .object({

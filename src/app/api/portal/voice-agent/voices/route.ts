@@ -56,19 +56,13 @@ export async function GET() {
   const ownerId = ((auth as any).access?.ownerId as string | undefined) || auth.session.user.id;
   const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
   if (!apiKey) {
-    return NextResponse.json(
-      { ok: false, error: "Missing voice agent API key. Set it in Profile first." },
-      { status: 400 },
-    );
+    return NextResponse.json({ ok: true, voices: [], apiKeyConfigured: false, error: "Missing voice agent API key. Set it in Profile first." });
   }
 
-  const result = await listElevenLabsVoices({ apiKey });
+  const result = await listElevenLabsVoices({ apiKey }).catch(() => ({ ok: false as const, status: 502 }));
   if (!result.ok) {
-    return NextResponse.json(
-      { ok: false, error: friendlyVoiceAgentError(result.status) },
-      { status: result.status || 502 },
-    );
+    return NextResponse.json({ ok: true, voices: [], apiKeyConfigured: true, error: friendlyVoiceAgentError(result.status) });
   }
 
-  return NextResponse.json({ ok: true, voices: result.voices });
+  return NextResponse.json({ ok: true, voices: result.voices, apiKeyConfigured: true });
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 
 import { useToast } from "@/components/ToastProvider";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
@@ -21,6 +22,7 @@ import {
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 import { NURTURE_TEMPLATES, type NurtureTemplate, type StepKind } from "@/lib/portalNurtureTemplates";
 
@@ -101,6 +103,9 @@ function toMinutes(value: number, unit: "minutes" | "hours" | "days" | "weeks" |
 
 export function PortalNurtureCampaignsClient() {
   const toast = useToast();
+  const pathname = usePathname() || "";
+  const portalVariant = useMemo(() => (pathname.startsWith("/credit") ? "credit" : "portal"), [pathname]);
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   const isMobileApp = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -120,7 +125,7 @@ export function PortalNurtureCampaignsClient() {
     let canceled = false;
     (async () => {
       try {
-        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store", headers: variantHeaders });
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
         const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
@@ -133,7 +138,7 @@ export function PortalNurtureCampaignsClient() {
     return () => {
       canceled = true;
     };
-  }, []);
+  }, [variantHeaders]);
 
   const varPickerVariables = useMemo(() => {
     const base: TemplateVariable[] = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_LINK_VARIABLES];
@@ -166,7 +171,7 @@ export function PortalNurtureCampaignsClient() {
       try {
         const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}/confirm-checkout`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify({ sessionId }),
         });
         const json = (await res.json().catch(() => ({}))) as any;
@@ -186,7 +191,7 @@ export function PortalNurtureCampaignsClient() {
     return () => {
       cancelled = true;
     };
-  }, [toast]);
+  }, [toast, variantHeaders]);
 
   const [loadingList, setLoadingList] = useState(false);
   const [campaigns, setCampaigns] = useState<CampaignListRow[]>([]);
@@ -222,6 +227,7 @@ export function PortalNurtureCampaignsClient() {
 
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
   const selectedTagIds = useMemo(() => new Set(detail?.audienceTagIds || []), [detail?.audienceTagIds]);
+  const hasCampaigns = campaigns.length > 0;
 
   const addTagOptions = useMemo(() => {
     const q = tagSearch.trim().toLowerCase();
@@ -241,7 +247,7 @@ export function PortalNurtureCampaignsClient() {
   const refreshList = useCallback(async (opts?: { keepSelected?: boolean }) => {
     setLoadingList(true);
     try {
-      const res = await fetch("/api/portal/nurture/campaigns", { cache: "no-store" });
+      const res = await fetch("/api/portal/nurture/campaigns", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as ListRes;
       if (!res.ok || !json.ok || !Array.isArray((json as any).campaigns)) {
         throw new Error(String((json as any).error || "Failed to load campaigns"));
@@ -260,12 +266,12 @@ export function PortalNurtureCampaignsClient() {
     } finally {
       setLoadingList(false);
     }
-  }, [selectedId, toast]);
+  }, [selectedId, toast, variantHeaders]);
 
   const refreshTags = useCallback(async () => {
     setLoadingTags(true);
     try {
-      const res = await fetch("/api/portal/contact-tags", { cache: "no-store" });
+      const res = await fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as TagsRes;
       if (!res.ok || !json.ok || !Array.isArray((json as any).tags)) {
         throw new Error(String((json as any).error || "Failed to load tags"));
@@ -280,12 +286,12 @@ export function PortalNurtureCampaignsClient() {
     } finally {
       setLoadingTags(false);
     }
-  }, []);
+  }, [variantHeaders]);
 
   const refreshDetail = useCallback(async (campaignId: string) => {
     setLoadingDetail(true);
     try {
-      const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}`, { cache: "no-store" });
+      const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}`, { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as DetailRes;
       if (!res.ok || !json.ok || !(json as any).campaign?.id) {
         throw new Error(String((json as any).error || "Failed to load campaign"));
@@ -299,7 +305,7 @@ export function PortalNurtureCampaignsClient() {
     } finally {
       setLoadingDetail(false);
     }
-  }, [toast]);
+  }, [toast, variantHeaders]);
 
   useEffect(() => {
     void refreshList();
@@ -319,7 +325,7 @@ export function PortalNurtureCampaignsClient() {
     try {
       const res = await fetch("/api/portal/nurture/campaigns", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({}),
       });
       const json = (await res.json().catch(() => ({}))) as any;
@@ -332,11 +338,11 @@ export function PortalNurtureCampaignsClient() {
     } catch (e: any) {
       toast.error(String(e?.message || "Failed to create campaign"));
     }
-  }, [refreshList, toast]);
+  }, [refreshList, toast, variantHeaders]);
 
   const deleteCampaignNow = useCallback(async (campaignId: string) => {
     try {
-      const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}`, { method: "DELETE" });
+      const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}`, { method: "DELETE", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to delete"));
       toast.success("Campaign deleted");
@@ -346,7 +352,7 @@ export function PortalNurtureCampaignsClient() {
     } catch (e: any) {
       toast.error(String(e?.message || "Failed to delete campaign"));
     }
-  }, [refreshList, toast]);
+  }, [refreshList, toast, variantHeaders]);
 
   const requestDeleteCampaign = useCallback(() => {
     if (!detail) return;
@@ -360,7 +366,7 @@ export function PortalNurtureCampaignsClient() {
     try {
       const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(detail.id)}`, {
         method: "PATCH",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({
           name: detail.name,
           status: detail.status,
@@ -386,7 +392,7 @@ export function PortalNurtureCampaignsClient() {
     } finally {
       setSavingCampaign(false);
     }
-  }, [detail, refreshDetail, refreshList, toast]);
+  }, [detail, refreshDetail, refreshList, toast, variantHeaders]);
 
   const addStep = useCallback(
     async (kind: StepKind) => {
@@ -394,7 +400,7 @@ export function PortalNurtureCampaignsClient() {
       try {
         const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(detail.id)}/steps`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify({ kind }),
         });
         const json = (await res.json().catch(() => ({}))) as any;
@@ -406,7 +412,7 @@ export function PortalNurtureCampaignsClient() {
         toast.error(String(e?.message || "Failed to add step"));
       }
     },
-    [detail, refreshDetail, refreshList, toast],
+    [detail, refreshDetail, refreshList, toast, variantHeaders],
   );
 
   const updateStep = useCallback(
@@ -419,7 +425,7 @@ export function PortalNurtureCampaignsClient() {
       try {
         const res = await fetch(`/api/portal/nurture/steps/${encodeURIComponent(stepId)}`, {
           method: "PATCH",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify(patch),
         });
         const json = (await res.json().catch(() => ({}))) as any;
@@ -431,14 +437,14 @@ export function PortalNurtureCampaignsClient() {
         toast.error(String(e?.message || "Failed to update step"));
       }
     },
-    [detail, refreshDetail, refreshList, toast],
+    [detail, refreshDetail, refreshList, toast, variantHeaders],
   );
 
   const deleteStepNow = useCallback(
     async (stepId: string) => {
       if (!detail) return;
       try {
-        const res = await fetch(`/api/portal/nurture/steps/${encodeURIComponent(stepId)}`, { method: "DELETE" });
+        const res = await fetch(`/api/portal/nurture/steps/${encodeURIComponent(stepId)}`, { method: "DELETE", headers: variantHeaders });
         const json = (await res.json().catch(() => ({}))) as any;
         if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to delete"));
         toast.success("Step deleted");
@@ -448,7 +454,7 @@ export function PortalNurtureCampaignsClient() {
         toast.error(String(e?.message || "Failed to delete step"));
       }
     },
-    [detail, refreshDetail, refreshList, toast],
+    [detail, refreshDetail, refreshList, toast, variantHeaders],
   );
 
   const requestDeleteStep = useCallback((stepId: string) => {
@@ -464,14 +470,14 @@ export function PortalNurtureCampaignsClient() {
 
         // Delete existing steps.
         for (const s of detail.steps.slice().sort((a, b) => a.ord - b.ord)) {
-          await fetch(`/api/portal/nurture/steps/${encodeURIComponent(s.id)}`, { method: "DELETE" });
+          await fetch(`/api/portal/nurture/steps/${encodeURIComponent(s.id)}`, { method: "DELETE", headers: variantHeaders });
         }
 
         // Create new steps then patch contents.
         for (const s of t.steps) {
           const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(campaignId)}/steps`, {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", ...variantHeaders },
             body: JSON.stringify({ kind: s.kind }),
           });
           const json = (await res.json().catch(() => ({}))) as any;
@@ -480,7 +486,7 @@ export function PortalNurtureCampaignsClient() {
 
           await fetch(`/api/portal/nurture/steps/${encodeURIComponent(stepId)}`, {
             method: "PATCH",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", ...variantHeaders },
             body: JSON.stringify({
               delayMinutes: s.delayMinutes,
               subject: s.kind === "EMAIL" ? String(s.subject || "Quick question") : null,
@@ -499,7 +505,7 @@ export function PortalNurtureCampaignsClient() {
         setTemplateBusy(false);
       }
     },
-    [detail, refreshDetail, refreshList, toast],
+    [detail, refreshDetail, refreshList, toast, variantHeaders],
   );
 
   const enroll = useCallback(
@@ -508,7 +514,7 @@ export function PortalNurtureCampaignsClient() {
       try {
         const res = await fetch(`/api/portal/nurture/campaigns/${encodeURIComponent(detail.id)}/enroll`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify({ dryRun, tagIds: detail.audienceTagIds }),
         });
         const json = (await res.json().catch(() => ({}))) as any;
@@ -520,7 +526,7 @@ export function PortalNurtureCampaignsClient() {
         toast.error(String(e?.message || "Enroll failed"));
       }
     },
-    [detail, refreshList, toast],
+    [detail, refreshList, toast, variantHeaders],
   );
 
   const selectedTags = useMemo(() => ownerTags.filter((t) => selectedTagIds.has(t.id)), [ownerTags, selectedTagIds]);
@@ -655,7 +661,7 @@ export function PortalNurtureCampaignsClient() {
                 {loadingList ? (
                   <div className="text-sm text-zinc-600">Loading…</div>
                 ) : campaigns.length === 0 ? (
-                  <div className="text-sm text-zinc-600">No campaigns yet. Create one to get started.</div>
+                  <div className="text-sm text-zinc-600">No campaigns yet.</div>
                 ) : (
                   <PortalListboxDropdown
                     value={selectedId ?? campaigns[0]?.id ?? ""}
@@ -672,7 +678,28 @@ export function PortalNurtureCampaignsClient() {
             </div>
           ) : null}
           {!selectedId ? (
-            <div className="text-sm text-zinc-600">Select a campaign to edit.</div>
+            hasCampaigns ? (
+              <div className="text-sm text-zinc-600">Select a campaign to edit.</div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-zinc-200 bg-zinc-50 px-5 py-10 text-center">
+                <div className="text-base font-semibold text-zinc-900">Create your first nurture campaign</div>
+                <div className="mt-2 mx-auto max-w-xl text-sm text-zinc-600">
+                  Start with a campaign, then load a ready-made template or add SMS, email, and tag steps for the audience you want to follow up with.
+                </div>
+                <div className="mt-4 flex flex-col items-center justify-center gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+                    onClick={() => void createCampaign()}
+                    disabled={loadingList}
+                  >
+                    <span className="text-base leading-none">+</span>
+                    <span>New campaign</span>
+                  </button>
+                  <div className="text-xs text-zinc-500">Templates are available after the campaign is created.</div>
+                </div>
+              </div>
+            )
           ) : loadingDetail ? (
             <div className="text-sm text-zinc-600">Loading campaign…</div>
           ) : !detail ? (
@@ -848,7 +875,7 @@ export function PortalNurtureCampaignsClient() {
                         <button
                           type="button"
                           aria-label="Close create tag"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-sm font-semibold text-zinc-500 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-800"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/70 bg-white/78 text-sm font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-150 hover:bg-white hover:text-zinc-800"
                           onClick={() => setCreateTagOpen(false)}
                           disabled={createTagBusy}
                         >
@@ -893,7 +920,7 @@ export function PortalNurtureCampaignsClient() {
                               try {
                                 const res = await fetch("/api/portal/contact-tags", {
                                   method: "POST",
-                                  headers: { "content-type": "application/json" },
+                                  headers: { "content-type": "application/json", ...variantHeaders },
                                   body: JSON.stringify({ name, color: createTagColor }),
                                 });
                                 const json = (await res.json().catch(() => ({}))) as any;
@@ -1005,7 +1032,7 @@ export function PortalNurtureCampaignsClient() {
                         <button
                           type="button"
                           aria-label="Close template picker"
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-800"
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-base font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-150 hover:bg-white hover:text-zinc-800"
                           onClick={() => setTemplateOpen(false)}
                           disabled={templateBusy}
                         >
@@ -1058,6 +1085,7 @@ export function PortalNurtureCampaignsClient() {
                           varPickerVariables={varPickerVariables}
                           knownContactCustomVarKeys={knownContactCustomVarKeys}
                           campaignName={detail.name}
+                          variantHeaders={variantHeaders}
                           index={idx}
                           total={detail.steps.length}
                           onSave={(patch) => void updateStep(s.id, patch)}
@@ -1195,6 +1223,7 @@ function StepCard(props: {
   varPickerVariables: TemplateVariable[];
   knownContactCustomVarKeys: string[];
   campaignName: string;
+  variantHeaders: Record<string, string>;
   index: number;
   total: number;
   onSave: (patch: Partial<{ kind: StepKind; delayMinutes: number; subject: string | null; body: string }>) => void;
@@ -1202,7 +1231,7 @@ function StepCard(props: {
   onMoveDown: () => void;
   onDelete: () => void;
 }) {
-  const { step, ownerTags, varPickerVariables, knownContactCustomVarKeys, campaignName, index, total, onSave, onMoveUp, onMoveDown, onDelete } = props;
+  const { step, ownerTags, varPickerVariables, knownContactCustomVarKeys, campaignName, variantHeaders, index, total, onSave, onMoveUp, onMoveDown, onDelete } = props;
 
   const toast = useToast();
 
@@ -1643,7 +1672,7 @@ function StepCard(props: {
               <button
                 type="button"
                 aria-label="Close AI draft"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-800 disabled:opacity-60"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-base font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-150 hover:bg-white hover:text-zinc-800 disabled:opacity-60"
                 onClick={() => setAiModalOpen(false)}
                 disabled={aiBusy}
               >
@@ -1690,7 +1719,7 @@ function StepCard(props: {
                     try {
                       const res = await fetch("/api/portal/nurture/ai/generate-step", {
                         method: "POST",
-                        headers: { "content-type": "application/json" },
+                        headers: { "content-type": "application/json", ...variantHeaders },
                         body: JSON.stringify({
                           kind,
                           campaignName,

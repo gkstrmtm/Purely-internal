@@ -1435,17 +1435,20 @@ async function resolveBlogPostId(opts: {
 > {
   const ownerId = String(opts.ownerId);
   const hintRaw = String(opts.hint || "").trim();
+  const blogUrl = safeParseUrl(opts.url);
+  const isBlogsSurface = Boolean(blogUrl?.pathname?.includes("/services/blog"));
+  const prefersCurrentPost = hintRefersToActiveContext(hintRaw) || /\b(current|existing|same|that same|latest|recent)\s+(post|draft|article|blog)\b/i.test(hintRaw);
 
-  const fromUrl = extractBlogPostIdFromUrl(opts.url);
-  if (!hintRaw && fromUrl) {
+  const fromUrl = !hintRaw || prefersCurrentPost ? extractBlogPostIdFromUrl(opts.url) : null;
+  if ((!hintRaw || prefersCurrentPost) && fromUrl) {
     const row = await prisma.clientBlogPost
       .findFirst({ where: { id: fromUrl, site: { ownerId } }, select: { id: true, title: true, slug: true } })
       .catch(() => null);
     if (row?.id) return { kind: "ok", postId: String(row.id), postTitle: String(row.title || row.slug || "Blog post") };
   }
 
-  const last = !hintRaw ? getLastEntityId(opts.threadContext, "lastBlogPost") : null;
-  if (!hintRaw && last) {
+  const last = !hintRaw || prefersCurrentPost ? getLastEntityId(opts.threadContext, "lastBlogPost") : null;
+  if ((!hintRaw || prefersCurrentPost) && last) {
     const row = await prisma.clientBlogPost
       .findFirst({ where: { id: last, site: { ownerId } }, select: { id: true, title: true, slug: true } })
       .catch(() => null);
@@ -1470,6 +1473,17 @@ async function resolveBlogPostId(opts: {
     return { kind: "not_found", question: "I couldn’t find your Blogs site yet. Open Blogs once in the portal and try again." };
   }
 
+  if (!hint && isBlogsSurface) {
+    const recent = await prisma.clientBlogPost
+      .findFirst({
+        where: { siteId: site.id },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, title: true, slug: true },
+      })
+      .catch(() => null);
+    if (recent?.id) return { kind: "ok", postId: String(recent.id), postTitle: String(recent.title || recent.slug || "Blog post") };
+  }
+
   const rows = await prisma.clientBlogPost
     .findMany({
       where: { siteId: site.id, OR: [{ slug: hint }, { title: { contains: hint, mode: "insensitive" } }] },
@@ -1488,10 +1502,21 @@ async function resolveBlogPostId(opts: {
       .slice(0, 5)
       .map((r) => `- ${String(r.title || "(no title)").trim()} (slug: ${String(r.slug || "").trim()})`)
       .join("\n");
-    return { kind: "clarify", question: `I found multiple posts matching “${hint}”. Reply with the exact slug you mean:\n\n${list}` };
+    return { kind: "clarify", question: `I found multiple posts matching “${hint}”. Tell me which one you want:\n\n${list}` };
   }
 
-  return { kind: "not_found", question: `I couldn’t find a blog post matching “${hint}”. Reply with the exact post title.` };
+  if (prefersCurrentPost || isBlogsSurface) {
+    const recent = await prisma.clientBlogPost
+      .findFirst({
+        where: { siteId: site.id },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, title: true, slug: true },
+      })
+      .catch(() => null);
+    if (recent?.id) return { kind: "ok", postId: String(recent.id), postTitle: String(recent.title || recent.slug || "Blog post") };
+  }
+
+  return { kind: "not_found", question: `I couldn’t find a blog post matching “${hint}”. Open it in Blogs or tell me the title.` };
 }
 
 async function resolveNewsletterId(opts: {
@@ -1506,22 +1531,29 @@ async function resolveNewsletterId(opts: {
 > {
   const ownerId = String(opts.ownerId);
   const hintRaw = String(opts.hint || "").trim();
+  const newsletterUrl = safeParseUrl(opts.url);
+  const isNewsletterSurface = Boolean(newsletterUrl?.pathname?.includes("/services/newsletter"));
+  const prefersCurrentDraft =
+    hintRefersToActiveContext(hintRaw) ||
+    /\b(current|existing|same|that same|latest|recent)\s+draft\b/i.test(hintRaw) ||
+    /\b(current|existing|same|that same|latest|recent)\s+newsletter\b/i.test(hintRaw) ||
+    /\bkeep the existing title unchanged\b/i.test(hintRaw);
 
   const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } }).catch(() => null);
   if (!site?.id) {
     return { kind: "not_found", question: "I couldn’t find your site yet. Open Newsletter once in the portal and try again." };
   }
 
-  const fromUrl = extractNewsletterIdFromUrl(opts.url);
-  if (!hintRaw && fromUrl) {
+  const fromUrl = !hintRaw || prefersCurrentDraft ? extractNewsletterIdFromUrl(opts.url) : null;
+  if ((!hintRaw || prefersCurrentDraft) && fromUrl) {
     const row = await prisma.clientNewsletter
       .findFirst({ where: { id: fromUrl, siteId: site.id }, select: { id: true, title: true, slug: true, kind: true, status: true } })
       .catch(() => null);
     if (row?.id) return { kind: "ok", newsletterId: String(row.id), newsletterTitle: String(row.title || row.slug || "Newsletter") };
   }
 
-  const last = !hintRaw ? getLastEntityId(opts.threadContext, "lastNewsletter") : null;
-  if (!hintRaw && last) {
+  const last = !hintRaw || prefersCurrentDraft ? getLastEntityId(opts.threadContext, "lastNewsletter") : null;
+  if ((!hintRaw || prefersCurrentDraft) && last) {
     const row = await prisma.clientNewsletter
       .findFirst({ where: { id: last, siteId: site.id }, select: { id: true, title: true, slug: true } })
       .catch(() => null);
@@ -1529,9 +1561,6 @@ async function resolveNewsletterId(opts: {
   }
 
   const hint = hintRaw.slice(0, 140);
-  if (!hint) {
-    return { kind: "clarify", question: "Which newsletter should I use? Reply with the newsletter title (or open it in Newsletter)." };
-  }
 
   const hintSlug = hint
     .toLowerCase()
@@ -1539,9 +1568,21 @@ async function resolveNewsletterId(opts: {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 140);
-  const newsletterUrl = safeParseUrl(opts.url);
-  const isNewsletterSurface = Boolean(newsletterUrl?.pathname?.includes("/services/newsletter"));
-  const prefersCurrentDraft = /\b(current|existing|same|that same)\s+draft\b/i.test(hintRaw) || /\bkeep the existing title unchanged\b/i.test(hintRaw);
+
+  if (!hint && isNewsletterSurface) {
+    const draft = await prisma.clientNewsletter
+      .findFirst({
+        where: { siteId: site.id, status: "DRAFT" },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, title: true, slug: true },
+      })
+      .catch(() => null);
+    if (draft?.id) return { kind: "ok", newsletterId: String(draft.id), newsletterTitle: String(draft.title || draft.slug || "Newsletter") };
+  }
+
+  if (!hint) {
+    return { kind: "clarify", question: "Open the newsletter you want, or tell me its title." };
+  }
 
   // If they pasted an id, accept it.
   if (/^[a-z0-9]{20,40}$/i.test(hint)) {
@@ -1576,7 +1617,7 @@ async function resolveNewsletterId(opts: {
       .slice(0, 5)
       .map((r) => `- [${String(r.kind)} / ${String(r.status)}] ${String(r.title || "(no title)").trim()} (slug: ${String(r.slug || "").trim()})`)
       .join("\n");
-    return { kind: "clarify", question: `I found multiple newsletters matching “${hint}”. Reply with the exact slug you mean:\n\n${list}` };
+    return { kind: "clarify", question: `I found multiple newsletters matching “${hint}”. Tell me which one you want:\n\n${list}` };
   }
 
   if (prefersCurrentDraft || isNewsletterSurface) {
@@ -1592,7 +1633,7 @@ async function resolveNewsletterId(opts: {
     }
   }
 
-  return { kind: "not_found", question: `I couldn’t find a newsletter matching “${hint}”. Reply with the exact title or slug.` };
+  return { kind: "not_found", question: `I couldn’t find a newsletter matching “${hint}”. Open it in Newsletter or tell me the title.` };
 }
 
 function extractNewsletterTitleHint(raw: unknown): string {
@@ -3181,8 +3222,9 @@ function hintRefersToActiveContext(raw: string): boolean {
   return (
     /\b(it|that|this)\b/.test(s) ||
     /\b(same\s+one|the\s+same\s+one|that\s+one|this\s+one|the\s+one)\b/.test(s) ||
+    /\b(this\s+draft|that\s+draft|the\s+draft|this\s+newsletter|that\s+newsletter|the\s+newsletter|this\s+post|that\s+post|the\s+post|this\s+blog|that\s+blog|the\s+blog)\b/.test(s) ||
     /\b(same\s+funnel|same\s+automation|same\s+booking|same\s+calendar|same\s+campaign|same\s+lead|same\s+form|same\s+domain)\b/.test(s) ||
-    /\b(current\s+page|current\s+funnel|current\s+automation|current\s+booking|current\s+campaign|current\s+lead|current\s+form|current\s+domain)\b/.test(s) ||
+    /\b(current\s+page|current\s+draft|current\s+newsletter|current\s+post|current\s+blog|current\s+funnel|current\s+automation|current\s+booking|current\s+campaign|current\s+lead|current\s+form|current\s+domain)\b/.test(s) ||
     /\b(the\s+one\s+we\s+just\s+(made|created|used|edited|updated|opened|worked\s+on))\b/.test(s)
   );
 }
@@ -3313,6 +3355,93 @@ function deepMapRefs(v: unknown, f: (ref: PuraRef) => unknown): unknown {
   return v;
 }
 
+function extractScheduledReminderTextFromHint(hintRaw: unknown): string {
+  const hint = String(hintRaw || "").trim();
+  if (!hint) return "";
+
+  const explicitMatch =
+    hint.match(/\b(?:tell|remind)\s+me\s+to\s+([\s\S]+?)(?:[.?!]|$)/i) ||
+    hint.match(/^to\s+([\s\S]+?)(?:[.?!]|$)/i) ||
+    hint.match(/^["“]([\s\S]+?)["”](?:[.?!]|$)?/i);
+
+  const value = explicitMatch?.[1] ? String(explicitMatch[1]).trim() : "";
+  if (!value) return "";
+  return value.slice(0, 1000);
+}
+
+function extractScheduledReminderScheduleFromHint(hintRaw: unknown):
+  | { sendAtIso: string }
+  | { sendAtLocal: { isoWeekday: number; timeLocal: string } }
+  | null {
+  const hint = String(hintRaw || "").trim();
+  if (!hint) return null;
+
+  const normalizeTimeLocalHHmm = (raw: unknown): string => {
+    const s = typeof raw === "string" ? raw.trim() : "";
+    if (!s) return "";
+    const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(s);
+    if (!m?.[1] || !m?.[2]) return "";
+    return `${String(Number(m[1])).padStart(2, "0")}:${String(Number(m[2])).padStart(2, "0")}`;
+  };
+
+  const parseTimeLocalFromText = (textRaw: string): string => {
+    const t = String(textRaw || "");
+    if (!t.trim()) return "";
+
+    if (/\bnoon\b/i.test(t)) return "12:00";
+    if (/\bmidnight\b/i.test(t)) return "00:00";
+
+    const m12 = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/i.exec(t);
+    if (m12?.[1] && m12?.[3]) {
+      const hhIn = Number(m12[1]);
+      const mmIn = m12[2] ? Number(m12[2]) : 0;
+      if (!Number.isFinite(hhIn) || hhIn < 1 || hhIn > 12) return "";
+      if (!Number.isFinite(mmIn) || mmIn < 0 || mmIn > 59) return "";
+      const isPm = /^p/i.test(String(m12[3]));
+      const hh24 = (hhIn % 12) + (isPm ? 12 : 0);
+      return normalizeTimeLocalHHmm(`${String(hh24)}:${String(mmIn).padStart(2, "0")}`);
+    }
+
+    const m24 = /\b([01]?\d|2[0-3]):([0-5]\d)\b/.exec(t);
+    if (m24?.[1] && m24?.[2]) return normalizeTimeLocalHHmm(`${m24[1]}:${m24[2]}`);
+
+    return "";
+  };
+
+  const timeLocal = parseTimeLocalFromText(hint);
+  if (!timeLocal) return null;
+
+  const weekdayMap: Record<string, number> = {
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6,
+    sunday: 7,
+  };
+
+  const lower = hint.toLowerCase();
+  const weekdayMatch = lower.match(/\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+  if (weekdayMatch?.[1]) {
+    const isoWeekday = weekdayMap[String(weekdayMatch[1]).toLowerCase()] ?? 0;
+    if (isoWeekday >= 1 && isoWeekday <= 7) {
+      return { sendAtLocal: { isoWeekday, timeLocal } };
+    }
+  }
+
+  if (/\btomorrow\b/i.test(lower)) {
+    const [hh, mm] = timeLocal.split(":").map((value) => Number(value));
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+    const target = new Date();
+    target.setDate(target.getDate() + 1);
+    target.setHours(hh, mm, 0, 0);
+    return { sendAtIso: target.toISOString() };
+  }
+
+  return null;
+}
+
 export async function resolvePlanArgs(opts: {
   ownerId: string;
   stepKey: string;
@@ -3418,18 +3547,21 @@ export async function resolvePlanArgs(opts: {
     if (/\bnoon\b/i.test(t)) return "12:00";
     if (/\bmidnight\b/i.test(t)) return "00:00";
 
+    const m12 = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/i.exec(t);
+    if (m12?.[1] && m12?.[3]) {
+      const hhIn = Number(m12[1]);
+      const mmIn = m12[2] ? Number(m12[2]) : 0;
+      if (!Number.isFinite(hhIn) || hhIn < 1 || hhIn > 12) return "";
+      if (!Number.isFinite(mmIn) || mmIn < 0 || mmIn > 59) return "";
+      const isPm = /^p/i.test(String(m12[3]));
+      const hh24 = (hhIn % 12) + (isPm ? 12 : 0);
+      return normalizeTimeLocalHHmm(`${String(hh24)}:${String(mmIn).padStart(2, "0")}`);
+    }
+
     const m24 = /\b([01]?\d|2[0-3]):([0-5]\d)\b/.exec(t);
     if (m24?.[1] && m24?.[2]) return normalizeTimeLocalHHmm(`${m24[1]}:${m24[2]}`);
 
-    const m12 = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/i.exec(t);
-    if (!m12?.[1] || !m12?.[3]) return "";
-    const hhIn = Number(m12[1]);
-    const mmIn = m12[2] ? Number(m12[2]) : 0;
-    if (!Number.isFinite(hhIn) || hhIn < 1 || hhIn > 12) return "";
-    if (!Number.isFinite(mmIn) || mmIn < 0 || mmIn > 59) return "";
-    const isPm = /^p/i.test(String(m12[3]));
-    const hh24 = (hhIn % 12) + (isPm ? 12 : 0);
-    return normalizeTimeLocalHHmm(`${String(hh24)}:${String(mmIn).padStart(2, "0")}`);
+    return "";
   };
 
   if (stepKeyLower === "ai_chat.scheduled.reschedule") {
@@ -3873,8 +4005,86 @@ export async function resolvePlanArgs(opts: {
   // We want to resolve any entity refs (contact, etc) *now* so the future scheduled run is reliable
   // and doesn't need to ask the user questions later.
   if (stepKeyLower === "ai_chat.scheduled.create") {
+    const threadCtx = opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext)
+      ? (opts.threadContext as Record<string, unknown>)
+      : null;
+    const unresolvedRun = threadCtx && typeof threadCtx.unresolvedRun === "object" && threadCtx.unresolvedRun && !Array.isArray(threadCtx.unresolvedRun)
+      ? (threadCtx.unresolvedRun as Record<string, unknown>)
+      : null;
+    const unresolvedUserRequest = typeof unresolvedRun?.userRequest === "string" ? String(unresolvedRun.userRequest).trim() : "";
+    const threadSummary = typeof threadCtx?.threadSummary === "string" ? String(threadCtx.threadSummary).trim() : "";
     const rawText = typeof (args as any).text === "string" ? String((args as any).text).trim() : "";
-    const env = rawText ? tryParseScheduledActionEnvelope(rawText) : null;
+    const rawMessage = typeof (args as any).message === "string" ? String((args as any).message).trim() : "";
+    const rawSendAtIso = typeof (args as any).sendAtIso === "string" ? String((args as any).sendAtIso).trim() : "";
+    const rawSendAtLocal =
+      (args as any).sendAtLocal && typeof (args as any).sendAtLocal === "object" && !Array.isArray((args as any).sendAtLocal)
+        ? ((args as any).sendAtLocal as Record<string, unknown>)
+        : null;
+    const rawTime = typeof (args as any).time === "string" ? String((args as any).time).trim() : "";
+    const hintText =
+      rawMessage ||
+      extractScheduledReminderTextFromHint(opts.userHint) ||
+      extractScheduledReminderTextFromHint(unresolvedUserRequest) ||
+      extractScheduledReminderTextFromHint(threadSummary);
+    if (!rawText && hintText) {
+      (args as any).text = hintText;
+    }
+
+    if (!rawSendAtIso && !rawSendAtLocal) {
+      const timeAsIso = (() => {
+        if (!rawTime) return null;
+        const parsed = new Date(rawTime);
+        return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+      })();
+      const derivedSchedule =
+        (timeAsIso ? { sendAtIso: timeAsIso } : null) ||
+        extractScheduledReminderScheduleFromHint(rawTime) ||
+        extractScheduledReminderScheduleFromHint(opts.userHint) ||
+        extractScheduledReminderScheduleFromHint(unresolvedUserRequest) ||
+        extractScheduledReminderScheduleFromHint(threadSummary);
+      if (derivedSchedule) {
+        args = { ...args, ...derivedSchedule };
+      }
+    }
+
+    const effectiveText = typeof (args as any).text === "string" ? String((args as any).text).trim() : "";
+    const effectiveSendAtIso = typeof (args as any).sendAtIso === "string" ? String((args as any).sendAtIso).trim() : "";
+    const effectiveSendAtLocal =
+      (args as any).sendAtLocal && typeof (args as any).sendAtLocal === "object" && !Array.isArray((args as any).sendAtLocal)
+        ? ((args as any).sendAtLocal as Record<string, unknown>)
+        : null;
+    const env = effectiveText ? tryParseScheduledActionEnvelope(effectiveText) : null;
+
+    if (!env) {
+      if (!effectiveSendAtIso && !effectiveSendAtLocal) {
+        return {
+          ok: false,
+          clarifyQuestion: "When should I schedule this reminder?",
+        };
+      }
+
+      if (!effectiveText) {
+        return {
+          ok: false,
+          clarifyQuestion: "What should I remind you about?",
+        };
+      }
+    }
+
+    args = {
+      ...(typeof (args as any).threadId === "string" && String((args as any).threadId).trim()
+        ? { threadId: String((args as any).threadId).trim().slice(0, 120) }
+        : {}),
+      ...(effectiveText ? { text: effectiveText.slice(0, 4000) } : {}),
+      ...(typeof (args as any).clientTimeZone === "string" && String((args as any).clientTimeZone).trim()
+        ? { clientTimeZone: String((args as any).clientTimeZone).trim().slice(0, 80) }
+        : {}),
+      ...(effectiveSendAtIso ? { sendAtIso: effectiveSendAtIso.slice(0, 64) } : {}),
+      ...(effectiveSendAtLocal ? { sendAtLocal: effectiveSendAtLocal } : {}),
+      ...(typeof (args as any).repeatEveryMinutes === "number" && Number.isFinite((args as any).repeatEveryMinutes)
+        ? { repeatEveryMinutes: Math.max(0, Math.floor(Number((args as any).repeatEveryMinutes))) }
+        : {}),
+    };
 
     if (env && Array.isArray(env.steps) && env.steps.length) {
       const innerUserHint = String(opts.userHint || "").trim() || String(env.workTitle || "").trim();
@@ -3954,7 +4164,10 @@ export async function resolvePlanArgs(opts: {
 
     const mergeResolverHint = (baseHint?: string) => {
       const b = String(baseHint || "").trim();
-      if (hint && b) return `${b}\n${hint}`;
+      if (hint && b) {
+        if (normKey(hint) && normKey(b) && normKey(hint) === normKey(b)) return b;
+        return `${b}\n${hint}`;
+      }
       return hint || b;
     };
 
@@ -4418,7 +4631,15 @@ export async function resolvePlanArgs(opts: {
   if (contactRefs.length) {
     const baseHint = String(contactRefs[0].hint || "").trim();
     const extra = String(opts.userHint || "").trim();
-    const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
+    const hint = (() => {
+      if (extra && baseHint) {
+        if (normKey(extra) && normKey(baseHint) && (normKey(extra) === normKey(baseHint) || normKey(extra).includes(normKey(baseHint)))) {
+          return baseHint;
+        }
+        return `${baseHint}\n${extra}`;
+      }
+      return extra || baseHint;
+    })();
     const overrideContactId =
       threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).contactId === "string"
         ? String((threadChoiceOverrides as any).contactId).trim()

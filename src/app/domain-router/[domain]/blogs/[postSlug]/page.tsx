@@ -8,6 +8,7 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { getBlogAppearance } from "@/lib/blogAppearance";
+import { buildCustomDomainMetadata, resolveCustomDomainBranding } from "@/lib/customDomainMetadata";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
 import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
 import { getHostedTheme } from "@/lib/hostedTheme";
@@ -71,16 +72,20 @@ export async function generateMetadata({
   if (!site) return { title: host };
 
   const post = await prisma.clientBlogPost
-    .findFirst({ where: { siteId: site.id, slug: postSlug, status: "PUBLISHED", archivedAt: null }, select: { title: true, excerpt: true } })
+    .findFirst({ where: { siteId: site.id, slug: postSlug, status: "PUBLISHED", archivedAt: null }, select: { title: true, excerpt: true, content: true } })
     .catch(() => null);
   if (!post) return { title: host };
 
-  const profile = await prisma.businessProfile
-    .findUnique({ where: { ownerId: site.ownerId }, select: { businessName: true } })
-    .catch(() => null);
-
-  const name = profile?.businessName || site.name;
-  return { title: `${post.title} | ${name}`, description: post.excerpt };
+  const branding = await resolveCustomDomainBranding(host);
+  const cover = splitLeadingCoverImage(parseBlogContent(post.content || "")).cover;
+  return buildCustomDomainMetadata({
+    host,
+    siteName: branding.siteName,
+    title: `${post.title} | ${branding.siteName}`,
+    description: post.excerpt,
+    imageUrl: cover?.src || branding.logoUrl,
+    iconUrl: branding.logoUrl,
+  });
 }
 
 export default async function CustomDomainBlogPostPage({

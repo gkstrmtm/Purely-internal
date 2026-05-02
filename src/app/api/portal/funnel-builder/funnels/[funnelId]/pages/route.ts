@@ -1,7 +1,9 @@
+import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
+import { isMissingColumnError } from "@/lib/dbSchemaCompat";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import {
   dbHasCreditFunnelPageDraftHtmlColumn,
@@ -57,6 +59,90 @@ function readFunnelPageSeo(settingsJson: unknown, pageId: string): FunnelPageSeo
   return Object.keys(out).length ? out : null;
 }
 
+function pageSelect(hasDraftHtml: boolean) {
+  return withDraftHtmlSelect(
+    {
+      id: true,
+      slug: true,
+      title: true,
+      sortOrder: true,
+      contentMarkdown: true,
+      editorMode: true,
+      blocksJson: true,
+      customHtml: true,
+      customChatJson: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+    hasDraftHtml,
+  );
+}
+
+function pageSelectMinimal() {
+  return {
+    id: true,
+    slug: true,
+    title: true,
+    sortOrder: true,
+    createdAt: true,
+    updatedAt: true,
+  };
+}
+
+function normalizePageShape<T extends Record<string, unknown>>(page: T) {
+  return {
+    ...page,
+    contentMarkdown: typeof page.contentMarkdown === "string" ? page.contentMarkdown : "",
+    editorMode: typeof page.editorMode === "string" ? page.editorMode : "BLOCKS",
+    blocksJson: Array.isArray(page.blocksJson) ? page.blocksJson : [],
+    customHtml: typeof page.customHtml === "string" ? page.customHtml : "",
+    customChatJson: page.customChatJson ?? null,
+  };
+}
+
+async function findManyPagesWithDraftCompat(funnelId: string, hasDraftHtml: boolean) {
+  try {
+    return await prisma.creditFunnelPage.findMany({
+      where: { funnelId },
+      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+      select: pageSelect(hasDraftHtml),
+    });
+  } catch (error) {
+    if (hasDraftHtml && isMissingColumnError(error, "draftHtml")) {
+      return await prisma.creditFunnelPage.findMany({
+        where: { funnelId },
+        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+        select: pageSelect(false),
+      });
+    }
+
+    const minimalPages = await prisma.creditFunnelPage.findMany({
+      where: { funnelId },
+      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+      select: pageSelectMinimal(),
+    });
+    return minimalPages.map((page) => normalizePageShape(page));
+  }
+}
+
+async function createPageWithDraftCompat(
+  data: Prisma.CreditFunnelPageCreateInput | Prisma.CreditFunnelPageUncheckedCreateInput,
+  hasDraftHtml: boolean,
+) {
+  try {
+    return await prisma.creditFunnelPage.create({
+      data,
+      select: pageSelect(hasDraftHtml),
+    });
+  } catch (error) {
+    if (!hasDraftHtml || !isMissingColumnError(error, "draftHtml")) throw error;
+    return await prisma.creditFunnelPage.create({
+      data,
+      select: pageSelect(false),
+    });
+  }
+}
+
 export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: string }> }) {
   const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
@@ -78,29 +164,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
 
   const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
 
-  const pages = await prisma.creditFunnelPage.findMany({
-    where: { funnelId },
-    orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-    select: withDraftHtmlSelect({
-      id: true,
-      slug: true,
-      title: true,
-      sortOrder: true,
-      contentMarkdown: true,
-      editorMode: true,
-      blocksJson: true,
-      customHtml: true,
-      customChatJson: true,
-      createdAt: true,
-      updatedAt: true,
-    }, hasDraftHtml),
-  });
+  const pages = await findManyPagesWithDraftCompat(funnelId, hasDraftHtml);
 
   const settings = await prisma.creditFunnelBuilderSettings
     .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
     .catch(() => null);
 
-  const pagesWithSeo = normalizeDraftHtmlList(pages).map((p) => ({
+  const pagesWithSeo = normalizeDraftHtmlList(pages.map((page) => normalizePageShape(page))).map((p) => ({
     ...p,
     seo: readFunnelPageSeo(settings?.dataJson ?? null, p.id),
   }));
@@ -155,8 +225,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     return NextResponse.json({ ok: false, error: "Slug is required" }, { status: 400 });
   }
 
-  const page = await prisma.creditFunnelPage.create({
-    data: {
+  const page = await createPageWithDraftCompat(
+    {
       funnelId,
       slug: normalizedSlug,
       title: title || normalizedSlug,
@@ -164,20 +234,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       sortOrder,
       ...(globalHeaderBlock ? { blocksJson: [globalHeaderBlock] as any } : {}),
     },
-    select: withDraftHtmlSelect({
-      id: true,
-      slug: true,
-      title: true,
-      sortOrder: true,
-      contentMarkdown: true,
-      editorMode: true,
-      blocksJson: true,
-      customHtml: true,
-      customChatJson: true,
-      createdAt: true,
-      updatedAt: true,
-    }, hasDraftHtml),
-  });
+    hasDraftHtml,
+  );
 
   return NextResponse.json({ ok: true, page: normalizeDraftHtml(page) });
 }

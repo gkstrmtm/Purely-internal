@@ -3,8 +3,8 @@ import crypto from "crypto";
 
 import { findOwnerIdByInboundSmsToNumberHistory, findOwnerIdByTwilioAccountSid, findOwnerIdByTwilioToNumber } from "@/lib/twilioRouting";
 import { makeSmsThreadKey, normalizeSmsPeerKey, upsertPortalInboxMessage } from "@/lib/portalInbox";
-import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
-import { findPortalContactByPhone } from "@/lib/portalContacts";
+import { buildAiReceptionistSmsConversationContext, buildAiReceptionistSmsSystemPrompt, buildAiReceptionistSmsUserPrompt, getAiReceptionistServiceData, normalizeAiReceptionistSmsReplyText, tryBuildAiReceptionistDeterministicSmsReply, type AiReceptionistSmsConversationTurn } from "@/lib/aiReceptionist";
+import { findPortalContactDetailsByPhone } from "@/lib/portalContacts";
 import { listContactTagsForContact } from "@/lib/portalContactTags";
 import { resumeScheduledPortalAiChatFromSms } from "@/lib/portalAiChatScheduled";
 import { prisma } from "@/lib/db";
@@ -65,14 +65,6 @@ function twimlMessage(message: string) {
   return new NextResponse(xml, { status: 200, headers: { "content-type": "application/xml" } });
 }
 
-function normalizeSmsReply(raw: string): string {
-  const text = String(raw || "").trim();
-  if (!text) return "";
-  const oneLine = text.replace(/\s+/g, " ").trim();
-  if (!oneLine) return "";
-  return oneLine.length > 900 ? `${oneLine.slice(0, 899)}…` : oneLine;
-}
-
 function isOptOutMessage(raw: string): boolean {
   const s = String(raw || "").trim().toLowerCase();
   if (!s) return false;
@@ -122,7 +114,7 @@ export async function POST(req: Request) {
   // Avoid runtime failures if schema patches haven't been applied yet.
   await ensurePortalInboxSchema();
 
-  const { threadId, messageId } = await upsertPortalInboxMessage({
+  const { threadId, messageId, inserted } = await upsertPortalInboxMessage({
     ownerId,
     channel: "SMS",
     direction: "IN",
@@ -136,6 +128,10 @@ export async function POST(req: Request) {
     providerMessageId: messageSid || null,
   });
 
+  if (!inserted && messageSid) {
+    return twimlEmpty();
+  }
+
   // AI Receptionist inbound SMS auto-reply (best-effort).
   // If we reply here, skip AI Outbound auto-reply queue to avoid double-sending.
   const tryAiReceptionistReply = async (): Promise<string | null> => {
@@ -148,8 +144,10 @@ export async function POST(req: Request) {
     const includeIds = Array.isArray(s.smsIncludeTagIds) ? (s.smsIncludeTagIds as unknown[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
     const excludeIds = Array.isArray(s.smsExcludeTagIds) ? (s.smsExcludeTagIds as unknown[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
 
+    let contactDetails: Awaited<ReturnType<typeof findPortalContactDetailsByPhone>> = null;
     try {
-      const contact = await findPortalContactByPhone({ ownerId, phone: peerPhone }).catch(() => null);
+      const contact = await findPortalContactDetailsByPhone({ ownerId, phone: peerPhone }).catch(() => null);
+      contactDetails = contact;
       const tags = contact?.id ? await listContactTagsForContact(ownerId, String(contact.id)) : [];
       const tagIds = new Set((tags || []).map((t) => String(t.id || "").trim()).filter(Boolean));
 
@@ -161,6 +159,7 @@ export async function POST(req: Request) {
     }
 
     let historyText = "";
+    let historyTurns: AiReceptionistSmsConversationTurn[] = [];
     try {
       const rows = await (prisma as any).portalInboxMessage.findMany({
         where: { ownerId, threadId },
@@ -170,44 +169,54 @@ export async function POST(req: Request) {
       });
 
       const lines: string[] = [];
+      const turns: AiReceptionistSmsConversationTurn[] = [];
       for (const r of rows || []) {
         const dir = String(r?.direction || "").toUpperCase() === "OUT" ? "Assistant" : "Customer";
         const t = String(r?.bodyText || "").trim();
         if (!t) continue;
         lines.push(`${dir}: ${t.replace(/\s+/g, " ").slice(0, 400)}`);
+        turns.push({ role: dir === "Assistant" ? "assistant" : "customer", content: t });
         if (lines.join("\n").length > 3500) break;
       }
       historyText = lines.join("\n").trim();
+      historyTurns = turns;
     } catch {
       // ignore
     }
 
-    const businessName = typeof s.businessName === "string" ? s.businessName.trim() : "";
-    const smsPrompt = typeof s.smsSystemPrompt === "string" ? s.smsSystemPrompt.trim() : "";
-    const basePrompt = smsPrompt || (typeof s.systemPrompt === "string" ? s.systemPrompt.trim() : "");
+    const conversation = buildAiReceptionistSmsConversationContext({
+      inbound: body,
+      historyTurns,
+      contactName: contactDetails?.name || null,
+      contactContextNote: contactDetails
+        ? [
+            contactDetails.email ? `Known contact email: ${contactDetails.email}` : "",
+            contactDetails.phone ? `Known contact phone: ${contactDetails.phone}` : "",
+            Object.keys(contactDetails.customVariables || {}).length
+              ? `Known contact notes: ${Object.entries(contactDetails.customVariables)
+                  .map(([key, value]) => `${key}: ${value}`)
+                  .slice(0, 4)
+                  .join("; ")}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : "",
+    });
+    const hasPriorConversation = conversation.hasPriorConversation;
+    const deterministicReply = await tryBuildAiReceptionistDeterministicSmsReply({ ownerId, inbound: body, historyText, settings: s });
+    if (deterministicReply) return deterministicReply;
 
-    const system = [
-      basePrompt || "You are a helpful receptionist.",
-      "You are replying via SMS.",
-      "Keep replies concise: 1-3 short sentences, under 320 characters when possible.",
-      "No markdown. No long lists. Ask at most one question.",
-      businessName ? `Business name: ${businessName}` : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n")
-      .slice(0, 6000);
+    const system = await buildAiReceptionistSmsSystemPrompt({ ownerId, settings: s, conversationContext: conversation.context });
 
-    const user = [
-      historyText ? "Conversation:\n" + historyText : "",
-      `Latest inbound SMS from ${from} to ${to}:`,
-      String(body || "").trim().slice(0, 2000),
-      "\nWrite the SMS reply text only.",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+    const user = buildAiReceptionistSmsUserPrompt({
+      inbound: `From ${from} to ${to}: ${String(body || "").trim().slice(0, 2000)}`,
+      conversationContext: conversation.context,
+      transcript: conversation.transcript,
+    });
 
     const ai = await withTimeout(generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" }), 5500).catch(() => "");
-    const reply = normalizeSmsReply(ai);
+    const reply = normalizeAiReceptionistSmsReplyText({ raw: ai, hasPriorConversation, maxLen: 900 });
     return reply || null;
   };
 

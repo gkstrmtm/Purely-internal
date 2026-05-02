@@ -151,6 +151,11 @@ async function resolveAssignedLeadUserIdFromCalendar(ownerId: string, calendarId
 
   const calendars = await getBookingCalendarsConfig(ownerId).catch(() => null);
   const cal = calendars?.calendars?.find((c) => String(c.id) === calendarIdSafe) || null;
+  const explicitAssignee = typeof (cal as any)?.assignedUserId === "string" ? String((cal as any).assignedUserId).trim() : "";
+  if (explicitAssignee) {
+    const validated = await validateAssigneeIsOwnerOrMember(ownerId, explicitAssignee).catch(() => null);
+    if (validated) return validated;
+  }
   const emails = Array.isArray((cal as any)?.notificationEmails)
     ? (((cal as any).notificationEmails as unknown) as unknown[])
         .filter((x) => typeof x === "string")
@@ -587,6 +592,7 @@ async function runAutomationOnce(opts: {
   ownerId: string;
   automation: Automation;
   triggerKind: TriggerKind;
+  nowIso?: string;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
   event?: {
@@ -690,7 +696,9 @@ async function runAutomationOnce(opts: {
     return;
   }
 
-  const runAt = new Date();
+  const requestedNowIso = String(opts.nowIso || "").trim();
+  const parsedNow = requestedNowIso ? new Date(requestedNowIso) : null;
+  const runAt = parsedNow && !Number.isNaN(parsedNow.getTime()) ? parsedNow : new Date();
   const dayKey = runAt.toISOString().slice(0, 10);
   const runDedupKey = (() => {
     if (opts.event?.bookingId) return `booking:${String(opts.event.bookingId)}`;
@@ -951,10 +959,10 @@ async function runAutomationOnce(opts: {
     base["lead.contactId"] = String((leadRow as any)?.contactId || base["lead.contactId"] || "");
 
     // Dynamic time vars.
-    base["now.hour"] = String(new Date().getHours());
-    base["now.weekday"] = String(new Date().getDay());
-    base["now.iso"] = new Date().toISOString();
-    base["now.date"] = new Date().toISOString().slice(0, 10);
+    base["now.hour"] = String(runAt.getHours());
+    base["now.weekday"] = String(runAt.getDay());
+    base["now.iso"] = runAt.toISOString();
+    base["now.date"] = runAt.toISOString().slice(0, 10);
 
     // Service-trigger vars (best-effort).
     for (const [k, v] of Object.entries(serviceTriggerVars || {})) base[k] = v;
@@ -1591,6 +1599,7 @@ export async function runOwnerAutomationByIdForInboundSms(opts: {
 export async function runOwnerAutomationsForEvent(opts: {
   ownerId: string;
   triggerKind: TriggerKind;
+  nowIso?: string;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
   event?: {
@@ -1617,6 +1626,7 @@ export async function runOwnerAutomationsForEvent(opts: {
         ownerId: opts.ownerId,
         automation,
         triggerKind: opts.triggerKind,
+        nowIso: opts.nowIso,
         message: opts.message,
         contact: opts.contact,
         event: opts.event,
@@ -1629,6 +1639,7 @@ export async function runOwnerAutomationByIdForEvent(opts: {
   ownerId: string;
   automationId: string;
   triggerKind: TriggerKind;
+  nowIso?: string;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
   throwIfMissing?: boolean;
@@ -1662,6 +1673,7 @@ export async function runOwnerAutomationByIdForEvent(opts: {
     ownerId: opts.ownerId,
     automation,
     triggerKind: opts.triggerKind,
+    nowIso: opts.nowIso,
     message: opts.message,
     contact: opts.contact,
     event: opts.event,

@@ -56,6 +56,7 @@ type Settings = {
     excludeNameContains: string[];
     excludeDomains: string[];
     excludePhones: string[];
+    excludeAddresses: string[];
     scheduleEnabled: boolean;
     frequencyDays: number;
     lastRunAtIso: string | null;
@@ -85,6 +86,8 @@ type Settings = {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
     };
+    emailResources: Array<{ label: string; url: string }>;
+    smsResources: Array<{ label: string; url: string }>;
     resources: Array<{ label: string; url: string }>;
   };
   outboundState: {
@@ -126,8 +129,8 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
     typeof (rec as any).emailHtml === "string" ||
     typeof (rec as any).emailText === "string";
 
-  const resourcesRaw = Array.isArray(rec.resources) ? rec.resources : [];
-  const resources = resourcesRaw
+  const normalizeResources = (raw: unknown) =>
+    (Array.isArray(raw) ? raw : [])
     .map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>) : {}))
     .map((r) => ({
       label: (typeof r.label === "string" ? r.label.trim() : "").slice(0, 120) || "Resource",
@@ -135,6 +138,13 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
     }))
     .filter((r) => Boolean(r.url))
     .slice(0, 30);
+
+  const resources = normalizeResources(rec.resources);
+  const emailResources = normalizeResources((rec as any).emailResources ?? resources);
+  const smsResources = normalizeResources((rec as any).smsResources ?? resources);
+  const mergedResources = Array.from(
+    new Map([...emailResources, ...smsResources].map((resource) => [`${resource.url}::${resource.label.toLowerCase()}`, resource])).values(),
+  ).slice(0, 30);
 
   const parseTrigger = (t: unknown) => {
     const raw = typeof t === "string" ? t.trim() : "MANUAL";
@@ -171,7 +181,9 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
         enabled: false,
         trigger: "MANUAL",
       },
-      resources,
+      emailResources,
+      smsResources,
+      resources: mergedResources,
     };
   }
 
@@ -199,8 +211,17 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
       enabled: Boolean((callsRec as any).enabled),
       trigger: parseTrigger((callsRec as any).trigger),
     },
-    resources,
+    emailResources,
+    smsResources,
+    resources: mergedResources,
   };
+}
+
+function getOutboundResourcesForChannel(
+  outbound: Settings["outbound"],
+  channel: "email" | "sms",
+) {
+  return channel === "email" ? outbound.emailResources : outbound.smsResources;
 }
 
 function normalizeOutboundState(value: unknown): Settings["outboundState"] {
@@ -285,6 +306,8 @@ function normalizeSettings(value: unknown): Settings {
       enabled: false,
       trigger: "MANUAL",
     },
+    emailResources: [],
+    smsResources: [],
     resources: [],
   };
 
@@ -297,6 +320,8 @@ function normalizeSettings(value: unknown): Settings {
     email: { ...defaultOutbound.email, ...outbound.email },
     sms: { ...defaultOutbound.sms, ...outbound.sms },
     calls: { ...defaultOutbound.calls, ...outbound.calls },
+    emailResources: outbound.emailResources ?? defaultOutbound.emailResources,
+    smsResources: outbound.smsResources ?? defaultOutbound.smsResources,
     resources: outbound.resources ?? defaultOutbound.resources,
   };
 
@@ -326,6 +351,7 @@ function normalizeSettings(value: unknown): Settings {
       excludeNameContains: normalizeStringList(b2b.excludeNameContains),
       excludeDomains: normalizeStringList(b2b.excludeDomains, { lower: true }),
       excludePhones: normalizeStringList(b2b.excludePhones),
+      excludeAddresses: normalizeStringList((b2b as any).excludeAddresses),
       scheduleEnabled: Boolean(b2b.scheduleEnabled),
       frequencyDays: toInt(b2b.frequencyDays, 7, 60),
       lastRunAtIso: normalizeIsoString(b2b.lastRunAtIso),
@@ -370,6 +396,15 @@ function matchesNameExclusion(businessName: string, excludeNameContains: string[
   return excludeNameContains.some((term) => {
     const t = term.toLowerCase().trim();
     return t ? name.includes(t) : false;
+  });
+}
+
+function matchesAddressExclusion(address: string | null | undefined, excludeAddresses: string[]) {
+  const normalized = String(address || "").toLowerCase();
+  if (!normalized) return false;
+  return excludeAddresses.some((term) => {
+    const candidate = term.toLowerCase().trim();
+    return candidate ? normalized.includes(candidate) : false;
   });
 }
 
@@ -523,6 +558,9 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
         const domain = website ? extractDomain(website) : null;
         if (domain && settings.b2b.excludeDomains.includes(domain)) continue;
 
+        const address = details.formatted_address || place.formatted_address || null;
+        if (matchesAddressExclusion(address, settings.b2b.excludeAddresses)) continue;
+
         if (settings.b2b.requirePhone && !phoneNorm) continue;
         if (settings.b2b.requireWebsite && !website) continue;
 
@@ -533,13 +571,14 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
             businessName,
             phone: phoneNorm,
             website,
-            address: details.formatted_address || place.formatted_address || null,
+            address,
             niche: combo.nicheTerm,
             placeId,
             dataJson: {
               googlePlaces: {
                 placeId,
                 details,
+                location: details.location ?? null,
               },
               leadScraping: {
                 location: combo.loc,
@@ -628,7 +667,13 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
     for (const lead of createdLeads) {
       try {
         let didSend = false;
-        const resources = settings.outbound.resources
+        const emailResources = getOutboundResourcesForChannel(settings.outbound, "email")
+          .map((r) => ({
+            label: r.label,
+            url: r.url.startsWith("/") ? `${baseUrl}${r.url}` : r.url,
+          }))
+          .filter((r) => Boolean(r.url));
+        const smsResources = getOutboundResourcesForChannel(settings.outbound, "sms")
           .map((r) => ({
             label: r.label,
             url: r.url.startsWith("/") ? `${baseUrl}${r.url}` : r.url,
@@ -691,7 +736,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
             try {
               const draft = await draftLeadOutboundEmail({
                 lead,
-                resources,
+                resources: emailResources,
                 fromName,
                 prompt: settings.outbound.aiPrompt,
                 senderBusinessContext,
@@ -703,8 +748,8 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
             }
           }
 
-          const textResources = resources.length
-            ? `\n\nResources:\n${resources.map((r) => `- ${r.label}: ${r.url}`).join("\n")}`
+          const textResources = emailResources.length
+            ? `\n\nResources:\n${emailResources.map((r) => `- ${r.label}: ${r.url}`).join("\n")}`
             : "";
           const text = (textBase + textResources).slice(0, 20000);
 
@@ -726,7 +771,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
             try {
               const draft = await draftLeadOutboundSms({
                 lead,
-                resources,
+                resources: smsResources,
                 fromName,
                 prompt: settings.outbound.aiPrompt,
                 senderBusinessContext,
@@ -740,12 +785,12 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
           if (smsBodyBase.trim()) {
             let smsBody = smsBodyBase;
 
-            if (resources.length) {
+            if (smsResources.length) {
               const prefix = "\n\nResources:\n";
               const remaining = 900 - smsBody.length;
               if (remaining > prefix.length + 10) {
                 let suffix = prefix;
-                for (const r of resources) {
+                for (const r of smsResources) {
                   const line = `- ${r.label}: ${r.url}`;
                   if (suffix.length + line.length + 1 > remaining) break;
                   suffix += line + "\n";

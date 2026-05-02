@@ -3,9 +3,11 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { appendAiOutboundManualCallWebhookLog } from "@/lib/aiOutboundCallDebug";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
+import { ensureAiOutboundCallCampaignVoiceAgent } from "@/lib/portalAiOutboundCallVoiceAgent";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
@@ -13,24 +15,6 @@ import { webhookUrlFromRequest } from "@/lib/webhookBase";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
-
-function envFirst(keys: string[]): string {
-  for (const key of keys) {
-    const v = (process.env[key] ?? "").trim();
-    if (v) return v;
-  }
-  return "";
-}
-
-function envVoiceAgentId(): string {
-  return envFirst(["VOICE_AGENT_ID", "ELEVENLABS_AGENT_ID", "ELEVEN_LABS_AGENT_ID"]).slice(0, 120);
-}
-
-function envVoiceAgentApiKey(): string {
-  return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
-}
 
 const bodySchema = z.object({
   toNumber: z.string().trim().min(1).max(40),
@@ -40,36 +24,10 @@ function jsonError(message: string, status: number) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
-async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
-  const row = await prisma.portalServiceSetup.findUnique({
-    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
-    select: { dataJson: true },
-  });
-
-  const rec =
-    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
-      ? (row.dataJson as Record<string, unknown>)
-      : null;
-
-  const raw = rec?.voiceAgentId;
-  const id = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
-  return id || envVoiceAgentId() || null;
-}
-
-async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
-  const row = await prisma.portalServiceSetup.findUnique({
-    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
-    select: { dataJson: true },
-  });
-
-  const rec =
-    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
-      ? (row.dataJson as Record<string, unknown>)
-      : null;
-
-  const raw = rec?.voiceAgentApiKey;
-  const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
-  return key || envVoiceAgentApiKey() || null;
+function manualCallTimeLimitSeconds(): number {
+  const raw = Number(process.env.TWILIO_MANUAL_OUTBOUND_MAX_SECONDS || 45);
+  if (!Number.isFinite(raw)) return 45;
+  return Math.max(30, Math.min(180, Math.floor(raw)));
 }
 
 async function startTwilioCallRecording(opts: {
@@ -139,6 +97,9 @@ async function createTwilioOutboundCall(opts: {
   form.set("From", twilio.fromNumberE164);
   form.set("Url", voiceUrl);
   form.set("Method", "POST");
+  form.set("MachineDetection", "DetectMessageEnd");
+  form.set("MachineDetectionTimeout", "45");
+  form.set("TimeLimit", String(manualCallTimeLimitSeconds()));
 
   // Force call recording at the Twilio level so recordings exist even if the separate
   // start-recording request is delayed/missed.
@@ -213,15 +174,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const twilio = await getOwnerTwilioSmsConfig(ownerId);
   if (!twilio) return jsonError("Twilio is not configured for this account", 400);
 
-  const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
-  if (!apiKey) return jsonError("Missing voice API key. Set it in Profile first.", 400);
-
-  const profileAgentId = await getProfileVoiceAgentId(ownerId);
-  const agentId =
-    String((campaign as any).manualVoiceAgentId || "").trim() ||
-    String(campaign.voiceAgentId || "").trim() ||
-    String(profileAgentId || "").trim();
-  if (!agentId) return jsonError("Missing agent id. Set one on this campaign or in Profile.", 400);
+  const ensured = await ensureAiOutboundCallCampaignVoiceAgent({ ownerId, campaignId: campaign.id });
+  if (!ensured.ok) return jsonError(ensured.error, ensured.status || 400);
 
   const manualCallId = crypto.randomUUID();
   const token = crypto.randomUUID();
@@ -272,6 +226,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   }
 
   const callSid = started.callSid;
+
+  await appendAiOutboundManualCallWebhookLog({
+    route: "manual-call:create",
+    manualCallId,
+    callSid,
+    token,
+    details: {
+      toNumberE164: toParsed.e164,
+      machineDetection: "DetectMessageEnd",
+      machineDetectionTimeout: "45",
+      timeLimit: String(manualCallTimeLimitSeconds()),
+    },
+  });
 
   await prisma.portalAiOutboundCallManualCall.update({
     where: { id: manualCallId },

@@ -405,12 +405,12 @@ export async function GET() {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, name: true, email: true, role: true, updatedAt: true },
-  });
+  }).catch(() => null);
 
   const [phone, voiceAgentId, voiceAgentApiKey, cityState, preferences] = await Promise.all([
-    getProfilePhone(userId),
-    getProfileVoiceAgentId(ownerId),
-    getProfileVoiceAgentApiKey(ownerId),
+    getProfilePhone(userId).catch(() => null),
+    getProfileVoiceAgentId(ownerId).catch(() => null),
+    getProfileVoiceAgentApiKey(ownerId).catch(() => null),
     getOwnerCityState(ownerId).catch(() => ({ city: "", state: "" })),
     getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null, themeMode: "device", hideFloatingTools: false })),
   ]);

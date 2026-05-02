@@ -22,6 +22,10 @@ const querySchema = z.object({
     }),
 });
 
+const postSchema = z.object({
+  contactIds: z.array(z.string().trim().min(1).max(80)).max(200),
+});
+
 function splitIds(value: string | undefined): string[] {
   if (!value) return [];
   const raw = value
@@ -109,4 +113,81 @@ export async function GET(req: Request) {
         : [],
     })),
   });
+}
+
+function normalizeStrings(items: unknown, max: number) {
+  if (!Array.isArray(items)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (typeof item !== "string") continue;
+    const t = item.trim();
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+export async function POST(req: Request) {
+  const auth = await requireClientSessionForService("newsletter", "edit");
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
+  }
+
+  const body = (await req.json().catch(() => null)) as unknown;
+  const parsed = postSchema.safeParse(body ?? {});
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
+  }
+
+  const ownerId = auth.session.user.id;
+  const existing = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: "newsletter" } },
+    select: { dataJson: true },
+  });
+
+  const current = existing?.dataJson && typeof existing.dataJson === "object" && !Array.isArray(existing.dataJson)
+    ? (existing.dataJson as Record<string, unknown>)
+    : {};
+  const external = current.external && typeof current.external === "object" && !Array.isArray(current.external)
+    ? (current.external as Record<string, unknown>)
+    : {};
+  const internal = current.internal && typeof current.internal === "object" && !Array.isArray(current.internal)
+    ? (current.internal as Record<string, unknown>)
+    : {};
+  const audience = external.audience && typeof external.audience === "object" && !Array.isArray(external.audience)
+    ? (external.audience as Record<string, unknown>)
+    : {};
+
+  const previousContactIds = normalizeStrings(audience.contactIds, 200);
+  const nextContactIds = normalizeStrings([...previousContactIds, ...parsed.data.contactIds], 200);
+  const next = {
+    ...current,
+    external: {
+      ...external,
+      audience: {
+        ...audience,
+        tagIds: normalizeStrings(audience.tagIds, 200),
+        contactIds: nextContactIds,
+        emails: normalizeStrings(audience.emails, 200),
+        userIds: normalizeStrings(audience.userIds, 200),
+        sendAllUsers: Boolean(audience.sendAllUsers),
+      },
+    },
+    internal,
+  };
+
+  await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: "newsletter" } },
+    create: { ownerId, serviceSlug: "newsletter", status: "IN_PROGRESS", dataJson: next as any },
+    update: { dataJson: next as any },
+    select: { id: true },
+  });
+
+  const added = Math.max(0, nextContactIds.length - previousContactIds.length);
+  return NextResponse.json({ ok: true, added, total: nextContactIds.length });
 }

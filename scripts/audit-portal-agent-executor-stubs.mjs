@@ -8,13 +8,106 @@ function read(relPath) {
 const execFile = "src/lib/portalAgentActionExecutor.ts";
 const text = read(execFile);
 
-const switchIdx = text.indexOf("switch (action)");
-if (switchIdx < 0) {
+const switchMatches = [...text.matchAll(/switch \(action\)/g)];
+if (!switchMatches.length) {
   console.error("Could not find switch (action) in", execFile);
   process.exit(1);
 }
 
-const tail = text.slice(switchIdx);
+function extractSwitchBlock(sourceText, startIdx) {
+  const openIdx = sourceText.indexOf("{", startIdx);
+  if (openIdx < 0) throw new Error("Could not find switch block opener");
+
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inTemplate = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let escaped = false;
+
+  for (let i = openIdx; i < sourceText.length; i += 1) {
+    const ch = sourceText[i];
+    const next = sourceText[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") inLineComment = false;
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i += 1;
+      }
+      continue;
+    }
+
+    if (inSingle) {
+      if (!escaped && ch === "'") inSingle = false;
+      escaped = !escaped && ch === "\\";
+      continue;
+    }
+
+    if (inDouble) {
+      if (!escaped && ch === '"') inDouble = false;
+      escaped = !escaped && ch === "\\";
+      continue;
+    }
+
+    if (inTemplate) {
+      if (!escaped && ch === "`") inTemplate = false;
+      escaped = !escaped && ch === "\\";
+      continue;
+    }
+
+    if (ch === "/" && next === "/") {
+      inLineComment = true;
+      i += 1;
+      continue;
+    }
+
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i += 1;
+      continue;
+    }
+
+    if (ch === "'") {
+      inSingle = true;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '"') {
+      inDouble = true;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === "`") {
+      inTemplate = true;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === "{") {
+      depth += 1;
+      continue;
+    }
+
+    if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return sourceText.slice(startIdx, i + 1);
+      }
+    }
+  }
+
+  throw new Error("Could not find end of switch(action) block");
+}
+
+const switchBlocks = switchMatches.map((match) => extractSwitchBlock(text, match.index ?? 0));
 
 function stripStringLiterals(tsLike) {
   // Best-effort removal of string/template literals to avoid false positives like
@@ -27,7 +120,7 @@ function stripStringLiterals(tsLike) {
 }
 
 const patterns = [
-  // Only flag TODOs in comments/code, not inside strings.
+  // Flag TODOs only after string literals are stripped so enum values like "TODO" do not trigger false positives.
   { name: "todo", re: /\bTODO\b/ },
 
   // Only flag "not implemented" / "unimplemented" outside of strings.
@@ -41,35 +134,38 @@ const patterns = [
 const caseRe = /^ {4}case\s+"([^"]+)"\s*:/gm;
 
 const cases = [];
-for (const m of tail.matchAll(caseRe)) {
-  cases.push({ key: m[1], idx: m.index ?? 0 });
-}
-
 const findings = [];
-for (let i = 0; i < cases.length; i++) {
-  const start = cases[i].idx;
-  const end = i + 1 < cases.length ? cases[i + 1].idx : tail.length;
-  const block = tail.slice(start, end);
 
-  const blockNoStrings = stripStringLiterals(block);
+for (const tail of switchBlocks) {
+  const blockCases = [];
+  for (const m of tail.matchAll(caseRe)) {
+    blockCases.push({ key: m[1], idx: m.index ?? 0 });
+    cases.push({ key: m[1], idx: m.index ?? 0 });
+  }
 
-  for (const p of patterns) {
-    // For TODOs, the raw block is fine (we want to catch TODO comments).
-    // For the other patterns, scan the string-stripped version to reduce false positives.
-    const haystack = p.name === "todo" ? block : blockNoStrings;
+  for (let i = 0; i < blockCases.length; i++) {
+    const start = blockCases[i].idx;
+    const end = i + 1 < blockCases.length ? blockCases[i + 1].idx : tail.length;
+    const block = tail.slice(start, end);
 
-    if (p.re.test(haystack)) {
-      // Try to grab a small snippet for debugging.
-      const lines = block.split("\n");
-      const hitLineIdx = lines.findIndex((ln) => p.re.test(ln));
-      const snippet = lines.slice(Math.max(0, hitLineIdx - 2), Math.min(lines.length, hitLineIdx + 5)).join("\n");
-      findings.push({ key: cases[i].key, pattern: p.name, snippet: snippet.slice(0, 800) });
+    const blockNoStrings = stripStringLiterals(block);
+
+    for (const p of patterns) {
+      const haystack = blockNoStrings;
+
+      if (p.re.test(haystack)) {
+        const lines = block.split("\n");
+        const hitLineIdx = lines.findIndex((ln) => p.re.test(ln));
+        const snippet = lines.slice(Math.max(0, hitLineIdx - 2), Math.min(lines.length, hitLineIdx + 5)).join("\n");
+        findings.push({ key: blockCases[i].key, pattern: p.name, snippet: snippet.slice(0, 800) });
+      }
     }
   }
 }
 
 const result = {
   executorFile: execFile,
+  switchBlocksFound: switchBlocks.length,
   totalCasesFound: cases.length,
   findingsCount: findings.length,
   findings,

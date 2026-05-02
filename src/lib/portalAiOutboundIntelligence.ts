@@ -115,7 +115,6 @@ export function analyzeOutboundContextStrength(input: {
   freeformContext?: string | null;
   config?: AgentConfigInput;
 }): OutboundContextReport {
-  const kind = input.kind === "calls" ? "calls" : "messages";
   const parsedBusiness = parseBusinessContext(compactText(input.businessContext, 3200));
   const explicitTexts = [
     compactText(input.freeformContext, 2000),
@@ -476,13 +475,123 @@ export function buildOutboundMessagingSystemPrompt(
     "If you ask a question, stop after that question instead of stacking more.",
     "If the customer sounds busy, hesitant, or resistant, lower pressure and choose the simplest next step.",
     "If the customer asks a direct question, answer it before trying to move the conversation forward.",
+    "Never claim a meeting, consultation, or booking is already confirmed unless the system actually completed that booking.",
+    "If the customer gives a preferred day or time, treat it as a preference to confirm, not a finalized booking.",
     "Do not ask for information the customer just gave you or that is already obvious from the conversation context.",
     "Do not restart the pitch after the customer interrupts, objects, or answers partially.",
     "If they ask to just send info, comply with minimal friction.",
     "Do not assume a home-services or generic local-business context unless the campaign context clearly points there.",
+    "If the business context is thin or ambiguous, describe only safe high-level capabilities from the campaign goal and conversation. Never invent industries, products, or services that are not clearly supported by the context.",
     "If the user asks to stop/unsubscribe, acknowledge and confirm they will not be contacted again.",
     channel === "sms" ? "Keep replies under 420 characters." : "Keep replies under 1200 characters.",
   ].filter(Boolean);
 
   return parts.join("\n");
+}
+
+type OutboundPreviewTurn = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+function capitalizeFirst(text: string): string {
+  const value = String(text || "").trim();
+  if (!value) return "";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function looksLikeSchedulingQuestion(text: string): boolean {
+  return /(what\s+(day|time)\b|would\s+.+\s+work\b|does\s+.+\s+work\b|10\s+or\s+2\b|tomorrow\s+or\s+thursday\b)/i.test(text);
+}
+
+function looksLikeTimePreference(text: string): boolean {
+  return /(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\bmorning\b|\bafternoon\b|\bevening\b|\bworks better\b)/i.test(text);
+}
+
+function looksLikeBusySendDetailsRequest(text: string): boolean {
+  return /(busy|in a meeting|can'?t talk|cannot talk|not a good time|driving|at work)/i.test(text)
+    && /(text|email|send|details|info|information|overview|link)/i.test(text);
+}
+
+function normalizePreferenceLead(text: string): string {
+  const cleaned = String(text || "")
+    .replace(/[.?!]+$/g, "")
+    .replace(/\bworks\s+better\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return capitalizeFirst(cleaned || "That time");
+}
+
+function inferSafeOutboundCapabilities(opts: {
+  goal?: string | null;
+  businessContext?: string | null;
+  campaignName?: string | null;
+}): string {
+  const source = [opts.goal || "", opts.businessContext || "", opts.campaignName || ""].join(" ").toLowerCase();
+  if (/automation|lead|follow-?up|booking|consultation|sms|email|inbox|rebook|reactivat/i.test(source)) {
+    return "We help businesses with automation, lead follow-up, booking, and customer communication.";
+  }
+  return "We help businesses improve follow-up, communication, and next-step scheduling.";
+}
+
+function inferGoalSpecificDetailsLine(opts: {
+  goal?: string | null;
+  campaignName?: string | null;
+}): string {
+  const source = `${opts.goal || ""} ${opts.campaignName || ""}`.toLowerCase();
+  if (/consult/i.test(source)) return "I can text a quick consultation overview and booking link here.";
+  if (/demo/i.test(source)) return "I can text a quick demo overview and booking link here.";
+  if (/estimate|quote/i.test(source)) return "I can text a quick estimate overview and next-step link here.";
+  if (/rebook|booking|schedule|appointment/i.test(source)) return "I can text the booking details and link here.";
+  return "I can text a quick overview and next-step link here.";
+}
+
+export function tryBuildOutboundMessagingDeterministicReply(opts: {
+  channel: OutboundChannel;
+  inbound: string;
+  history?: OutboundPreviewTurn[];
+  goal?: string | null;
+  businessContext?: string | null;
+  campaignName?: string | null;
+}): string | null {
+  const inbound = String(opts.inbound || "").trim();
+  if (!inbound) return null;
+
+  if (/\b(stop|unsubscribe|stop texting|stop emailing|do not contact|don't contact|remove me)\b/i.test(inbound)) {
+    return opts.channel === "sms"
+      ? "Understood. I will stop messaging you about this."
+      : "Understood. I will stop messaging you about this going forward.";
+  }
+
+  if (/\b(wrong number|wrong person|you have the wrong|not .*person|does not live here)\b/i.test(inbound)) {
+    return opts.channel === "sms"
+      ? "Thanks for letting me know. I will remove this number from follow-up for this campaign."
+      : "Thanks for letting me know. I will remove this contact from follow-up for this campaign.";
+  }
+
+  const history = Array.isArray(opts.history) ? opts.history : [];
+  const lastAssistant = [...history].reverse().find((turn) => turn.role === "assistant")?.content || "";
+
+  if (lastAssistant && looksLikeSchedulingQuestion(lastAssistant) && looksLikeTimePreference(inbound)) {
+    const preferenceLead = normalizePreferenceLead(inbound);
+    return opts.channel === "sms"
+      ? `${preferenceLead} sounds good. I can send the booking link or confirmation details to lock it in.`
+      : `${preferenceLead} sounds good as a preference. I can send the booking link or confirmation details to lock it in.`;
+  }
+
+  if (looksLikeBusySendDetailsRequest(inbound)) {
+    const detailsLine = inferGoalSpecificDetailsLine(opts);
+    return opts.channel === "sms"
+      ? `${detailsLine} You can reply whenever it works for you.`
+      : `${detailsLine.replace(/text/i, "send")} You can review it whenever you have a minute.`;
+  }
+
+  if (/what\s+(exactly\s+)?(do\s+you|can\s+you|do\s+you\s+guys)\s+help\s+with|what\s+do\s+you\s+do|what\s+is\s+this\s+about/i.test(inbound)) {
+    const summary = inferSafeOutboundCapabilities(opts);
+    return opts.channel === "sms"
+      ? `${summary} If you want, I can send a quick overview or a booking link.`
+      : `${summary} If helpful, I can send a short overview or a booking link for a quick consultation.`;
+  }
+
+  return null;
 }

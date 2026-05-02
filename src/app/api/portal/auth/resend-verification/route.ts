@@ -9,6 +9,20 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function publicResendVerificationError(reason: string): string {
+  const normalized = String(reason || "").toLowerCase();
+  if (
+    normalized.includes("inactive") ||
+    normalized.includes("suppression") ||
+    normalized.includes("suppressed") ||
+    normalized.includes("hard bounce") ||
+    normalized.includes("spam complaint")
+  ) {
+    return "We could not send a verification email to this address right now. Please contact support so we can help verify your account.";
+  }
+  return "Unable to resend verification email right now. Please try again in a minute.";
+}
+
 export async function POST() {
   const user = await requirePortalUser();
   const userId = user.memberId || user.id;
@@ -24,7 +38,9 @@ export async function POST() {
   if (hasEmailVerifiedAt && (row as any).emailVerifiedAt) return NextResponse.json({ ok: true, alreadyVerified: true });
 
   const res = await sendVerifyEmail({ userId, toEmail: email });
-  if (!res.ok) return NextResponse.json({ error: res.reason }, { status: 502 });
+  if (!res.ok) {
+    return NextResponse.json({ error: publicResendVerificationError(res.reason) }, { status: 502 });
+  }
 
   return NextResponse.json({ ok: true });
 }

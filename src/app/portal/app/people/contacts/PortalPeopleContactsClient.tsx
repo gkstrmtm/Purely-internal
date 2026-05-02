@@ -17,7 +17,7 @@ import { parseCsv } from "@/lib/csv";
 import { normalizePortalContactCustomVarKey, type TemplateVariable } from "@/lib/portalTemplateVars";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 
-const DEFAULT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "city", "state", "website", "niche", "location"];
+const DEFAULT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "address", "city", "state", "website", "niche", "location"];
 const CREDIT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "ssn_last_four", "birth_date", "address", "signature"] as const;
 
 async function readFileAsDataUrl(file: File): Promise<string> {
@@ -355,6 +355,35 @@ function splitTags(raw: string): string[] {
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function formatDuplicatesSummaryLabel(duplicateGroupsCount: number, duplicatesLoading: boolean) {
+  if (duplicatesLoading) return "Checking duplicate contacts";
+  if (duplicateGroupsCount > 0) return `Duplicates (${duplicateGroupsCount})`;
+  return "Review duplicates";
+}
+
+function isHexColor(value: string | null | undefined) {
+  return /^#[0-9a-fA-F]{6}$/.test(String(value || ""));
+}
+
+function tintTagTextColor(color: string | null | undefined) {
+  if (!isHexColor(color)) return "#3f3f46";
+  const raw = String(color);
+  const r = parseInt(raw.slice(1, 3), 16);
+  const g = parseInt(raw.slice(3, 5), 16);
+  const b = parseInt(raw.slice(5, 7), 16);
+  return `rgb(${Math.round(r * 0.58)}, ${Math.round(g * 0.58)}, ${Math.round(b * 0.58)})`;
+}
+
+function contactTagChipStyle(color: string | null) {
+  if (!isHexColor(color)) return undefined;
+  const resolvedColor = String(color);
+  return {
+    backgroundColor: `${resolvedColor}22`,
+    borderColor: "transparent",
+    color: tintTagTextColor(resolvedColor),
+  };
 }
 
 function upsertCustomVarRows(rows: CustomVarRow[], entries: Array<{ key: string; value: string }>) {
@@ -1314,6 +1343,11 @@ export function PortalPeopleContactsClient() {
     return mobilePeopleFilter === "unlinked" ? (filteredLeads || []) : (filteredContacts || []);
   }, [filteredContacts, filteredLeads, mobilePeopleFilter]);
 
+  const duplicateSummaryLabel = useMemo(
+    () => formatDuplicatesSummaryLabel(duplicateGroupsCount, duplicatesLoading),
+    [duplicateGroupsCount, duplicatesLoading],
+  );
+
   const customVarPickerKeys = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -1641,18 +1675,19 @@ export function PortalPeopleContactsClient() {
                 </div>
 
                 {mobilePeopleFilter !== "unlinked" ? (
-                  duplicateGroupsCount > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => router.push(`${portalBase}/app/people/contacts/duplicates`, { scroll: false })}
-                      className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
-                      title="Duplicates are grouped by phone number"
-                    >
-                      Duplicates ({duplicateGroupsCount})
-                    </button>
-                  ) : duplicatesLoading ? (
-                    <div className="text-xs font-semibold text-zinc-400">Checking duplicates…</div>
-                  ) : null
+                  <button
+                    type="button"
+                    onClick={() => router.push(`${portalBase}/app/people/contacts/duplicates`, { scroll: false })}
+                    className={classNames(
+                      "rounded-2xl px-3 py-2 text-xs font-semibold transition",
+                      duplicateGroupsCount > 0
+                        ? "border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                        : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                    )}
+                    title={duplicatesLoading ? "Checking contacts for duplicate phone numbers" : "Review duplicate contacts grouped by phone number"}
+                  >
+                    {duplicateSummaryLabel}
+                  </button>
                 ) : null}
               </div>
 
@@ -1999,6 +2034,7 @@ export function PortalPeopleContactsClient() {
                                       <span
                                         key={t.id}
                                         className="inline-flex max-w-40 items-center truncate rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 sm:max-w-52"
+                                        style={contactTagChipStyle(t.color)}
                                         title={t.name}
                                       >
                                         {t.name}
@@ -2044,18 +2080,19 @@ export function PortalPeopleContactsClient() {
                   <div className="mt-1 text-sm text-zinc-600">Manage and open contact details.</div>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  {duplicateGroupsCount > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => router.push(`${portalBase}/app/people/contacts/duplicates`, { scroll: false })}
-                      className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
-                      title="Duplicates are grouped by phone number"
-                    >
-                      Duplicates ({duplicateGroupsCount})
-                    </button>
-                  ) : duplicatesLoading ? (
-                    <div className="text-xs font-semibold text-zinc-400">Checking duplicates…</div>
-                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => router.push(`${portalBase}/app/people/contacts/duplicates`, { scroll: false })}
+                    className={classNames(
+                      "rounded-2xl px-3 py-2 text-xs font-semibold transition",
+                      duplicateGroupsCount > 0
+                        ? "border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                        : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                    )}
+                    title={duplicatesLoading ? "Checking contacts for duplicate phone numbers" : "Review duplicate contacts grouped by phone number"}
+                  >
+                    {duplicateSummaryLabel}
+                  </button>
                   <button
                     type="button"
                     onClick={openImportModal}
@@ -2383,6 +2420,7 @@ export function PortalPeopleContactsClient() {
                                     <span
                                       key={t.id}
                                       className="inline-flex max-w-40 items-center truncate rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 sm:max-w-52"
+                                      style={contactTagChipStyle(t.color)}
                                       title={t.name}
                                     >
                                       {t.name}
@@ -2619,7 +2657,7 @@ export function PortalPeopleContactsClient() {
                 onClick={() => setImportOpen(false)}
                 aria-label="Close add contacts"
                 className={classNames(
-                  "inline-flex h-10 w-10 items-center justify-center rounded-full text-lg font-semibold text-zinc-800 hover:bg-white/80",
+                  "inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-lg font-semibold text-zinc-800 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white",
                   portalGlassButtonClass,
                 )}
               >
@@ -3390,7 +3428,7 @@ export function PortalPeopleContactsClient() {
               <button
                 type="button"
                 aria-label="Close contact details"
-                className={classNames("inline-flex h-10 w-10 items-center justify-center rounded-full text-lg font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
+                className={classNames("inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-lg font-semibold text-zinc-800 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white", portalGlassButtonClass)}
                 onClick={() => {
                   setDetailOpen(false);
                   setSelectedContactId(null);

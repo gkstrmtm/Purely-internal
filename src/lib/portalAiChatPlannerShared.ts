@@ -16,7 +16,7 @@ export const ChatWrapperActionSchema = z
 
 export const ChatWrapperDecisionSchema = z
   .object({
-    actions: z.array(ChatWrapperActionSchema).max(6).optional(),
+    actions: z.array(ChatWrapperActionSchema).max(12).optional(),
     message: z.string().trim().max(12_000).optional(),
   })
   .strict();
@@ -101,6 +101,8 @@ export function toolCheatSheetForPrompt(textRaw: string, urlRaw?: string): strin
   lines.push("- If an ID is missing, start with a safe discovery action (list/get/search) to find it.");
   lines.push("- Never output placeholder IDs/values like <...>, {{...}}, *_placeholder, or new_*_id.");
   lines.push("- Never output a multi-action plan that depends on IDs created earlier in the SAME response. If an ID will be created/discovered by a tool, output ONLY that one tool action, then stop (you will get another turn with the returned ID).");
+  lines.push("- When the user gives multiple independent tasks and the needed IDs/context are already known, batch those tasks into one JSON action list instead of collapsing to a single step.");
+  lines.push("- When only some tasks are ready now, output the largest safe independent batch you can run now, then continue with the next batch on the following planning round.");
   lines.push("- If a name is missing for a create action, pick a short sensible default name and proceed (do not use the whole user request as a name).");
   lines.push("- Ask at most ONE follow-up question, and only after doing any discovery you can.");
   lines.push("");
@@ -142,15 +144,6 @@ export function toolCheatSheetForPrompt(textRaw: string, urlRaw?: string): strin
 export function getInteractiveConfirmSpecForPortalAgentAction(actionRaw: unknown): { title: string; message: string } | null {
   const action = String(actionRaw || "").trim();
   if (!action) return null;
-
-  // In the interactive chat UI, always confirm before sending real outbound messages.
-  // (Scheduled runs should not use this helper.)
-  if (action === "inbox.send" || action === "inbox.send_sms" || action === "inbox.send_email") {
-    return {
-      title: "Confirm",
-      message: "This will send a real message to a contact. Continue?",
-    };
-  }
 
   if (
     action === "billing.checkout_module" ||
@@ -266,7 +259,9 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
     "- Never output placeholder IDs/values like <...>, {{...}}, *_placeholder, or new_*_id.",
     "- Never output a multi-action plan that depends on IDs created earlier in the SAME response. If an ID will be created/discovered by a tool, output ONLY that one tool action, then stop (you will get another turn with the returned ID).",
     "- Never invent success, completion, URLs, names, IDs, or settings. Tool results are the source of truth.",
-    "- If the user asks for multiple things and they cannot all be completed safely in one turn, do the first safe independent step only.",
+    "- If the user asks for multiple independent things and the required IDs/context are already known, batch them into one TOOL MODE response.",
+    "- If only part of a larger request is safe right now, output the largest safe independent batch you can run now, then continue with the remaining work in the next planning round.",
+    "- Only collapse to a single action when dependency ordering, missing context, or ambiguity truly blocks the rest.",
     "- Use short sensible defaults for missing names (calendar/funnel/page).",
     "- IMPORTANT: If prior tool results or context already contain real IDs, copy and reuse those exact IDs in later action args.",
     "- IMPORTANT: Treat ACTIVE funnel/page state from context as the primary source of truth over older historical IDs.",

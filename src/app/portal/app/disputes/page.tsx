@@ -1,6 +1,8 @@
 import { headers } from "next/headers";
 import { redirect, notFound } from "next/navigation";
 
+import DisputeLettersClient from "@/app/credit/app/disputes/DisputeLettersClient";
+import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER, portalBasePath } from "@/lib/portalVariant";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +13,11 @@ export default async function DisputesAliasPage() {
   const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) ?? "portal";
   if (variant !== "credit") notFound();
 
-  const base = portalBasePath(variant);
-  redirect(`${base}/app/services/dispute-letters`);
+  const session = await requireCreditClientSession();
+  if (!session.ok) {
+    const base = portalBasePath(variant);
+    redirect(`/credit/login?from=${encodeURIComponent(`${base}/app/services/dispute-letters`)}`);
+  }
+
+  return <DisputeLettersClient mode="list" />;
 }

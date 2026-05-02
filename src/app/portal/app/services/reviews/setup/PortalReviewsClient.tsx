@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
@@ -23,8 +24,8 @@ import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModa
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { useToast } from "@/components/ToastProvider";
-import { InlineSpinner } from "@/components/InlineSpinner";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
@@ -418,6 +419,8 @@ function idFromLabel(label: string) {
 
 export default function PortalReviewsClient() {
   const pathname = usePathname();
+  const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
   const toast = useToast();
 
@@ -427,7 +430,10 @@ export default function PortalReviewsClient() {
     let canceled = false;
     (async () => {
       try {
-        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", {
+          cache: "no-store",
+          headers: variantHeaders,
+        });
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
         const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
@@ -440,7 +446,7 @@ export default function PortalReviewsClient() {
     return () => {
       canceled = true;
     };
-  }, []);
+  }, [variantHeaders]);
 
   const varPickerVariables = useMemo(() => {
     const base: TemplateVariable[] = [...REVIEW_TEMPLATE_VARIABLES];
@@ -463,7 +469,6 @@ export default function PortalReviewsClient() {
     });
   }, [knownContactCustomVarKeys]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const hasLoadedOnceRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -529,6 +534,8 @@ export default function PortalReviewsClient() {
   type ConfirmState =
     | { kind: "deleteReply"; reviewId: string }
     | { kind: "deleteAnswer"; questionId: string }
+    | { kind: "deleteReview"; reviewId: string }
+    | { kind: "deleteQuestion"; questionId: string }
     | null;
 
   const [confirm, setConfirm] = useState<ConfirmState>(null);
@@ -636,7 +643,10 @@ export default function PortalReviewsClient() {
     (async () => {
       setFunnelDomainsBusy(true);
       try {
-        const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" });
+        const res = await fetch("/api/portal/funnel-builder/domains", {
+          cache: "no-store",
+          headers: variantHeaders,
+        });
         const json = (await res.json().catch(() => ({}))) as any;
         if (!mounted) return;
         if (!res.ok || json?.ok !== true || !Array.isArray(json.domains)) {
@@ -659,7 +669,7 @@ export default function PortalReviewsClient() {
     return () => {
       mounted = false;
     };
-  }, [tab]);
+  }, [tab, variantHeaders]);
 
   const previewBody = useMemo(() => {
     const business = "{business}";
@@ -697,20 +707,19 @@ export default function PortalReviewsClient() {
   const load = useCallback(async () => {
     const firstLoad = !hasLoadedOnceRef.current;
     if (firstLoad) setLoading(true);
-    else setRefreshing(true);
     setError(null);
     try {
       const [s, e, handle, siteRes, cals, inbox, qa, tags] = await Promise.all([
-        fetch("/api/portal/reviews/settings", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
-        fetch("/api/portal/reviews/events?limit=50", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
-        fetch("/api/portal/reviews/handle", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
-        fetch("/api/portal/reviews/site", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
-        fetch("/api/portal/booking/calendars", { cache: "no-store" })
+        fetch("/api/portal/reviews/settings", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r)),
+        fetch("/api/portal/reviews/events?limit=50", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r)),
+        fetch("/api/portal/reviews/handle", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r)).catch(() => null),
+        fetch("/api/portal/reviews/site", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r)).catch(() => null),
+        fetch("/api/portal/booking/calendars", { cache: "no-store", headers: variantHeaders })
           .then((r) => readJsonSafe<any>(r))
           .catch(() => null),
-        fetch("/api/portal/reviews/inbox?includeArchived=1", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
-        fetch("/api/portal/reviews/questions", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
-        fetch("/api/portal/contact-tags", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
+        fetch("/api/portal/reviews/inbox?includeArchived=1", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r)),
+        fetch("/api/portal/reviews/questions", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r)).catch(() => null),
+        fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r)).catch(() => null),
       ]);
       if (!s || !s.ok) throw new Error((s as any)?.error || "Failed to load settings");
       const sData = s.data;
@@ -783,10 +792,9 @@ export default function PortalReviewsClient() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       if (!hasLoadedOnceRef.current) hasLoadedOnceRef.current = true;
-      if (firstLoad) setLoading(false);
-      else setRefreshing(false);
+      setLoading(false);
     }
-  }, [readJsonSafe]);
+  }, [readJsonSafe, variantHeaders]);
 
   const saveHostedSiteDomain = useCallback(async () => {
     const primaryDomain = String(siteDomainDraft || "")
@@ -797,7 +805,7 @@ export default function PortalReviewsClient() {
     try {
       const res = await fetch("/api/portal/reviews/site", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ primaryDomain }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
@@ -812,7 +820,7 @@ export default function PortalReviewsClient() {
     } finally {
       setSiteDomainBusy(false);
     }
-  }, [siteDomainDraft, toast]);
+  }, [siteDomainDraft, toast, variantHeaders]);
 
   const contactTagOptions = useMemo(() => {
     const q = tagSearch.trim().toLowerCase();
@@ -834,7 +842,7 @@ export default function PortalReviewsClient() {
     try {
       const res = await fetch("/api/portal/contact-tags", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ name, color: createTagColor }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
@@ -868,13 +876,13 @@ export default function PortalReviewsClient() {
     } finally {
       setCreateTagBusy(false);
     }
-  }, [createTagColor, createTagName, toast]);
+  }, [createTagColor, createTagName, toast, variantHeaders]);
 
   const loadBookings = useCallback(async () => {
     setBookingsLoading(true);
     setError(null);
     try {
-      const parsed = await fetch("/api/portal/reviews/bookings", { cache: "no-store" }).then((r) => readJsonSafe<any>(r));
+      const parsed = await fetch("/api/portal/reviews/bookings", { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r));
       if (!parsed.ok) throw new Error(parsed.error || "Failed to load bookings");
       const res = parsed.data;
       if (!res?.ok) throw new Error(res?.error || "Failed to load bookings");
@@ -886,7 +894,7 @@ export default function PortalReviewsClient() {
     } finally {
       setBookingsLoading(false);
     }
-  }, [readJsonSafe]);
+  }, [readJsonSafe, variantHeaders]);
 
   const loadContacts = useCallback(
     async (q?: string) => {
@@ -896,7 +904,7 @@ export default function PortalReviewsClient() {
       const url = new URL("/api/portal/reviews/contacts", window.location.origin);
       if (typeof q === "string") url.searchParams.set("q", q);
       url.searchParams.set("take", "20");
-      const parsed = await fetch(url.toString(), { cache: "no-store" }).then((r) => readJsonSafe<any>(r));
+      const parsed = await fetch(url.toString(), { cache: "no-store", headers: variantHeaders }).then((r) => readJsonSafe<any>(r));
       if (!parsed.ok) throw new Error(parsed.error || "Failed to load contacts");
       const res = parsed.data;
       if (!res?.ok) throw new Error(res?.error || "Failed to load contacts");
@@ -918,7 +926,7 @@ export default function PortalReviewsClient() {
       setContactsLoading(false);
     }
     },
-    [readJsonSafe],
+    [readJsonSafe, variantHeaders],
   );
 
   async function saveReviewReply(reviewId: string, nextReplyOverride?: string) {
@@ -928,7 +936,7 @@ export default function PortalReviewsClient() {
       const reply = (typeof nextReplyOverride === "string" ? nextReplyOverride : (replyDrafts[reviewId] || "")).trim();
       const res = await fetch("/api/portal/reviews/reply", {
         method: "PUT",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ reviewId, reply }),
       }).then((r) => readJsonSafe<any>(r));
       if (!res.ok) throw new Error(res.error || "Failed to save reply");
@@ -961,7 +969,7 @@ export default function PortalReviewsClient() {
     try {
       const res = await fetch("/api/portal/reviews/questions/answer", {
         method: "PUT",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ id, answer }),
       }).then((r) => readJsonSafe<any>(r));
       if (!res.ok) throw new Error(res.error || "Failed to save answer");
@@ -992,12 +1000,56 @@ export default function PortalReviewsClient() {
     try {
       const res = await fetch("/api/portal/reviews/archive", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ reviewId, archived }),
       }).then((r) => readJsonSafe<any>(r));
       if (!res.ok) throw new Error(res.error || "Failed to update");
       if (!res.data?.ok) throw new Error(res.data?.error || "Failed to update");
       await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function deleteReview(reviewId: string) {
+    setError(null);
+    try {
+      const res = await fetch(`/api/portal/reviews/${encodeURIComponent(reviewId)}`, {
+        method: "DELETE",
+        headers: variantHeaders,
+      }).then((r) => readJsonSafe<any>(r));
+      if (!res.ok) throw new Error(res.error || "Failed to delete review");
+      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to delete review");
+      setReceivedReviews((prev) => prev.filter((review) => review.id !== reviewId));
+      setReplyDrafts((prev) => {
+        const next = { ...prev };
+        delete next[reviewId];
+        return next;
+      });
+      setReplyEditingId((prev) => (prev === reviewId ? null : prev));
+      toast.success("Review deleted");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function deleteQuestion(questionId: string) {
+    setError(null);
+    try {
+      const res = await fetch(`/api/portal/reviews/questions/${encodeURIComponent(questionId)}`, {
+        method: "DELETE",
+        headers: variantHeaders,
+      }).then((r) => readJsonSafe<any>(r));
+      if (!res.ok) throw new Error(res.error || "Failed to delete question");
+      if (!res.data?.ok) throw new Error(res.data?.error || "Failed to delete question");
+      setQaQuestions((prev) => prev.filter((question) => question.id !== questionId));
+      setQaAnswerDrafts((prev) => {
+        const next = { ...prev };
+        delete next[questionId];
+        return next;
+      });
+      setQaEditingId((prev) => (prev === questionId ? null : prev));
+      toast.success("Question deleted");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -1012,7 +1064,7 @@ export default function PortalReviewsClient() {
     try {
       const res = await fetch("/api/portal/reviews/send-contact", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ contactId: id }),
       }).then((r) => readJsonSafe<any>(r));
       if (!res.ok) throw new Error(res.error || "Failed to send");
@@ -1025,7 +1077,7 @@ export default function PortalReviewsClient() {
     } finally {
       setSendingContactId(null);
     }
-  }, [load, readJsonSafe]);
+  }, [load, readJsonSafe, variantHeaders]);
 
   useEffect(() => {
     void load();
@@ -1068,7 +1120,7 @@ export default function PortalReviewsClient() {
     try {
       const res = await fetch("/api/portal/reviews/settings", {
         method: "PUT",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ settings: next }),
       }).then((r) => readJsonSafe<any>(r));
       if (!res.ok) throw new Error(res.error || "Failed to save");
@@ -1198,7 +1250,7 @@ export default function PortalReviewsClient() {
     try {
       const res = await fetch("/api/portal/reviews/send", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ bookingId }),
       }).then((r) => readJsonSafe<any>(r));
       if (!res.ok) throw new Error(res.error || "Failed to send");
@@ -1211,7 +1263,7 @@ export default function PortalReviewsClient() {
     } finally {
       setSending(false);
     }
-  }, [load, readJsonSafe]);
+  }, [load, readJsonSafe, variantHeaders]);
 
   const filteredRecent = useMemo(() => {
     const q = bookingQuery.trim().toLowerCase();
@@ -1419,13 +1471,6 @@ export default function PortalReviewsClient() {
         onIndexChange={setLightboxIndex}
         onClose={() => setLightboxOpen(false)}
       />
-
-      {refreshing ? (
-        <div className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
-          <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
-          <span>Refreshing…</span>
-        </div>
-      ) : null}
 
       {tab === "settings" || !showingReviewsOverviewCard ? (
         <div className="mt-4 flex justify-end">
@@ -1879,25 +1924,34 @@ export default function PortalReviewsClient() {
                     <div className="text-xs text-neutral-500">Public URL will appear after you have a site handle.</div>
                   )}
 
-                  {liveHostedReviewsUrl ? (
-                    <a
-                      href={liveHostedReviewsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      href={`${appBase}/services/reviews/page-editor`}
+                      className="inline-flex items-center justify-center rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-xs font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)]"
                     >
-                      View live page
-                    </a>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled
-                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-400"
-                      title={settings.publicPage.enabled ? "No live URL yet." : "Enable public page to view live URL."}
-                    >
-                      View live page
-                    </button>
-                  )}
+                      Edit page
+                    </Link>
+
+                    {liveHostedReviewsUrl ? (
+                      <a
+                        href={liveHostedReviewsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
+                      >
+                        View live page
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-400"
+                        title={settings.publicPage.enabled ? "No live URL yet." : "Enable public page to view live URL."}
+                      >
+                        View live page
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
@@ -2564,24 +2618,40 @@ export default function PortalReviewsClient() {
                     !showingReviewsOverviewCard
                       ? !hasHostedReviewsPath
                         ? (
-                          <button
-                            type="button"
-                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                            onClick={openRequestsSetup}
-                          >
-                            Open hosted page setup
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                              onClick={openRequestsSetup}
+                            >
+                              Open hosted page setup
+                            </button>
+                            <Link
+                              href={`${appBase}/services/reviews/page-editor`}
+                              className="inline-flex items-center justify-center rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)]"
+                            >
+                              Edit hosted page
+                            </Link>
+                          </>
                         )
                         : liveHostedReviewsUrl
                           ? (
-                            <a
-                              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                              href={liveHostedReviewsUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              Open live reviews page
-                            </a>
+                            <>
+                              <Link
+                                href={`${appBase}/services/reviews/page-editor`}
+                                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                              >
+                                Edit hosted page
+                              </Link>
+                              <a
+                                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                                href={liveHostedReviewsUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                Open live reviews page
+                              </a>
+                            </>
                           )
                           : undefined
                       : undefined
@@ -2617,6 +2687,13 @@ export default function PortalReviewsClient() {
                         onClick={() => void setReviewArchived(r.id, !archived)}
                       >
                         {archived ? "Unarchive" : "Archive"}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-zinc-50"
+                        onClick={() => setConfirm({ kind: "deleteReview", reviewId: r.id })}
+                      >
+                        Delete review
                       </button>
                     </div>
 
@@ -2768,7 +2845,16 @@ export default function PortalReviewsClient() {
                       <div className="truncate text-sm font-semibold text-zinc-900">{q.name}</div>
                       <div className="mt-1 text-xs text-zinc-500">{new Date(q.createdAt).toLocaleString()}</div>
                     </div>
-                    <div className="text-xs font-mono text-zinc-500">{q.id.slice(0, 10)}…</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs font-mono text-zinc-500">{q.id.slice(0, 10)}…</div>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-zinc-50"
+                        onClick={() => setConfirm({ kind: "deleteQuestion", questionId: q.id })}
+                      >
+                        Delete question
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-800">{q.question}</div>
@@ -2925,12 +3011,22 @@ export default function PortalReviewsClient() {
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="text-sm font-semibold text-zinc-900">
-              {confirm.kind === "deleteReply" ? "Delete this public response?" : "Delete this answer?"}
+              {confirm.kind === "deleteReply"
+                ? "Delete this public response?"
+                : confirm.kind === "deleteAnswer"
+                  ? "Delete this answer?"
+                  : confirm.kind === "deleteReview"
+                    ? "Delete this review?"
+                    : "Delete this question?"}
             </div>
             <div className="mt-2 text-sm text-zinc-600">
               {confirm.kind === "deleteReply"
                 ? "This removes your business reply from the public Reviews page."
-                : "This removes the answer from the public Q&A section."}
+                : confirm.kind === "deleteAnswer"
+                  ? "This removes the answer from the public Q&A section."
+                  : confirm.kind === "deleteReview"
+                    ? "This permanently removes the review and any attached photos from your account."
+                    : "This permanently removes the submitted question from your Q&A list."}
             </div>
 
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -2957,8 +3053,19 @@ export default function PortalReviewsClient() {
                     return;
                   }
 
+                  if (confirm.kind === "deleteReview") {
+                    const reviewId = confirm.reviewId;
+                    setConfirm(null);
+                    void deleteReview(reviewId);
+                    return;
+                  }
+
                   const questionId = confirm.questionId;
                   setConfirm(null);
+                  if (confirm.kind === "deleteQuestion") {
+                    void deleteQuestion(questionId);
+                    return;
+                  }
                   setQaAnswerDrafts((prev) => ({ ...prev, [questionId]: "" }));
                   void saveQaAnswer(questionId, "");
                 }}

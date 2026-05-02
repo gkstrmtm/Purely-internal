@@ -20,6 +20,24 @@ import { usePuraCanvasUiBridgeClient, type PuraCanvasUiAction } from "@/lib/pura
 
 const SCHEDULED_ACTION_PREFIX = "__PURA_SCHEDULED_ACTION__";
 
+function parseRequestedThreadIdFromPathname(pathname: string | null | undefined): string | null {
+  const path = String(pathname || "").trim();
+  if (!path) return null;
+  const match = /^\/(?:portal|credit)\/app\/ai-chat\/([^/?#]+)/i.exec(path);
+  if (!match?.[1]) return null;
+  try {
+    return parsePortalAiChatThreadRef(decodeURIComponent(match[1]));
+  } catch {
+    return parsePortalAiChatThreadRef(match[1]);
+  }
+}
+
+function buildPortalRequestHeaders(headers: HeadersInit | undefined, portalVariant: "portal" | "credit") {
+  const next = new Headers(headers);
+  next.set("x-portal-variant", portalVariant);
+  return next;
+}
+
 function tryParseScheduledEnvelopeForUi(textRaw: string): { title: string; stepsCount: number } | null {
   const t = String(textRaw || "").trim();
   if (!t.startsWith(SCHEDULED_ACTION_PREFIX)) return null;
@@ -72,6 +90,13 @@ type Thread = {
   nextStepContext?: NextStepContext | null;
   chatMode?: ChatMode | null;
   responseProfile?: PuraAiProfile | null;
+};
+
+type OnboardingBootstrapContext = {
+  kind: "portal_onboarding";
+  missingProfileFields?: Array<{ key: string; label: string }>;
+  recommendedTaskKeys?: string[];
+  summary?: string;
 };
 
 type ThreadRunStatus = {
@@ -401,27 +426,35 @@ const COMPOSER_SERVICE_KEYWORDS: Record<string, string[]> = {
   "funnel-builder": [
     "funnel builder",
     "funnel",
+    "funnel page",
+    "funnel editor",
     "landing page",
+    "sales page",
+    "opt in page",
+    "opt-in page",
     "checkout page",
+    "order bump",
     "upsell page",
     "downsell page",
     "thank you page",
+    "thank-you page",
     "page builder",
     "website",
     "website page",
+    "page editor",
     "website settings",
     "funnel settings",
     "page settings",
     "site",
   ],
   inbox: ["inbox", "sms", "text thread", "reply", "conversation", "email inbox", "email thread", "messages", "messaging", "inbox settings"],
-  newsletter: ["newsletter", "email campaign", "broadcast", "email blast", "email marketing", "campaign", "newsletter settings", "email settings", "audience"],
-  booking: ["booking", "calendar", "appointment", "availability", "scheduler", "booking settings", "calendar settings", "appointment settings", "bookings"],
+  newsletter: ["newsletter", "newsletter page", "newsletter hosted page", "newsletter signup", "email campaign", "broadcast", "email blast", "email marketing", "campaign", "newsletter settings", "email settings", "audience", "signup form"],
+  booking: ["booking", "booking page", "booking form", "calendar", "calendar page", "appointment", "availability", "scheduler", "scheduler page", "booking settings", "calendar settings", "appointment settings", "bookings", "thank you message"],
   "media-library": ["media library", "asset library", "image library", "video library", "upload", "uploads", "assets", "files", "photos", "videos"],
   tasks: ["task", "to do", "todo", "follow up task", "reminder", "checklist", "action item", "follow-up reminder"],
   automations: ["automation", "workflow", "sequence", "automated follow up", "trigger", "logic", "automation settings", "workflow settings"],
-  blogs: ["blog", "article", "seo blog", "blog post", "content", "seo content", "post"],
-  reviews: ["reviews", "review", "testimonial", "google review", "rating", "reputation", "trust", "social proof", "credibility", "customer feedback", "review settings"],
+  blogs: ["blog", "blogs", "blog page", "blog home", "blog post", "blog post page", "article", "article page", "seo blog", "content", "seo content", "post"],
+  reviews: ["reviews", "review", "reviews page", "review page", "reviews hosted page", "testimonial", "testimonials page", "google review", "rating", "reputation", "reputation page", "trust", "social proof", "credibility", "customer feedback", "review settings"],
   "ai-receptionist": ["ai receptionist", "missed call", "voicemail", "call handling", "phone", "incoming call", "calls", "receptionist", "answer calls", "phone settings"],
   "ai-outbound-calls": ["outbound", "outbound call", "call", "calls", "call campaign", "dial", "dialing", "phone outreach", "cold call", "follow up call"],
   "lead-scraping": ["lead scraping", "leads", "lead", "prospects", "prospect", "lead list", "prospect list", "target leads", "scrape leads"],
@@ -608,10 +641,6 @@ function findComposerServiceMatch(inputRaw: string, service: PortalService): Com
   }
 
   return bestMatch;
-}
-
-function findComposerServiceMatchedPhrase(inputRaw: string, service: PortalService): string | null {
-  return findComposerServiceMatch(inputRaw, service)?.phrase?.trim() || null;
 }
 
 function findComposerKeywordSuggestion(inputRaw: string, phrases: string[], weight = 84): ComposerPhraseMatch | null {
@@ -1044,12 +1073,39 @@ function newClientId() {
   return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
 }
 
-function ThinkingDots() {
+function ThinkingDots({ className }: { className?: string }) {
   return (
-    <div className="inline-flex items-center gap-1" aria-label="Thinking">
-      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "0ms" }} />
-      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "100ms" }} />
-      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "200ms" }} />
+    <div className={classNames("inline-flex items-center gap-1.5 text-brand-blue", className)} aria-label="Thinking">
+      <span className="inline-block h-1.5 w-1.5 rounded-full bg-current opacity-50 animate-pulse" style={{ animationDelay: "0ms" }} />
+      <span className="inline-block h-1.5 w-1.5 rounded-full bg-current opacity-75 animate-pulse" style={{ animationDelay: "140ms" }} />
+      <span className="inline-block h-1.5 w-1.5 rounded-full bg-current opacity-95 animate-pulse" style={{ animationDelay: "280ms" }} />
+    </div>
+  );
+}
+
+function ThinkingStatePanel({
+  label,
+  meta,
+  compact = false,
+}: {
+  label: string;
+  meta?: string | null;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={classNames(
+        "rounded-[20px] border border-zinc-900/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,247,250,0.96))] text-zinc-800 shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur",
+        compact ? "px-3 py-2" : "px-3.5 py-3",
+      )}
+    >
+      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+        <ThinkingDots />
+        <span>Pura</span>
+        <span className="rounded-md border border-zinc-200 bg-white/80 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-zinc-400">ACTIVE</span>
+      </div>
+      <div className={classNames("font-medium text-zinc-900", compact ? "mt-1.5 text-xs" : "mt-2 text-sm")}>{label}</div>
+      {meta ? <div className={classNames("text-zinc-500", compact ? "mt-1 text-[11px]" : "mt-1.5 text-xs")}>{meta}</div> : null}
     </div>
   );
 }
@@ -1112,7 +1168,10 @@ function MessageBubble({
           </div>
         )
       ) : isThinking ? (
-        <ThinkingDots />
+        <ThinkingStatePanel
+          label="Thinking through your request"
+          meta="Pura is checking context and lining up the next step."
+        />
       ) : (
         <div className="prose prose-sm max-w-none prose-zinc">
           <ReactMarkdown
@@ -1516,6 +1575,37 @@ function applyRunTracesToMessages(messages: Message[], runsRaw: unknown): Messag
   });
 }
 
+function messageTimestampValue(message: Pick<Message, "sendAt" | "sentAt" | "createdAt">): number {
+  const candidates = [message.sentAt, message.sendAt, message.createdAt];
+  for (const value of candidates) {
+    if (!value) continue;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function mergeServerMessagesWithLocalCache(serverMessagesRaw: Message[], cachedMessages: Message[]): Message[] {
+  const cachedById = new Map(cachedMessages.map((message) => [String(message.id || ""), message] as const));
+  const serverMessages = serverMessagesRaw.map((message) =>
+    mergeVisibleContextBadges(message, cachedById.get(String(message.id || "")) || null),
+  );
+  const serverIds = new Set(serverMessages.map((message) => String(message.id || "")).filter(Boolean));
+  const localOnly = cachedMessages.filter((message) => !serverIds.has(String(message.id || "")));
+
+  return [...serverMessages, ...localOnly]
+    .sort((left, right) => {
+      const delta = messageTimestampValue(left) - messageTimestampValue(right);
+      if (delta !== 0) return delta;
+      return String(left.id || "").localeCompare(String(right.id || ""));
+    })
+    .reduce<Message[]>((acc, message) => {
+      if (acc.some((existing) => existing.id === message.id)) return acc;
+      acc.push(message);
+      return acc;
+    }, []);
+}
+
 function normalizeLiveStatus(raw: unknown): LiveStatus | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const phase = typeof (raw as any).phase === "string" ? String((raw as any).phase).trim().slice(0, 80) : "";
@@ -1653,11 +1743,12 @@ function LiveProgressCard({ status, onInterrupt, interrupting }: { status: LiveS
   const meta = describeLiveStatusMeta(status);
   const lastCompletedTitle = status.lastCompletedTitle?.trim() || null;
   return (
-    <div className="rounded-3xl border border-brand-blue/15 bg-blue-50/70 px-4 py-3 text-zinc-800 shadow-[0_8px_30px_rgba(29,78,216,0.08)]">
+    <div className="rounded-3xl border border-zinc-900/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,247,250,0.96))] px-4 py-3 text-zinc-800 shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-brand-blue">
+        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
           <ThinkingDots />
-          <span>Pura working</span>
+          <span>Pura active</span>
+          <span className="rounded-md border border-zinc-200 bg-white/90 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-zinc-400">RUNNING</span>
         </div>
         {onInterrupt ? (
           <button
@@ -1671,8 +1762,8 @@ function LiveProgressCard({ status, onInterrupt, interrupting }: { status: LiveS
         ) : null}
       </div>
       <div className="mt-2 text-sm font-semibold text-zinc-900">{status.label || status.title || "Working on it"}</div>
-      {meta ? <div className="mt-1 text-xs font-medium text-zinc-600">{meta}</div> : null}
-      {lastCompletedTitle ? <div className="mt-2 text-xs text-zinc-600">Last completed: {lastCompletedTitle}</div> : null}
+      {meta ? <div className="mt-1 text-xs font-medium text-zinc-500">{meta}</div> : null}
+      {lastCompletedTitle ? <div className="mt-2 rounded-2xl border border-zinc-200/80 bg-white/70 px-3 py-2 text-xs text-zinc-600">Last completed: {lastCompletedTitle}</div> : null}
     </div>
   );
 }
@@ -1712,14 +1803,14 @@ function UnresolvedRunCard({ unresolvedRun, onContinue, onOpenCanvas, sending }:
       <div className="flex items-center justify-between gap-3">
         <div className={classNames("flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em]", needsInput ? "text-orange-700" : "text-amber-700")}>
           <ThinkingDots />
-          <span>{needsInput ? "Waiting on you" : "Unfinished work"}</span>
+          <span>{needsInput ? "Missing detail" : "Unfinished work"}</span>
         </div>
         <div className={classNames("rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold", needsInput ? "border border-orange-200 text-orange-800" : "border border-amber-200 text-amber-800")}>
-          {needsInput ? "Needs your reply" : formatRunStatusLabel(unresolvedRun.status)}
+          {needsInput ? "One detail needed" : formatRunStatusLabel(unresolvedRun.status)}
         </div>
       </div>
-      <div className="mt-2 text-sm font-semibold text-zinc-900">{needsInput ? `Need your input: ${title}` : title}</div>
-      {needsInput ? <div className="mt-1 text-xs font-medium text-orange-800">I paused and I’m waiting for the missing detail before doing anything else.</div> : null}
+      <div className="mt-2 text-sm font-semibold text-zinc-900">{needsInput ? `One detail missing: ${title}` : title}</div>
+      {needsInput ? <div className="mt-1 text-xs font-medium text-orange-800">I paused because one specific detail is still missing. Reply once and I’ll keep going.</div> : null}
       {summary ? <div className="mt-1 text-sm leading-6 text-zinc-700">{summary}</div> : null}
       {unresolvedRun.lastCompletedTitle ? <div className="mt-2 text-xs text-zinc-600">Last completed: {unresolvedRun.lastCompletedTitle}</div> : null}
       <div className="mt-3 flex flex-wrap gap-2">
@@ -1823,18 +1914,6 @@ function activityStatusPillClass(statusRaw: string | null | undefined, active = 
   if (status === "interrupted") return "bg-zinc-100 text-zinc-700";
   if (status === "partial" || status === "needs_input") return "bg-amber-50 text-amber-900";
   return "bg-red-50 text-red-800";
-}
-
-function traceStepTone(ok: boolean) {
-  return ok
-    ? {
-        cardClassName: "bg-emerald-100 text-emerald-800",
-        textClassName: "text-emerald-900",
-      }
-    : {
-        cardClassName: "bg-red-50 text-red-800",
-        textClassName: "text-red-900",
-      };
 }
 
 function runTraceCardTone(steps: RunTraceStep[]) {
@@ -2124,10 +2203,13 @@ export function PortalAiChatClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const initialRequestedThreadId = useMemo(() => {
+    const fromPathname = parseRequestedThreadIdFromPathname(pathname);
+    if (fromPathname) return fromPathname;
     const fromRoute = parsePortalAiChatThreadRef(initialThreadRef);
     if (fromRoute) return fromRoute;
     return (searchParams?.get("thread") || "").trim() || null;
-  }, [initialThreadRef, searchParams]);
+  }, [initialThreadRef, pathname, searchParams]);
+  const onboardingBootstrapRequested = (searchParams?.get("onboarding") || "").trim() === "1";
   const [requestedThreadIdState, setRequestedThreadIdState] = useState<string | null>(initialRequestedThreadId);
   // Threads sidebar is resize-only (no close control).
   const [canvasOpen, setCanvasOpen] = useState(() => {
@@ -2153,6 +2235,12 @@ export function PortalAiChatClient({
   }));
 
   const toast = useToast();
+  const portalVariant = useMemo<"portal" | "credit">(() => {
+    if (basePath === "/credit") return "credit";
+    if (pathname === "/credit" || pathname?.startsWith("/credit/")) return "credit";
+    return "portal";
+  }, [basePath, pathname]);
+  const portalVariantRef = useRef<"portal" | "credit">(portalVariant);
 
   const clientTimeZone = useMemo(() => {
     try {
@@ -2166,6 +2254,20 @@ export function PortalAiChatClient({
   const clientTimeZoneHeaders = useMemo(() => {
     return clientTimeZone ? ({ "x-client-timezone": clientTimeZone } as Record<string, string>) : ({} as Record<string, string>);
   }, [clientTimeZone]);
+
+  const portalFetch = useCallback(
+    (input: RequestInfo | URL, init?: RequestInit) => {
+      return fetch(input, {
+        ...init,
+        headers: buildPortalRequestHeaders(init?.headers, portalVariantRef.current),
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    portalVariantRef.current = portalVariant;
+  }, [portalVariant]);
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const pendingComposerSelectionRef = useRef<{ start: number; end: number } | null>(null);
@@ -2308,18 +2410,16 @@ export function PortalAiChatClient({
 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
+  const [threadsLoadedOnce, setThreadsLoadedOnce] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(initialRequestedThreadId);
 
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(() => ({ [DRAFT_THREAD_KEY]: [] }));
+  const [hydratedThreadIds, setHydratedThreadIds] = useState<Set<string>>(() => new Set());
   const [threadLiveStatusById, setThreadLiveStatusById] = useState<Record<string, LiveStatus | null>>(() => ({}));
   const [threadUnresolvedRunById, setThreadUnresolvedRunById] = useState<Record<string, UnresolvedRun | null>>(() => ({}));
   const [threadNextStepContextById, setThreadNextStepContextById] = useState<Record<string, NextStepContext | null>>(() => ({}));
   const [threadWorkingMemoryById, setThreadWorkingMemoryById] = useState<Record<string, WorkingMemory | null>>(() => ({}));
-  const [loadingThreadIds, setLoadingThreadIds] = useState<Set<string>>(() => {
-    const next = new Set<string>();
-    if (initialRequestedThreadId) next.add(initialRequestedThreadId);
-    return next;
-  });
+  const [loadingThreadIds, setLoadingThreadIds] = useState<Set<string>>(() => new Set());
   const [serviceUsageCounts, setServiceUsageCounts] = useState<Record<string, number>>({});
   // Must be stable for SSR + hydration. We randomize it after mount.
   const [welcomePromptSeed, setWelcomePromptSeed] = useState(() => "0");
@@ -2473,14 +2573,18 @@ export function PortalAiChatClient({
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const forceScrollToBottomRef = useRef(false);
-  const pendingInitialThreadScrollRef = useRef<string | null>(null);
-  const shouldStickToBottomRef = useRef(true);
+  const forceScrollToBottomRef = useRef(Boolean(initialRequestedThreadId));
+  const pendingInitialThreadScrollRef = useRef<string | null>(initialRequestedThreadId);
+  const openedThreadAutoScrollDoneRef = useRef<Set<string>>(new Set());
+  const initialThreadScrollRunIdRef = useRef(0);
+  const shouldStickToBottomRef = useRef(!initialRequestedThreadId);
   const manualScrollHoldUntilRef = useRef(0);
   const touchStartYRef = useRef<number | null>(null);
   const sendInFlightRef = useRef<Set<string>>(new Set());
   const activeThreadIdRef = useRef<string | null>(null);
   const pendingThreadIdsRef = useRef<Set<string>>(new Set());
+  const pendingThreadBootstrapContextRef = useRef<OnboardingBootstrapContext | null>(null);
+  const onboardingBootstrapStartedRef = useRef(false);
   const pendingChatModeByThreadRef = useRef<Record<string, ChatMode | undefined>>({});
   const pendingResponseProfileByThreadRef = useRef<Record<string, PuraAiProfile | undefined>>({});
   const threadDraftsRef = useRef<Record<string, ThreadDraftState>>({ [DRAFT_THREAD_KEY]: createEmptyThreadDraftState() });
@@ -2533,6 +2637,10 @@ export function PortalAiChatClient({
     [effectiveResponseProfile],
   );
   const modeSummaryLabel = `${effectiveChatModeLabel} ${effectiveResponseProfileLabel}`;
+  const composerAwaitingRequestedThread = Boolean(requestedThreadId && activeThreadId !== requestedThreadId);
+  const requestedThreadHydrated = Boolean(requestedThreadId && hydratedThreadIds.has(requestedThreadId));
+  const composerHydratingRequestedThread = Boolean(requestedThreadId && !requestedThreadHydrated && (threadsLoading || messagesLoading));
+  const composerLocked = sending || composerAwaitingRequestedThread || composerHydratingRequestedThread;
   const hasThinkingMessage = messages.some((msg) => msg.role === "assistant" && String(msg.id || "").startsWith("optimistic-assistant-"));
   const latestPendingUserText = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -2746,7 +2854,7 @@ export function PortalAiChatClient({
       pendingChatModeByThreadRef.current[activeThreadId] = nextMode;
       applyThreadChatMode(activeThreadId, nextMode);
       try {
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/actions`, {
+        const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/actions`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ action: "set_mode", chatMode: nextMode }),
@@ -2762,7 +2870,7 @@ export function PortalAiChatClient({
         toast.error(e instanceof Error ? e.message : String(e));
       }
     },
-    [activeLiveStatus?.label, activeThreadId, applyThreadChatMode, effectiveResponseProfile, persistDraftPreferences, regenerating, runningActionKey, sending, toast],
+    [activeLiveStatus?.label, activeThreadId, applyThreadChatMode, effectiveResponseProfile, persistDraftPreferences, portalFetch, regenerating, runningActionKey, sending, toast],
   );
 
   const setResponseProfileForCurrentThread = useCallback(
@@ -2773,7 +2881,7 @@ export function PortalAiChatClient({
       pendingResponseProfileByThreadRef.current[activeThreadId] = nextProfile;
       applyThreadResponseProfile(activeThreadId, nextProfile);
       try {
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/actions`, {
+        const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/actions`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ action: "set_response_profile", responseProfile: nextProfile }),
@@ -2789,7 +2897,7 @@ export function PortalAiChatClient({
         toast.error(e instanceof Error ? e.message : String(e));
       }
     },
-    [activeThreadId, applyThreadResponseProfile, effectiveChatMode, persistDraftPreferences, toast],
+    [activeThreadId, applyThreadResponseProfile, effectiveChatMode, persistDraftPreferences, portalFetch, toast],
   );
 
   const setThreadEditingMessageId = useCallback((threadKey: string, messageId: string | null) => {
@@ -2866,48 +2974,94 @@ export function PortalAiChatClient({
     const root = document.documentElement;
     root.setAttribute("data-pa-hide-floating-tools", "1");
     return () => {
+      initialThreadScrollRunIdRef.current += 1;
       root.removeAttribute("data-pa-hide-floating-tools");
     };
   }, []);
 
-  const syncShouldStickToBottom = useCallback(() => {
+  const getDistanceFromBottom = useCallback(() => {
     const el = scrollerRef.current;
-    if (!el) {
+    if (!el) return 0;
+    return Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight);
+  }, []);
+
+  const syncShouldStickToBottom = useCallback(() => {
+    if (!scrollerRef.current) {
       shouldStickToBottomRef.current = true;
       return true;
     }
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const distanceFromBottom = getDistanceFromBottom();
     const holdActive = typeof window !== "undefined" && manualScrollHoldUntilRef.current > window.performance.now();
     const shouldStick = !holdActive && distanceFromBottom <= 48;
     shouldStickToBottomRef.current = shouldStick;
     return shouldStick;
-  }, []);
+  }, [getDistanceFromBottom]);
 
-  const scrollToBottom = useCallback((force = false) => {
+  const scrollToBottom = useCallback((force = false, stickAfter = true) => {
     const el = scrollerRef.current;
     if (!el) return;
     if (!force && !syncShouldStickToBottom()) return;
     const targetTop = Math.max(0, el.scrollHeight - el.clientHeight);
     if (!force && Math.abs(targetTop - el.scrollTop) <= 2) return;
+    endRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+    el.scrollTop = targetTop;
     el.scrollTo({ top: targetTop, behavior: "auto" });
+    if (Math.abs(targetTop - el.scrollTop) > 2) {
+      requestAnimationFrame(() => {
+        const current = scrollerRef.current;
+        if (!current) return;
+        endRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+        current.scrollTop = Math.max(0, current.scrollHeight - current.clientHeight);
+      });
+    }
+    shouldStickToBottomRef.current = stickAfter;
   }, [syncShouldStickToBottom]);
 
   const completeInitialThreadScroll = useCallback((threadId: string) => {
+    const runId = initialThreadScrollRunIdRef.current + 1;
+    initialThreadScrollRunIdRef.current = runId;
+
+    const finish = () => {
+      if (initialThreadScrollRunIdRef.current !== runId) return;
+      forceScrollToBottomRef.current = false;
+      if (pendingInitialThreadScrollRef.current === threadId) {
+        pendingInitialThreadScrollRef.current = null;
+      }
+      shouldStickToBottomRef.current = false;
+    };
+
+    const settle = (attempt: number, stablePasses: number, lastScrollHeight: number) => {
+      if (initialThreadScrollRunIdRef.current !== runId) return;
+      if (activeThreadIdRef.current !== threadId) return;
+
+      scrollToBottom(true, false);
+
+      const el = scrollerRef.current;
+      const distanceFromBottom = getDistanceFromBottom();
+      const scrollHeight = el?.scrollHeight ?? 0;
+      const nextStablePasses = distanceFromBottom <= 16 && scrollHeight === lastScrollHeight ? stablePasses + 1 : distanceFromBottom <= 16 ? 1 : 0;
+
+      if (nextStablePasses >= 2 || attempt >= 18) {
+        finish();
+        return;
+      }
+
+      window.setTimeout(() => {
+        if (initialThreadScrollRunIdRef.current !== runId) return;
+        requestAnimationFrame(() => settle(attempt + 1, nextStablePasses, scrollHeight));
+      }, attempt < 4 ? 16 : 40);
+    };
+
     if (typeof window === "undefined") {
       if (activeThreadIdRef.current === threadId) {
-        scrollToBottom(true);
-        pendingInitialThreadScrollRef.current = null;
+        scrollToBottom(true, false);
+        finish();
       }
       return;
     }
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (activeThreadIdRef.current !== threadId) return;
-        scrollToBottom(true);
-        pendingInitialThreadScrollRef.current = null;
-      });
-    });
-  }, [scrollToBottom]);
+
+    requestAnimationFrame(() => settle(1, 0, -1));
+  }, [getDistanceFromBottom, scrollToBottom]);
 
   const handleChatScroll = useCallback(() => {
     syncShouldStickToBottom();
@@ -2951,7 +3105,7 @@ export function PortalAiChatClient({
   const loadThreads = useCallback(async () => {
     setThreadsLoading(true);
     try {
-      const res = await fetch("/api/portal/ai-chat/threads", { cache: "no-store" });
+      const res = await portalFetch("/api/portal/ai-chat/threads", { cache: "no-store" });
       const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error || "Failed to load threads");
       const next = Array.isArray(json.threads)
@@ -3001,7 +3155,8 @@ export function PortalAiChatClient({
         const hasLocalThread = (threadsRef.current ?? []).some((t) => t.id === activeThreadId);
         const hasPendingThread = pendingThreadIdsRef.current.has(activeThreadId);
         const isSending = sendInFlightRef.current.has(activeThreadId);
-        if (!isSending && !hasLocalMessages && !hasLocalThread && !hasPendingThread) {
+        const routeOwnsActiveThread = requestedThreadIdState === activeThreadId;
+        if (!isSending && !hasLocalMessages && !hasLocalThread && !hasPendingThread && !routeOwnsActiveThread) {
           activeThreadIdRef.current = null;
           setActiveThreadId(null);
           navigateToThread(null, "replace");
@@ -3011,9 +3166,10 @@ export function PortalAiChatClient({
       const msg = e instanceof Error ? e.message : String(e);
       toast.error(msg);
     } finally {
+      setThreadsLoadedOnce(true);
       setThreadsLoading(false);
     }
-  }, [activeThreadId, navigateToThread, resolveThreadChatMode, resolveThreadResponseProfile, toast]);
+  }, [activeThreadId, navigateToThread, portalFetch, requestedThreadIdState, resolveThreadChatMode, resolveThreadResponseProfile, toast]);
 
   loadThreadsRef.current = loadThreads;
 
@@ -3035,25 +3191,20 @@ export function PortalAiChatClient({
     async (threadId: string) => {
       setThreadLoading(threadId, true);
       try {
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/messages`, {
+        const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/messages`, {
           cache: "no-store",
         });
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Failed to load messages");
         const cachedMessages = messagesByThreadRef.current[threadId] ?? [];
-        const cachedById = new Map(cachedMessages.map((message) => [message.id, message] as const));
         setMessagesByThread((prev) => {
           const next = {
             ...prev,
             [threadId]: Array.isArray(json.messages)
               ? applyRunTracesToMessages(
-                  (json.messages as Message[]).map((message) => {
-                    const merged = mergeVisibleContextBadges(
-                      message,
-                      cachedById.get(String(message.id || "")) || null,
-                    );
-                    return applyAssistantDisplayMode(merged, messageDisplayModesByIdRef.current[message.id]);
-                  }),
+                  mergeServerMessagesWithLocalCache(json.messages as Message[], cachedMessages).map((message) =>
+                    applyAssistantDisplayMode(message, messageDisplayModesByIdRef.current[message.id]),
+                  ),
                   json?.threadContext?.runs,
                 )
               : [],
@@ -3061,13 +3212,15 @@ export function PortalAiChatClient({
           messagesByThreadRef.current = next;
           return next;
         });
+        setHydratedThreadIds((prev) => {
+          if (prev.has(threadId)) return prev;
+          const next = new Set(prev);
+          next.add(threadId);
+          return next;
+        });
         pendingThreadIdsRef.current.delete(threadId);
         applyThreadContextSnapshot(threadId, json?.threadContext);
         requestAnimationFrame(() => {
-          if (pendingInitialThreadScrollRef.current === threadId) {
-            completeInitialThreadScroll(threadId);
-            return;
-          }
           if (forceScrollToBottomRef.current || shouldStickToBottomRef.current) {
             scrollToBottom(forceScrollToBottomRef.current);
           }
@@ -3080,7 +3233,7 @@ export function PortalAiChatClient({
         setThreadLoading(threadId, false);
       }
     },
-    [applyThreadContextSnapshot, scrollToBottom, setThreadLoading, toast],
+    [applyThreadContextSnapshot, portalFetch, scrollToBottom, setThreadLoading, toast],
   );
 
   const loadThreadStatus = useCallback(
@@ -3088,7 +3241,7 @@ export function PortalAiChatClient({
       try {
         const json =
           payloadOverride ??
-          (await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/messages?view=status`, {
+          (await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/messages?view=status`, {
             cache: "no-store",
           }).then((res) => res.json().catch(() => null)));
         if (!json?.ok) return;
@@ -3127,7 +3280,7 @@ export function PortalAiChatClient({
         // ignore lightweight status refresh failures
       }
     },
-    [applyThreadChatMode, applyThreadResponseProfile, loadMessages],
+    [applyThreadChatMode, applyThreadResponseProfile, loadMessages, portalFetch],
   );
 
   loadThreadStatusRef.current = loadThreadStatus;
@@ -3135,7 +3288,7 @@ export function PortalAiChatClient({
   const loadThreadStatusLegacy = useCallback(
     async (threadId: string) => {
       try {
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/messages?view=status`, {
+        const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/messages?view=status`, {
           cache: "no-store",
         });
         const json = await res.json().catch(() => null);
@@ -3171,7 +3324,7 @@ export function PortalAiChatClient({
         // ignore lightweight polling failures
       }
     },
-    [applyThreadChatMode, applyThreadResponseProfile],
+    [applyThreadChatMode, applyThreadResponseProfile, portalFetch],
   );
 
   const applyStreamedThreadsSnapshot = useCallback((threadsRaw: unknown) => {
@@ -3194,6 +3347,7 @@ export function PortalAiChatClient({
       threadsRef.current = sorted;
       return sorted;
     });
+    setThreadsLoadedOnce(true);
 
     setThreadLiveStatusById((prev) => {
       const nextStatuses: Record<string, LiveStatus | null> = {};
@@ -3221,11 +3375,11 @@ export function PortalAiChatClient({
 
   const selectThread = useCallback(
     (threadId: string) => {
+      openedThreadAutoScrollDoneRef.current.delete(threadId);
       pendingInitialThreadScrollRef.current = threadId;
       forceScrollToBottomRef.current = true;
-      shouldStickToBottomRef.current = true;
+      shouldStickToBottomRef.current = false;
       manualScrollHoldUntilRef.current = 0;
-      setThreadLoading(threadId, true);
       activeThreadIdRef.current = threadId;
       setActiveThreadId(threadId);
       setCanvasUrl(null);
@@ -3233,26 +3387,66 @@ export function PortalAiChatClient({
       setCanvasOpen(false);
       setMobileThreadsOpen(false);
     },
-    [setActiveThreadId, setThreadLoading],
+    [setActiveThreadId],
   );
+
+  useEffect(() => {
+    if (!requestedThreadId) return;
+    if (activeThreadId !== requestedThreadId) {
+      selectThread(requestedThreadId);
+      return;
+    }
+    if (hydratedThreadIds.has(requestedThreadId)) return;
+    if (loadingThreadIds.has(requestedThreadId)) return;
+    void loadMessages(requestedThreadId);
+  }, [activeThreadId, hydratedThreadIds, loadMessages, loadingThreadIds, requestedThreadId, selectThread]);
 
   useEffect(() => {
     if (!forceScrollToBottomRef.current) return;
     if (messagesLoading) return;
     if (!activeThreadId) return;
-    forceScrollToBottomRef.current = false;
     if (pendingInitialThreadScrollRef.current === activeThreadId) {
-      completeInitialThreadScroll(activeThreadId);
       return;
     }
+    forceScrollToBottomRef.current = false;
     requestAnimationFrame(() => scrollToBottom(true));
   }, [activeThreadId, completeInitialThreadScroll, messagesLoading, messages.length, scrollToBottom]);
+
+  useLayoutEffect(() => {
+    if (!activeThreadId) return;
+    if (messagesLoading) return;
+    if (pendingInitialThreadScrollRef.current !== activeThreadId) return;
+    completeInitialThreadScroll(activeThreadId);
+  }, [activeThreadId, completeInitialThreadScroll, messages, messagesLoading]);
+
+  useEffect(() => {
+    if (!activeThreadId) return;
+    if (messagesLoading || !messages.length) return;
+    if (openedThreadAutoScrollDoneRef.current.has(activeThreadId)) return;
+
+    openedThreadAutoScrollDoneRef.current.add(activeThreadId);
+    forceScrollToBottomRef.current = false;
+    shouldStickToBottomRef.current = false;
+
+    const attemptScroll = () => {
+      if (activeThreadIdRef.current !== activeThreadId) return;
+      scrollToBottom(true, false);
+    };
+
+    requestAnimationFrame(() => {
+      attemptScroll();
+      window.setTimeout(attemptScroll, 80);
+      window.setTimeout(attemptScroll, 220);
+      window.setTimeout(attemptScroll, 480);
+    });
+  }, [activeThreadId, messages, messagesLoading, scrollToBottom]);
 
   useEffect(() => {
     void loadThreads();
   }, [loadThreads]);
 
   useEffect(() => {
+    if (!threadsLoadedOnce) return;
     const source = new EventSource("/api/portal/ai-chat/threads/status");
 
     const onThreads = (event: Event) => {
@@ -3276,7 +3470,7 @@ export function PortalAiChatClient({
       source.removeEventListener("threads", onThreads);
       source.close();
     };
-  }, [applyStreamedThreadsSnapshot, loadThreads]);
+  }, [applyStreamedThreadsSnapshot, loadThreads, threadsLoadedOnce]);
 
   useEffect(() => {
     if (messagesLoading || messages.length > 0) return;
@@ -3302,17 +3496,20 @@ export function PortalAiChatClient({
     const threadExists = threads.some((thread) => thread.id === activeThreadId);
     const hasLocalMessages = (messagesByThreadRef.current[activeThreadId] ?? []).length > 0;
     const hasPendingThread = pendingThreadIdsRef.current.has(activeThreadId);
-    if (!threadsLoading && !threadExists && !hasLocalMessages && !hasPendingThread) {
+    const routeOwnsActiveThread = requestedThreadId === activeThreadId;
+    if (!threadsLoading && !threadExists && !hasLocalMessages && !hasPendingThread && !routeOwnsActiveThread) {
       activeThreadIdRef.current = null;
       setActiveThreadId(null);
       navigateToThread(null, "replace");
       return;
     }
+    if (hydratedThreadIds.has(activeThreadId) || loadingThreadIds.has(activeThreadId)) return;
     void loadMessages(activeThreadId);
-  }, [activeThreadId, loadMessages, navigateToThread, threads, threadsLoading]);
+  }, [activeThreadId, hydratedThreadIds, loadMessages, loadingThreadIds, navigateToThread, requestedThreadId, threads, threadsLoading]);
 
   useEffect(() => {
     if (!activeThreadId) return;
+    if (!hydratedThreadIds.has(activeThreadId)) return;
 
     const source = new EventSource(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/status`);
 
@@ -3336,7 +3533,7 @@ export function PortalAiChatClient({
       source.removeEventListener("status", onStatus);
       source.close();
     };
-  }, [activeThreadId, loadThreadStatus, loadThreadStatusLegacy]);
+  }, [activeThreadId, hydratedThreadIds, loadThreadStatus, loadThreadStatusLegacy]);
 
   useEffect(() => {
     if (!requestedThreadId || threadsLoading) return;
@@ -3365,7 +3562,7 @@ export function PortalAiChatClient({
     async (thread: Thread) => {
       try {
         const action = thread.isPinned ? "unpin" : "pin";
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/actions`, {
+        const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/actions`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ action }),
@@ -3379,13 +3576,13 @@ export function PortalAiChatClient({
         toast.error(e instanceof Error ? e.message : String(e));
       }
     },
-    [closeThreadMenu, loadThreads, toast],
+    [closeThreadMenu, loadThreads, portalFetch, toast],
   );
 
   const duplicateThread = useCallback(
     async (thread: Thread) => {
       try {
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/actions`, {
+        const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/actions`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ action: "duplicate" }),
@@ -3402,7 +3599,7 @@ export function PortalAiChatClient({
         toast.error(e instanceof Error ? e.message : String(e));
       }
     },
-    [closeThreadMenu, loadThreads, navigateToThread, toast],
+    [closeThreadMenu, loadThreads, navigateToThread, portalFetch, toast],
   );
 
   const closeShareModal = useCallback(() => {
@@ -3428,7 +3625,7 @@ export function PortalAiChatClient({
       setShareSaving(false);
 
       try {
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/share`, { cache: "no-store" });
+        const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/share`, { cache: "no-store" });
         const json = await res.json().catch(() => null);
         if (!json?.ok) {
           const statusMsg = res.status === 403 ? "Only the chat owner can manage sharing." : "Unable to load sharing";
@@ -3451,7 +3648,7 @@ export function PortalAiChatClient({
         setShareLoading(false);
       }
     },
-    [closeShareModal, toast],
+    [closeShareModal, portalFetch, toast],
   );
 
   const saveShare = useCallback(async () => {
@@ -3459,7 +3656,7 @@ export function PortalAiChatClient({
     setShareSaving(true);
     try {
       const userIds = Array.from(shareSelectedUserIds);
-      const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(shareThread.id)}/share`, {
+      const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(shareThread.id)}/share`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ userIds }),
@@ -3473,7 +3670,7 @@ export function PortalAiChatClient({
     } finally {
       setShareSaving(false);
     }
-  }, [closeShareModal, shareSelectedUserIds, shareThread, toast]);
+  }, [closeShareModal, portalFetch, shareSelectedUserIds, shareThread, toast]);
 
   const deleteThread = useCallback(
     async (thread: Thread) => {
@@ -3487,7 +3684,7 @@ export function PortalAiChatClient({
       if (!ok) return;
 
       try {
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/actions`, {
+        const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/actions`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ action: "delete" }),
@@ -3516,7 +3713,7 @@ export function PortalAiChatClient({
         toast.error(e instanceof Error ? e.message : String(e));
       }
     },
-    [activeThreadId, askConfirm, closeThreadMenu, loadThreads, navigateToThread, selectThread, threads, toast],
+    [activeThreadId, askConfirm, closeThreadMenu, loadThreads, navigateToThread, portalFetch, selectThread, threads, toast],
   );
 
   const uploadFiles = useCallback(
@@ -3528,7 +3725,7 @@ export function PortalAiChatClient({
         const form = new FormData();
         for (const f of Array.from(files)) form.append("files", f);
 
-        const res = await fetch("/api/portal/ai-chat/attachments", { method: "POST", body: form });
+        const res = await portalFetch("/api/portal/ai-chat/attachments", { method: "POST", body: form });
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Upload failed");
 
@@ -3543,7 +3740,7 @@ export function PortalAiChatClient({
         setUploading(false);
       }
     },
-    [setThreadDraftState, toast],
+    [portalFetch, setThreadDraftState, toast],
   );
 
   const addMediaAttachment = useCallback(
@@ -3706,12 +3903,19 @@ export function PortalAiChatClient({
           return;
         }
         try {
-          const created = await fetch("/api/portal/ai-chat/threads", {
+          const bootstrapContext = pendingThreadBootstrapContextRef.current;
+          const created = await portalFetch("/api/portal/ai-chat/threads", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ chatMode: modeAtSend, responseProfile: profileAtSend }),
+            body: JSON.stringify({
+              title: bootstrapContext?.kind === "portal_onboarding" ? "Onboarding with Pura" : undefined,
+              chatMode: modeAtSend,
+              responseProfile: profileAtSend,
+              ...(bootstrapContext ? { bootstrapContext } : {}),
+            }),
           }).then((r) => r.json().catch(() => null));
           if (!created?.ok || !created?.thread?.id) throw new Error(created?.error || "Failed to create chat");
+          pendingThreadBootstrapContextRef.current = null;
           createdThread = {
             ...(created.thread as Thread),
             chatMode: normalizeThreadChatMode((created.thread as Thread)?.chatMode ?? modeAtSend),
@@ -3769,7 +3973,7 @@ export function PortalAiChatClient({
         clearThreadUiState(threadIdForSend);
 
         try {
-          const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
+          const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
             method: "POST",
             headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
             body: JSON.stringify({
@@ -3829,7 +4033,7 @@ export function PortalAiChatClient({
               return;
             }
 
-            const res2 = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
+            const res2 = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
               method: "POST",
               headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
               body: JSON.stringify({
@@ -3962,7 +4166,7 @@ export function PortalAiChatClient({
       clearThreadUiState(threadIdForSend);
 
       try {
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
+        const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
           method: "POST",
           headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
           body: JSON.stringify({
@@ -4024,7 +4228,7 @@ export function PortalAiChatClient({
             return;
           }
 
-          const res2 = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
+          const res2 = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
             method: "POST",
             headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
             body: JSON.stringify({
@@ -4122,7 +4326,7 @@ export function PortalAiChatClient({
         // proactively delete it so empty chats are never persisted.
         if (createdThread?.id) {
           pendingThreadIdsRef.current.delete(String(createdThread.id));
-          void fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(String(createdThread.id))}/actions`, {
+          void portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(String(createdThread.id))}/actions`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ action: "delete" }),
@@ -4153,8 +4357,40 @@ export function PortalAiChatClient({
         else setThreadSending(sendLockKey, false);
       }
     },
-    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, effectiveChatMode, effectiveResponseProfile, executeClientUiActions, loadThreadStatus, loadThreads, navigateToThread, rememberMessageDisplayMode, setThreadDraftState, setThreadEditingMessageId, setThreadSending, setThreadUiState, toast, updateThreadMessages],
+    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, effectiveChatMode, effectiveResponseProfile, executeClientUiActions, loadThreadStatus, loadThreads, navigateToThread, portalFetch, rememberMessageDisplayMode, setThreadDraftState, setThreadEditingMessageId, setThreadSending, setThreadUiState, toast, updateThreadMessages],
   );
+
+  useEffect(() => {
+    if (!onboardingBootstrapRequested || onboardingBootstrapStartedRef.current) return;
+    if (requestedThreadId || activeThreadId || sending || draftSending) return;
+
+    let cancelled = false;
+
+    const startOnboarding = async () => {
+      onboardingBootstrapStartedRef.current = true;
+      try {
+        const res = await portalFetch("/api/portal/onboarding/status", { cache: "no-store" });
+        const json = await res.json().catch(() => null as any);
+        const starterPrompt = typeof json?.puraOnboarding?.starterPrompt === "string" ? String(json.puraOnboarding.starterPrompt).trim() : "";
+        const threadContext = json?.puraOnboarding?.threadContext && typeof json.puraOnboarding.threadContext === "object"
+          ? (json.puraOnboarding.threadContext as OnboardingBootstrapContext)
+          : null;
+        if (cancelled || !starterPrompt || !threadContext) return;
+        pendingThreadBootstrapContextRef.current = threadContext;
+        await send(starterPrompt);
+      } catch (error) {
+        if (!cancelled) {
+          toast.error(error instanceof Error ? error.message : "Unable to start onboarding with Pura");
+        }
+      }
+    };
+
+    void startOnboarding();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeThreadId, draftSending, onboardingBootstrapRequested, portalFetch, requestedThreadId, send, sending, toast]);
 
   // Handler for ambiguous contact selection (must be after send is defined)
   const handleAmbiguousContactSelect = useCallback((contact: AmbiguousContact) => {
@@ -4182,7 +4418,7 @@ export function PortalAiChatClient({
   const executeAgentAction = useCallback(
     async (action: string, args: Record<string, unknown>) => {
       if (!activeThreadId) throw new Error("No active chat");
-      const res = await fetch("/api/portal/ai-chat/actions/execute", {
+      const res = await portalFetch("/api/portal/ai-chat/actions/execute", {
         method: "POST",
         headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
         body: JSON.stringify({ threadId: activeThreadId, action, args }),
@@ -4200,7 +4436,7 @@ export function PortalAiChatClient({
         openScheduledTasks?: boolean;
       };
     },
-    [activeThreadId, clientTimeZoneHeaders],
+    [activeThreadId, clientTimeZoneHeaders, portalFetch],
   );
 
   const interruptActiveRun = useCallback(async () => {
@@ -4214,7 +4450,7 @@ export function PortalAiChatClient({
     });
 
     try {
-      const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/actions`, {
+      const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/actions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "interrupt" }),
@@ -4237,7 +4473,7 @@ export function PortalAiChatClient({
       void loadThreads();
       void loadThreadStatus(activeThreadId);
     }
-  }, [activeCanInterrupt, activeThreadId, loadThreadStatus, loadThreads, toast]);
+  }, [activeCanInterrupt, activeThreadId, loadThreadStatus, loadThreads, portalFetch, toast]);
 
   const runAssistantAction = useCallback(
     async (a: AssistantAction) => {
@@ -4420,7 +4656,7 @@ export function PortalAiChatClient({
       try {
         releaseDictationPlayback(dictationRef.current);
 
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/dictate`, {
+        const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/dictate`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ messageId }),
@@ -4482,7 +4718,7 @@ export function PortalAiChatClient({
         setDictatingMessageId(null);
       }
     },
-    [activeThreadId, dictating, releaseDictationPlayback, toast],
+    [activeThreadId, dictating, portalFetch, releaseDictationPlayback, toast],
   );
 
   const redoAssistantMessage = useCallback(
@@ -4496,7 +4732,7 @@ export function PortalAiChatClient({
 
       setRegeneratingTarget({ threadId: threadIdAtStart, messageId: assistantMessageId });
       try {
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdAtStart)}/messages`, {
+        const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdAtStart)}/messages`, {
           method: "POST",
           headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
           body: JSON.stringify({
@@ -4519,7 +4755,7 @@ export function PortalAiChatClient({
         setRegeneratingTarget((prev) => (prev?.threadId === threadIdAtStart ? null : prev));
       }
     },
-    [activeThreadId, canvasUrl, clientTimeZone, clientTimeZoneHeaders, effectiveChatMode, effectiveResponseProfile, loadMessages, loadThreads, regeneratingTarget?.threadId, toast, updateThreadMessages],
+    [activeThreadId, canvasUrl, clientTimeZone, clientTimeZoneHeaders, effectiveChatMode, effectiveResponseProfile, loadMessages, loadThreads, portalFetch, regeneratingTarget?.threadId, toast, updateThreadMessages],
   );
 
   const copyMessageText = useCallback(
@@ -4633,8 +4869,11 @@ export function PortalAiChatClient({
                         ) : null}
                         {isWorking ? (
                           <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
-                            <span className="inline-flex h-2 w-2 rounded-full bg-brand-blue animate-pulse" />
-                            <span className="truncate">{threadLiveStatus?.label}</span>
+                            <span className="inline-flex items-center gap-2 rounded-full border border-brand-blue/15 bg-[rgba(29,78,216,0.08)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-blue">
+                              <ThinkingDots className="text-brand-blue" />
+                              <span>Working</span>
+                            </span>
+                            <span className="truncate text-zinc-700">{threadLiveStatus?.label}</span>
                             {threadLiveMeta ? <span className="hidden truncate text-zinc-500 md:inline">· {threadLiveMeta}</span> : null}
                           </div>
                         ) : null}
@@ -4740,8 +4979,11 @@ export function PortalAiChatClient({
                           ) : null}
                           {isWorking ? (
                             <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
-                              <span className="inline-flex h-2 w-2 rounded-full bg-brand-blue animate-pulse" />
-                              <span className="truncate">{threadLiveStatus?.label}</span>
+                              <span className="inline-flex items-center gap-2 rounded-full border border-brand-blue/15 bg-[rgba(29,78,216,0.08)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-blue">
+                                <ThinkingDots className="text-brand-blue" />
+                                <span>Working</span>
+                              </span>
+                              <span className="truncate text-zinc-700">{threadLiveStatus?.label}</span>
                               {threadLiveMeta ? <span className="truncate text-zinc-500">· {threadLiveMeta}</span> : null}
                             </div>
                           ) : null}
@@ -4851,7 +5093,7 @@ export function PortalAiChatClient({
   const loadScheduled = useCallback(async () => {
     setScheduledLoading(true);
     try {
-      const res = await fetch("/api/portal/ai-chat/scheduled", { cache: "no-store" });
+      const res = await portalFetch("/api/portal/ai-chat/scheduled", { cache: "no-store" });
       const json = await res.json().catch(() => null);
       // Calm UX: if there are no scheduled tasks (or the endpoint returns non-ok), show empty state.
       // Avoid flashing scary "Failed to load" errors for a normal empty state.
@@ -4897,7 +5139,7 @@ export function PortalAiChatClient({
     } finally {
       setScheduledLoading(false);
     }
-  }, [splitRepeatEveryMinutes, toLocalInputValue]);
+  }, [portalFetch, splitRepeatEveryMinutes, toLocalInputValue]);
 
   const loadRuns = useCallback(async (opts?: { silent?: boolean }) => {
     if (!activeThreadId) {
@@ -4906,7 +5148,7 @@ export function PortalAiChatClient({
     }
     if (!opts?.silent) setRunsLoading(true);
     try {
-      const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/runs`, { cache: "no-store" });
+      const res = await portalFetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/runs`, { cache: "no-store" });
       const json = await res.json().catch(() => null);
       if (!json?.ok) {
         setRunLedgerRows([]);
@@ -4919,7 +5161,7 @@ export function PortalAiChatClient({
     } finally {
       if (!opts?.silent) setRunsLoading(false);
     }
-  }, [activeThreadId]);
+  }, [activeThreadId, portalFetch]);
 
   useEffect(() => {
     if (!scheduledOpen) return;
@@ -5003,7 +5245,7 @@ export function PortalAiChatClient({
 
       try {
         const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || null;
-        const res = await fetch(`/api/portal/ai-chat/scheduled/${encodeURIComponent(id)}`,
+        const res = await portalFetch(`/api/portal/ai-chat/scheduled/${encodeURIComponent(id)}`,
           {
             method: "PATCH",
             headers: { "content-type": "application/json" },
@@ -5022,7 +5264,7 @@ export function PortalAiChatClient({
         });
       }
     },
-    [computeRepeatEveryMinutes, loadScheduled, scheduledEditing, toast],
+    [computeRepeatEveryMinutes, loadScheduled, portalFetch, scheduledEditing, toast],
   );
 
   const cancelScheduledRow = useCallback(
@@ -5035,7 +5277,7 @@ export function PortalAiChatClient({
         destructive: true,
       });
       if (!ok) return;
-      const res = await fetch(`/api/portal/ai-chat/scheduled/${encodeURIComponent(id)}`,
+      const res = await portalFetch(`/api/portal/ai-chat/scheduled/${encodeURIComponent(id)}`,
         {
           method: "DELETE",
         },
@@ -5045,7 +5287,7 @@ export function PortalAiChatClient({
       toast.success("Stopped");
       void loadScheduled();
     },
-    [askConfirm, loadScheduled, toast],
+    [askConfirm, loadScheduled, portalFetch, toast],
   );
 
   const showWelcomeComposer = !requestedThreadId && !activeThreadId && !messagesLoading && messages.length === 0;
@@ -5424,7 +5666,7 @@ export function PortalAiChatClient({
   const composerInputClass =
     "relative z-10 min-h-11 w-full min-w-0 overflow-y-auto rounded-3xl bg-transparent px-4 py-3 text-sm leading-5 text-transparent caret-zinc-900 focus:outline-none whitespace-pre-wrap break-words";
 
-  const canSendComposerMessage = Boolean((input || "").trim() || pendingAttachments.length) && !sending;
+  const canSendComposerMessage = Boolean((input || "").trim() || pendingAttachments.length) && !composerLocked;
 
   const toggleDraftServiceContext = useCallback(
     (slug: string) => {
@@ -5764,7 +6006,7 @@ export function PortalAiChatClient({
               data-composer-input="true"
               className={composerInputClass}
               value={input}
-              disabled={sending}
+              disabled={composerLocked}
               rows={1}
               onChange={(e) => {
                 const nextValue = normalizeComposerPlainText(e.currentTarget.value || "");
@@ -5790,7 +6032,7 @@ export function PortalAiChatClient({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  void send();
+                  void send(normalizeComposerPlainText(e.currentTarget.value || ""));
                 }
               }}
               spellCheck
@@ -6182,9 +6424,8 @@ export function PortalAiChatClient({
 
               <div className="pointer-events-auto ml-auto flex items-center gap-2">
                 {workStatusLabel ? (
-                  <div className="hidden items-center gap-2 rounded-2xl border border-brand-blue/15 bg-white/95 px-3 py-2 text-xs font-medium text-zinc-700 shadow-[0_10px_24px_rgba(0,0,0,0.06)] sm:inline-flex">
-                    <ThinkingDots />
-                    <span>{workStatusLabel}</span>
+                  <div className="hidden sm:block">
+                    <ThinkingStatePanel label={workStatusLabel} meta="Active thread status" compact />
                   </div>
                 ) : null}
 
@@ -6212,6 +6453,11 @@ export function PortalAiChatClient({
 
           <div
             ref={scrollerRef}
+            data-testid="pura-chat-scroller"
+            data-thread-id={activeThreadId || ""}
+            data-requested-thread-id={requestedThreadId || ""}
+            data-message-count={String(messages.length)}
+            data-messages-loading={messagesLoading ? "1" : "0"}
             className={chatScrollerClassName}
             onScroll={handleChatScroll}
             onWheelCapture={handleChatWheel}
@@ -6646,7 +6892,7 @@ export function PortalAiChatClient({
                     </a>
                     <button
                       type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-xs font-semibold text-zinc-800 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white"
                       onClick={() => {
                         setCanvasUrl(null);
                         setCanvasModalOpen(false);

@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 
+import { IconBillingGlyph, IconProfileGlyph, IconSettingsGlyph } from "@/app/portal/PortalIcons";
 import { PortalAiChatClient } from "@/app/portal/app/ai-chat/PortalAiChatClient";
 import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import { PortalAiOutboundCallsClient } from "@/app/portal/app/services/ai-outbound-calls/PortalAiOutboundCallsClient";
@@ -28,6 +29,7 @@ import { PortalBillingClient } from "@/app/portal/billing/PortalBillingClient";
 import { PortalDashboardClient } from "@/app/portal/PortalDashboardClient";
 import { PortalPeopleContactsClient } from "@/app/portal/app/people/contacts/PortalPeopleContactsClient";
 import { PortalPeopleContactDuplicatesClient } from "@/app/portal/app/people/contacts/duplicates/PortalPeopleContactDuplicatesClient";
+import { PortalPeopleHubClient } from "@/app/portal/app/people/PortalPeopleHubClient";
 import { PortalPeopleUsersClient } from "@/app/portal/app/people/users/PortalPeopleUsersClient";
 import { PortalProfileClient } from "@/app/portal/profile/PortalProfileClient";
 import { SettingsTabsClient } from "@/app/portal/app/settings/SettingsTabsClient";
@@ -49,7 +51,11 @@ function renderCreditServiceRoot(service: string) {
         </PortalServiceGate>
       );
     case "ai-outbound-calls":
-      redirect("/credit/app/services/ai-outbound-calls/calls");
+      return (
+        <PortalServiceGate slug="ai-outbound-calls">
+          <PortalAiOutboundCallsClient initialTab="calls" />
+        </PortalServiceGate>
+      );
     case "automations":
       return (
         <PortalServiceGate slug="automations">
@@ -69,11 +75,19 @@ function renderCreditServiceRoot(service: string) {
         </PortalServiceGate>
       );
     case "follow-up":
-      redirect("/credit/app/services/booking?tab=follow-up");
+      return (
+        <PortalServiceGate slug="booking">
+          <PortalBookingClient initialTopTab="follow-up" />
+        </PortalServiceGate>
+      );
     case "funnel-builder":
       return <FunnelBuilderClient />;
     case "inbox":
-      redirect("/credit/app/services/inbox/email");
+      return (
+        <PortalServiceGate slug="inbox">
+          <PortalInboxClient initialChannel="email" />
+        </PortalServiceGate>
+      );
     case "lead-scraping":
       return (
         <PortalServiceGate slug="lead-scraping">
@@ -93,7 +107,11 @@ function renderCreditServiceRoot(service: string) {
         </PortalServiceGate>
       );
     case "newsletter":
-      redirect("/credit/app/services/newsletter/external");
+      return (
+        <PortalServiceGate slug="newsletter">
+          <PortalNewsletterClient initialAudience="external" />
+        </PortalServiceGate>
+      );
     case "nurture-campaigns":
       return (
         <PortalServiceGate slug="nurture-campaigns">
@@ -121,6 +139,82 @@ function renderCreditServiceRoot(service: string) {
     default:
       return null;
   }
+}
+
+function CreditSettingsLanding() {
+  const cards = [
+    {
+      title: "General settings",
+      description: "Brand basics, account defaults, and service usage from one place.",
+      href: "/credit/app/settings",
+      icon: <IconSettingsGlyph size={18} />,
+    },
+    {
+      title: "Appearance",
+      description: "Update the portal look and customer-facing visual defaults.",
+      href: "/credit/app/settings/appearance",
+      icon: <IconSettingsGlyph size={18} />,
+    },
+    {
+      title: "Business",
+      description: "Manage business information used across credit flows and pages.",
+      href: "/credit/app/settings/business",
+      icon: <IconSettingsGlyph size={18} />,
+    },
+    {
+      title: "Integrations",
+      description: "Connect outside tools without hunting through separate pages.",
+      href: "/credit/app/settings/integrations",
+      icon: <IconSettingsGlyph size={18} />,
+    },
+    {
+      title: "Profile",
+      description: "Update personal account details and security-related info.",
+      href: "/credit/app/profile",
+      icon: <IconProfileGlyph size={18} />,
+    },
+    {
+      title: "Billing",
+      description: "See plan details, credits, and subscription controls.",
+      href: "/credit/app/billing",
+      icon: <IconBillingGlyph size={18} />,
+    },
+  ] as const;
+
+  return (
+    <div className="mx-auto w-full max-w-6xl">
+      <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Settings</h1>
+      <p className="mt-2 max-w-3xl text-sm text-zinc-600">Account setup, billing, profile updates, and credit workspace defaults should all be easy to reach from here.</p>
+
+      <SettingsTabsClient generalOnly />
+
+      <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-base font-semibold text-zinc-900">Quick destinations</h2>
+          <p className="text-sm text-zinc-600">Use the direct route that matches what you are actually trying to change.</p>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {cards.map((card) => (
+            <a
+              key={card.href}
+              href={card.href}
+              className="group rounded-3xl border border-zinc-200 bg-zinc-50 p-4 transition-colors duration-150 hover:border-zinc-300 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700">
+                  {card.icon}
+                </div>
+                <span className="text-sm font-semibold text-zinc-400 transition-colors duration-150 group-hover:text-zinc-700">→</span>
+              </div>
+              <div className="mt-4 text-sm font-semibold text-zinc-900">{card.title}</div>
+              <div className="mt-1 text-sm leading-6 text-zinc-600">{card.description}</div>
+            </a>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 export default async function CreditAppCatchallPage({
@@ -159,12 +253,19 @@ export default async function CreditAppCatchallPage({
   }
 
   if (slug.length === 1 && slug[0] === "settings") {
-    return (
-      <div className="mx-auto w-full max-w-6xl">
-        <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Settings</h1>
-        <SettingsTabsClient generalOnly />
-      </div>
-    );
+    return <CreditSettingsLanding />;
+  }
+
+  if (slug.length === 2 && slug[0] === "settings" && slug[1] === "general") {
+    redirect("/credit/app/settings");
+  }
+
+  if (slug.length === 2 && slug[0] === "settings" && slug[1] === "profile") {
+    redirect("/credit/app/profile");
+  }
+
+  if (slug.length === 2 && slug[0] === "settings" && slug[1] === "billing") {
+    redirect("/credit/app/billing");
   }
 
   if (slug.length === 2 && slug[0] === "settings" && slug[1] === "appearance") {
@@ -287,10 +388,34 @@ export default async function CreditAppCatchallPage({
         </PortalServiceGate>
       );
     }
-    if (leaf === "appointments") redirect("/credit/app/services/booking?tab=appointments");
-    if (leaf === "settings") redirect("/credit/app/services/booking?tab=settings");
-    if (leaf === "reminders") redirect("/credit/app/services/booking?tab=reminders");
-    if (leaf === "follow-up") redirect("/credit/app/services/booking?tab=follow-up");
+    if (leaf === "appointments") {
+      return (
+        <PortalServiceGate slug="booking">
+          <PortalBookingClient initialTopTab="appointments" />
+        </PortalServiceGate>
+      );
+    }
+    if (leaf === "settings") {
+      return (
+        <PortalServiceGate slug="booking">
+          <PortalBookingClient initialTopTab="settings" />
+        </PortalServiceGate>
+      );
+    }
+    if (leaf === "reminders") {
+      return (
+        <PortalServiceGate slug="booking">
+          <PortalBookingClient initialTopTab="reminders" />
+        </PortalServiceGate>
+      );
+    }
+    if (leaf === "follow-up") {
+      return (
+        <PortalServiceGate slug="booking">
+          <PortalBookingClient initialTopTab="follow-up" />
+        </PortalServiceGate>
+      );
+    }
   }
 
   if (slug[0] === "services" && slug[1] === "reporting" && slug.length >= 3) {
@@ -343,7 +468,7 @@ export default async function CreditAppCatchallPage({
   }
 
   if (slug.length === 1 && slug[0] === "people") {
-    redirect("/credit/app/people/contacts");
+    return <PortalPeopleHubClient />;
   }
 
   if (slug.length === 2 && slug[0] === "people" && slug[1] === "contacts") {

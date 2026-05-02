@@ -116,11 +116,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               key={t.id}
               className={classNames(
                 "pa-portal-toast pointer-events-auto rounded-2xl px-4 py-3 text-sm",
-                portalGlassPanelClass,
+                t.kind === "success" ? null : t.kind === "error" ? null : portalGlassPanelClass,
                 t.kind === "error"
-                  ? "pa-portal-toast--error bg-rose-50/90 text-rose-900"
+                  ? "pa-portal-toast--error bg-rose-50 text-rose-900 shadow-[0_14px_32px_rgba(244,63,94,0.12)]"
                   : t.kind === "success"
-                    ? "pa-portal-toast--success bg-emerald-50/90 text-emerald-900"
+                    ? "pa-portal-toast--success bg-emerald-50 text-emerald-900 shadow-[0_14px_32px_rgba(16,185,129,0.12)]"
                     : "pa-portal-toast--info bg-white/90 text-zinc-900",
               )}
               role="status"
@@ -149,4 +149,15 @@ export function useToast() {
   const ctx = useContext(ToastContext);
   if (!ctx) throw new Error("useToast must be used within <ToastProvider>");
   return ctx;
+}
+
+const noopToastContext: ToastContextValue = {
+  push: () => {},
+  error: () => {},
+  success: () => {},
+  info: () => {},
+};
+
+export function useOptionalToast() {
+  return useContext(ToastContext) ?? noopToastContext;
 }

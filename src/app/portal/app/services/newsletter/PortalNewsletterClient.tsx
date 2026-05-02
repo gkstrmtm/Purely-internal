@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -29,9 +29,9 @@ import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEdit
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { portalGlassButtonClass } from "@/components/portalGlass";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
-import { InlineSpinner } from "@/components/InlineSpinner";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -165,6 +165,9 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   const basePath = useMemo(() => {
     const p = String(pathname || "/portal/app/services/newsletter");
@@ -221,7 +224,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
 
@@ -265,12 +268,26 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [contactSearching, setContactSearching] = useState(false);
   const [contactResults, setContactResults] = useState<Contact[]>([]);
   const [selectedContacts, setSelectedContacts] = useState<Contact[]>([]);
+  const prefilledContactIds = useMemo(() => {
+    const raw = String(searchParams?.get("contactIds") || "").trim();
+    if (!raw) return [] as string[];
+    return Array.from(
+      new Set(
+        raw
+          .split(",")
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+          .slice(0, 100),
+      ),
+    );
+  }, [searchParams]);
 
   const [internalEmailInput, setInternalEmailInput] = useState("");
 
   const [draftOpen, setDraftOpen] = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftSaving, setDraftSaving] = useState(false);
+  const [draftDeleting, setDraftDeleting] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [draftStatus, setDraftStatus] = useState<NewsletterRow["status"]>("DRAFT");
@@ -292,6 +309,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [siteConfigSlug, setSiteConfigSlug] = useState("");
   const [siteConfigDomain, setSiteConfigDomain] = useState("");
   const [openNewsletterMenu, setOpenNewsletterMenu] = useState<OpenNewsletterMenu | null>(null);
+  const [deleteConfirmNewsletterId, setDeleteConfirmNewsletterId] = useState<string | null>(null);
   const lastSavedSiteConfigSigRef = useRef<string>("");
   const siteConfigSig = useMemo(() => {
     return JSON.stringify({
@@ -414,15 +432,15 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       listInternalRes,
       funnelDomainsRes,
     ] = await Promise.all([
-      fetch("/api/portal/newsletter/site", { cache: "no-store" }),
-      fetch("/api/portal/newsletter/automation/settings?kind=external", { cache: "no-store" }),
-      fetch("/api/portal/newsletter/automation/settings?kind=internal", { cache: "no-store" }),
-      fetch("/api/portal/contact-tags", { cache: "no-store" }),
-      fetch("/api/portal/credits", { cache: "no-store" }),
-      fetch("/api/portal/newsletter/usage?range=30d", { cache: "no-store" }),
-      fetch("/api/portal/newsletter/newsletters?kind=external&take=100", { cache: "no-store" }),
-      fetch("/api/portal/newsletter/newsletters?kind=internal&take=100", { cache: "no-store" }),
-      fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any),
+      fetch("/api/portal/newsletter/site", { cache: "no-store", headers: variantHeaders }),
+      fetch("/api/portal/newsletter/automation/settings?kind=external", { cache: "no-store", headers: variantHeaders }),
+      fetch("/api/portal/newsletter/automation/settings?kind=internal", { cache: "no-store", headers: variantHeaders }),
+      fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders }),
+      fetch("/api/portal/credits", { cache: "no-store", headers: variantHeaders }),
+      fetch("/api/portal/newsletter/usage?range=30d", { cache: "no-store", headers: variantHeaders }),
+      fetch("/api/portal/newsletter/newsletters?kind=external&take=100", { cache: "no-store", headers: variantHeaders }),
+      fetch("/api/portal/newsletter/newsletters?kind=internal&take=100", { cache: "no-store", headers: variantHeaders }),
+      fetch("/api/portal/funnel-builder/domains", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
     ]);
 
     const siteJson = (await siteRes.json().catch(() => ({}))) as any;
@@ -502,7 +520,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       setLoading(false);
       setRefreshing(false);
     }
-  }, [toast]);
+  }, [toast, variantHeaders]);
 
   const isDirty = useMemo(() => {
     if (!settings) return false;
@@ -669,7 +687,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     (async () => {
       setFunnelDomainsBusy(true);
       try {
-        const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" });
+        const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store", headers: variantHeaders });
         const json = (await res.json().catch(() => ({}))) as any;
         if (!mounted) return;
         if (!res.ok || json?.ok !== true) {
@@ -689,7 +707,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     return () => {
       mounted = false;
     };
-  }, [funnelDomains, siteConfigOpen]);
+  }, [funnelDomains, siteConfigOpen, variantHeaders]);
 
   useEffect(() => {
     const days = Math.max(1, Math.floor(Number(settings?.frequencyDays) || 7));
@@ -716,7 +734,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
     const res = await fetch("/api/portal/newsletter/automation/settings", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({
         kind: audience,
         enabled: Boolean(settings.enabled),
@@ -742,7 +760,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
     setSaving(false);
     await refresh();
-  }, [audience, refresh, settings, toast]);
+  }, [audience, refresh, settings, toast, variantHeaders]);
 
   const searchManualImages = useCallback(async () => {
     const prompt = manualImageSearch.trim();
@@ -755,7 +773,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     try {
       const res = await fetch("/api/portal/newsletter/royalty-free-images/suggest", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ prompt, take: 10 }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
@@ -778,7 +796,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     } finally {
       setManualImageSearching(false);
     }
-  }, [manualImageSearch]);
+  }, [manualImageSearch, variantHeaders]);
 
   const createOwnerTag = useCallback(async () => {
     const name = createTagName.trim().slice(0, 60);
@@ -791,7 +809,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     try {
       const res = await fetch("/api/portal/contact-tags", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ name, color: createTagColor }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
@@ -827,7 +845,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     } finally {
       setCreateTagBusy(false);
     }
-  }, [createTagColor, createTagName, toast]);
+  }, [createTagColor, createTagName, toast, variantHeaders]);
 
   useEffect(() => {
     // For external newsletters, fetch details for selected contacts so we can show a readable list.
@@ -845,6 +863,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     void (async () => {
       const res = await fetch(`/api/portal/newsletter/audience/contacts?ids=${encodeURIComponent(ids.join(","))}&take=200`, {
         cache: "no-store",
+        headers: variantHeaders,
       }).catch(() => null as any);
       const json = (await res?.json().catch(() => ({}))) as any;
       if (cancelled) return;
@@ -871,7 +890,32 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     return () => {
       cancelled = true;
     };
-  }, [audience, settings?.audience?.contactIds]);
+  }, [audience, settings?.audience?.contactIds, variantHeaders]);
+
+  useEffect(() => {
+    if (audience !== "external") return;
+    if (!prefilledContactIds.length) return;
+
+    setSettings((prev) => {
+      if (!prev) return prev;
+      const mergedIds = Array.from(new Set([...(prev.audience?.contactIds || []), ...prefilledContactIds]));
+      return {
+        ...prev,
+        audience: {
+          ...prev.audience,
+          contactIds: mergedIds,
+        },
+      };
+    });
+
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("contactIds");
+      window.history.replaceState({}, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }, [audience, prefilledContactIds]);
 
   useEffect(() => {
     // Contact search (debounced).
@@ -889,7 +933,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     setContactSearching(true);
     const t = window.setTimeout(() => {
       void (async () => {
-        const res = await fetch(`/api/portal/newsletter/audience/contacts?q=${encodeURIComponent(q)}&take=50`, { cache: "no-store" }).catch(() => null as any);
+        const res = await fetch(`/api/portal/newsletter/audience/contacts?q=${encodeURIComponent(q)}&take=50`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
         const json = (await res?.json().catch(() => ({}))) as any;
         if (cancelled) return;
         if (!res?.ok || !json?.ok || !Array.isArray(json?.contacts)) {
@@ -920,7 +964,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       cancelled = true;
       window.clearTimeout(t);
     };
-  }, [audience, contactQuery]);
+  }, [audience, contactQuery, variantHeaders]);
 
   const openDraft = useCallback(async (newsletterId: string) => {
     setDraftOpen(true);
@@ -931,7 +975,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     setAssetUrl(null);
     setAssetFileName("");
 
-    const res = await fetch(`/api/portal/newsletter/newsletters/${encodeURIComponent(newsletterId)}`, { cache: "no-store" }).catch(() => null as any);
+    const res = await fetch(`/api/portal/newsletter/newsletters/${encodeURIComponent(newsletterId)}`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
     const json = (await res?.json().catch(() => ({}))) as any;
     if (!res?.ok || !json?.ok || !json?.newsletter?.id) {
       setDraftError(String(json?.error || "Failed to load draft"));
@@ -947,7 +991,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     setDraftContent(String(n.content || ""));
     setDraftSmsText(String(n.smsText || ""));
     setDraftLoading(false);
-  }, []);
+  }, [variantHeaders]);
 
   const createManual = useCallback(
     async (status: "DRAFT" | "READY") => {
@@ -960,7 +1004,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       try {
         const res = await fetch("/api/portal/newsletter/newsletters", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify({
             kind: audience,
             status,
@@ -987,7 +1031,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         setManualCreating(false);
       }
     },
-    [audience, manualContent, manualExcerpt, manualSmsText, manualTitle, openDraft, refresh, toast],
+    [audience, manualContent, manualExcerpt, manualSmsText, manualTitle, openDraft, refresh, toast, variantHeaders],
   );
 
   const saveDraft = useCallback(async () => {
@@ -1000,7 +1044,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         `/api/portal/newsletter/newsletters/${encodeURIComponent(draftId)}${hostedOnly ? "?hosted=1" : ""}`,
         {
         method: "PUT",
-        headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({
           title: draftTitle,
           excerpt: draftExcerpt,
@@ -1019,7 +1063,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     } finally {
       setDraftSaving(false);
     }
-  }, [draftContent, draftExcerpt, draftId, draftSmsText, draftStatus, draftTitle, refresh, toast]);
+  }, [draftContent, draftExcerpt, draftId, draftSmsText, draftStatus, draftTitle, refresh, toast, variantHeaders]);
 
   const insertIntoDraftContent = useCallback((snippet: string) => {
     const s = String(snippet || "").trim();
@@ -1036,7 +1080,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
     const res = await fetch("/api/portal/newsletter/automation/generate-now", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ kind: audience }),
     });
 
@@ -1055,13 +1099,13 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     toast.success(audience === "internal" ? "Internal newsletter generated" : "Newsletter generated");
     setGenerating(false);
     await refresh();
-  }, [audience, refresh, toast]);
+  }, [audience, refresh, toast, variantHeaders]);
 
   const sendReady = useCallback(async (newsletterId: string) => {
     const ok = window.confirm("Send this newsletter now? This will message your selected audience.");
     if (!ok) return;
 
-    const res = await fetch(`/api/portal/newsletter/newsletters/${newsletterId}/send`, { method: "POST" });
+    const res = await fetch(`/api/portal/newsletter/newsletters/${newsletterId}/send`, { method: "POST", headers: variantHeaders });
     const json = (await res.json().catch(() => ({}))) as any;
     if (!res.ok) {
       toast.error(json?.error ?? "Failed to send");
@@ -1069,7 +1113,50 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     }
     toast.success("Sent");
     await refresh();
-  }, [refresh, toast]);
+  }, [refresh, toast, variantHeaders]);
+
+  const deleteNewsletter = useCallback(async (newsletterId: string) => {
+    const id = String(newsletterId || "").trim();
+    if (!id) return;
+
+    const isDraftOpenTarget = draftOpen && draftId === id;
+    if (isDraftOpenTarget) {
+      setDraftDeleting(true);
+      setDraftError(null);
+    }
+
+    try {
+      const res = await fetch(`/api/portal/newsletter/newsletters/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: variantHeaders,
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok) {
+        const message = String(json?.error || "Failed to delete newsletter");
+        if (isDraftOpenTarget) setDraftError(message);
+        else toast.error(message);
+        return;
+      }
+
+      if (isDraftOpenTarget) {
+        setDraftOpen(false);
+        setDraftId(null);
+        setDraftStatus("DRAFT");
+        setDraftSlug("");
+        setDraftTitle("");
+        setDraftExcerpt("");
+        setDraftContent("");
+        setDraftSmsText("");
+      }
+
+      toast.success("Newsletter deleted");
+      setOpenNewsletterMenu(null);
+      setDeleteConfirmNewsletterId(null);
+      await refresh();
+    } finally {
+      if (isDraftOpenTarget) setDraftDeleting(false);
+    }
+  }, [draftId, draftOpen, refresh, toast, variantHeaders]);
 
   const selectedContactIds = new Set(settings?.audience?.contactIds ?? []);
 
@@ -1189,12 +1276,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
   return (
     <div className="mx-auto w-full max-w-6xl">
-      {refreshing ? (
-        <div className="mb-4 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm text-zinc-600">
-          <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
-          Refreshing…
-        </div>
-      ) : null}
       <div className="flex justify-end">
         <div className="w-full sm:w-auto">
           <SuggestedSetupModalLauncher serviceSlugs={["newsletter"]} buttonLabel="Suggested setup" />
@@ -1403,6 +1484,17 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                               </span>
                             </button>
                           ) : null}
+
+                          <button
+                            type="button"
+                            className="mt-1 w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-red-700 transition-colors duration-150 hover:bg-white/16"
+                            onClick={() => {
+                              setOpenNewsletterMenu(null);
+                              setDeleteConfirmNewsletterId(item.id);
+                            }}
+                          >
+                            Delete
+                          </button>
                         </>
                       );
                     })()}
@@ -1497,7 +1589,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     type="button"
                     onClick={() => setComposerOpen(false)}
                     aria-label="Close composer"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-100 hover:bg-zinc-50 hover:text-zinc-800"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-base font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-100 hover:bg-white hover:text-zinc-800"
                   >
                     ×
                   </button>
@@ -1689,7 +1781,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         <button
                           type="button"
                           aria-label="Close image preview"
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-800 disabled:opacity-60"
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-base font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-150 hover:bg-white hover:text-zinc-800 disabled:opacity-60"
                           onClick={() => setManualImagePreviewOpen(false)}
                           disabled={manualImageImporting}
                         >
@@ -1747,7 +1839,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                                   .slice(0, 200);
                                 const res = await fetch("/api/portal/media/import-remote", {
                                   method: "POST",
-                                  headers: { "content-type": "application/json" },
+                                  headers: { "content-type": "application/json", ...variantHeaders },
                                   body: JSON.stringify({
                                     url: manualImagePreview.url || manualImagePreview.thumbUrl,
                                     fileName: fileName || null,
@@ -2840,7 +2932,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <button
                 type="button"
                 aria-label="Close draft editor"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-100 hover:bg-zinc-50 hover:text-zinc-800"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-base font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-100 hover:bg-white hover:text-zinc-800"
                 onClick={() => setDraftOpen(false)}
                 disabled={draftSaving}
               >
@@ -3044,11 +3136,22 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     ) : null}
                     <button
                       type="button"
+                      className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                      onClick={() => {
+                        if (!draftId) return;
+                        setDeleteConfirmNewsletterId(draftId);
+                      }}
+                      disabled={draftSaving || draftDeleting || !draftId}
+                    >
+                      {draftDeleting ? "Deleting…" : "Delete"}
+                    </button>
+                    <button
+                      type="button"
                       className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
                       onClick={() => {
                         setDraftOpen(false);
                       }}
-                      disabled={draftSaving}
+                      disabled={draftSaving || draftDeleting}
                     >
                       Done
                     </button>
@@ -3056,7 +3159,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       type="button"
                       className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                       onClick={() => void saveDraft()}
-                      disabled={draftSaving || !draftTitle.trim()}
+                      disabled={draftSaving || draftDeleting || !draftTitle.trim()}
                     >
                       {draftSaving ? "Saving…" : draftStatus === "SENT" ? "Save hosted page" : "Save draft"}
                     </button>
@@ -3137,6 +3240,47 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         </div>
       ) : null}
 
+      {deleteConfirmNewsletterId ? (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={() => {
+            if (draftDeleting) return;
+            setDeleteConfirmNewsletterId(null);
+          }}
+        >
+          <div
+            className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm font-semibold text-zinc-900">Delete this newsletter?</div>
+            <div className="mt-2 text-sm text-zinc-600">
+              This permanently removes the newsletter draft or hosted page entry from your account.
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                onClick={() => setDeleteConfirmNewsletterId(null)}
+                disabled={draftDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                disabled={draftDeleting}
+                onClick={() => void deleteNewsletter(deleteConfirmNewsletterId)}
+              >
+                {draftDeleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {siteConfigOpen ? (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center"
@@ -3157,7 +3301,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <button
                 type="button"
                 aria-label="Close hosted pages setup"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-800 disabled:opacity-60"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-base font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-150 hover:bg-white hover:text-zinc-800 disabled:opacity-60"
                 onClick={() => setSiteConfigOpen(false)}
                 disabled={siteConfigBusy}
               >
@@ -3242,7 +3386,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   try {
                     const res = await fetch("/api/portal/newsletter/site", {
                       method: "POST",
-                      headers: { "content-type": "application/json" },
+                      headers: { "content-type": "application/json", ...variantHeaders },
                       body: JSON.stringify({ name, slug, primaryDomain }),
                     });
                     const json = (await res.json().catch(() => ({}))) as any;

@@ -276,9 +276,8 @@ export async function resolveEntitlements(
   opts?: { ownerId?: string | null },
 ): Promise<Entitlements> {
   const e = typeof email === "string" ? email.trim() : "";
-  if (!e) return blankEntitlements();
-
-  const base = await baseEntitlementsFromEmail(e);
+  const demo = e ? demoEntitlementsByEmail(e) : null;
+  if (demo) return demo;
 
   const ownerId = (() => {
     const id = opts?.ownerId;
@@ -292,22 +291,28 @@ export async function resolveEntitlements(
       .then((u) => u?.id ?? null)
       .catch(() => null));
 
-  if (!resolvedOwnerId) return base;
-
   // Credits-only billing: modules are unlocked and usage is billed via credits.
-  try {
-    const owner = await prisma.user
-      .findUnique({ where: { id: resolvedOwnerId }, select: { clientPortalVariant: true } })
-      .catch(() => null);
-    const portalVariant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
-    const billingModel = await getPortalBillingModelForOwner({ ownerId: resolvedOwnerId, portalVariant });
-    if (billingModel === "credits") {
-      const overrides = await entitlementsFromOverrides(resolvedOwnerId);
-      return { ...allEntitlements(), ...overrides };
+  if (resolvedOwnerId) {
+    try {
+      const owner = await prisma.user
+        .findUnique({ where: { id: resolvedOwnerId }, select: { clientPortalVariant: true } })
+        .catch(() => null);
+      const portalVariant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
+      const billingModel = await getPortalBillingModelForOwner({ ownerId: resolvedOwnerId, portalVariant });
+      if (billingModel === "credits") {
+        const overrides = await entitlementsFromOverrides(resolvedOwnerId);
+        return { ...allEntitlements(), ...overrides };
+      }
+    } catch {
+      // Fall through to Stripe-based entitlements.
     }
-  } catch {
-    // Fall through to Stripe-based entitlements.
   }
+
+  if (!e) return blankEntitlements();
+
+  const base = await baseEntitlementsFromEmail(e);
+
+  if (!resolvedOwnerId) return base;
 
   const overrides = await entitlementsFromOverrides(resolvedOwnerId);
   return { ...base, ...overrides };

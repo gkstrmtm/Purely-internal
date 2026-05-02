@@ -22,12 +22,14 @@ export async function getPortalThemeMode(userId?: string | null): Promise<Portal
   noStore();
 
   const cleanUserId = typeof userId === "string" ? userId.trim() : "";
-  if (!cleanUserId) return "device";
+  if (!cleanUserId || cleanUserId === "device") return "device";
 
-  const row = await prisma.portalServiceSetup.findUnique({
-    where: { ownerId_serviceSlug: { ownerId: cleanUserId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
-    select: { dataJson: true },
-  });
+  const row = await prisma.portalServiceSetup
+    .findFirst({
+      where: { ownerId: cleanUserId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG },
+      select: { dataJson: true },
+    })
+    .catch(() => null);
 
   const rec = asThemeRec(row?.dataJson);
   return normalizeThemeMode(rec.themeMode);

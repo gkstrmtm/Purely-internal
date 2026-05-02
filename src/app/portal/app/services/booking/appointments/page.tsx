@@ -1,11 +1,10 @@
-import { redirect } from "next/navigation";
-import { headers } from "next/headers";
-
-import { normalizePortalVariant, PORTAL_VARIANT_HEADER, portalBasePath } from "@/lib/portalVariant";
+import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
+import { PortalBookingClient } from "@/app/portal/app/services/booking/PortalBookingClient";
 
 export default async function PortalBookingAppointmentsSlugPage() {
-  const h = await headers();
-  const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
-  const base = portalBasePath(variant);
-  redirect(`${base}/app/services/booking?tab=appointments`);
+  return (
+    <PortalServiceGate slug="booking">
+      <PortalBookingClient initialTopTab="appointments" />
+    </PortalServiceGate>
+  );
 }

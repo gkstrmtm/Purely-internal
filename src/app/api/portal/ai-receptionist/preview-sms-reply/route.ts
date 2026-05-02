@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
-import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
+import { buildAiReceptionistSmsConversationContext, buildAiReceptionistSmsSystemPrompt, buildAiReceptionistSmsUserPrompt, getAiReceptionistServiceData, normalizeAiReceptionistSmsReplyText, tryBuildAiReceptionistDeterministicSmsReply } from "@/lib/aiReceptionist";
 import { generateText } from "@/lib/ai";
 import { consumeCredits } from "@/lib/credits";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
+import { resolvePuraAiModel } from "@/lib/puraAi";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,11 +34,13 @@ function isOptOutMessage(raw: string): boolean {
   return false;
 }
 
-function normalizeSmsReply(raw: string): string {
-  const text = String(raw || "").trim();
-  if (!text) return "";
-  const oneLine = text.replace(/\s+/g, " ").trim();
-  return oneLine.length > 1200 ? `${oneLine.slice(0, 1199)}…` : oneLine;
+function isAbortLikeError(error: unknown): boolean {
+  if (!error) return false;
+  if (typeof DOMException !== "undefined" && error instanceof DOMException) {
+    return error.name === "AbortError" || error.name === "TimeoutError";
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /abort|timed out|timeout/i.test(message);
 }
 
 export async function POST(req: Request) {
@@ -80,21 +83,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, wouldReply: false, reason: "Missing required include tag" });
   }
 
-  const businessName = typeof s.businessName === "string" ? s.businessName.trim() : "";
-  const smsPrompt = typeof s.smsSystemPrompt === "string" ? s.smsSystemPrompt.trim() : "";
-  const basePrompt = smsPrompt || (typeof s.systemPrompt === "string" ? s.systemPrompt.trim() : "");
-
-  const system = [
-    basePrompt || "You are a helpful receptionist.",
-    "You are replying via SMS.",
-    "Keep replies concise: 1-3 short sentences, under 320 characters when possible.",
-    "No markdown. No long lists. Ask at most one question.",
-    businessName ? `Business name: ${businessName}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n")
-    .slice(0, 6000);
-
   const history = Array.isArray(parsed.data.history) ? parsed.data.history : [];
   const transcript = history
     .map((m) => {
@@ -106,26 +94,50 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join("\n");
 
-  const user = [
-    transcript ? "Conversation:\n" + transcript : "",
-    "Latest inbound SMS:",
+  const conversation = buildAiReceptionistSmsConversationContext({
     inbound,
-    "\nWrite the SMS reply text only.",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+    historyTurns: history.map((m) => ({ role: m.role === "assistant" ? "assistant" : "customer", content: m.content })),
+  });
 
+  const deterministicReply = await tryBuildAiReceptionistDeterministicSmsReply({ ownerId, inbound, historyText: transcript, settings: s });
+  if (deterministicReply) {
+    return NextResponse.json({ ok: true, wouldReply: true, reply: deterministicReply });
+  }
+
+  const system = await buildAiReceptionistSmsSystemPrompt({ ownerId, settings: s, conversationContext: conversation.context });
+
+  const user = buildAiReceptionistSmsUserPrompt({
+    inbound,
+    conversationContext: conversation.context,
+    transcript: conversation.transcript,
+  });
+
+  const hasPriorConversation = conversation.hasPriorConversation;
   let reply = "";
   try {
     const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
     if (!charged.ok) {
       return NextResponse.json({ ok: false, error: "Insufficient credits" }, { status: 402 });
     }
-    reply = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" });
+    const timeoutSignal = AbortSignal.timeout(9000);
+    reply = await generateText({
+      system,
+      user,
+      model:
+        String(process.env.AI_RECEPTIONIST_SMS_PREVIEW_MODEL || "").trim() ||
+        resolvePuraAiModel("fast") ||
+        process.env.AI_MODEL ||
+        "gpt-5.4",
+      temperature: 0.35,
+      signal: timeoutSignal,
+    });
   } catch (e) {
+    if (isAbortLikeError(e)) {
+      return NextResponse.json({ ok: false, error: "Preview timed out. Try again." }, { status: 504 });
+    }
     const msg = e instanceof Error ? e.message : "AI request failed";
     return NextResponse.json({ ok: false, error: msg }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true, wouldReply: true, reply: normalizeSmsReply(reply) });
+  return NextResponse.json({ ok: true, wouldReply: true, reply: normalizeAiReceptionistSmsReplyText({ raw: reply, hasPriorConversation, maxLen: 1200 }) });
 }

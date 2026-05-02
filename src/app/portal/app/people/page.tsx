@@ -1,11 +1,8 @@
-import { redirect } from "next/navigation";
-import { headers } from "next/headers";
+import { requirePortalUserForService } from "@/lib/portalAuth";
 
-import { normalizePortalVariant, PORTAL_VARIANT_HEADER, portalBasePath } from "@/lib/portalVariant";
+import { PortalPeopleHubClient } from "@/app/portal/app/people/PortalPeopleHubClient";
 
-export default async function PortalPeopleRedirectPage() {
-  const h = await headers();
-  const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
-  const base = portalBasePath(variant);
-  redirect(`${base}/app/people/contacts`);
+export default async function PortalPeoplePage() {
+  await requirePortalUserForService("people", "view");
+  return <PortalPeopleHubClient />;
 }

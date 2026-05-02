@@ -10,7 +10,9 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
+import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
+import { buildCustomDomainDirectoryMetadata, buildCustomDomainMetadata, resolveCustomDomainBranding } from "@/lib/customDomainMetadata";
 
 import { CreditHostedFormClient } from "@/app/credit/forms/[slug]/CreditHostedFormClient";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
@@ -212,6 +214,110 @@ function normalizeSegments(raw: unknown): string[] {
     .map((x) => (typeof x === "string" ? x.trim() : ""))
     .filter(Boolean)
     .slice(0, 10);
+}
+
+type DomainRootLink = {
+  href: string;
+  title: string;
+  subtitle: string;
+};
+
+async function resolveDomainRootLinks(opts: {
+  ownerId: string;
+  host: string;
+  matchedDomain: string;
+  funnelDomains: Record<string, string>;
+  allowedDomains: Set<string>;
+}): Promise<DomainRootLink[]> {
+  const { ownerId, funnelDomains, allowedDomains } = opts;
+
+  const [profile, reviewData, bookingSite, blogSite, publishedBlogCount, externalNewsletterCount, internalNewsletterCount, funnels] = await Promise.all([
+    prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }).catch(() => null),
+    getReviewRequestsServiceData(ownerId).catch(() => null),
+    prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { slug: true, title: true, enabled: true } }).catch(() => null),
+    prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true, name: true } }).catch(() => null),
+    prisma.clientBlogSite
+      .findUnique({ where: { ownerId }, select: { id: true } })
+      .then((site) =>
+        site?.id ? prisma.clientBlogPost.count({ where: { siteId: site.id, status: "PUBLISHED", archivedAt: null } }).catch(() => 0) : 0,
+      )
+      .catch(() => 0),
+    prisma.clientBlogSite
+      .findUnique({ where: { ownerId }, select: { id: true } })
+      .then((site) => (site?.id ? prisma.clientNewsletter.count({ where: { siteId: site.id, kind: "EXTERNAL", status: "SENT" } }).catch(() => 0) : 0))
+      .catch(() => 0),
+    prisma.clientBlogSite
+      .findUnique({ where: { ownerId }, select: { id: true } })
+      .then((site) => (site?.id ? prisma.clientNewsletter.count({ where: { siteId: site.id, kind: "INTERNAL", status: "SENT" } }).catch(() => 0) : 0))
+      .catch(() => 0),
+    prisma.creditFunnel
+      .findMany({
+        where: { ownerId, status: "ACTIVE" },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+        select: { id: true, name: true, slug: true },
+        take: 100,
+      })
+      .catch(() => []),
+  ]);
+
+  const businessName = profile?.businessName?.trim() || blogSite?.name?.trim() || "Hosted pages";
+  const links: DomainRootLink[] = [];
+
+  if (reviewData?.settings?.publicPage?.enabled) {
+    links.push({
+      href: "/reviews",
+      title: "Reviews",
+      subtitle: `${businessName} reviews page`,
+    });
+  }
+
+  if (publishedBlogCount > 0) {
+    links.push({
+      href: "/blogs",
+      title: "Blogs",
+      subtitle: `${publishedBlogCount} published post${publishedBlogCount === 1 ? "" : "s"}`,
+    });
+  }
+
+  if (externalNewsletterCount > 0) {
+    links.push({
+      href: "/newsletters",
+      title: "Newsletters",
+      subtitle: `${externalNewsletterCount} published newsletter${externalNewsletterCount === 1 ? "" : "s"}`,
+    });
+  }
+
+  if (internalNewsletterCount > 0) {
+    links.push({
+      href: "/internal-newsletters",
+      title: "Internal newsletters",
+      subtitle: `${internalNewsletterCount} internal newsletter${internalNewsletterCount === 1 ? "" : "s"}`,
+    });
+  }
+
+  if (bookingSite?.enabled && bookingSite.slug) {
+    links.push({
+      href: `/book/${encodeURIComponent(String(bookingSite.slug))}`,
+      title: bookingSite.title?.trim() || "Booking",
+      subtitle: "Public booking page",
+    });
+  }
+
+  const visibleFunnels = funnels.filter((f) => {
+    const assigned = funnelDomains[f.id] ?? null;
+    if (!assigned) return true;
+    return allowedDomains.has(assigned);
+  });
+
+  for (const funnel of visibleFunnels) {
+    links.push({
+      href: `/${encodeURIComponent(funnel.slug)}`,
+      title: funnel.name,
+      subtitle: `Funnel · /${funnel.slug}`,
+    });
+  }
+
+  return links;
 }
 
 function FunnelMarkdown({ blocks }: { blocks: any[] }) {
@@ -442,6 +548,10 @@ export async function generateMetadata({
   const second = segments[1] || "";
   const third = segments[2] || "";
 
+  if (segments.length === 0) {
+    return buildCustomDomainDirectoryMetadata(host);
+  }
+
   // Only handle funnel metadata for /{slug} and /f/{slug}.
   if (!first || first === "forms" || first === "form" || first === "api") return { title: host };
   const funnelSlug = first === "f" && second ? second : first;
@@ -485,23 +595,20 @@ export async function generateMetadata({
   const pageId = (page as any)?.id ? String((page as any).id) : "";
   const pageSeo = pageId ? readFunnelPageSeo(settingsJson, pageId) : null;
   const faviconUrl = typeof pageSeo?.faviconUrl === "string" ? pageSeo.faviconUrl : "";
+  const branding = await resolveCustomDomainBranding(host);
 
   const title = seo?.title || page?.title || "";
   const description = seo?.description || "";
 
-  return {
-    title: title || undefined,
+  return buildCustomDomainMetadata({
+    host,
+    siteName: branding.siteName,
+    title: title || branding.siteName,
     description: description || undefined,
-    openGraph: seo?.imageUrl
-      ? {
-          title: title || undefined,
-          description: description || undefined,
-          images: [{ url: seo.imageUrl }],
-        }
-      : undefined,
-    icons: faviconUrl ? { icon: faviconUrl, shortcut: faviconUrl } : undefined,
-    robots: seo?.noIndex ? { index: false, follow: true } : undefined,
-  };
+    imageUrl: seo?.imageUrl || branding.logoUrl,
+    iconUrl: faviconUrl || branding.logoUrl,
+    noIndex: seo?.noIndex,
+  });
 }
 
 export default async function CustomDomainCatchallPage({
@@ -558,38 +665,38 @@ export default async function CustomDomainCatchallPage({
       redirect(`/${settings.rootFunnelSlug}`);
     }
 
-    const funnels = await prisma.creditFunnel.findMany({
-      where: { ownerId: mapping.ownerId, status: "ACTIVE" },
-      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-      select: { id: true, name: true, slug: true },
-      take: 100,
-    });
+    const [profile, rootLinks] = await Promise.all([
+      prisma.businessProfile.findUnique({ where: { ownerId: mapping.ownerId }, select: { businessName: true } }).catch(() => null),
+      resolveDomainRootLinks({
+        ownerId: mapping.ownerId,
+        host,
+        matchedDomain: mapping.matchedDomain,
+        funnelDomains,
+        allowedDomains,
+      }),
+    ]);
 
-    const visibleFunnels = funnels.filter((f) => {
-      const assigned = funnelDomains[f.id] ?? null;
-      if (!assigned) return true;
-      return allowedDomains.has(assigned);
-    });
+    const businessName = profile?.businessName?.trim() || host;
 
     return (
       <main className="mx-auto w-full max-w-3xl p-8">
-        <h1 className="text-2xl font-bold text-zinc-900">Funnels</h1>
-        <p className="mt-2 text-sm text-zinc-600">Choose a page to visit.</p>
+        <h1 className="text-2xl font-bold text-zinc-900">{businessName}</h1>
+        <p className="mt-2 text-sm text-zinc-600">Only hosted pages for this custom domain are available here.</p>
 
         <div className="mt-6 space-y-3">
-          {visibleFunnels.length ? (
-            visibleFunnels.map((f) => (
+          {rootLinks.length ? (
+            rootLinks.map((link) => (
               <Link
-                key={f.id}
-                href={`/${encodeURIComponent(f.slug)}`}
+                key={`${link.href}:${link.title}`}
+                href={link.href}
                 className="block rounded-2xl border border-zinc-200 bg-white p-4 hover:bg-zinc-50"
               >
-                <div className="text-sm font-semibold text-zinc-900">{f.name}</div>
-                <div className="mt-1 text-xs font-mono text-zinc-600">/{f.slug}</div>
+                <div className="text-sm font-semibold text-zinc-900">{link.title}</div>
+                <div className="mt-1 text-xs text-zinc-600">{link.subtitle}</div>
               </Link>
             ))
           ) : (
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No active funnels yet.</div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No hosted pages are live on this domain yet.</div>
           )}
         </div>
       </main>

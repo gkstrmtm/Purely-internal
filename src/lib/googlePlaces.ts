@@ -17,6 +17,16 @@ type PlacesDetailsResult = {
   international_phone_number?: string;
   website?: string;
   formatted_address?: string;
+  location?: {
+    lat: number;
+    lng: number;
+  };
+  geometry?: {
+    location?: {
+      lat?: number;
+      lng?: number;
+    };
+  };
 };
 
 type PlacesDetailsResponse = {
@@ -204,6 +214,10 @@ type NewPlacesDetailsResponse = {
   internationalPhoneNumber?: string;
   websiteUri?: string;
   formattedAddress?: string;
+  location?: {
+    latitude?: number;
+    longitude?: number;
+  };
 };
 
 async function newPlaceDetails(placeId: string) {
@@ -219,7 +233,7 @@ async function newPlaceDetails(placeId: string) {
     headers: {
       "x-goog-api-key": key,
       "x-goog-fieldmask":
-        "id,displayName,formattedPhoneNumber,internationalPhoneNumber,websiteUri,formattedAddress",
+        "id,displayName,formattedPhoneNumber,internationalPhoneNumber,websiteUri,formattedAddress,location",
       ...getRefererHintHeader(),
     },
   });
@@ -240,6 +254,13 @@ async function newPlaceDetails(placeId: string) {
     international_phone_number: data.internationalPhoneNumber,
     website: data.websiteUri,
     formatted_address: data.formattedAddress,
+    location:
+      typeof data.location?.latitude === "number" && typeof data.location?.longitude === "number"
+        ? {
+            lat: data.location.latitude,
+            lng: data.location.longitude,
+          }
+        : undefined,
   } satisfies PlacesDetailsResult;
 }
 
@@ -276,6 +297,7 @@ export async function placeDetails(placeId: string) {
         "international_phone_number",
         "website",
         "formatted_address",
+        "geometry/location",
       ].join(","),
     );
     url.searchParams.set("key", key);

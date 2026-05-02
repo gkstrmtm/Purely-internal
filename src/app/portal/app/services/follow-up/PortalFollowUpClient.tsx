@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { AppModal } from "@/components/AppModal";
-import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
@@ -14,6 +13,7 @@ import { PortalTypeaheadInput } from "@/components/PortalTypeaheadInput";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { FOLLOW_UP_TEMPLATES, type FollowUpTemplate } from "@/lib/portalFollowUpTemplates";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import {
   PORTAL_BOOKING_VARIABLES,
   PORTAL_MESSAGE_VARIABLES,
@@ -114,6 +114,31 @@ const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
 const MAX_DELAY_MINUTES = 60 * 24 * 365 * 10; // 10 years
 
+type JsonFetchResult<T = any> = {
+  ok: boolean;
+  status: number;
+  body: T | null;
+  timedOut: boolean;
+};
+
+async function fetchJsonWithTimeout<T = any>(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 12_000): Promise<JsonFetchResult<T>> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    const body = (await response.json().catch(() => null)) as T | null;
+    return { ok: response.ok, status: response.status, body, timedOut: false };
+  } catch (error) {
+    if ((error as Error)?.name === "AbortError") {
+      return { ok: false, status: 408, body: null, timedOut: true };
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 type DelayUnit = "minutes" | "hours" | "days" | "weeks" | "months" | "years";
 
 const DELAY_UNITS: Array<{ id: DelayUnit; label: string; minutes: number }> = [
@@ -203,6 +228,8 @@ function ToggleSwitch({
 export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) {
   const pathname = usePathname() || "";
   const toast = useToast();
+  const portalVariant = useMemo(() => (pathname.startsWith("/credit") ? "credit" : "portal"), [pathname]);
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
 
@@ -217,7 +244,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     let canceled = false;
     (async () => {
       try {
-        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store", headers: variantHeaders });
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
         const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
@@ -230,14 +257,14 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     return () => {
       canceled = true;
     };
-  }, []);
+  }, [variantHeaders]);
   const isEmbedded = Boolean(embedded);
   const service = useMemo(() => PORTAL_SERVICES.find((s) => s.slug === "follow-up") ?? null, []);
 
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const mountedRef = useRef(true);
   const [tab, setTab] = useState<"settings" | "activity">("activity");
 
@@ -270,7 +297,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await fetch("/api/portal/notifications/recipients").catch(() => null);
+      const res = await fetch("/api/portal/notifications/recipients", { headers: variantHeaders }).catch(() => null);
       if (!res || !res.ok) return;
       const json = (await res.json().catch(() => null)) as any;
       const list = Array.isArray(json?.recipients) ? json.recipients : [];
@@ -284,7 +311,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [variantHeaders]);
 
   const [stepEmailDrafts, setStepEmailDrafts] = useState<Record<string, string>>({});
   const [stepPhoneDrafts, setStepPhoneDrafts] = useState<Record<string, string>>({});
@@ -376,7 +403,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   }): Promise<{ subject?: string; body: string } | null> {
     const res = await fetch("/api/portal/follow-up/ai/generate-step", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({
         kind: opts.kind,
         stepName: opts.stepName,
@@ -494,30 +521,30 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     let didLoad = false;
 
     try {
-      const settingsRes = await fetch("/api/portal/follow-up/settings", { cache: "no-store" });
+      const settingsRes = await fetchJsonWithTimeout<{
+        ok?: boolean;
+        settings?: Settings;
+        queue?: QueueItem[];
+        calendars?: Calendar[];
+        siteNotificationEmails?: string[];
+        builtinVariables?: string[];
+        error?: string;
+      }>("/api/portal/follow-up/settings", { cache: "no-store", headers: variantHeaders });
       const meRes = isEmbedded
         ? null
-        : await fetch("/api/customer/me", {
+        : await fetchJsonWithTimeout<Me>("/api/customer/me", {
             cache: "no-store",
             headers: {
               "x-pa-app": "portal",
-              "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
+              ...variantHeaders,
             },
           }).catch(() => null);
 
       if (!mountedRef.current) return;
 
-      if (meRes?.ok) setMe((await meRes.json()) as Me);
+      if (meRes?.ok && meRes.body) setMe(meRes.body);
       if (settingsRes.ok) {
-        const json = (await settingsRes.json().catch(() => ({}))) as {
-          ok?: boolean;
-          settings?: Settings;
-          queue?: QueueItem[];
-          calendars?: Calendar[];
-          siteNotificationEmails?: string[];
-          builtinVariables?: string[];
-          error?: string;
-        };
+        const json = settingsRes.body ?? {};
         if (json.ok && json.settings) {
           setSettings(json.settings);
           lastSavedSettingsJsonRef.current = JSON.stringify(json.settings);
@@ -528,6 +555,10 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         } else {
           setError(json.error ?? "Unable to load follow-up settings");
         }
+      } else if (settingsRes.timedOut) {
+        setError("Follow-up took too long to load. Try again in a moment.");
+      } else {
+        setError(settingsRes.body?.error ?? "Unable to load follow-up settings");
       }
 
       didLoad = true;
@@ -540,7 +571,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         setRefreshing(false);
       }
     }
-  }, [isEmbedded]);
+  }, [isEmbedded, variantHeaders]);
 
   useEffect(() => {
     void load();
@@ -556,7 +587,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const refreshTags = useCallback(async () => {
     setTagsLoading(true);
     try {
-      const res = await fetch("/api/portal/contact-tags", { cache: "no-store" });
+      const res = await fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json.ok || !Array.isArray(json.tags)) {
         throw new Error(typeof json?.error === "string" ? json.error : "Failed to load tags");
@@ -575,7 +606,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     } finally {
       setTagsLoading(false);
     }
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     if (!unlocked) return;
@@ -593,7 +624,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     try {
       const res = await fetch("/api/portal/contact-tags", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ name }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
@@ -761,7 +792,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     setError(null);
     const res = await fetch("/api/portal/follow-up/settings", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ settings }),
     });
     const json = (await res.json().catch(() => ({}))) as {
@@ -823,7 +854,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     setError(null);
     const res = await fetch("/api/portal/follow-up/test-send", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({
         channel,
         to: channel === "EMAIL" ? testEmail.trim() : testPhone.trim(),
@@ -898,12 +929,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Follow up</h1>
-            {refreshing ? (
-              <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
-                <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
-                Refreshing…
-              </div>
-            ) : null}
           </div>
           <Link
             href={`${portalBase}/app/services`}
@@ -985,7 +1010,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                       <button
                         type="button"
                         aria-label="Close template picker"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-800"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-base font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-150 hover:bg-white hover:text-zinc-800"
                         onClick={() => setChainTemplatePicker(null)}
                         disabled={busy}
                       >

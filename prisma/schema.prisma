@@ -1569,6 +1569,9 @@ model PortalAiOutboundCallCampaign {
   // Optional: auto-apply tags after the first outbound message outcome.
   messageOutcomeTaggingJson Json?
 
+  // Optional booking extraction + calendar assignment settings for outbound calls.
+  bookingConfigJson Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1592,8 +1595,12 @@ model PortalAiOutboundCallEnrollment {
 
   nextCallAt    DateTime?
   callSid       String?
+  conversationId String?
+  recordingSid   String?
+  transcriptText String?
   attemptCount  Int      @default(0)
   lastError     String?
+  bookingAnalysisJson Json?
   completedAt   DateTime?
 
   createdAt DateTime @default(now())
@@ -1670,6 +1677,7 @@ model PortalAiOutboundCallManualCall {
   recordingSid   String?
   recordingDurationSec Int?
   transcriptText String?
+  bookingAnalysisJson Json?
   lastError      String?
 
   createdAt DateTime @default(now())

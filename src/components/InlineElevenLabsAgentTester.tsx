@@ -132,10 +132,14 @@ function formatDuration(ms: number): string {
 export function InlineElevenLabsAgentTester(props: {
   agentId: string | null | undefined;
   className?: string;
+  participantLabel?: string;
+  onCallActiveChange?: (active: boolean) => void;
 }) {
   const agentId = useMemo(() => (typeof props.agentId === "string" ? props.agentId.trim() : ""), [props.agentId]);
+  const participantLabel = String(props.participantLabel || "Agent").trim() || "Agent";
 
   const wsRef = useRef<WebSocket | null>(null);
+  const connectAbortControllerRef = useRef<AbortController | null>(null);
   const [status, setStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
   const [error, setError] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -149,7 +153,7 @@ export function InlineElevenLabsAgentTester(props: {
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const [micEnabled, setMicEnabled] = useState(false);
   const micCompatSendCountRef = useRef<number>(0);
-  const [micSentChunks, setMicSentChunks] = useState(0);
+  const [, setMicSentChunks] = useState(0);
 
   const outCtxRef = useRef<AudioContext | null>(null);
   const outNextTimeRef = useRef<number>(0);
@@ -166,7 +170,18 @@ export function InlineElevenLabsAgentTester(props: {
     return () => window.clearInterval(id);
   }, [callStartedAt, status]);
 
+  useEffect(() => {
+    props.onCallActiveChange?.(status === "connected");
+  }, [props, status]);
+
   const disconnect = useCallback(() => {
+    try {
+      connectAbortControllerRef.current?.abort();
+    } catch {
+      // ignore
+    }
+    connectAbortControllerRef.current = null;
+
     setError(null);
     setConversationId(null);
     setAgentOutputFormat(null);
@@ -459,16 +474,25 @@ export function InlineElevenLabsAgentTester(props: {
     micCompatSendCountRef.current = 0;
     setStatus("connecting");
 
+    const abortController = new AbortController();
+    connectAbortControllerRef.current = abortController;
+
     const signedUrlRes = await fetch("/api/portal/elevenlabs/convai/signed-url", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ agentId }),
+      signal: abortController.signal,
     }).catch(() => null as any);
+
+    if (abortController.signal.aborted || connectAbortControllerRef.current !== abortController) {
+      return;
+    }
 
     const signedUrlJson = (await signedUrlRes?.json?.().catch(() => null)) as any;
     const signedUrl = typeof signedUrlJson?.signedUrl === "string" ? signedUrlJson.signedUrl : null;
 
     if (!signedUrlRes || !signedUrlRes.ok || !signedUrl) {
+      connectAbortControllerRef.current = null;
       setStatus("disconnected");
       setError(signedUrlJson?.error || "Failed to start session");
       return;
@@ -478,6 +502,9 @@ export function InlineElevenLabsAgentTester(props: {
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (connectAbortControllerRef.current === abortController) {
+        connectAbortControllerRef.current = null;
+      }
       setStatus("connected");
       setCallStartedAt(Date.now());
 
@@ -488,6 +515,9 @@ export function InlineElevenLabsAgentTester(props: {
     ws.onclose = () => {
       // If the current ref isn't this socket, we already reconnected.
       if (wsRef.current !== ws) return;
+      if (connectAbortControllerRef.current === abortController) {
+        connectAbortControllerRef.current = null;
+      }
       wsRef.current = null;
       setStatus("disconnected");
       setCallStartedAt(null);
@@ -581,6 +611,12 @@ export function InlineElevenLabsAgentTester(props: {
   useEffect(() => {
     return () => {
       try {
+        connectAbortControllerRef.current?.abort();
+      } catch {
+        // ignore
+      }
+      connectAbortControllerRef.current = null;
+      try {
         wsRef.current?.close();
       } catch {
         // ignore
@@ -601,15 +637,9 @@ export function InlineElevenLabsAgentTester(props: {
 
   return (
     <div className={props.className ?? ""}>
-      <div className="flex min-h-80 flex-col">
+      <div className="flex min-h-80 flex-1 flex-col">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <div
-              className={classNames(
-                "h-2.5 w-2.5 rounded-full",
-                status === "connected" ? "bg-emerald-500" : status === "connecting" ? "bg-amber-500" : "bg-zinc-300",
-              )}
-            />
             <div className="text-sm font-semibold text-zinc-900">Test call</div>
             {callStartedAt && status === "connected" ? (
               <div className="text-xs font-semibold text-zinc-500">{formatDuration(now - callStartedAt)}</div>
@@ -619,16 +649,16 @@ export function InlineElevenLabsAgentTester(props: {
           <button
             type="button"
             className={classNames(
-              "rounded-xl border px-3 py-2 text-xs font-semibold transition-all duration-150 hover:-translate-y-0.5 disabled:opacity-60",
+              "rounded-2xl px-3 py-2 text-xs font-semibold transition-colors duration-150 disabled:opacity-60",
               speakerEnabled
-                ? "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
-                : "border-zinc-900 bg-zinc-900 text-white hover:opacity-95",
+                ? "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18"
+                : "bg-red-50 text-red-700 hover:bg-red-100",
             )}
             disabled={status !== "connected"}
             onClick={() => setSpeakerEnabled((v) => !v)}
-            title={speakerEnabled ? "Mute" : "Unmute"}
+            title={speakerEnabled ? `Mute ${participantLabel.toLowerCase()}` : `${participantLabel} muted`}
           >
-            {speakerEnabled ? "Mute" : "Unmute"}
+            {speakerEnabled ? `Mute ${participantLabel}` : `${participantLabel} muted`}
           </button>
         </div>
 
@@ -636,72 +666,64 @@ export function InlineElevenLabsAgentTester(props: {
           <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>
         ) : null}
 
-        <div className="flex flex-1 items-center justify-center py-10">
-          {status === "connected" ? (
-            <button
-              type="button"
-              onClick={() => disconnect()}
-              className="group flex h-16 w-16 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/20 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600/50"
-              title="Hang up"
-            >
-              <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M21 15.5c-2.5-2-5.5-3-9-3s-6.5 1-9 3V19c0 .6.4 1 1 1h3c.4 0 .8-.3 1-.7l.6-1.7c1.1-.3 2.3-.6 3.4-.6s2.3.2 3.4.6l.6 1.7c.1.4.5.7 1 .7h3c.6 0 1-.4 1-1v-3.5Z"
-                  fill="currentColor"
-                />
-              </svg>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => void connect()}
-              disabled={!canConnect || status === "connecting"}
-              className={classNames(
-                "group flex h-16 w-16 items-center justify-center rounded-full text-white shadow-lg transition-all duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2",
-                status === "connecting"
-                  ? "bg-amber-500 shadow-amber-500/20 focus-visible:ring-amber-500/40"
-                  : "bg-emerald-600 shadow-emerald-600/20 hover:bg-emerald-500 focus-visible:ring-emerald-600/40",
-              )}
-              title="Call"
-            >
-              {status === "connecting" ? (
-                <svg viewBox="0 0 24 24" className="h-7 w-7 animate-spin" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 3a9 9 0 1 0 9 9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+        <div className="flex flex-1 flex-col items-center justify-center">
+          <div className="flex items-center justify-center">
+            {status === "connected" || status === "connecting" ? (
+              <button
+                type="button"
+                onClick={() => disconnect()}
+                className="group flex h-16 w-16 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/20 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600/50"
+                title={status === "connecting" ? "Cancel" : "Hang up"}
+              >
+                <svg viewBox="0 0 24 24" className={classNames("h-7 w-7", status === "connecting" ? "animate-spin" : "")} fill="none" xmlns="http://www.w3.org/2000/svg">
+                  {status === "connecting" ? (
+                    <path d="M12 3a9 9 0 1 0 9 9" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                  ) : (
+                    <path
+                      d="M21 15.5c-2.5-2-5.5-3-9-3s-6.5 1-9 3V19c0 .6.4 1 1 1h3c.4 0 .8-.3 1-.7l.6-1.7c1.1-.3 2.3-.6 3.4-.6s2.3.2 3.4.6l.6 1.7c.1.4.5.7 1 .7h3c.6 0 1-.4 1-1v-3.5Z"
+                      fill="currentColor"
+                    />
+                  )}
                 </svg>
-              ) : (
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void connect()}
+                disabled={!canConnect}
+                className={classNames(
+                  "group flex h-16 w-16 items-center justify-center rounded-full text-white shadow-lg transition-all duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2",
+                  "bg-emerald-600 shadow-emerald-600/20 hover:bg-emerald-500 focus-visible:ring-emerald-600/40",
+                )}
+                title="Call"
+              >
                 <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path
                     d="M6.2 11.7c.8 2.1 2.9 4.2 5 5 .7.3 1.5.1 2-.4l1.1-1.1c.3-.3.7-.4 1.1-.3l2 .7c.7.2 1.1.9.9 1.6l-.4 1.5c-.2.6-.7 1-1.3 1.1-7.1 1-13-4.9-12-12 .1-.6.5-1.1 1.1-1.3l1.5-.4c.7-.2 1.4.2 1.6.9l.7 2c.1.4 0 .8-.3 1.1l-1.1 1.1c-.5.5-.7 1.3-.4 2Z"
                     fill="currentColor"
                   />
                 </svg>
-              )}
-            </button>
-          )}
-        </div>
-
-        <div className="flex items-center justify-center gap-2 pt-1">
-          <button
-            type="button"
-            className={classNames(
-              "rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-150 hover:-translate-y-0.5 disabled:opacity-60",
-              micEnabled
-                ? "border-zinc-900 bg-zinc-900 text-white hover:opacity-95"
-                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50",
+              </button>
             )}
-            disabled={status !== "connected"}
-            onClick={() => (micEnabled ? disableMic() : void enableMic())}
-            title={micEnabled ? "Mute mic" : "Unmute mic"}
-          >
-            {micEnabled ? "Mic on" : "Mic off"}
-          </button>
-        </div>
-
-        {status === "connected" ? (
-          <div className="mt-2 text-center text-xs text-zinc-500">
-            {userInputFormat ? `Input: ${userInputFormat}` : "Input: auto"} · Sent chunks: {micSentChunks}
           </div>
-        ) : null}
+
+          <div className="mt-4 flex items-center justify-center gap-2">
+            <button
+              type="button"
+              className={classNames(
+                "rounded-2xl px-3 py-1.5 text-xs font-semibold transition-colors duration-150 disabled:opacity-60",
+                micEnabled
+                  ? "bg-brand-blue/12 text-(--color-brand-blue) hover:bg-brand-blue/18"
+                  : "bg-red-50 text-red-700 hover:bg-red-100",
+              )}
+              disabled={status !== "connected"}
+              onClick={() => (micEnabled ? disableMic() : void enableMic())}
+              title={micEnabled ? "Mute mic" : "Unmute mic"}
+            >
+              {micEnabled ? "Mic on" : "Mic off"}
+            </button>
+          </div>
+        </div>
 
         <div className="sr-only" aria-live="polite">
           Status {status}. {conversationId ? `Conversation ${conversationId}.` : ""}

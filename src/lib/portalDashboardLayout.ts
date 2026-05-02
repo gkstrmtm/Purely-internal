@@ -114,12 +114,12 @@ function distributeRow(layout: DashboardLayoutItem[], cols: number): DashboardLa
 export function dashboardLayoutPresetForWidget(widgetId: DashboardWidgetId): DashboardLayoutPreset {
   switch (widgetId) {
     case "services":
-      return { w: 12, h: 18, minW: 6, minH: 14 };
-    case "dailyActivity":
       return { w: 12, h: 20, minW: 6, minH: 16 };
+    case "dailyActivity":
+      return { w: 12, h: 22, minW: 6, minH: 18 };
     case "puraAttention":
     case "activityPulse":
-      return { w: 6, h: 12, minW: 4, minH: 10 };
+      return { w: 6, h: 14, minW: 4, minH: 12 };
     case "stripeSales":
     case "creditsRunway":
     case "successRate":
@@ -130,9 +130,9 @@ export function dashboardLayoutPresetForWidget(widgetId: DashboardWidgetId): Das
     case "perfMissedCallTextBack":
     case "perfLeadScraping":
     case "perfReviews":
-      return { w: 6, h: 10, minW: 4, minH: 8 };
+      return { w: 6, h: 12, minW: 4, minH: 10 };
     default:
-      return { w: 4, h: 8, minW: 4, minH: 6 };
+      return { w: 4, h: 9, minW: 4, minH: 7 };
   }
 }
 

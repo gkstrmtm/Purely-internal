@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -56,12 +57,17 @@ export function PortalMediaPickerModal({
   accept?: "any" | "image" | "video";
   zIndex?: number;
 }) {
+  const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<PortalMediaPickItem[]>([]);
+  const resolvedVariant = useMemo<PortalVariant>(() => {
+    if (variant) return variant;
+    return String(pathname || "").startsWith("/credit") ? "credit" : "portal";
+  }, [pathname, variant]);
 
   useEffect(() => {
     setMounted(true);
@@ -77,7 +83,7 @@ export function PortalMediaPickerModal({
 
     const res = await fetch(url.toString(), {
       cache: "no-store",
-      headers: variant ? { [PORTAL_VARIANT_HEADER]: variant } : undefined,
+      headers: { [PORTAL_VARIANT_HEADER]: resolvedVariant },
     });
     const json = (await res.json().catch(() => null)) as ItemsRes | null;
 
@@ -90,7 +96,7 @@ export function PortalMediaPickerModal({
 
     setItems(Array.isArray(json.items) ? json.items : []);
     setLoading(false);
-  }, [variant]);
+  }, [resolvedVariant]);
 
   const filteredItems = useMemo(() => {
     const mode = accept || "any";
@@ -113,7 +119,7 @@ export function PortalMediaPickerModal({
   const body = useMemo(() => {
     const baseZ = typeof zIndex === "number" && Number.isFinite(zIndex) ? zIndex : 8000;
     return (
-      <div className="fixed inset-0" style={{ zIndex: baseZ }} aria-hidden>
+      <div className="fixed inset-0" style={{ zIndex: baseZ }}>
         <div
           className={classNames("absolute inset-0", portalGlassBackdropClass)}
           onMouseDown={onClose}
@@ -151,8 +157,8 @@ export function PortalMediaPickerModal({
                 <button
                   type="button"
                   className={classNames(
-                    "inline-flex h-10 w-10 items-center justify-center rounded-2xl",
-                    "text-zinc-500 hover:bg-white/80 hover:text-zinc-700",
+                    "inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78",
+                    "text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white hover:text-zinc-700",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300",
                     portalGlassButtonClass,
                   )}

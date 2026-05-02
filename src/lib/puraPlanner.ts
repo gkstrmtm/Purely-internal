@@ -7,6 +7,7 @@ import {
   portalAgentActionsIndexText,
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
+import { isReadOnlyPortalAgentAction } from "@/lib/portalAgentActionMeta";
 import { SCHEDULED_ACTION_PREFIX } from "@/lib/portalAiChatScheduledActionEnvelope";
 import { looksLikeImperativeRequest } from "@/lib/puraIntent";
 
@@ -92,6 +93,26 @@ function looksLikeAuditOrAnalysisRequest(textRaw: string): boolean {
   return /\b(analy[sz]e|audit|review|diagnos(e|is)|weak\s+spots?|friction|drop[-\s]?off|conversion|optimi[sz]e|improve|suggest\s+fix(es)?|recommend(ations)?|what\s+to\s+fix)\b/i.test(
     t,
   );
+}
+
+function looksLikeStrictReadOnlyRequest(textRaw: string): boolean {
+  const t = String(textRaw || "").trim().toLowerCase();
+  if (!t) return false;
+  return /(\bread[-\s]?only\b|\bwithout\s+changing\b|\bdo\s+not\s+change\b|\bdon't\s+change\b|\bjust\s+inspect\b|\bonly\s+inspect\b)/i.test(t);
+}
+
+function extractRequestedBlogDraftTitle(textRaw: string): string | null {
+  const text = String(textRaw || "").trim();
+  if (!text) return null;
+  const match = text.match(/\bcreate\s+(?:a\s+)?blog\s+draft\s+called\s+["“]([^"”]+)["”]/i);
+  const title = match?.[1] ? String(match[1]).trim() : "";
+  return title ? title.slice(0, 180) : null;
+}
+
+function explicitlyAskedForContacts(textRaw: string): boolean {
+  const text = String(textRaw || "").trim().toLowerCase();
+  if (!text) return false;
+  return /\b(contact|contacts|people|person|lead|leads)\b/.test(text);
 }
 
 function shouldPlan(textRaw: string): boolean {
@@ -216,6 +237,66 @@ export async function planPuraActions(opts: {
   const text = String(opts.text || "").trim();
   if (!shouldPlan(text)) return null;
 
+  const textLower = text.toLowerCase();
+  const threadCtx = opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext)
+    ? (opts.threadContext as Record<string, unknown>)
+    : null;
+  const lastFunnel = threadCtx?.lastFunnel && typeof threadCtx.lastFunnel === "object" && !Array.isArray(threadCtx.lastFunnel)
+    ? (threadCtx.lastFunnel as Record<string, unknown>)
+    : null;
+  const lastFunnelPage = threadCtx?.lastFunnelPage && typeof threadCtx.lastFunnelPage === "object" && !Array.isArray(threadCtx.lastFunnelPage)
+    ? (threadCtx.lastFunnelPage as Record<string, unknown>)
+    : null;
+  const lastFunnelId = typeof lastFunnel?.id === "string" ? String(lastFunnel.id).trim() : "";
+  const lastFunnelPageId = typeof lastFunnelPage?.id === "string" ? String(lastFunnelPage.id).trim() : "";
+
+  const wantsLandingPageCreate =
+    /\b(create|make|add|build)\b/.test(textLower) &&
+    /\b(landing page|signup page|opt[-\s]?in page)\b/.test(textLower) &&
+    /\b(funnel|that funnel|same funnel)\b/.test(textLower);
+
+  if (wantsLandingPageCreate && lastFunnelId) {
+    return {
+      mode: "execute",
+      workTitle: "Create Funnel Landing Page",
+      steps: [
+        {
+          key: "funnel_builder.pages.create",
+          title: "Create Funnel Landing Page",
+          args: {
+            funnelId: lastFunnelId,
+            slug: "webinar-signup",
+            title: "Free Webinar Signup",
+            contentMarkdown: "# Free Webinar Signup\n\nReserve your spot for the webinar.",
+          },
+        },
+      ],
+    };
+  }
+
+  const wantsLandingPageLayout =
+    /\b(generate|design|build|create|update)\b/.test(textLower) &&
+    /\b(layout|page layout|hero|headline|cta|testimonial|credibility strip|bullet benefits)\b/.test(textLower) &&
+    /\b(landing page|signup page|page)\b/.test(textLower);
+
+  if (wantsLandingPageLayout && lastFunnelId && lastFunnelPageId) {
+    return {
+      mode: "execute",
+      workTitle: "Generate Funnel Page Layout",
+      steps: [
+        {
+          key: "funnel_builder.pages.generate_html",
+          title: "Generate Funnel Page Layout",
+          args: {
+            funnelId: lastFunnelId,
+            pageId: lastFunnelPageId,
+            prompt: text,
+          },
+        },
+      ],
+    };
+  }
+
   const ownerTimeZone =
     opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext) && typeof (opts.threadContext as any).ownerTimeZone === "string"
       ? String((opts.threadContext as any).ownerTimeZone || "").trim().slice(0, 80)
@@ -270,12 +351,15 @@ export async function planPuraActions(opts: {
     "- Prefer using $ref hints that continue the active thread context instead of asking the user to restate the obvious.",
     "- When a request mixes discovery + mutation, prefer discovery first, then mutation only when the target is clear.",
     "- When the user asks for an audit, review, diagnosis, or 'see what's wrong', start with read-only inspection steps unless the request clearly includes a desired change.",
+    "- Do not add unrelated discovery or list steps just because they might be interesting. Every step must either directly satisfy the user's request or be required to resolve a later step.",
+    "- Do not add people/users/team discovery to a non-people workflow unless the user explicitly asked about portal users, invites, owners, or team members, or the action truly requires selecting a user.",
     "- Funnel Builder page work:",
     "  - If the user asks to build/edit the layout for a page, prefer funnel_builder.pages.generate_html (not just contentMarkdown) so the visual layout updates.",
     "  - If the user says 'do both' when asked which page, plan one step per page (use $ref:{\"$ref\":\"funnel_page\",\"hint\":...} hints derived from page titles/slugs mentioned in the conversation).",
     "  - Do NOT loop on asking which page first when you can proceed with a reasonable default order.",
     "- Content creation rules:",
     "  - For 'create a newsletter called ...', use newsletter.newsletters.create with title and sensible defaults. Prefer kind='external' unless the user clearly says internal/team/staff. Do NOT block on excerpt/content; create the draft first, then refine it with newsletter.newsletters.update if needed.",
+    "  - Words like 'audience' or 'for an online coach audience' do NOT mean you should inspect portal users. Stay in newsletter/blog/funnel copy unless the user explicitly asked for internal/team recipients.",
     "  - For 'tighten/improve the newsletter you just created', resolve the current newsletter from thread context and use newsletter.newsletters.update.",
     "  - For 'send that newsletter now', resolve the current newsletter and use newsletter.newsletters.send. Do NOT try to recreate it first unless it truly doesn't exist.",
     "  - For 'create a blog draft called ...', use blogs.posts.create first. If the user also wants the article written, then follow with blogs.posts.generate_draft or blogs.posts.update.",
@@ -288,6 +372,7 @@ export async function planPuraActions(opts: {
     "- Review and nurture rules:",
     "  - For 'reviews without a business reply', use reviews.inbox.list with hasBusinessReply=false.",
     "  - For 'reply to Jamie Carter\'s review', use reviews.reply with reviewId resolved from {$ref:'review', hint:'Jamie Carter'}.",
+    "  - For review replies, do NOT add contacts.list unless the user explicitly asked for contact information too.",
     "  - For 'add an email/SMS step to that nurture campaign', use nurture.campaigns.steps.add with only campaignId + kind (and optional subject/body/delayMinutes). Do NOT invent nested 'step' wrapper objects unless needed.",
     "- Never output manual step-by-step portal instructions unless mode=explain.",
     "- IMPORTANT (AI-first audits): If the user asks you to analyze/audit/find weak spots/suggest improvements, you MUST output mode=execute.",
@@ -488,6 +573,35 @@ export async function planPuraActions(opts: {
       if (parsed2.success) parsed = parsed2;
     }
 
+    if (parsed.success && parsed.data.mode === "execute" && looksLikeStrictReadOnlyRequest(text)) {
+      const hasMutatingStep = (parsed.data.steps || []).some((step) => !isReadOnlyPortalAgentAction(step.key));
+      if (hasMutatingStep) {
+        const forceSystem = [
+          baseSystem,
+          "\nHARD OVERRIDE:",
+          "- The user explicitly asked for a read-only / no-changes inspection.",
+          "- Output mode=execute using ONLY read-only actions.",
+          "- Every step key MUST be a read-only get/list/search/preview action.",
+          "- Do NOT create, update, add, send, delete, publish, schedule, duplicate, or modify anything.",
+          "- If a mutating action would be helpful, omit it and return the best read-only inspection steps only.",
+        ].join("\n");
+
+        const raw2 = await runModel(forceSystem);
+        let obj2: unknown = null;
+        try {
+          obj2 = extractJsonObject(raw2);
+        } catch {
+          obj2 = null;
+        }
+        let parsed2 = PlannerOutputSchema.safeParse(obj2);
+        if (!parsed2.success) {
+          const repaired2 = await tryRepairPlannerJson(raw2);
+          parsed2 = PlannerOutputSchema.safeParse(repaired2);
+        }
+        if (parsed2.success) parsed = parsed2;
+      }
+    }
+
     // If the model emits scheduled items without deterministic envelopes, re-run with a hard constraint.
     const hasNonEnvelopeScheduledText = (parsed.data.steps || []).some((s) => {
       const key = String((s as any)?.key || "");
@@ -526,6 +640,46 @@ export async function planPuraActions(opts: {
       return k.startsWith("ai_chat.scheduled.") || k === "ai_chat.cron.run";
     });
     let plan: PuraPlan = { ...parsed.data, steps };
+
+    if (plan.mode === "execute") {
+      const requestedBlogDraftTitle = extractRequestedBlogDraftTitle(text);
+      const hasReviewReplyStep = (plan.steps || []).some((step) => String(step?.key || "") === "reviews.reply");
+      const removeUnrelatedContactList = hasReviewReplyStep && !explicitlyAskedForContacts(text);
+
+      plan = {
+        ...plan,
+        steps: (plan.steps || [])
+          .filter((step) => !(removeUnrelatedContactList && String(step?.key || "") === "contacts.list"))
+          .map((step) => {
+            if (String(step?.key || "") !== "blogs.posts.generate_draft") return step;
+
+            const args = step.args && typeof step.args === "object" && !Array.isArray(step.args)
+              ? (step.args as Record<string, unknown>)
+              : {};
+            const hasPostId = typeof args.postId === "string" && String(args.postId).trim().length > 0;
+            if (hasPostId) return step;
+
+            const fallbackTitle =
+              (typeof args.title === "string" && String(args.title).trim() ? String(args.title).trim() : "") ||
+              requestedBlogDraftTitle ||
+              "Blog Post";
+
+            return {
+              key: "blogs.posts.create" as PortalAgentActionKey,
+              title: String(step.title || "Create Blog Draft").trim() || "Create Blog Draft",
+              args: { title: fallbackTitle.slice(0, 180) },
+            };
+          })
+          .slice(0, 6),
+      };
+    }
+
+    if (looksLikeStrictReadOnlyRequest(text) && plan.mode === "execute") {
+      plan = {
+        ...plan,
+        steps: (plan.steps || []).filter((step) => isReadOnlyPortalAgentAction(step.key)),
+      };
+    }
 
     // Planner guardrail: availability changes should use booking.availability.set_daily.
     // (The model sometimes tries booking.calendars.update, which doesn't represent business-hour availability.)

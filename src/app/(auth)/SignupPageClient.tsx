@@ -1,0 +1,164 @@
+"use client";
+
+import Image from "next/image";
+import { signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { useToast } from "@/components/ToastProvider";
+
+type RoleChoice = "DIALER" | "CLOSER";
+
+export default function SignupPageClient() {
+  const router = useRouter();
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [role, setRole] = useState<RoleChoice>("DIALER");
+
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (error) toast.error(error);
+  }, [error, toast]);
+
+  useEffect(() => {
+    if (inviteCode) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code")?.trim();
+      if (code) setInviteCode(code);
+    } catch {
+      // ignore
+    }
+  }, [inviteCode]);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    const res = await fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, email, password, inviteCode, role }),
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setLoading(false);
+      setError(body?.error ?? "Unable to sign up");
+      return;
+    }
+
+    const signInRes = await signIn("credentials", {
+      redirect: false,
+      email,
+      password,
+    });
+
+    setLoading(false);
+
+    if (!signInRes || signInRes.error) {
+      router.push("/login");
+      return;
+    }
+
+    router.push("/app");
+    router.refresh();
+  }
+
+  return (
+    <div className="min-h-screen bg-brand-mist text-brand-ink">
+      <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-6 py-12">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm sm:p-10">
+          <div className="flex justify-center">
+            <Image
+              src="/brand/1.png"
+              alt="Purely Automation"
+              width={520}
+              height={160}
+              className="h-16 w-auto sm:h-20"
+              priority
+            />
+          </div>
+
+          <p className="mt-6 text-base text-zinc-600">
+            Use your company invite code to join.
+          </p>
+
+          <form className="mt-6 space-y-5" onSubmit={onSubmit}>
+            <div>
+              <label className="text-base font-medium">Name</label>
+              <input
+                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-base font-medium">Email</label>
+              <input
+                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-base font-medium">Password</label>
+              <input
+                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-base font-medium">Invite code</label>
+              <input
+                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                placeholder="Optional if already filled"
+              />
+            </div>
+
+            <div>
+              <label className="text-base font-medium">Role</label>
+              <div className="mt-2">
+                <PortalListboxDropdown<RoleChoice>
+                  value={role}
+                  onChange={(next) => setRole(next)}
+                  options={[
+                    { value: "DIALER", label: "Dialer" },
+                    { value: "CLOSER", label: "Closer" },
+                  ]}
+                  buttonClassName="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left text-base"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-2xl bg-brand-blue px-4 py-3 text-base font-semibold text-white transition hover:bg-blue-700 disabled:opacity-60"
+            >
+              {loading ? "Creating account..." : "Create account"}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}

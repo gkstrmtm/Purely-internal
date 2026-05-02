@@ -9,6 +9,8 @@ import { getCreditsState } from "@/lib/credits";
 import { prisma } from "@/lib/db";
 import { registerElevenLabsTwilioCall } from "@/lib/elevenLabsConvai";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { findPortalContactByPhone } from "@/lib/portalContacts";
+import { listContactTagsForContact } from "@/lib/portalContactTags";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
@@ -327,6 +329,58 @@ async function handle(req: Request, token: string) {
   <Dial timeout="20" record="record-from-answer-dual" recordingStatusCallback="${xmlEscape(recordingCallback)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed">${xmlEscape(forwardTo)}</Dial>
 </Response>`;
     return xmlResponse(xml);
+  }
+
+  const voiceIncludeIds = Array.isArray((settings as any).voiceIncludeTagIds)
+    ? ((settings as any).voiceIncludeTagIds as unknown[]).map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  const voiceExcludeIds = Array.isArray((settings as any).voiceExcludeTagIds)
+    ? ((settings as any).voiceExcludeTagIds as unknown[]).map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+
+  if (voiceIncludeIds.length || voiceExcludeIds.length) {
+    let skipAiReason: string | null = null;
+    try {
+      const contact = await findPortalContactByPhone({ ownerId, phone: fromE164 }).catch(() => null);
+      const tags = contact?.id ? await listContactTagsForContact(ownerId, String(contact.id)).catch(() => []) : [];
+      const tagIds = new Set((tags || []).map((t) => String(t.id || "").trim()).filter(Boolean));
+
+      if (voiceExcludeIds.length && voiceExcludeIds.some((id) => tagIds.has(id))) {
+        skipAiReason = "Caller matched a never-answer tag.";
+      } else if (voiceIncludeIds.length && !voiceIncludeIds.some((id) => tagIds.has(id))) {
+        skipAiReason = "Caller did not match any always-answer tag.";
+      }
+    } catch {
+      if (voiceIncludeIds.length) skipAiReason = "Could not resolve caller tags for always-answer rules.";
+    }
+
+    if (skipAiReason) {
+      const profilePhone = await getOwnerProfilePhoneE164(ownerId).catch(() => null);
+      const forwardTo = settings.forwardToPhoneE164 || profilePhone;
+      await upsertAiReceptionistCallEvent(ownerId, {
+        id: `call_${callSid}`,
+        callSid,
+        from: fromE164,
+        to: toE164,
+        createdAtIso: new Date().toISOString(),
+        status: "COMPLETED",
+        notes: forwardTo ? `${skipAiReason} Forwarding instead.` : skipAiReason,
+      });
+
+      if (forwardTo) {
+        const recordingCallback = webhookUrlFromRequest(
+          req,
+          `/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/dial-recording`,
+        );
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial timeout="20" record="record-from-answer-dual" recordingStatusCallback="${xmlEscape(recordingCallback)}" recordingStatusCallbackMethod="POST" recordingStatusCallbackEvent="completed">${xmlEscape(forwardTo)}</Dial>
+</Response>`;
+        return xmlResponse(xml);
+      }
+
+      return xmlResponse(hangupXml(""));
+    }
   }
 
   // Credits gate (AI mode): require at least 1 credit to use.

@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import DomainRouterNotFound from "@/app/domain-router/[domain]/not-found";
 import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
+import { buildCustomDomainNotFoundMetadata, hostnameFromHeader, isPlatformHostname } from "@/lib/customDomainMetadata";
 
 type MarketingService = {
   slug: string;
@@ -25,7 +28,7 @@ function Icon({ path, title }: { path: string; title: string }) {
     <svg
       aria-hidden="true"
       viewBox="0 0 24 24"
-      className="h-5 w-5 text-[color:var(--color-brand-blue)]"
+      className="h-5 w-5 text-(--color-brand-blue)"
       fill="none"
     >
       <title>{title}</title>
@@ -321,6 +324,11 @@ function relatedServiceSlugs(slug: string): string[] {
   return Array.from(new Set(list.filter((s) => s !== slug)));
 }
 
+async function requestHost() {
+  const h = await headers();
+  return hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
+}
+
 export async function generateStaticParams() {
   const slugs = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal"))).map(
     (s) => s.slug,
@@ -329,6 +337,11 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const host = await requestHost();
+  if (!isPlatformHostname(host) && host) {
+    return buildCustomDomainNotFoundMetadata(host);
+  }
+
   const { slug } = await params;
   const s = getMarketingService(slug);
   if (!s) return {};
@@ -353,6 +366,11 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 }
 
 export default async function ServiceFunnelPage({ params }: { params: Promise<{ slug: string }> }) {
+  const host = await requestHost();
+  if (!isPlatformHostname(host)) {
+    return <DomainRouterNotFound />;
+  }
+
   const { slug } = await params;
   const service = getMarketingService(slug);
   if (!service) notFound();
@@ -411,7 +429,7 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
       />
 
-      <section className="w-full bg-[color:var(--color-brand-blue)] text-white">
+      <section className="w-full bg-(--color-brand-blue) text-white">
         <div className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
           <div className="max-w-3xl">
             <div className="mb-7 flex flex-wrap items-center gap-2 text-sm text-white/85">
@@ -462,13 +480,13 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/portal/get-started"
-                className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-base font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
+                className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-base font-semibold text-(--color-brand-blue) hover:bg-zinc-50"
               >
                 Get Started
               </Link>
               <Link
                 href="/book-a-call"
-                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-6 py-3 text-base font-semibold text-white hover:opacity-95"
+                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-pink) px-6 py-3 text-base font-semibold text-white hover:opacity-95"
               >
                 Book a Call
               </Link>
@@ -543,7 +561,7 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
               <div className="mt-3 space-y-2 text-sm text-zinc-700">
                 {seo.howItWorks.map((step, idx) => (
                   <div key={step} className="flex items-start gap-3">
-                    <div className="mt-0.5 grid h-6 w-6 place-items-center rounded-full bg-[color:rgba(29,78,216,0.10)] text-xs font-bold text-[color:var(--color-brand-blue)]">
+                    <div className="mt-0.5 grid h-6 w-6 place-items-center rounded-full bg-[rgba(29,78,216,0.10)] text-xs font-bold text-(--color-brand-blue)">
                       {idx + 1}
                     </div>
                     <div>{step}</div>
@@ -552,7 +570,7 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
               </div>
 
               {slug === "blogs" ? (
-                <div className="mt-8 rounded-3xl border border-zinc-200 bg-gradient-to-br from-white to-[color:rgba(29,78,216,0.06)] p-6">
+                <div className="mt-8 rounded-3xl border border-zinc-200 bg-linear-to-br from-white to-[rgba(29,78,216,0.06)] p-6">
                   <div className="flex items-start gap-3">
                     <Icon path={ICONS.chart} title="Demo" />
                     <div>
@@ -595,7 +613,7 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
               <div className="mt-4 grid grid-cols-1 gap-2">
                 <Link
                   href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90"
                 >
                   Get Started
                 </Link>
@@ -643,7 +661,7 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
                   >
                     <div className="text-sm font-semibold text-zinc-900">{r.title}</div>
                     <div className="mt-2 text-sm text-zinc-600">{r.description}</div>
-                    <div className="mt-4 text-sm font-semibold text-[color:var(--color-brand-blue)]">View details →</div>
+                    <div className="mt-4 text-sm font-semibold text-(--color-brand-blue)">View details →</div>
                   </Link>
                 ))}
               </div>

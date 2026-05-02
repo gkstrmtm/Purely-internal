@@ -111,10 +111,12 @@ export function PublicBookingClient({
   target,
   showBranding = true,
   embedded = false,
+  themeOverrides = null,
 }: {
   target: PublicBookingTarget;
   showBranding?: boolean;
   embedded?: boolean;
+  themeOverrides?: HostedBrandThemeInput["overrides"] | null;
 }) {
   const toast = useToast();
   const [site, setSite] = useState<Site | null>(null);
@@ -169,14 +171,18 @@ export function PublicBookingClient({
   }, [answers, email, name, notes, phone, selected, site?.form]);
 
   const theme = useMemo(() => {
+    const mergedOverrides = {
+      ...(site?.hostedTheme ?? {}),
+      ...(themeOverrides ?? {}),
+    };
     return deriveHostedBrandTheme({
       brandPrimaryHex: site?.brandPrimaryHex ?? null,
       brandSecondaryHex: site?.brandSecondaryHex ?? null,
       brandAccentHex: site?.brandAccentHex ?? null,
       brandTextHex: site?.brandTextHex ?? null,
-      overrides: site?.hostedTheme ?? null,
+      overrides: Object.keys(mergedOverrides).length ? mergedOverrides : null,
     });
-  }, [site?.brandAccentHex, site?.brandPrimaryHex, site?.brandSecondaryHex, site?.brandTextHex, site?.hostedTheme]);
+  }, [site?.brandAccentHex, site?.brandPrimaryHex, site?.brandSecondaryHex, site?.brandTextHex, site?.hostedTheme, themeOverrides]);
 
   const bookingStyleVars = useMemo(
     () =>
@@ -359,7 +365,36 @@ export function PublicBookingClient({
   }
 
   if (loading) {
-    const content = (
+    const content = embedded ? (
+      <div style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}>
+        <div className="mx-auto max-w-3xl px-6 py-12">
+          <div className="overflow-hidden rounded-3xl border p-6" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
+            <div className="h-5 w-32 rounded-full bg-(--booking-soft)" aria-hidden="true" />
+            <div className="mt-5 h-9 w-2/3 rounded-2xl bg-(--booking-soft)" aria-hidden="true" />
+            <div className="mt-3 h-4 w-full rounded-full bg-(--booking-soft)" aria-hidden="true" />
+            <div className="mt-2 h-4 w-5/6 rounded-full bg-(--booking-soft)" aria-hidden="true" />
+            <div className="mt-8 grid gap-3 sm:grid-cols-2" aria-hidden="true">
+              <div className="rounded-2xl border p-4" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-bg)" }}>
+                <div className="h-4 w-24 rounded-full bg-(--booking-soft)" />
+                <div className="mt-4 space-y-2">
+                  <div className="h-10 rounded-2xl bg-(--booking-soft)" />
+                  <div className="h-10 rounded-2xl bg-(--booking-soft)" />
+                  <div className="h-10 rounded-2xl bg-(--booking-soft)" />
+                </div>
+              </div>
+              <div className="rounded-2xl border p-4" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-bg)" }}>
+                <div className="h-4 w-28 rounded-full bg-(--booking-soft)" />
+                <div className="mt-4 space-y-3">
+                  <div className="h-12 rounded-2xl bg-(--booking-soft)" />
+                  <div className="h-12 rounded-2xl bg-(--booking-soft)" />
+                  <div className="h-12 rounded-2xl bg-(--booking-soft)" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    ) : (
       <div style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}>
         <div className="mx-auto max-w-3xl px-6 py-12">
           <div className="rounded-3xl border p-6 text-sm" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)", color: "var(--booking-muted)" }}>

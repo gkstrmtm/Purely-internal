@@ -1,11 +1,35 @@
 export type PuraDirectIntentContext = {
   lastNewsletter?: { id?: string | null; label?: string | null } | null;
   lastBlogPost?: { id?: string | null; label?: string | null } | null;
+  lastLeadScrape?: {
+    runId?: string | null;
+    label?: string | null;
+    leadIds?: string[] | null;
+    createdCount?: number | null;
+    matchedCount?: number | null;
+    newCount?: number | null;
+    reusedCount?: number | null;
+    requireEmail?: boolean | null;
+    requirePhone?: boolean | null;
+    requireWebsite?: boolean | null;
+    missingEmailCount?: number | null;
+    missingPhoneCount?: number | null;
+    missingWebsiteCount?: number | null;
+    sampleLeads?: Array<{
+      id?: string | null;
+      businessName?: string | null;
+      email?: string | null;
+      phone?: string | null;
+      website?: string | null;
+      niche?: string | null;
+    }> | null;
+  } | null;
   lastFunnel?: { id?: string | null; label?: string | null } | null;
   lastFunnelPage?: { id?: string | null; label?: string | null } | null;
   lastHostedPageDocument?: { service?: "BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS" | null; pageKey?: string | null; label?: string | null } | null;
   lastMediaFolder?: { id?: string | null; label?: string | null } | null;
   lastNurtureCampaign?: { id?: string | null; label?: string | null } | null;
+  lastAiOutboundCallsCampaign?: { id?: string | null; label?: string | null } | null;
 };
 
 export type HostedPageDirectTarget = {
@@ -142,10 +166,31 @@ function detectHostedPageService(compactPrompt: string): "BOOKING" | "NEWSLETTER
   const hits = [
     hasWord(compactPrompt, "booking") ? "BOOKING" : null,
     hasWord(compactPrompt, "newsletter") || hasWord(compactPrompt, "newsletters") ? "NEWSLETTER" : null,
-    hasWord(compactPrompt, "review") || hasWord(compactPrompt, "reviews") ? "REVIEWS" : null,
+    hasWord(compactPrompt, "reviews") || compactPrompt.includes("review page") || compactPrompt.includes("reviews page") || compactPrompt.includes("review feed") ? "REVIEWS" : null,
     hasWord(compactPrompt, "blog") || hasWord(compactPrompt, "blogs") ? "BLOGS" : null,
   ].filter(Boolean) as Array<"BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS">;
   return hits.length === 1 ? hits[0] : null;
+}
+
+function extractExplicitHostedPageKey(compactPrompt: string): string | null {
+  const match = compactPrompt.match(/\bpage key\s+([a-z0-9_]+)/i) || compactPrompt.match(/\bcurrent hosted page\s+([a-z0-9_]+)/i);
+  const value = typeof match?.[1] === "string" ? String(match[1]).trim().toLowerCase() : "";
+  return value || null;
+}
+
+function resolveHostedPageTargetPageKey(
+  service: "BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS",
+  compactPrompt: string,
+  ctx: PuraDirectIntentContext,
+): string | null {
+  const explicitPageKey = extractExplicitHostedPageKey(compactPrompt);
+  if (explicitPageKey) return explicitPageKey;
+
+  const recentService = typeof ctx.lastHostedPageDocument?.service === "string" ? String(ctx.lastHostedPageDocument.service).trim().toUpperCase() : "";
+  const recentPageKey = typeof ctx.lastHostedPageDocument?.pageKey === "string" ? String(ctx.lastHostedPageDocument.pageKey).trim() : "";
+  if (recentService === service && recentPageKey) return recentPageKey;
+
+  return defaultHostedPageKey(service, compactPrompt);
 }
 
 function defaultHostedPageKey(service: "BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS", compactPrompt: string): string | null {
@@ -168,6 +213,7 @@ function extractHostedPageUpdateTitle(prompt: string): string | null {
   const match =
     /\b(?:title|name)\s+to\s+["“]([^"”]{1,200})["”]/i.exec(prompt) ||
     /\b(?:title|name)\s+to\s+'([^']{1,200})'/i.exec(prompt) ||
+    /\b(?:page\s+)?title\s+(?:becomes|should be)\s+["“]?([^"”.,]{1,200})["”]?(?:[.,]|\s+and\b|$)/i.exec(prompt) ||
     /\bset\s+.*?title\s+to\s+["“]([^"”]{1,200})["”]/i.exec(prompt) ||
     /\bset\s+.*?title\s+to\s+'([^']{1,200})'/i.exec(prompt) ||
     /\brename\s+.*?to\s+["“]([^"”]{1,200})["”]/i.exec(prompt) ||
@@ -215,9 +261,14 @@ function detectHostedPageRequestedStatus(compactPrompt: string): "DRAFT" | "PUBL
 function extractCreateNamedResource(prompt: string, resourceTerms: string[]): string {
   const resourcePattern = resourceTerms.map((term) => term.trim().replace(/\s+/g, "\\s+")).join("|");
   if (!resourcePattern) return "";
+  const createVerbPattern = "(?:create|make|start|draft|build|write|spin\\s+up|set\\s+up|setup)";
   const patterns = [
-    new RegExp(`\\b(?:create|make|start|draft|build|write)\\s+(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+(?:called|named)\\s+(.+?)(?:\\.|\\s+(?:for|with|that)\\b|$)`, "i"),
-    new RegExp(`\\b(?:create|make|start|draft|build|write)\\s+(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+["“]?(.+?)["”]?(?:\\.|\\s+(?:for|with|that)\\b|$)`, "i"),
+    new RegExp(`\\b${createVerbPattern}\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+(?:called|named)\\s+["“]([^"”]{1,180})["”]`, "i"),
+    new RegExp(`\\b${createVerbPattern}\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+(?:called|named)\\s+'([^']{1,180})'`, "i"),
+    new RegExp(`\\b${createVerbPattern}\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+["“]([^"”]{1,180})["”]`, "i"),
+    new RegExp(`\\b${createVerbPattern}\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+'([^']{1,180})'`, "i"),
+    new RegExp(`\\b${createVerbPattern}\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+(?:called|named)\\s+(.+?)(?:\\.|\\s+(?:with|that|and)\\b|$)`, "i"),
+    new RegExp(`\\b${createVerbPattern}\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+["“]?(.+?)["”]?(?:\\.|\\s+(?:for|with|that|and)\\b|$)`, "i"),
   ];
   for (const pattern of patterns) {
     const match = prompt.match(pattern);
@@ -236,8 +287,8 @@ function extractCreateNamedResource(prompt: string, resourceTerms: string[]): st
 
 function extractReviewReplyIntent(prompt: string): ReviewReplyIntent | null {
   const patterns = [
-    /^reply\s+to\s+(.+?)'s\s+review\s+with\s+(.+?)\.?$/i,
-    /^respond\s+to\s+(.+?)'s\s+review\s+(?:with|saying)\s+(.+?)\.?$/i,
+    /\breply\s+to\s+(.+?)['’]s\s+review\s+(?:with|saying)\s*:?\s+([\s\S]+?)\s*$/i,
+    /\brespond\s+to\s+(.+?)['’]s\s+review\s+(?:with|saying)\s*:?\s+([\s\S]+?)\s*$/i,
   ];
   for (const pattern of patterns) {
     const match = prompt.match(pattern);
@@ -348,6 +399,11 @@ function extractNurtureStepIntent(prompt: string, ctx: PuraDirectIntentContext, 
 }
 
 function extractLeadRunIntent(prompt: string, hasAny: (...phrases: string[]) => boolean, hasAll: (...groups: Array<string | string[]>) => boolean): LeadRunIntent | null {
+  const likelyLeadRunRequest =
+    /\b(?:find|get|run|pull|scrape)(?:\s+(?:me|us))?(?:\s+(?:around|about|roughly|approximately))?(?:\s+\d{1,3})?(?:\s+[a-z0-9&/,'-]+){0,10}\s+leads?\b/i.test(prompt) ||
+    /\b\d{1,3}\s+.+?\s+leads?\s+in\b/i.test(prompt) ||
+    /\bleads?\s+in\s+.+?(?:\s+with\b|\s+for\b|[.?!]|$)/i.test(prompt);
+  if (!likelyLeadRunRequest) return null;
   if (!hasAll(["find", "run", "pull", "scrape", "get"], ["lead", "leads"])) return null;
   const countMatch = prompt.match(/\b(\d{1,3})\b/);
   const locationMatch = prompt.match(/\bin\s+(.+?)(?:\s+with\b|\s+for\b|\.|$)/i);
@@ -390,6 +446,9 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
   const contactDetailName = extractContactDetailName(prompt);
   const taskLookupQuery = extractTaskLookupQuery(prompt);
   const reviewDetailName = extractReviewDetailName(prompt);
+  const rawNewsletterCreateTitle = extractCreateNamedResource(prompt, ["external newsletter draft", "newsletter draft", "email newsletter", "newsletter"]);
+  const rawBlogCreateTitle = extractCreateNamedResource(prompt, ["blog draft", "blog post", "blog article", "blog"]);
+  const hasExplicitBlogCreateIntent = Boolean(rawBlogCreateTitle);
   const billingInboxSearchQuery = hasAny("invoice", "billing") && hasAny("inbox", "thread", "threads", "conversation", "conversations")
     ? (hasAny("invoice", "invoices") ? "invoice" : "billing")
     : null;
@@ -407,9 +466,13 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
         service: hostedService,
         pageKey: shouldTargetAllHostedPageDocuments(hostedService, compactPrompt)
           ? null
-          : defaultHostedPageKey(hostedService, compactPrompt),
+          : resolveHostedPageTargetPageKey(hostedService, compactPrompt, ctx),
       }
     : null;
+  const shouldSuppressHostedNewsletterActions =
+    hostedService === "NEWSLETTER" &&
+    Boolean(rawNewsletterCreateTitle) &&
+    !hasAny("hosted page", "hosted pages", "page editor", "newsletter page", "template", "templates", "document", "documents", "hosted html");
   const wantsHostedPageList =
     mentionsHostedPageSurface &&
     (hasAny("list", "show", "what are", "what is", "every", "all") || compactPrompt.startsWith("list my hosted page documents"));
@@ -422,12 +485,33 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
     !hasNegatedPublishIntent(compactPrompt) &&
     !hasAny("publish status", "published status");
   const wantsHostedPageReset = mentionsHostedPageSurface && hasAny("reset", "restore default", "default seeded state", "default state");
+  const mentionsHostedPageContentRewrite =
+    mentionsHostedPageSurface &&
+    hasAny(
+      "headline",
+      "subheadline",
+      "supporting copy",
+      "intro copy",
+      "intro",
+      "opening section",
+      "hero",
+      "hero section",
+      "body copy",
+      "copy",
+      "call to action",
+      "cta",
+      "section copy"
+    );
   const wantsHostedPageGenerate =
     mentionsHostedPageSurface &&
-    (hasAny("generate", "redesign", "hosted html", "premium conversion focused", "make", "create", "build", "draft") ||
+    (hasAny("generate", "redesign", "hosted html", "premium conversion focused", "make", "create", "build") ||
+      mentionsHostedPageContentRewrite ||
+      ((hasAny("update", "rewrite", "refresh", "change") || /\bmake\b/i.test(prompt)) && hasAny("feel like", "feels like", "look like", "looks like", "sound like", "sounds like")) ||
       (hasAny("minimal", "journal", "journalistic", "editorial", "magazine", "concierge", "featured", "bold", "aftercare", "community", "launch", "launchpad") && hasAny("page", "template", "blog", "blogs", "newsletter", "reviews", "booking")) ||
       (hasAny("look", "style", "feel") && hasAny("minimal", "journal", "journalistic", "editorial", "magazine", "concierge", "featured", "bold", "aftercare", "community", "launch", "launchpad")) ||
-      (hasAny("trust bar", "stronger headline", "clearer cta", "premium") && hasAny("page design", "design", "hosted page")));
+      (hasAny("trust bar", "stronger headline", "clearer cta", "premium", "strategy call", "luxury", "high end", "high-end") && hasAny("page design", "design", "hosted page", "booking page", "newsletter page", "reviews page", "blog page")));
+  const newsletterCreateTitle = mentionsHostedPageSurface ? "" : rawNewsletterCreateTitle;
+  const blogCreateTitle = mentionsHostedPageSurface ? "" : rawBlogCreateTitle;
   const wantsHostedPageUpdate =
     mentionsHostedPageSurface &&
     (hasAny("update", "set", "rename") || (hasAny("change") && hasAny("title", "slug", "status", "seo")));
@@ -483,19 +567,21 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
       ),
     draftInboxReplyIntent,
     nurtureCampaignCreateTitle: extractCreateNamedResource(prompt, ["nurture campaign", "campaign"]),
-    newsletterCreateTitle: extractCreateNamedResource(prompt, ["newsletter"]),
+    newsletterCreateTitle,
     shouldTightenLatestNewsletter:
       hasAll(["tighten", "sharpen", "improve", "refine", "polish"], ["newsletter"], ["just created", "just made", "same newsletter", "that newsletter"]) ||
       (hasLatestNewsletterContext && hasAny("newsletter") && hasAny("tighten", "sharpen", "improve", "refine", "polish", "rewrite") && hasAny("latest", "last", "that", "this")),
     shouldSendLatestNewsletter: hasAll(["send", "push", "ship", "blast"], ["newsletter"], ["now", "out", "send it"]),
-    blogCreateTitle: extractCreateNamedResource(prompt, ["blog draft", "blog post", "blog article", "blog"]),
+    blogCreateTitle,
     shouldPolishLatestBlog:
       hasAll(["polish", "tighten", "refine", "improve", "rewrite"], ["blog", "post", "draft"]) ||
       (hasLatestBlogContext && hasAny("blog", "post", "draft") && hasAny("polish", "tighten", "refine", "improve", "rewrite") && hasAny("latest", "last", "that", "this")),
     shouldPublishLatestBlog:
-      (hasExplicitPublishIntent && hasAny("blog", "blogs", "blog post", "blog draft")) ||
-      (hasAny("go live with", "post live") && hasAny("blog", "blogs")) ||
-      (hasExplicitPublishIntent && compactPrompt.includes("blog post draft")),
+      !hasExplicitBlogCreateIntent && (
+        (hasExplicitPublishIntent && hasAny("blog", "blogs", "blog post", "blog draft")) ||
+        (hasAny("go live with", "post live") && hasAny("blog", "blogs")) ||
+        (hasExplicitPublishIntent && compactPrompt.includes("blog post draft"))
+      ),
     funnelCreateTitle: extractCreateNamedResource(prompt, ["funnel"]),
     shouldCreateLandingPage:
       !looksAdvisoryFunnelCopyRequest &&
@@ -524,12 +610,12 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
     shouldUpdateBookingThankYou: hasAll(["update", "change", "set"], ["booking form", "booking page form"], ["thank you", "thank-you"], ["message"]),
     shouldSetWeekdayAvailability: hasAll(["set", "update"], ["weekday", "weekdays"], ["booking availability", "availability"], ["next 7 days", "this week", "next week"]),
     shouldAssessCrossSurfaceReadiness: readinessDomainHits >= 5 && hasAny("weak", "incomplete", "ready", "readiness", "status", "looks weak"),
-    hostedPageListService: wantsHostedPageList ? (hostedPageServiceMentions >= 2 || hasAny("all", "every") ? "ALL" : hostedService) : null,
-    hostedPageGetTarget: mentionsHostedPageSurface && hostedTarget && compactPrompt.includes("difference between") ? hostedTarget.service === "BLOGS" ? { service: "BLOGS", pageKey: null } : hostedTarget : null,
-    hostedPagePreviewTarget: wantsHostedPagePreview && hostedTarget ? hostedTarget : null,
-    hostedPagePublishTarget: wantsHostedPagePublish && hostedTarget ? hostedTarget : null,
-    hostedPageResetTarget: wantsHostedPageReset && hostedTarget ? hostedTarget : null,
-    hostedPageGenerateTarget: wantsHostedPageGenerate && hostedTarget ? hostedTarget : null,
-    hostedPageUpdateTarget: (hostedPageUpdateTitle || hostedPageUpdateStatus) && hostedTarget ? { ...hostedTarget, title: hostedPageUpdateTitle, status: hostedPageUpdateStatus } : null,
+    hostedPageListService: !shouldSuppressHostedNewsletterActions && wantsHostedPageList ? (hostedPageServiceMentions >= 2 || hasAny("all", "every") ? "ALL" : hostedService) : null,
+    hostedPageGetTarget: !shouldSuppressHostedNewsletterActions && mentionsHostedPageSurface && hostedTarget && compactPrompt.includes("difference between") ? hostedTarget.service === "BLOGS" ? { service: "BLOGS", pageKey: null } : hostedTarget : null,
+    hostedPagePreviewTarget: !shouldSuppressHostedNewsletterActions && wantsHostedPagePreview && hostedTarget ? hostedTarget : null,
+    hostedPagePublishTarget: !shouldSuppressHostedNewsletterActions && wantsHostedPagePublish && hostedTarget ? hostedTarget : null,
+    hostedPageResetTarget: !shouldSuppressHostedNewsletterActions && wantsHostedPageReset && hostedTarget ? hostedTarget : null,
+    hostedPageGenerateTarget: !shouldSuppressHostedNewsletterActions && wantsHostedPageGenerate && hostedTarget ? hostedTarget : null,
+    hostedPageUpdateTarget: !shouldSuppressHostedNewsletterActions && (hostedPageUpdateTitle || hostedPageUpdateStatus) && hostedTarget ? { ...hostedTarget, title: hostedPageUpdateTitle, status: hostedPageUpdateStatus } : null,
   };
 }

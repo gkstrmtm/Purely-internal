@@ -19,10 +19,14 @@ import {
   portalSidebarSectionStackClass,
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
+import { IconServiceGlyph } from "@/app/portal/PortalIcons";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
-import { useToast } from "@/components/ToastProvider";
-import { InlineSpinner } from "@/components/InlineSpinner";
+import { useOptionalToast } from "@/components/ToastProvider";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { PORTAL_MISSED_CALL_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
@@ -94,10 +98,12 @@ function badgeClass(kind: string) {
 
 export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolean } = {}) {
   const pathname = usePathname() || "";
-  const toast = useToast();
+  const toast = useOptionalToast();
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
+  const portalVariant = portalBase === "/credit" ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const hasLoadedOnceRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +115,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     let canceled = false;
     (async () => {
       try {
-        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store", headers: variantHeaders });
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
         const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
@@ -122,7 +128,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     return () => {
       canceled = true;
     };
-  }, []);
+  }, [variantHeaders]);
 
   const varPickerVariables = useMemo(() => {
     const base: TemplateVariable[] = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_MISSED_CALL_VARIABLES];
@@ -201,9 +207,11 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
 
   const [replyDelayUnit, setReplyDelayUnit] = useState<"seconds" | "minutes">("seconds");
   const [replyDelayUnitTouched, setReplyDelayUnitTouched] = useState(false);
+  const [attachmentsMenuOpen, setAttachmentsMenuOpen] = useState(false);
 
   const [varPickerOpen, setVarPickerOpen] = useState(false);
   const replyBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const attachmentUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   function insertAtCursor(current: string, insert: string, el: HTMLTextAreaElement | null) {
     const start = el?.selectionStart ?? current.length;
@@ -220,7 +228,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     setNote(null);
 
     try {
-      const res = await fetch("/api/portal/missed-call-textback/settings", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/missed-call-textback/settings", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
 
       if (!res?.ok) {
         const rawError = res ? await readJsonError(res) : null;
@@ -248,7 +256,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
       if (firstLoad) setLoading(false);
       else setRefreshing(false);
     }
-  }, [friendlyApiError, readJsonError]);
+  }, [friendlyApiError, readJsonError, variantHeaders]);
 
   useEffect(() => {
     void load();
@@ -467,7 +475,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
 
     const res = await fetch("/api/portal/missed-call-textback/settings", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ settings: next }),
     });
 
@@ -499,17 +507,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
 
 
   if (loading && !hasLoadedOnceRef.current) {
-    return (
-      <div
-        className={
-          embedded
-            ? "w-full rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600"
-            : "mx-auto max-w-6xl rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600"
-        }
-      >
-        Loading…
-      </div>
-    );
+    return <PortalPageLoadingShell embedded={embedded} sections={2} minHeightClassName="min-h-[22rem]" />;
   }
 
   if (!settings) {
@@ -538,14 +536,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     <div className={embedded ? "w-full" : "mx-auto w-full max-w-6xl"}>
       {!embedded ? (
         <div className="flex items-start justify-between gap-4">
-          <div className="min-h-9">
-            {refreshing ? (
-              <div className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
-                <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
-                <span>Refreshing…</span>
-              </div>
-            ) : null}
-          </div>
+          <div className="min-h-9" />
           <Link
             href={`${portalBase}/app/services`}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
@@ -577,7 +568,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
       ) : null}
 
       {tab === "settings" ? (
-        <div className="mt-6 grid grid-cols-1 gap-4">
+        <div className="mt-4 grid grid-cols-1 gap-4">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -619,10 +610,10 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
                   max={replyDelayMaxAmount}
                   className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                 />
-                <select
+                <PortalListboxDropdown<string>
                   value={replyDelayUnit}
-                  onChange={(e) => {
-                    const nextUnit = e.target.value === "minutes" ? "minutes" : "seconds";
+                  onChange={(value) => {
+                    const nextUnit = value === "minutes" ? "minutes" : "seconds";
                     setReplyDelayUnitTouched(true);
                     setReplyDelayUnit(nextUnit);
 
@@ -630,11 +621,13 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
                     const seconds = nextUnit === "minutes" ? currentAmount * 60 : currentAmount;
                     setSettings({ ...settings, replyDelaySeconds: Math.max(0, Math.min(600, seconds)) });
                   }}
-                  className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="seconds">Seconds</option>
-                  <option value="minutes">Minutes</option>
-                </select>
+                  options={[
+                    { value: "seconds", label: "Seconds" },
+                    { value: "minutes", label: "Minutes" },
+                  ]}
+                  className="shrink-0 min-w-37"
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                />
               </div>
               <div className="mt-1 text-xs text-zinc-500">Max 10 minutes (600 seconds).</div>
             </div>
@@ -680,29 +673,48 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
                 <div className="text-xs font-semibold text-zinc-700">Attachments (MMS)</div>
                 <div className="mt-1 text-xs text-zinc-500">Optional images, up to 10.</div>
               </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="relative shrink-0">
                 <button
                   type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                  onClick={() => setAttachmentsMenuOpen((prev) => !prev)}
                   disabled={saving || uploading}
-                  onClick={() => setPickerOpen(true)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  aria-label="Media options"
+                  aria-expanded={attachmentsMenuOpen ? true : undefined}
                 >
-                  Attach from media library
+                  <IconServiceGlyph slug="media-library" />
                 </button>
-                <label className="cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60">
-                  Upload photo
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="sr-only"
-                    disabled={saving || uploading}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      e.currentTarget.value = "";
-                      if (f) void uploadAttachment(f);
-                    }}
-                  />
-                </label>
+                {attachmentsMenuOpen ? (
+                  <LiquidGlassPopupSurface className="absolute right-0 top-12 z-20 flex min-w-48 flex-col gap-1 rounded-2xl p-2 shadow-[0_18px_50px_rgba(15,23,42,0.16)]">
+                    <label className="inline-flex cursor-pointer items-center rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16">
+                      <input
+                        ref={attachmentUploadInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={saving || uploading}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          e.currentTarget.value = "";
+                          setAttachmentsMenuOpen(false);
+                          if (f) void uploadAttachment(f);
+                        }}
+                      />
+                      Upload photo
+                    </label>
+                    <button
+                      type="button"
+                      className="rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16 disabled:opacity-60"
+                      disabled={saving || uploading}
+                      onClick={() => {
+                        setAttachmentsMenuOpen(false);
+                        setPickerOpen(true);
+                      }}
+                    >
+                      Media Library
+                    </button>
+                  </LiquidGlassPopupSurface>
+                ) : null}
               </div>
             </div>
 
@@ -734,7 +746,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
               type="button"
               onClick={() => void save(settings)}
               disabled={saving || !isDirty}
-              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-2xl bg-sky-100 px-5 py-3 text-sm font-semibold text-(--color-brand-blue) hover:bg-sky-200 disabled:opacity-60"
             >
               {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
             </button>

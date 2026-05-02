@@ -22,6 +22,74 @@ type OpenAIAudioTranscriptionVerboseResponse = {
   segments?: Array<{ start?: number; end?: number; text?: string }>;
 };
 
+function readAiFailureHeaders(headers: Headers): Record<string, string | null> {
+  const names = [
+    "x-request-id",
+    "x-ratelimit-limit-requests",
+    "x-ratelimit-remaining-requests",
+    "x-ratelimit-reset-requests",
+    "x-ratelimit-limit-tokens",
+    "x-ratelimit-remaining-tokens",
+    "x-ratelimit-reset-tokens",
+    "retry-after",
+  ];
+
+  return Object.fromEntries(names.map((name) => [name, headers.get(name)]));
+}
+
+function buildAiApiKeyCandidates(primary?: string): string[] {
+  return [
+    primary,
+    process.env.PURA_NEW,
+    process.env.AI_API_KEY,
+    process.env.PURA_AI_API_KEY,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .filter((value, index, arr) => arr.indexOf(value) === index);
+}
+
+function buildAiModelCandidates(primary?: string): string[] {
+  return [
+    primary,
+    process.env.PURA_AI_MODEL,
+    process.env.AI_MODEL,
+    process.env.PURA_AI_MODEL_FAST,
+    "gpt-4o-mini",
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .filter((value, index, arr) => arr.indexOf(value) === index);
+}
+
+function shouldRetryWithAnotherAiKey(status: number, bodyText: string): boolean {
+  const text = String(bodyText || "").toLowerCase();
+  return status === 429 || /insufficient_quota|rate limit|too many requests/.test(text);
+}
+
+const aiQuotaCooldownUntilByBaseUrl = new Map<string, number>();
+
+function hasActiveAiQuotaCooldown(baseUrl: string): boolean {
+  const until = aiQuotaCooldownUntilByBaseUrl.get(baseUrl) ?? 0;
+  if (!until) return false;
+  if (until <= Date.now()) {
+    aiQuotaCooldownUntilByBaseUrl.delete(baseUrl);
+    return false;
+  }
+  return true;
+}
+
+function setAiQuotaCooldown(baseUrl: string, durationMs: number) {
+  aiQuotaCooldownUntilByBaseUrl.set(baseUrl, Date.now() + durationMs);
+}
+
+function maybeSetAiQuotaCooldown(baseUrl: string, status: number, errorText: string) {
+  if (!baseUrl) return;
+  if (status === 429 && /insufficient_quota/i.test(String(errorText || ""))) {
+    setAiQuotaCooldown(baseUrl, 2 * 60 * 1000);
+  }
+}
+
 function userExplicitlyRequestsEmojis(context: string): boolean {
   const t = String(context || "").toLowerCase();
   if (!t.trim()) return false;
@@ -59,6 +127,7 @@ export async function generateText({
   temperature,
   baseUrlOverride,
   apiKeyOverride,
+  signal,
 }: {
   system?: string;
   user: string;
@@ -66,40 +135,75 @@ export async function generateText({
   temperature?: number;
   baseUrlOverride?: string;
   apiKeyOverride?: string;
+  signal?: AbortSignal;
 }): Promise<string> {
   const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
-  const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
-  const resolvedModel = model ?? process.env.AI_MODEL ?? "gpt-5.4";
+  const normalizedBaseUrl = String(baseUrl || "").replace(/\/$/, "");
+  const apiKeys = buildAiApiKeyCandidates(apiKeyOverride);
+  const modelCandidates = buildAiModelCandidates(model ?? process.env.AI_MODEL ?? "gpt-5.4");
 
-  if (!baseUrl || !apiKey) {
+  if (!baseUrl || !apiKeys.length || !modelCandidates.length) {
     throw new Error("AI provider not configured. Set AI_BASE_URL and AI_API_KEY");
+  }
+
+  if (hasActiveAiQuotaCooldown(normalizedBaseUrl)) {
+    throw new Error("AI request failed: 429 insufficient_quota");
   }
 
   const messages: ChatMessage[] = [];
   if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: user });
 
-  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: resolvedModel,
-      messages,
-      temperature: Math.min(2, Math.max(0, typeof temperature === "number" && Number.isFinite(temperature) ? temperature : 0.6)),
-    }),
-  });
+  let lastErrorText = "";
+  let lastStatus = 0;
+  for (let modelIndex = 0; modelIndex < modelCandidates.length; modelIndex += 1) {
+    const resolvedModel = modelCandidates[modelIndex];
+    for (let keyIndex = 0; keyIndex < apiKeys.length; keyIndex += 1) {
+      const apiKey = apiKeys[keyIndex];
+      const res = await fetch(`${normalizedBaseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${apiKey}`,
+        },
+        signal,
+        body: JSON.stringify({
+          model: resolvedModel,
+          messages,
+          temperature: Math.min(2, Math.max(0, typeof temperature === "number" && Number.isFinite(temperature) ? temperature : 0.6)),
+        }),
+      });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`AI request failed: ${res.status} ${text}`);
+      if (res.ok) {
+        const data = (await res.json()) as OpenAIChatResponse;
+        const out = data.choices?.[0]?.message?.content ?? "";
+        return sanitizeAiTextOutput(out, [system || "", user || ""].filter(Boolean).join("\n\n"));
+      }
+
+      const text = await res.text().catch(() => "");
+      lastErrorText = text;
+      lastStatus = res.status;
+      console.error("[ai.generateText] request failed", {
+        status: res.status,
+        model: resolvedModel,
+        modelIndex,
+        modelCount: modelCandidates.length,
+        baseUrl: normalizedBaseUrl,
+        keyIndex,
+        keyCount: apiKeys.length,
+        headers: readAiFailureHeaders(res.headers),
+        body: text.slice(0, 1200),
+      });
+      if (shouldRetryWithAnotherAiKey(res.status, text)) {
+        continue;
+      }
+      throw new Error(`AI request failed: ${res.status} ${text}`);
+    }
   }
 
-  const data = (await res.json()) as OpenAIChatResponse;
-  const out = data.choices?.[0]?.message?.content ?? "";
-  return sanitizeAiTextOutput(out, [system || "", user || ""].filter(Boolean).join("\n\n"));
+  maybeSetAiQuotaCooldown(normalizedBaseUrl, lastStatus, lastErrorText);
+
+  throw new Error(`AI request failed: ${lastStatus} ${lastErrorText}`);
 }
 
 export async function generateTextWithImages({
@@ -120,10 +224,11 @@ export async function generateTextWithImages({
   apiKeyOverride?: string;
 }): Promise<string> {
   const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
-  const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
+  const normalizedBaseUrl = String(baseUrl || "").replace(/\/$/, "");
+  const apiKeys = buildAiApiKeyCandidates(apiKeyOverride);
   const resolvedModel = model ?? process.env.AI_VISION_MODEL ?? process.env.AI_MODEL ?? "gpt-5.4";
 
-  if (!baseUrl || !apiKey) {
+  if (!baseUrl || !apiKeys.length) {
     throw new Error("AI provider not configured. Set AI_BASE_URL and AI_API_KEY");
   }
 
@@ -139,27 +244,51 @@ export async function generateTextWithImages({
   if (system) messages.push({ role: "system", content: system });
   messages.push({ role: "user", content: userParts });
 
-  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: resolvedModel,
-      messages,
-      temperature: Math.min(2, Math.max(0, typeof temperature === "number" && Number.isFinite(temperature) ? temperature : 0.6)),
-    }),
-  });
+  let lastErrorText = "";
+  let lastStatus = 0;
+  for (let index = 0; index < apiKeys.length; index += 1) {
+    const apiKey = apiKeys[index];
+    const res = await fetch(`${normalizedBaseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: resolvedModel,
+        messages,
+        temperature: Math.min(2, Math.max(0, typeof temperature === "number" && Number.isFinite(temperature) ? temperature : 0.6)),
+      }),
+    });
 
-  if (!res.ok) {
+    if (res.ok) {
+      const data = (await res.json()) as OpenAIChatResponse;
+      const out = data.choices?.[0]?.message?.content ?? "";
+      return sanitizeAiTextOutput(out, [system || "", user || ""].filter(Boolean).join("\n\n"));
+    }
+
     const text = await res.text().catch(() => "");
+    lastErrorText = text;
+    lastStatus = res.status;
+    console.error("[ai.generateTextWithImages] request failed", {
+      status: res.status,
+      model: resolvedModel,
+      baseUrl: normalizedBaseUrl,
+      keyIndex: index,
+      keyCount: apiKeys.length,
+      headers: readAiFailureHeaders(res.headers),
+      body: text.slice(0, 1200),
+    });
+    if (index < apiKeys.length - 1 && shouldRetryWithAnotherAiKey(res.status, text)) {
+      continue;
+    }
     throw new Error(`AI request failed: ${res.status} ${text}`);
   }
 
-  const data = (await res.json()) as OpenAIChatResponse;
-  const out = data.choices?.[0]?.message?.content ?? "";
-  return sanitizeAiTextOutput(out, [system || "", user || ""].filter(Boolean).join("\n\n"));
+
+  maybeSetAiQuotaCooldown(normalizedBaseUrl, lastStatus, lastErrorText);
+
+  throw new Error(`AI request failed: ${lastStatus} ${lastErrorText}`);
 }
 
 export async function transcribeAudio({
@@ -178,7 +307,7 @@ export async function transcribeAudio({
   apiKeyOverride?: string;
 }): Promise<string> {
   const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
-  const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
+  const apiKey = apiKeyOverride ?? process.env.AI_API_KEY ?? process.env.PURA_NEW;
   const resolvedModel = model ?? process.env.AI_TRANSCRIBE_MODEL ?? "whisper-1";
 
   if (!baseUrl || !apiKey) {
@@ -236,7 +365,7 @@ export async function transcribeAudioVerbose({
   apiKeyOverride?: string;
 }): Promise<{ text: string; segments: Array<{ start: number; end: number; text: string }> }> {
   const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
-  const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
+  const apiKey = apiKeyOverride ?? process.env.AI_API_KEY ?? process.env.PURA_NEW;
   const resolvedModel = model ?? process.env.AI_TRANSCRIBE_MODEL ?? "whisper-1";
 
   if (!baseUrl || !apiKey) {

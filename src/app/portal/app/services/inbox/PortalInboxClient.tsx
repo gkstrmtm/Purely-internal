@@ -5,8 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 
 import styles from "./PortalInboxClient.module.css";
 import { AppModal } from "@/components/AppModal";
-import GlassSurface from "@/components/GlassSurface";
-import { InlineSpinner } from "@/components/InlineSpinner";
 import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { type ContactTag } from "@/components/ContactTagsEditor";
@@ -29,6 +27,7 @@ import {
 } from "@/app/portal/PortalServiceSidebarIcons";
 import { IconEdit, IconFunnel, IconInboxGlyph, IconSchedule, IconSearch, IconSend, IconSendHover, IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { normalizePhoneForStorage } from "@/lib/phone";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { normalizePortalContactCustomVarKey, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
 type Channel = "email" | "sms";
@@ -76,6 +75,25 @@ type Message = {
     fileSize: number;
     url: string;
   }>;
+  aiOutboundCampaign?: {
+    campaignId: string;
+    campaignName: string;
+  } | null;
+};
+
+type AiOutboundCallEvent = {
+  id: string;
+  kind: "campaign" | "manual";
+  campaignId: string | null;
+  campaignName: string | null;
+  status: string;
+  createdAt: string;
+  completedAt: string | null;
+  transcriptText: string | null;
+  recordingSid: string | null;
+  recordingDurationSec: number | null;
+  phoneNumber: string | null;
+  sourceLabel: string;
 };
 
 type ScheduledMessage = {
@@ -103,7 +121,14 @@ type SettingsRes = {
 type ApiErrorRes = { ok: false; code?: string; error?: string };
 type ThreadsCursor = { lastMessageAt: string; id: string };
 type ThreadsRes = { ok: true; threads: Thread[]; hasMore?: boolean; nextCursor?: ThreadsCursor | null } | ApiErrorRes;
-type MessagesRes = { ok: true; messages: Message[]; scheduledMessages?: ScheduledMessage[] } | ApiErrorRes;
+type MessagesRes = { ok: true; messages: Message[]; scheduledMessages?: ScheduledMessage[]; callEvents?: AiOutboundCallEvent[] } | ApiErrorRes;
+
+type TranscriptTurn = {
+  id: string;
+  speaker: "agent" | "contact" | "system";
+  label: string;
+  text: string;
+};
 
 type ContactLite = {
   id: string;
@@ -117,22 +142,6 @@ type UploadedAttachment = NonNullable<Message["attachments"]>[number];
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
-
-const inboxLiquidGlassSurfaceProps = {
-  borderWidth: 0.04,
-  blur: 7,
-  displace: 0.22,
-  distortionScale: -72,
-  redOffset: 0,
-  greenOffset: 2,
-  blueOffset: 6,
-  backgroundOpacity: 0.16,
-  saturation: 1.05,
-  brightness: 46,
-  opacity: 0.985,
-  mixBlendMode: "soft-light" as const,
-  style: { background: "rgba(255,255,255,0.46)", boxShadow: "none" },
-};
 
 type FixedMenuStyle = { left: number; top: number; width: number; maxHeight: number };
 
@@ -178,6 +187,63 @@ function formatTimeOnly(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function normalizeTranscriptSpeaker(raw: string): TranscriptTurn["speaker"] {
+  const key = String(raw || "").trim().toLowerCase();
+  if (["agent", "assistant", "rep", "sales", "caller", "bot", "ai"].includes(key)) return "agent";
+  if (["contact", "customer", "lead", "prospect", "client", "user", "callee"].includes(key)) return "contact";
+  return "system";
+}
+
+function parseTranscriptTurns(transcript: string | null | undefined): TranscriptTurn[] {
+  const text = String(transcript || "").replace(/\r\n/g, "\n").trim();
+  if (!text) return [];
+
+  const lines = text.split("\n");
+  const turns: TranscriptTurn[] = [];
+  let current: TranscriptTurn | null = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const match = line.match(/^([A-Za-z][A-Za-z\s]{1,32}):\s*(.*)$/);
+    if (match) {
+      const label = match[1]?.trim() || "System";
+      const nextTurn: TranscriptTurn = {
+        id: `${turns.length + 1}`,
+        speaker: normalizeTranscriptSpeaker(label),
+        label,
+        text: String(match[2] || "").trim(),
+      };
+      turns.push(nextTurn);
+      current = nextTurn;
+      continue;
+    }
+
+    if (current) {
+      current.text = current.text ? `${current.text}\n${line}` : line;
+    } else {
+      const nextTurn: TranscriptTurn = {
+        id: `${turns.length + 1}`,
+        speaker: "system",
+        label: "Transcript",
+        text: line,
+      };
+      turns.push(nextTurn);
+      current = nextTurn;
+    }
+  }
+
+  return turns.filter((turn) => turn.text.trim());
+}
+
+function formatCallDuration(seconds: number | null | undefined) {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) return null;
+  if (seconds < 60) return `${Math.round(seconds)} sec`;
+  const mins = Math.floor(seconds / 60);
+  const rem = Math.round(seconds % 60);
+  return rem > 0 ? `${mins}m ${rem}s` : `${mins} min`;
 }
 
 function formatDayOrTime(iso: string) {
@@ -307,6 +373,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const setSidebarOverride = useSetPortalSidebarOverride();
+  const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   const { initialChannel } = props;
 
@@ -333,6 +401,18 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     if (!initialChannel) return;
     setTab(initialChannel);
   }, [initialChannel]);
+
+  useEffect(() => {
+    const p = String(pathname || "");
+    if (p.endsWith("/sms")) {
+      setTab((prev) => (prev === "sms" ? prev : "sms"));
+      return;
+    }
+    if (p.endsWith("/email")) {
+      setTab((prev) => (prev === "email" ? prev : "email"));
+    }
+  }, [pathname]);
+
   const [emailBox, setEmailBox] = useState<EmailBox>("inbox");
   const [threadSearch, setThreadSearch] = useState<string>("");
   const [emailSearchMenu, setEmailSearchMenu] = useState<FixedMenuStyle | null>(null);
@@ -352,6 +432,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
+  const [callEvents, setCallEvents] = useState<AiOutboundCallEvent[]>([]);
   const [loadingThreads, setLoadingThreads] = useState(true);
   const hasLoadedThreadsOnceRef = useRef<{ email: boolean; sms: boolean }>({ email: false, sms: false });
   const [refreshingThreads, setRefreshingThreads] = useState(false);
@@ -389,7 +470,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const sidebarThreadListRef = useRef<HTMLDivElement | null>(null);
   const mobileThreadListRef = useRef<HTMLDivElement | null>(null);
 
-  function splitComposeRecipients(raw: string): string[] {
+  const splitComposeRecipients = useCallback((raw: string): string[] => {
     const s = String(raw || "").trim();
     if (!s) return [];
     const parts = s
@@ -406,9 +487,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       if (out.length >= 50) break;
     }
     return out;
-  }
+  }, []);
 
-  function pickThreadIdFromTo(nextTab: Channel, nextThreads: Thread[], toRaw: string) {
+  const pickThreadIdFromTo = useCallback((nextTab: Channel, nextThreads: Thread[], toRaw: string) => {
     const recipients = splitComposeRecipients(toRaw);
     if (recipients.length !== 1) return null;
     const to = recipients[0] || "";
@@ -422,7 +503,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     const normalized = normalizePhoneForStorage(to);
     if (!normalized) return null;
     return nextThreads.find((t) => String(t.peerAddress || "").trim() === normalized)?.id ?? null;
-  }
+  }, [splitComposeRecipients]);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -451,10 +532,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     [threads, activeThreadId],
   );
   const readThreadIdSet = useMemo(() => new Set(readThreadIds), [readThreadIds]);
-
-  function updateThreadTags(threadId: string, next: ContactTag[]) {
-    setThreads((prev) => prev.map((t) => (t.id === threadId ? { ...t, contactTags: next } : t)));
-  }
 
   const visibleThreads = useMemo(() => {
     if (tab !== "email") return threads;
@@ -603,6 +680,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [scheduleAt, setScheduleAt] = useState<Date | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduleEditingId, setScheduleEditingId] = useState<string | null>(null);
+  const [selectedCallEvent, setSelectedCallEvent] = useState<AiOutboundCallEvent | null>(null);
 
   const [contacts, setContacts] = useState<ContactLite[] | null>(null);
   const [contactsLoading, setContactsLoading] = useState(false);
@@ -728,7 +806,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     let canceled = false;
     (async () => {
       try {
-        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store", headers: variantHeaders });
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
         const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
@@ -741,7 +819,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     return () => {
       canceled = true;
     };
-  }, []);
+  }, [variantHeaders]);
 
   const variablePickerVariables = useMemo(() => {
     const base = PORTAL_MESSAGE_VARIABLES.slice();
@@ -828,6 +906,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setActiveThreadId(null);
     setMessages([]);
     setScheduledMessages([]);
+    setCallEvents([]);
     setLoadingMessages(false);
     setComposeTo("");
     setComposeBody("");
@@ -840,7 +919,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     if (contacts || contactsLoading) return;
     setContactsLoading(true);
     try {
-      const res = await fetch("/api/portal/people/contacts", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/people/contacts", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       const data = (await res?.json?.().catch(() => null)) as any;
       if (!res?.ok || !data?.ok || !Array.isArray(data.contacts)) {
         setContactsLoading(false);
@@ -1014,7 +1093,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     try {
       const res = await fetch(`/api/portal/inbox/threads/${activeThread.id}/contact`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({
           name,
           email: String(contactEmail || "").trim(),
@@ -1046,7 +1125,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/portal/inbox/settings", { cache: "no-store" });
+      const res = await fetch("/api/portal/inbox/settings", { cache: "no-store", headers: variantHeaders });
       if (!mounted) return;
       if (!res.ok) return;
       setSettings((await res.json()) as SettingsRes);
@@ -1054,9 +1133,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [variantHeaders]);
 
-  async function loadThreads(nextTab: Channel, opts?: { preserveSelection?: boolean; clearUI?: boolean; append?: boolean }) {
+  const loadThreads = useCallback(async (nextTab: Channel, opts?: { preserveSelection?: boolean; clearUI?: boolean; append?: boolean }) => {
     const preserveSelection = Boolean(opts?.preserveSelection);
     const clearUI = Boolean(opts?.clearUI);
     const append = Boolean(opts?.append);
@@ -1094,6 +1173,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
       const res = await fetch(`/api/portal/inbox/threads?${params.toString()}`, {
         cache: "no-store",
+        headers: variantHeaders,
       });
 
       const json = (await res.json().catch(() => null)) as ThreadsRes | null;
@@ -1186,12 +1266,12 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         setRefreshingThreads(false);
       }
     }
-  }
+  }, [activeThreadId, loadingMoreThreads, pickThreadIdFromTo, tab, variantHeaders]);
 
   const loadMoreThreads = useCallback(() => {
     if (loadingThreads || refreshingThreads || loadingMoreThreads || !threadHasMoreRef.current[tab]) return;
     void loadThreads(tab, { append: true, preserveSelection: true });
-  }, [loadingMoreThreads, loadingThreads, refreshingThreads, tab]);
+  }, [loadThreads, loadingMoreThreads, loadingThreads, refreshingThreads, tab]);
 
   const handleThreadListScroll = useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
@@ -1202,12 +1282,13 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     [loadMoreThreads],
   );
 
-  async function loadMessages(threadId: string) {
+  const loadMessages = useCallback(async (threadId: string) => {
     setLoadingMessages(true);
     setError(null);
 
     const res = await fetch(`/api/portal/inbox/threads/${threadId}/messages?take=250`, {
       cache: "no-store",
+      headers: variantHeaders,
     });
 
     const json = (await res.json().catch(() => null)) as MessagesRes | null;
@@ -1224,8 +1305,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
     setMessages(json.messages);
     setScheduledMessages(Array.isArray(json.scheduledMessages) ? json.scheduledMessages : []);
+    setCallEvents(Array.isArray(json.callEvents) ? json.callEvents : []);
     setLoadingMessages(false);
-  }
+  }, [variantHeaders]);
 
   useEffect(() => {
     loadThreads(tab, { clearUI: true });
@@ -1252,12 +1334,13 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   useEffect(() => {
     if (!activeThreadId) return;
     loadMessages(activeThreadId);
-  }, [activeThreadId]);
+  }, [activeThreadId, loadMessages]);
 
   useEffect(() => {
     if (activeThreadId) return;
     setMessages([]);
     setScheduledMessages([]);
+    setCallEvents([]);
     setLoadingMessages(false);
   }, [activeThreadId]);
 
@@ -1405,6 +1488,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
       const res = await fetch("/api/portal/inbox/attachments", {
         method: "POST",
+        headers: variantHeaders,
         body: form,
       });
 
@@ -1436,7 +1520,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setError(null);
     const res = await fetch("/api/portal/inbox/attachments/from-media", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ mediaItemId: item.id }),
     });
 
@@ -1458,7 +1542,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   async function removeAttachment(id: string) {
     setComposeAttachments((prev) => prev.filter((a) => a.id !== id));
-    await fetch(`/api/portal/inbox/attachments/${id}`, { method: "DELETE" }).catch(() => null);
+    await fetch(`/api/portal/inbox/attachments/${id}`, { method: "DELETE", headers: variantHeaders }).catch(() => null);
   }
 
   async function onSend(opts?: { sendAt?: string }): Promise<{ ok: true; threadId: string | null } | { ok: false }> {
@@ -1484,7 +1568,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setSending(true);
     const res = await fetch("/api/portal/inbox/send", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({
         channel: tab,
         to,
@@ -1552,7 +1636,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setSending(true);
     const res = await fetch(`/api/portal/inbox/scheduled/${encodeURIComponent(id)}`, {
       method: "PATCH",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ scheduledFor: scheduledForIso }),
     });
 
@@ -1595,6 +1679,20 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       }
     };
   }, [emailComposerOpen, smsSheetOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const root = document.documentElement;
+    const shouldHideFloatingTools = emailComposerOpen || (tab === "email" && Boolean(activeThreadId)) || (tab === "sms" && Boolean(activeThreadId));
+
+    if (shouldHideFloatingTools) root.setAttribute("data-pa-hide-floating-tools", "1");
+    else root.removeAttribute("data-pa-hide-floating-tools");
+
+    return () => {
+      root.removeAttribute("data-pa-hide-floating-tools");
+    };
+  }, [activeThreadId, emailComposerOpen, tab]);
 
   function insertAtCursor(
     current: string,
@@ -1651,7 +1749,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
     const res = await fetch("/api/portal/people/contacts", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ name, email, phone }),
     });
     const json = (await res.json().catch(() => null)) as any;
@@ -1871,7 +1969,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         </div>
       </div>
     );
-  }, [activeThreadId, emailBox, filteredThreads, isDesktop, loadingThreads, markThreadRead, openEmailComposer, openSmsComposer, setChannel, tab, unreadEmailCount]);
+  }, [activeThreadId, emailBox, filteredThreads, handleThreadListScroll, hasMoreThreads, isDesktop, loadingMoreThreads, loadingThreads, markThreadRead, openEmailComposer, openSmsComposer, setChannel, tab, unreadEmailCount]);
 
   useEffect(() => {
     setSidebarOverride({
@@ -1880,6 +1978,195 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     });
     return () => setSidebarOverride(null);
   }, [inboxSidebar, setSidebarOverride]);
+
+  const selectedCallTranscriptTurns = useMemo(
+    () => parseTranscriptTurns(selectedCallEvent?.transcriptText),
+    [selectedCallEvent],
+  );
+
+  const smsTimelineItems = useMemo(() => {
+    const messageItems = messages.map((message) => ({
+      id: `message:${message.id}`,
+      type: "message" as const,
+      sortAt: new Date(message.createdAt).getTime() || 0,
+      message,
+    }));
+    const callItems = callEvents.map((callEvent) => ({
+      id: `call:${callEvent.id}`,
+      type: "call" as const,
+      sortAt: new Date(callEvent.completedAt || callEvent.createdAt).getTime() || 0,
+      callEvent,
+    }));
+
+    return [...messageItems, ...callItems].sort((a, b) => {
+      if (a.sortAt !== b.sortAt) return a.sortAt - b.sortAt;
+      if (a.type === b.type) return a.id.localeCompare(b.id);
+      return a.type === "call" ? -1 : 1;
+    });
+  }, [callEvents, messages]);
+
+  function renderAiOutboundPill(campaign: Message["aiOutboundCampaign"]) {
+    if (!campaign) return null;
+    return (
+      <span className="inline-flex max-w-full items-center rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+        <span className="truncate">AI outbound · {campaign.campaignName}</span>
+      </span>
+    );
+  }
+
+  function renderSmsTimeline() {
+    if (!scheduledMessages.length && !smsTimelineItems.length) {
+      return <div className="text-sm text-zinc-600">No messages yet.</div>;
+    }
+
+    return (
+      <div className="space-y-2">
+        {scheduledMessages.map((m) => (
+          <div key={m.id} className="flex justify-center">
+            <div className="w-full max-w-140 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 truncate text-xs font-semibold text-blue-700">Scheduled · {formatWhen(m.scheduledFor)}</div>
+                <button type="button" className="inline-flex shrink-0 items-center gap-2 rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50" onClick={() => openReschedule(m)}>
+                  <IconSchedule size={16} />
+                  Reschedule
+                </button>
+              </div>
+              <div className="mt-1 whitespace-pre-wrap wrap-break-word text-sm text-zinc-800">{m.bodyText}</div>
+              {m.attachments?.length ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {m.attachments.map((a) => (
+                    <a
+                      key={a.id}
+                      href={a.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    >
+                      {a.fileName} · {formatBytes(a.fileSize)}
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ))}
+        {smsTimelineItems.map((item, idx) => {
+          if (item.type === "call") {
+            const callEvent = item.callEvent;
+            const when = callEvent.completedAt || callEvent.createdAt;
+            const duration = formatCallDuration(callEvent.recordingDurationSec);
+            const hasTranscript = Boolean(String(callEvent.transcriptText || "").trim());
+
+            return (
+              <div key={item.id} className="flex justify-center py-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedCallEvent(callEvent)}
+                  className="w-full max-w-120 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-left transition hover:bg-violet-100/80"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[11px] font-semibold text-white">Call</span>
+                      {callEvent.campaignName ? (
+                        <span className="truncate text-xs font-semibold text-violet-700">{callEvent.campaignName}</span>
+                      ) : null}
+                    </div>
+                    <div className="text-[11px] text-violet-700">{formatWhen(when)}</div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-violet-700">
+                    <span>{callEvent.sourceLabel}</span>
+                    <span>•</span>
+                    <span>{String(callEvent.status || "UNKNOWN").replace(/_/g, " ")}</span>
+                    {duration ? (
+                      <>
+                        <span>•</span>
+                        <span>{duration}</span>
+                      </>
+                    ) : null}
+                    {hasTranscript ? (
+                      <>
+                        <span>•</span>
+                        <span>View transcript</span>
+                      </>
+                    ) : null}
+                  </div>
+                </button>
+              </div>
+            );
+          }
+
+          const message = item.message;
+          const mine = message.direction === "OUT";
+          const prev = idx > 0 ? smsTimelineItems[idx - 1] : null;
+          const next = idx + 1 < smsTimelineItems.length ? smsTimelineItems[idx + 1] : null;
+          const prevMessage = prev?.type === "message" ? prev.message : null;
+          const nextMessage = next?.type === "message" ? next.message : null;
+          const startsGroup = !prevMessage || prevMessage.direction !== message.direction;
+          const endsGroup = !nextMessage || nextMessage.direction !== message.direction;
+          const bubbleCls = classNames(
+            styles.bubble,
+            mine ? styles.bubbleOut : styles.bubbleIn,
+            endsGroup ? (mine ? styles.tailOut : styles.tailIn) : "",
+          );
+
+          return (
+            <div
+              key={item.id}
+              className={classNames(
+                "flex",
+                mine ? "justify-end" : "justify-start",
+                startsGroup ? "mt-2" : "mt-0",
+              )}
+            >
+              <div className={bubbleCls}>
+                {message.aiOutboundCampaign ? <div className="mb-2 flex">{renderAiOutboundPill(message.aiOutboundCampaign)}</div> : null}
+                {message.attachments?.length ? (
+                  <div className="mb-2 space-y-2">
+                    {message.attachments.map((a) => {
+                      const isImg = String(a.mimeType || "").startsWith("image/");
+                      if (isImg) {
+                        return (
+                          <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="block">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={a.url}
+                              alt={a.fileName}
+                              className="max-h-56 w-full max-w-60 rounded-2xl object-cover"
+                            />
+                          </a>
+                        );
+                      }
+
+                      return (
+                        <a
+                          key={a.id}
+                          href={a.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={classNames(
+                            "block rounded-2xl px-3 py-2 text-xs font-semibold",
+                            mine ? "bg-white/15 text-white" : "bg-zinc-100 text-zinc-800",
+                          )}
+                        >
+                          {a.fileName} · {formatBytes(a.fileSize)}
+                        </a>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <div className="whitespace-pre-wrap wrap-break-word">{message.bodyText}</div>
+                {endsGroup ? (
+                  <div className={classNames("mt-1 text-[11px]", mine ? "text-white/80" : "text-zinc-600")}>
+                    {formatTimeOnly(message.createdAt)}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div className="-mx-4 flex h-full min-h-0 w-auto min-w-0 flex-col overflow-hidden sm:-mx-8">
@@ -1905,7 +2192,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
             const res = await fetch(`/api/portal/people/contacts/${contactId}/custom-variables`, {
               method: "PATCH",
-              headers: { "content-type": "application/json" },
+              headers: { "content-type": "application/json", ...variantHeaders },
               body: JSON.stringify({ key, value: v }),
             });
 
@@ -2256,11 +2543,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       + New email
                     </button>
                   ) : null}
-                  {refreshingThreads ? (
-                    <div className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-600">
-                      <InlineSpinner /> Refreshing…
-                    </div>
-                  ) : null}
                 </div>
               </div>
             </div>
@@ -2493,6 +2775,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           <div className="text-[11px] text-zinc-500">{formatWhen(m.createdAt)}</div>
                         </div>
                         <div className="mt-1 text-xs text-zinc-500">To: {m.toAddress}</div>
+                        {m.aiOutboundCampaign ? <div className="mt-3 flex">{renderAiOutboundPill(m.aiOutboundCampaign)}</div> : null}
                         <div className="mt-3 whitespace-pre-wrap wrap-break-word text-sm text-zinc-800">{m.bodyText}</div>
                         {m.attachments?.length ? (
                           <div className="mt-3 flex flex-wrap gap-2">
@@ -2752,61 +3035,90 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     <div className="text-sm text-zinc-600">Start a new text by choosing a contact or entering a phone number.</div>
                   ) : loadingMessages ? (
                     <div className="text-sm text-zinc-600">Loading…</div>
-                  ) : scheduledMessages.length || messages.length ? (
-                    <div className="space-y-2">
-                      {scheduledMessages.map((m) => (
-                        <div key={m.id} className="flex justify-center">
-                          <div className="w-full max-w-140 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0 truncate text-xs font-semibold text-blue-700">Scheduled · {formatWhen(m.scheduledFor)}</div>
-                              <button type="button" className="inline-flex shrink-0 items-center gap-2 rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50" onClick={() => openReschedule(m)}>
-                                <IconSchedule size={16} />
-                                Reschedule
-                              </button>
-                            </div>
-                            <div className="mt-1 whitespace-pre-wrap wrap-break-word text-sm text-zinc-800">{m.bodyText}</div>
-                          </div>
-                        </div>
-                      ))}
-                      {messages.map((m, idx) => {
-                        const mine = m.direction === "OUT";
-                        const prev = idx > 0 ? messages[idx - 1] : null;
-                        const next = idx + 1 < messages.length ? messages[idx + 1] : null;
-                        const startsGroup = !prev || prev.direction !== m.direction;
-                        const endsGroup = !next || next.direction !== m.direction;
-                        const bubbleCls = classNames(styles.bubble, mine ? styles.bubbleOut : styles.bubbleIn, endsGroup ? (mine ? styles.tailOut : styles.tailIn) : "");
-
-                        return (
-                          <div key={m.id} className={classNames("flex", mine ? "justify-end" : "justify-start", startsGroup ? "mt-2" : "mt-0")}>
-                            <div className={bubbleCls}>
-                              <div className="whitespace-pre-wrap wrap-break-word">{m.bodyText}</div>
-                              {endsGroup ? <div className={classNames("mt-1 text-[11px]", mine ? "text-white/80" : "text-zinc-600")}>{formatTimeOnly(m.createdAt)}</div> : null}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-sm text-zinc-600">No messages yet.</div>
-                  )}
+                  ) : renderSmsTimeline()}
                 </div>
 
                 <div className={classNames("shrink-0 border-t border-zinc-200 px-3 pb-0 pt-2 lg:pr-24", styles.inputBar)}>
                   <div className={classNames("flex items-end gap-2 px-2 py-2", styles.inputPill)}>
-                    <button
-                      type="button"
-                      className={classNames(styles.iconButton, styles.iconButtonMuted)}
-                      onClick={(e) => {
-                        if (smsMoreMenu) {
-                          setSmsMoreMenu(null);
-                          return;
-                        }
-                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                        setSmsMoreMenu(computeFixedMenuStyle({ rect, width: 256, estHeight: 200, alignX: "left", minHeight: 160 }));
+                    <div className="relative">
+                      {smsMoreMenu ? (
+                        <>
+                          <div
+                            className="fixed inset-0 z-12041"
+                            onMouseDown={() => setSmsMoreMenu(null)}
+                            onTouchStart={() => setSmsMoreMenu(null)}
+                            aria-hidden
+                          />
+                          <LiquidGlassPopupSurface
+                            data-inline-menu-root="true"
+                            className="fixed z-12045 overflow-hidden"
+                            style={{ left: smsMoreMenu.left, top: smsMoreMenu.top, width: smsMoreMenu.width, maxHeight: smsMoreMenu.maxHeight }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onTouchStart={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                              onClick={() => {
+                                setSmsMoreMenu(null);
+                                openVariablePicker("sms_body");
+                              }}
+                            >
+                              Insert variable
+                            </button>
+                            <button
+                              type="button"
+                              className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                              onClick={() => {
+                                setSmsMoreMenu(null);
+                                smsFileRef.current?.click();
+                              }}
+                            >
+                              Upload from device
+                            </button>
+                            <button
+                              type="button"
+                              className="w-full rounded-2xl px-4 py-3 text-left text-sm font-semibold text-zinc-900 transition hover:bg-white/16"
+                              onClick={() => {
+                                setSmsMoreMenu(null);
+                                setMediaPickerOpen(true);
+                              }}
+                            >
+                              Add from media library
+                            </button>
+                          </LiquidGlassPopupSurface>
+                        </>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        className={classNames(styles.iconButton, styles.iconButtonMuted)}
+                        onClick={(e) => {
+                          if (smsMoreMenu) {
+                            setSmsMoreMenu(null);
+                            return;
+                          }
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setSmsMoreMenu(computeFixedMenuStyle({ rect, width: 256, estHeight: 200, alignX: "left", minHeight: 160 }));
+                        }}
+                        aria-label="More"
+                        aria-expanded={smsMoreMenu ? true : undefined}
+                      >
+                        <span className="text-lg leading-none">+</span>
+                      </button>
+                    </div>
+
+                    <input
+                      ref={smsFileRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        void uploadAttachments(e.currentTarget.files);
+                        e.currentTarget.value = "";
                       }}
-                    >
-                      <span className="text-lg leading-none">+</span>
-                    </button>
+                      accept="image/*,video/*,audio/*,application/pdf,text/plain"
+                    />
                     <textarea ref={smsComposeRef} value={composeBody} rows={1} onChange={(e) => {
                       setComposeBody(e.target.value);
                       resizeSmsComposeInput();
@@ -2906,6 +3218,13 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 if (result.ok) {
                   setScheduleOpen(false);
                   setScheduleEditingId(null);
+                  if (tab === "email" && emailComposerOpen) {
+                    setEmailBox("sent");
+                    if (result.threadId) setActiveThreadId(result.threadId);
+                    clearPersistedEmailDraft();
+                    setEmailComposerOpen(false);
+                    setEmailAttachMenu(null);
+                  }
                 }
               }}
             >
@@ -2931,6 +3250,55 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{scheduleError}</div>
           ) : null}
         </div>
+      </AppModal>
+
+      <AppModal
+        open={Boolean(selectedCallEvent)}
+        title={selectedCallEvent?.campaignName || "AI outbound call"}
+        description={selectedCallEvent ? `${selectedCallEvent.sourceLabel} · ${String(selectedCallEvent.status || "UNKNOWN").replace(/_/g, " ")}` : undefined}
+        zIndex={12110}
+        onClose={() => setSelectedCallEvent(null)}
+        widthClassName="w-[min(780px,calc(100vw-32px))]"
+        closeVariant="x"
+        hideHeaderDivider
+        hideFooterDivider
+      >
+        {selectedCallEvent ? (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2 text-xs font-semibold">
+              <span className="rounded-full bg-violet-100 px-2.5 py-1 text-violet-700">Call event</span>
+              {selectedCallEvent.campaignName ? (
+                <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-700">{selectedCallEvent.campaignName}</span>
+              ) : null}
+              <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-700">{formatWhen(selectedCallEvent.completedAt || selectedCallEvent.createdAt)}</span>
+              {formatCallDuration(selectedCallEvent.recordingDurationSec) ? (
+                <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-zinc-700">{formatCallDuration(selectedCallEvent.recordingDurationSec)}</span>
+              ) : null}
+            </div>
+
+            {selectedCallTranscriptTurns.length ? (
+              <div className="max-h-[min(60vh,640px)] space-y-3 overflow-y-auto rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                {selectedCallTranscriptTurns.map((turn) => {
+                  const isAgent = turn.speaker === "agent";
+                  return (
+                    <div key={turn.id} className={classNames("flex", isAgent ? "justify-end" : "justify-start")}>
+                      <div className={classNames("max-w-[85%] rounded-3xl px-4 py-3 text-sm shadow-sm", isAgent ? "bg-brand-ink text-white" : turn.speaker === "contact" ? "bg-white text-zinc-900" : "bg-zinc-200 text-zinc-800")}>
+                        <div className={classNames("text-[11px] font-semibold uppercase tracking-[0.12em]", isAgent ? "text-white/70" : "text-zinc-500")}>
+                          {turn.label}
+                        </div>
+                        <div className="mt-1 whitespace-pre-wrap wrap-break-word">{turn.text}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                No transcript is available for this call yet.
+              </div>
+            )}
+          </div>
+        ) : null}
       </AppModal>
 
       {tab === "sms" && smsSheetOpen && !emailComposerOpen ? (
@@ -3101,112 +3469,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <div className="text-sm text-zinc-600">Start a new text by choosing a contact or entering a phone number.</div>
                 ) : loadingMessages ? (
                   <div className="text-sm text-zinc-600">Loading…</div>
-                ) : scheduledMessages.length || messages.length ? (
-                  <div className="space-y-2">
-                    {scheduledMessages.map((m) => (
-                      <div key={m.id} className="flex justify-center">
-                        <div className="w-full max-w-140 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0 truncate text-xs font-semibold text-blue-700">Scheduled · {formatWhen(m.scheduledFor)}</div>
-                            <button
-                              type="button"
-                              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50"
-                              onClick={() => openReschedule(m)}
-                            >
-                              <IconSchedule size={16} />
-                              Reschedule
-                            </button>
-                          </div>
-                          <div className="mt-1 whitespace-pre-wrap wrap-break-word text-sm text-zinc-800">{m.bodyText}</div>
-                          {m.attachments?.length ? (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {m.attachments.map((a) => (
-                                <a
-                                  key={a.id}
-                                  href={a.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  {a.fileName} · {formatBytes(a.fileSize)}
-                                </a>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    ))}
-                    {messages.map((m, idx) => {
-                      const mine = m.direction === "OUT";
-                      const prev = idx > 0 ? messages[idx - 1] : null;
-                      const next = idx + 1 < messages.length ? messages[idx + 1] : null;
-                      const startsGroup = !prev || prev.direction !== m.direction;
-                      const endsGroup = !next || next.direction !== m.direction;
-
-                      const bubbleCls = classNames(
-                        styles.bubble,
-                        mine ? styles.bubbleOut : styles.bubbleIn,
-                        endsGroup ? (mine ? styles.tailOut : styles.tailIn) : "",
-                      );
-
-                      return (
-                        <div
-                          key={m.id}
-                          className={classNames(
-                            "flex",
-                            mine ? "justify-end" : "justify-start",
-                            startsGroup ? "mt-2" : "mt-0",
-                          )}
-                        >
-                          <div className={bubbleCls}>
-                            {m.attachments?.length ? (
-                              <div className="mb-2 space-y-2">
-                                {m.attachments.map((a) => {
-                                  const isImg = String(a.mimeType || "").startsWith("image/");
-                                  if (isImg) {
-                                    return (
-                                      <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="block">
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img
-                                          src={a.url}
-                                          alt={a.fileName}
-                                          className="max-h-56 w-full max-w-60 rounded-2xl object-cover"
-                                        />
-                                      </a>
-                                    );
-                                  }
-
-                                  return (
-                                    <a
-                                      key={a.id}
-                                      href={a.url}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className={classNames(
-                                        "block rounded-2xl px-3 py-2 text-xs font-semibold",
-                                        mine ? "bg-white/15 text-white" : "bg-zinc-100 text-zinc-800",
-                                      )}
-                                    >
-                                      {a.fileName} · {formatBytes(a.fileSize)}
-                                    </a>
-                                  );
-                                })}
-                              </div>
-                            ) : null}
-                            <div className="whitespace-pre-wrap wrap-break-word">{m.bodyText}</div>
-                            {endsGroup ? (
-                              <div className={classNames("mt-1 text-[11px]", mine ? "text-white/80" : "text-zinc-600")}>
-                                {formatTimeOnly(m.createdAt)}
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-sm text-zinc-600">No messages yet.</div>
-                )}
+                ) : renderSmsTimeline()}
               </div>
 
               <div className={classNames("shrink-0 border-t border-zinc-200 p-3", styles.inputBar)}>
@@ -3420,7 +3683,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               <div className={classNames("flex items-center gap-3 border-b border-zinc-200 px-4 py-3", isDesktop ? "cursor-move select-none" : "")} onMouseDown={isDesktop ? (e) => beginComposerInteraction("move", e) : undefined}>
                 <button
                   type="button"
-                  className="rounded-full p-2 text-zinc-700 hover:bg-zinc-100"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-zinc-700 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white"
                   onClick={() => {
                     setEmailComposerOpen(false);
                     setEmailAttachMenu(null);

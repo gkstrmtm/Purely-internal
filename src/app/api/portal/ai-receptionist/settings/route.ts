@@ -19,6 +19,7 @@ import {
   type KnowledgeBaseLocator,
 } from "@/lib/elevenLabsConvai";
 import { getOwnerTwilioSmsConfig, getOwnerTwilioSmsConfigMasked } from "@/lib/portalTwilio";
+import { VOICE_TOOL_DEFS } from "@/lib/voiceAgentTools";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
 
 export const dynamic = "force-dynamic";
@@ -377,16 +378,14 @@ export async function PUT(req: Request) {
 
     const firstMessage = String(next.greeting || "").trim().slice(0, 360);
 
-    const transferToolKeys = ["transfer_to_human", "transfer_to_number", "call_transfer", "end_call"];
-    let toolIds: string[] = next.aiCanTransferToHuman
-      ? await getProfileVoiceAgentToolIds(ownerId, transferToolKeys).catch(() => [])
-      : [];
+    const defaultToolKeys = VOICE_TOOL_DEFS.map((tool) => tool.key);
+    let toolIds: string[] = await getProfileVoiceAgentToolIds(ownerId, defaultToolKeys).catch(() => []);
 
-    if (next.aiCanTransferToHuman && !toolIds.length) {
-      const resolved = await resolveElevenLabsConvaiToolIdsByKeys({ apiKey, toolKeys: transferToolKeys }).catch(() => null);
+    if (!toolIds.length) {
+      const resolved = await resolveElevenLabsConvaiToolIdsByKeys({ apiKey, toolKeys: defaultToolKeys }).catch(() => null);
       if (resolved && (resolved as any).ok === true) {
         const map = (resolved as any).toolIds as Record<string, string[]>;
-        toolIds = transferToolKeys
+        toolIds = defaultToolKeys
           .flatMap((k) => (Array.isArray((map as any)[k]) ? (map as any)[k] : []))
           .map((x) => (typeof x === "string" ? x.trim() : ""))
           .filter(Boolean)

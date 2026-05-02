@@ -8,7 +8,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { consumeCredits } from "@/lib/credits";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
-import { buildOutboundMessagingSystemPrompt } from "@/lib/portalAiOutboundIntelligence";
+import { buildOutboundMessagingSystemPrompt, tryBuildOutboundMessagingDeterministicReply } from "@/lib/portalAiOutboundIntelligence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +75,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     .join("\n\n");
 
   const history = Array.isArray((parsed.data as any).history) ? ((parsed.data as any).history as any[]) : [];
+  const deterministicReply = tryBuildOutboundMessagingDeterministicReply({
+    channel: parsed.data.channel,
+    inbound: parsed.data.inbound,
+    history,
+    goal: typeof cfg.goal === "string" ? cfg.goal : null,
+    businessContext,
+    campaignName: campaign.name,
+  });
+  if (deterministicReply) {
+    return NextResponse.json({ ok: true, reply: deterministicReply.slice(0, 2000) });
+  }
+
   const transcript = history
     .map((m) => {
       const role = m?.role === "assistant" ? "Agent" : "Customer";

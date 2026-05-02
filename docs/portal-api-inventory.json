@@ -1,5 +1,5 @@
 {
-  "generatedAtIso": "2026-04-06T23:57:03.502Z",
+  "generatedAtIso": "2026-04-19T06:16:51.171Z",
   "routes": [
     {
       "endpoint": "/api/portal/ads/claim",
@@ -996,6 +996,13 @@
       "file": "src/app/api/portal/funnel-builder/domains/route.ts"
     },
     {
+      "endpoint": "/api/portal/funnel-builder/domains/[domainId]",
+      "methods": [
+        "DELETE"
+      ],
+      "file": "src/app/api/portal/funnel-builder/domains/[domainId]/route.ts"
+    },
+    {
       "endpoint": "/api/portal/funnel-builder/domains/[domainId]/verify",
       "methods": [
         "POST"
@@ -1088,6 +1095,13 @@
       "file": "src/app/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/generate-html/route.ts"
     },
     {
+      "endpoint": "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/publish",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/publish/route.ts"
+    },
+    {
       "endpoint": "/api/portal/funnel-builder/funnels/[funnelId]/pages/global-header",
       "methods": [
         "POST"
@@ -1109,6 +1123,63 @@
         "POST"
       ],
       "file": "src/app/api/portal/funnel-builder/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/hosted-pages/documents",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/hosted-pages/documents/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/hosted-pages/documents/[documentId]",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/hosted-pages/documents/[documentId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/hosted-pages/documents/[documentId]/export-custom-html",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/hosted-pages/documents/[documentId]/export-custom-html/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/hosted-pages/documents/[documentId]/generate-html",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/hosted-pages/documents/[documentId]/generate-html/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/hosted-pages/documents/[documentId]/preview-data",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/hosted-pages/documents/[documentId]/preview-data/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/hosted-pages/documents/[documentId]/publish",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/hosted-pages/documents/[documentId]/publish/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/hosted-pages/documents/[documentId]/reset-to-default",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/hosted-pages/documents/[documentId]/reset-to-default/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/hosted-pages/documents/bootstrap",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/hosted-pages/documents/bootstrap/route.ts"
     },
     {
       "endpoint": "/api/portal/inbox/attachments",
@@ -1231,6 +1302,20 @@
       "file": "src/app/api/portal/integrations/twilio/route.ts"
     },
     {
+      "endpoint": "/api/portal/lead-scraping/assignees",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/lead-scraping/assignees/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/lead-scraping/backfill-map",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/lead-scraping/backfill-map/route.ts"
+    },
+    {
       "endpoint": "/api/portal/lead-scraping/contact",
       "methods": [
         "POST"
@@ -1260,6 +1345,13 @@
       "file": "src/app/api/portal/lead-scraping/leads/[leadId]/route.ts"
     },
     {
+      "endpoint": "/api/portal/lead-scraping/location-suggestions",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/lead-scraping/location-suggestions/route.ts"
+    },
+    {
       "endpoint": "/api/portal/lead-scraping/outbound/ai/draft-template",
       "methods": [
         "POST"
@@ -1286,6 +1378,13 @@
         "POST"
       ],
       "file": "src/app/api/portal/lead-scraping/run/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/lead-scraping/run/cancel",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/lead-scraping/run/cancel/route.ts"
     },
     {
       "endpoint": "/api/portal/lead-scraping/settings",
@@ -1387,7 +1486,8 @@
     {
       "endpoint": "/api/portal/newsletter/audience/contacts",
       "methods": [
-        "GET"
+        "GET",
+        "POST"
       ],
       "file": "src/app/api/portal/newsletter/audience/contacts/route.ts"
     },
@@ -1823,6 +1923,7 @@
     {
       "endpoint": "/api/portal/tasks/[taskId]",
       "methods": [
+        "DELETE",
         "PATCH"
       ],
       "file": "src/app/api/portal/tasks/[taskId]/route.ts"

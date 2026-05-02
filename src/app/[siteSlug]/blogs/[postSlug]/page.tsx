@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
+import DomainRouterBlogPostPage, { generateMetadata as generateDomainRouterBlogPostMetadata } from "@/app/domain-router/[domain]/blogs/[postSlug]/page";
+import { hostnameFromHeader, isPlatformHostname } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent, splitLeadingCoverImage } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
@@ -19,6 +22,14 @@ type PageProps = { params: Promise<{ siteSlug: string; postSlug: string }> };
 
 export async function generateMetadata(props: PageProps) {
   const { siteSlug, postSlug } = await props.params;
+  const h = await headers();
+  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
+
+  if (!isPlatformHostname(host) && host) {
+    return generateDomainRouterBlogPostMetadata({
+      params: Promise.resolve({ domain: encodeURIComponent(host), postSlug }),
+    });
+  }
 
   try {
     const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
@@ -67,6 +78,15 @@ export async function generateMetadata(props: PageProps) {
 }
 
 export default async function ClientBlogPostPage(props: PageProps) {
+  const h = await headers();
+  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
+  if (!isPlatformHostname(host) && host) {
+    const { postSlug } = await props.params;
+    return DomainRouterBlogPostPage({
+      params: Promise.resolve({ domain: encodeURIComponent(host), postSlug }),
+    });
+  }
+
   const { siteSlug, postSlug } = await props.params;
 
   const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");

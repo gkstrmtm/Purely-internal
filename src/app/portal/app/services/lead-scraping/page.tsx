@@ -4,7 +4,7 @@ import { PortalLeadScrapingClient } from "@/app/portal/app/services/lead-scrapin
 export default async function PortalLeadScrapingServicePage() {
   return (
     <PortalServiceGate slug="lead-scraping">
-      <PortalLeadScrapingClient />
+      <PortalLeadScrapingClient initialB2bSubTab="leads" />
     </PortalServiceGate>
   );
 }

@@ -13,7 +13,7 @@ export default async function PortalAiOutboundCallsServiceTabPage({
   const resolved = await params;
   const raw = String(resolved?.tab || "calls").toLowerCase();
 
-  if (raw !== "calls" && raw !== "messages" && raw !== "settings") {
+  if (raw !== "calls" && raw !== "messages" && raw !== "settings" && raw !== "testing") {
     const base = await requestPortalAppBasePath();
     redirect(`${base}/services/ai-outbound-calls/calls`);
   }

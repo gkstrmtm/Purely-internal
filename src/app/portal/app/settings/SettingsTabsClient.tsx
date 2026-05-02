@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useToast } from "@/components/ToastProvider";
 import { AppModal } from "@/components/AppModal";
@@ -12,6 +12,7 @@ import { PortalProfileClient } from "@/app/portal/profile/PortalProfileClient";
 import { BuyCreditsModal } from "@/app/portal/billing/BuyCreditsModal";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { IconBillingGlyph, IconProfileGlyph, IconSettingsGlyph } from "@/app/portal/PortalIcons";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type TabKey = "general" | "profile" | "billing";
 
@@ -186,6 +187,9 @@ function GeneralTab({
   onGoServices: () => void;
   toast: ReturnType<typeof useToast>;
 }) {
+  const pathname = usePathname() || "/portal/app/settings";
+  const portalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const [profile, setProfile] = useState<ProfileRes | null>(null);
   const [credits, setCredits] = useState<CreditsRes | null>(null);
   const [buyCreditsOpen, setBuyCreditsOpen] = useState(false);
@@ -209,7 +213,7 @@ function GeneralTab({
   const loadReferral = useCallback(async () => {
     setReferralLoading(true);
     try {
-      const res = await fetch("/api/portal/referrals/link", { cache: "no-store" }).catch(() => null);
+      const res = await fetch("/api/portal/referrals/link", { cache: "no-store", headers: variantHeaders }).catch(() => null);
       if (!res?.ok) return;
       const json = (await res.json().catch(() => ({}))) as unknown;
       const okJson = json && typeof json === "object" && !Array.isArray(json) ? (json as any) : null;
@@ -226,15 +230,15 @@ function GeneralTab({
     } finally {
       setReferralLoading(false);
     }
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       const [pRes, cRes, sRes] = await Promise.all([
-        fetch("/api/portal/profile", { cache: "no-store" }).catch(() => null as any),
-        fetch("/api/portal/credits", { cache: "no-store" }).catch(() => null as any),
-        fetch("/api/portal/services/status", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/profile", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+        fetch("/api/portal/credits", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+        fetch("/api/portal/services/status", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
       ]);
       if (!mounted) return;
 
@@ -257,9 +261,9 @@ function GeneralTab({
       else setServices(null);
 
       const [rRes, blogsRes, newsletterRes] = await Promise.all([
-        fetch("/api/portal/reporting?range=30d", { cache: "no-store" }).catch(() => null as any),
-        fetch("/api/portal/blogs/usage?range=30d", { cache: "no-store" }).catch(() => null as any),
-        fetch("/api/portal/newsletter/usage?range=30d", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/reporting?range=30d", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+        fetch("/api/portal/blogs/usage?range=30d", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+        fetch("/api/portal/newsletter/usage?range=30d", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
       ]);
 
       if (!mounted) return;
@@ -285,7 +289,7 @@ function GeneralTab({
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [variantHeaders]);
 
   const billingModel = services && "ok" in services && services.ok ? services.billingModel : undefined;
   const creditsOnly = billingModel === "credits";
@@ -326,7 +330,7 @@ function GeneralTab({
 
       const res = await fetch("/api/portal/profile", {
         method: "PUT",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify(payload),
       }).catch(() => null);
 
@@ -417,7 +421,7 @@ function GeneralTab({
       try {
         const res = await fetch("/api/portal/credits/topup", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify({ credits: requested }),
         });
         const body = await res.json().catch(() => ({}));
@@ -447,12 +451,12 @@ function GeneralTab({
         }
 
         // Dev/test fallback credits add.
-        const cRes = await fetch("/api/portal/credits", { cache: "no-store" }).catch(() => null as any);
+        const cRes = await fetch("/api/portal/credits", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
         if (cRes?.ok) setCredits(((await cRes.json().catch(() => null)) as CreditsRes | null) ?? null);
       } finally {
       }
     },
-    [toast],
+    [toast, variantHeaders],
   );
 
   const runwayTone = useMemo(() => {

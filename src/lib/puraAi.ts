@@ -14,11 +14,11 @@ function getPuraAiBaseUrl(): string {
 }
 
 function getSharedAiApiKey(): string {
-  return String(process.env.AI_API_KEY || "").trim();
+  return String(process.env.PURA_NEW || process.env.AI_API_KEY || "").trim();
 }
 
 function getPuraAiApiKey(): string {
-  return String(process.env.PURA_AI_API_KEY || "").trim();
+  return String(process.env.PURA_NEW || process.env.PURA_AI_API_KEY || process.env.AI_API_KEY || "").trim();
 }
 
 function getPuraAiProviderConfig(profileRaw?: unknown): { baseUrl: string; apiKey: string; source: "shared" | "pura"; profile: PuraAiProfile } {

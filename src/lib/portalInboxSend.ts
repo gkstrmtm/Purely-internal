@@ -385,9 +385,17 @@ export type SchedulePortalInboxMessageInput = {
   sendAt: Date;
 };
 
+function previewScheduledBody(body: string, attachmentCount: number): string {
+  const text = String(body || "").replace(/\s+/g, " ").trim();
+  if (text) return text.slice(0, 240);
+  if (attachmentCount === 1) return "[Attachment]";
+  if (attachmentCount > 1) return `[${attachmentCount} attachments]`;
+  return "Scheduled message";
+}
+
 export async function schedulePortalInboxMessage(
   input: SchedulePortalInboxMessageInput,
-): Promise<{ ok: true; scheduledId: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; scheduledId: string; threadId: string | null } | { ok: false; error: string }> {
   const ownerId = String(input.ownerId || "").trim();
   if (!ownerId) return { ok: false, error: "Missing owner" };
 
@@ -438,11 +446,89 @@ export async function schedulePortalInboxMessage(
   const id = randomUUID();
   const now = new Date();
 
+  let resolvedThreadId = input.threadId ? String(input.threadId) : null;
+
+  if (!resolvedThreadId) {
+    const preview = previewScheduledBody(bodyInput, attachmentIds.length);
+
+    if (channel === "sms") {
+      const thread = makeSmsThreadKey(toNormalized);
+      const row = await (prisma as any).portalInboxThread.upsert({
+        where: { ownerId_channel_threadKey: { ownerId, channel: "SMS", threadKey: thread.threadKey } },
+        create: {
+          ownerId,
+          channel: "SMS",
+          threadKey: thread.threadKey,
+          peerAddress: thread.peerAddress,
+          peerKey: thread.peerKey,
+          contactId: null,
+          subject: null,
+          subjectKey: null,
+          lastMessageAt: scheduledFor,
+          lastMessagePreview: preview,
+          lastMessageDirection: "OUT",
+          lastMessageFrom: "SCHEDULED",
+          lastMessageTo: toNormalized.slice(0, 240),
+          lastMessageSubject: null,
+        },
+        update: {
+          peerAddress: thread.peerAddress,
+          peerKey: thread.peerKey,
+          lastMessageAt: scheduledFor,
+          lastMessagePreview: preview,
+          lastMessageDirection: "OUT",
+          lastMessageFrom: "SCHEDULED",
+          lastMessageTo: toNormalized.slice(0, 240),
+          lastMessageSubject: null,
+        },
+        select: { id: true },
+      });
+      resolvedThreadId = String(row.id);
+    } else {
+      const thread = makeEmailThreadKey(toNormalized, String(input.subject ?? ""));
+      if (!thread) return { ok: false, error: "Invalid email" };
+
+      const row = await (prisma as any).portalInboxThread.upsert({
+        where: { ownerId_channel_threadKey: { ownerId, channel: "EMAIL", threadKey: thread.threadKey } },
+        create: {
+          ownerId,
+          channel: "EMAIL",
+          threadKey: thread.threadKey,
+          peerAddress: thread.peerAddress,
+          peerKey: thread.peerKey,
+          contactId: null,
+          subject: thread.subject,
+          subjectKey: thread.subjectKey,
+          lastMessageAt: scheduledFor,
+          lastMessagePreview: preview,
+          lastMessageDirection: "OUT",
+          lastMessageFrom: "SCHEDULED",
+          lastMessageTo: toNormalized.slice(0, 240),
+          lastMessageSubject: thread.subject,
+        },
+        update: {
+          peerAddress: thread.peerAddress,
+          peerKey: thread.peerKey,
+          subject: thread.subject,
+          subjectKey: thread.subjectKey,
+          lastMessageAt: scheduledFor,
+          lastMessagePreview: preview,
+          lastMessageDirection: "OUT",
+          lastMessageFrom: "SCHEDULED",
+          lastMessageTo: toNormalized.slice(0, 240),
+          lastMessageSubject: thread.subject,
+        },
+        select: { id: true },
+      });
+      resolvedThreadId = String(row.id);
+    }
+  }
+
   await (prisma as any).portalInboxScheduledMessage.create({
     data: {
       id,
       ownerId,
-      threadId: input.threadId ? String(input.threadId) : null,
+      threadId: resolvedThreadId,
       channel: channel === "email" ? "EMAIL" : "SMS",
       toAddress: toNormalized,
       subject: input.subject ? String(input.subject) : null,
@@ -458,7 +544,7 @@ export async function schedulePortalInboxMessage(
     },
   });
 
-  return { ok: true, scheduledId: id };
+  return { ok: true, scheduledId: id, threadId: resolvedThreadId };
 }
 
 export async function processDuePortalInboxScheduledMessages({

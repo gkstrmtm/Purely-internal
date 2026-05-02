@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { IconEdit } from "@/app/portal/PortalIcons";
@@ -7,6 +8,7 @@ import { AppModal } from "@/components/AppModal";
 import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { normalizePortalContactCustomVarKey } from "@/lib/portalTemplateVars";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 
@@ -118,7 +120,10 @@ type Props = {
 
 export function PortalContactDetailsModal(props: Props) {
   const { open, contactId, onClose, onContactUpdated, zIndex } = props;
+  const pathname = usePathname();
   const toast = useToast();
+  const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   const [detailLoading, setDetailLoading] = useState(false);
   const [detail, setDetail] = useState<ContactDetail | null>(null);
@@ -179,10 +184,10 @@ export function PortalContactDetailsModal(props: Props) {
 
       try {
         const [keysRes, tagsRes, ownerTagsRes, detailRes] = await Promise.all([
-          fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" }).catch(() => null as any),
-          fetch(`/api/portal/contacts/${encodeURIComponent(stableContactId)}/tags`, { cache: "no-store" }).catch(() => null as any),
-          fetch("/api/portal/contact-tags", { cache: "no-store" }).catch(() => null as any),
-          fetch(`/api/portal/contacts/${encodeURIComponent(stableContactId)}`, { cache: "no-store" }).catch(() => null as any),
+          fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+          fetch(`/api/portal/contacts/${encodeURIComponent(stableContactId)}/tags`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+          fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+          fetch(`/api/portal/contacts/${encodeURIComponent(stableContactId)}`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
         ]);
 
         if (cancelled) return;
@@ -281,8 +286,7 @@ export function PortalContactDetailsModal(props: Props) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, contactId]);
+  }, [open, contactId, onContactUpdated, toast, variantHeaders]);
 
   useEffect(() => {
     if (!open) return;
@@ -306,7 +310,7 @@ export function PortalContactDetailsModal(props: Props) {
     try {
       const res = await fetch(`/api/portal/contacts/${encodeURIComponent(contactId)}`, {
         method: "PATCH",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ name, email: editEmail, phone: editPhone, customVariables }),
       });
       const json = await readJson(res);
@@ -316,7 +320,7 @@ export function PortalContactDetailsModal(props: Props) {
   lastSavedEditSigRef.current = nextSig;
 
       // Refresh detail so parent callers can update names in-place.
-      const refreshed = await fetch(`/api/portal/contacts/${encodeURIComponent(contactId)}`, { cache: "no-store" });
+      const refreshed = await fetch(`/api/portal/contacts/${encodeURIComponent(contactId)}`, { cache: "no-store", headers: variantHeaders });
       const rjson = await readJson(refreshed);
       if (refreshed.ok && rjson?.ok && rjson?.contact?.id) {
         const next: ContactDetail = {
@@ -360,7 +364,7 @@ export function PortalContactDetailsModal(props: Props) {
       const method = nextChecked ? "POST" : "DELETE";
       const res = await fetch(`/api/portal/contacts/${encodeURIComponent(contactId)}/tags`, {
         method,
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ tagId }),
       });
       const json = await readJson(res);
@@ -399,7 +403,7 @@ export function PortalContactDetailsModal(props: Props) {
     try {
       const res = await fetch("/api/portal/contact-tags", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ name, color: createTagColor }),
       });
       const json = await readJson(res);
@@ -457,7 +461,7 @@ export function PortalContactDetailsModal(props: Props) {
             </div>
             <button
               type="button"
-              className={classNames("inline-flex h-10 w-10 items-center justify-center rounded-full text-lg font-semibold text-zinc-500 hover:bg-white/80 hover:text-zinc-800", portalGlassButtonClass)}
+              className={classNames("inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-lg font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white hover:text-zinc-800", portalGlassButtonClass)}
               onClick={onClose}
               aria-label="Close"
             >

@@ -2,10 +2,23 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { getPortalUser } from "@/lib/portalAuth";
 import { PortalTopbarClient } from "@/app/portal/PortalTopbarClient";
-import { PortalThemeClient } from "@/app/portal/PortalThemeClient";
+import { PortalTopbarHeightClient } from "@/app/portal/PortalTopbarHeightClient";
 import { getPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
-import { getPortalThemeMode } from "@/lib/portalTheme.server";
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
+
+async function withTimeout<T>(work: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -31,11 +44,9 @@ export default async function PortalLayout({
   const getStartedHref = variant === "credit" ? "/credit/get-started" : "/portal/get-started";
 
   const user = await getPortalUser();
-  const themePreferenceUserId = user?.memberId ?? user?.id ?? null;
-  const themeMode = await getPortalThemeMode(themePreferenceUserId);
   const canOpenPortalApp = user?.role === "CLIENT" || user?.role === "ADMIN";
   const businessName = user?.id
-    ? await getPortalBusinessProfile({ ownerId: user.id })
+    ? await withTimeout(getPortalBusinessProfile({ ownerId: user.id }), 1500, { status: 200, json: { profile: { businessName: "" } } as any })
         .then((result) => {
           const raw = result.json && typeof result.json === "object" ? (result.json as any)?.profile?.businessName : "";
           return typeof raw === "string" ? raw.trim() : "";
@@ -44,22 +55,21 @@ export default async function PortalLayout({
     : "";
 
   return (
-    <PortalThemeClient preferredMode={themeMode}>
-      <div className="flex min-h-dvh flex-col overflow-x-hidden bg-brand-mist text-brand-ink">
-        <PortalTopbarClient
-          logoSrc={logoSrc}
-          homeHref={homeHref}
-          signInHref={signInHref}
-          getStartedHref={getStartedHref}
-          businessName={businessName}
-          userEmail={user?.email ?? null}
-          canOpenPortalApp={canOpenPortalApp}
-        />
+    <div className="flex min-h-dvh flex-col overflow-x-hidden bg-brand-mist text-brand-ink">
+      <PortalTopbarClient
+        logoSrc={logoSrc}
+        homeHref={homeHref}
+        signInHref={signInHref}
+        getStartedHref={getStartedHref}
+        businessName={businessName}
+        userEmail={user?.email ?? null}
+        canOpenPortalApp={canOpenPortalApp}
+      />
+      <PortalTopbarHeightClient />
 
-        <div className="min-h-0 flex-1">
-          {children}
-        </div>
+      <div className="min-h-0 flex-1">
+        {children}
       </div>
-    </PortalThemeClient>
+    </div>
   );
 }

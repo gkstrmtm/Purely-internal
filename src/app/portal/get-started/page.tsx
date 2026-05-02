@@ -183,9 +183,9 @@ function PortalGetStartedInner() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (selectionTouched) return;
+    if (selectionTouched || selectedBundleId) return;
     setSelectedPlanIds(Array.from(new Set(["core", ...recommendedPlanIds])));
-  }, [recommendedPlanIds, selectionTouched]);
+  }, [recommendedPlanIds, selectedBundleId, selectionTouched]);
 
   useEffect(() => {
     if (!packagePreset) return;
@@ -256,6 +256,9 @@ function PortalGetStartedInner() {
   const selectedPlans = selectedPlanIds
     .map((id) => planById(id))
     .filter((p): p is NonNullable<ReturnType<typeof planById>> => Boolean(p));
+
+  const selectedBundlePlanIds = selectedBundleId ? bundlePlanIds(selectedBundleId).filter((id) => id !== "core") : [];
+  const visibleServicePlanIds = selectedBundlePlanIds.length ? selectedBundlePlanIds : (recommendedPlanIds.length ? recommendedPlanIds : ["automations"]);
 
   const upfrontPaidPlanIds = selectedPlanIds.filter((id) => (ONBOARDING_UPFRONT_PAID_PLAN_IDS as readonly string[]).includes(id));
 
@@ -818,7 +821,7 @@ function PortalGetStartedInner() {
                   <div className="text-sm font-semibold text-zinc-900">Services</div>
                   <div className="mt-1 text-sm text-zinc-600">We recommend a starting set. You can change this anytime.</div>
 
-                  <div className="mt-4 space-y-3">
+                    <div className="mt-4 space-y-3">
                     <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
@@ -855,9 +858,16 @@ function PortalGetStartedInner() {
                       </div>
                     </div>
 
-                    <div className="text-xs font-semibold text-zinc-600">Recommended</div>
+                    <div>
+                      <div className="text-xs font-semibold text-zinc-600">{selectedBundleId ? `Included with ${bundleTitle(selectedBundleId)}` : "Recommended"}</div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {selectedBundleId
+                          ? "Your selected package stays preloaded here so checkout matches what you chose."
+                          : "We picked these based on your answers. You can change them anytime."}
+                      </div>
+                    </div>
                     <div className="grid grid-cols-1 gap-3">
-                      {(recommendedPlanIds.length ? recommendedPlanIds : ["automations"]).map((id) => {
+                      {visibleServicePlanIds.map((id) => {
                         const p = planById(id);
                         if (!p) return null;
                         const checked = selectedPlanIds.includes(id);

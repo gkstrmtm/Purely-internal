@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { requireClientSession } from "@/lib/apiAuth";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
 import { getCreditsState } from "@/lib/credits";
-import { resolveEntitlementsForOwnerId } from "@/lib/entitlements";
+import { demoEntitlementsByEmail, resolveEntitlementsForOwnerId } from "@/lib/entitlements";
 import { hasPlacesKey } from "@/lib/googlePlaces";
+import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { isB2cLeadPullUnlocked } from "@/lib/leadScrapingAccess";
 
 export const runtime = "nodejs";
@@ -44,17 +46,23 @@ const settingsSchema = z.object({
   b2b: z.object({
     tagPresets: tagPresetsSchema.optional(),
     niche: z.string().max(200),
+    nicheSelections: stringList.optional(),
     location: z.string().max(200),
+    locationSelections: stringList.optional(),
+    latestRunLeadIds: stringList.optional(),
     fallbackEnabled: z.boolean().optional(),
     fallbackLocations: stringList.optional(),
     fallbackNiches: stringList.optional(),
     count: z.number().int().min(1).max(500),
+    requireAddress: z.boolean().optional(),
+    aiVerifyBusinesses: z.boolean().optional(),
     requireEmail: z.boolean(),
     requirePhone: z.boolean(),
     requireWebsite: z.boolean(),
     excludeNameContains: stringList,
     excludeDomains: stringList,
     excludePhones: stringList,
+    excludeAddresses: stringList,
     scheduleEnabled: z.boolean(),
     frequencyDays: z.number().int().min(1).max(60),
     lastRunAtIso: z.string().nullable(),
@@ -93,6 +101,24 @@ const settingsSchema = z.object({
           trigger: z.enum(["MANUAL", "ON_SCRAPE", "ON_APPROVE"]),
         })
         .optional(),
+      emailResources: z
+        .array(
+          z.object({
+            label: z.string().max(120),
+            url: z.string().max(500),
+          }),
+        )
+        .max(30)
+        .optional(),
+      smsResources: z
+        .array(
+          z.object({
+            label: z.string().max(120),
+            url: z.string().max(500),
+          }),
+        )
+        .max(30)
+        .optional(),
       resources: z
         .array(
           z.object({
@@ -119,6 +145,12 @@ type OutboundState = NonNullable<LeadScrapingSettings["outboundState"]>;
 type NormalizedLeadScrapingSettings = Omit<LeadScrapingSettings, "outbound" | "outboundState"> & {
   outbound: OutboundSettings;
   outboundState: OutboundState;
+};
+
+type AiCampaignLiteRow = {
+  id: string;
+  name: string;
+  status: string;
 };
 
 function normalizeTagPresets(value: unknown) {
@@ -152,6 +184,28 @@ function normalizeStringList(xs: unknown, { lower }: { lower?: boolean } = {}) {
     .filter(Boolean)
     .map((x) => (lower ? x.toLowerCase() : x))
     .slice(0, 200);
+}
+
+function normalizeLeadIdList(xs: unknown) {
+  const arr = Array.isArray(xs) ? xs : [];
+  const next: string[] = [];
+  const seen = new Set<string>();
+  for (const value of arr) {
+    const id = typeof value === "string" ? value.trim() : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    next.push(id);
+    if (next.length >= 500) break;
+  }
+  return next;
+}
+
+function mergePrimaryAndSelections(primary: unknown, selections: unknown, legacyFallbacks: unknown) {
+  return normalizeStringList([
+    ...(typeof primary === "string" ? [primary] : []),
+    ...(Array.isArray(selections) ? selections : []),
+    ...(Array.isArray(legacyFallbacks) ? legacyFallbacks : []),
+  ]).slice(0, 20);
 }
 
 function normalizeIsoString(value: unknown): string | null {
@@ -189,8 +243,8 @@ function normalizeOutbound(value: unknown): OutboundSettings {
     typeof (rec as any).emailHtml === "string" ||
     typeof (rec as any).emailText === "string";
 
-  const resourcesRaw = Array.isArray((rec as any).resources) ? ((rec as any).resources as unknown[]) : [];
-  const resources = resourcesRaw
+  const normalizeResources = (raw: unknown) =>
+    (Array.isArray(raw) ? raw : [])
     .map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>) : {}))
     .map((r) => ({
       label: (typeof r.label === "string" ? r.label.trim() : "").slice(0, 120) || "Resource",
@@ -198,6 +252,13 @@ function normalizeOutbound(value: unknown): OutboundSettings {
     }))
     .filter((r) => Boolean(r.url))
     .slice(0, 30);
+
+  const resources = normalizeResources((rec as any).resources);
+  const emailResources = normalizeResources((rec as any).emailResources ?? resources);
+  const smsResources = normalizeResources((rec as any).smsResources ?? resources);
+  const mergedResources = Array.from(
+    new Map([...emailResources, ...smsResources].map((resource) => [`${resource.url}::${resource.label.toLowerCase()}`, resource])).values(),
+  ).slice(0, 30);
 
   const parseTrigger = (t: unknown) => {
     const raw = typeof t === "string" ? t.trim() : "MANUAL";
@@ -230,7 +291,9 @@ function normalizeOutbound(value: unknown): OutboundSettings {
         trigger,
         text: (typeof (rec as any).smsText === "string" ? ((rec as any).smsText as string) : "").slice(0, 900),
       },
-      resources,
+      emailResources,
+      smsResources,
+      resources: mergedResources,
     };
   }
 
@@ -258,7 +321,9 @@ function normalizeOutbound(value: unknown): OutboundSettings {
       enabled: Boolean((callsRec as any).enabled),
       trigger: parseTrigger((callsRec as any).trigger),
     },
-    resources,
+    emailResources,
+    smsResources,
+    resources: mergedResources,
   };
 }
 
@@ -326,6 +391,8 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
       enabled: false,
       trigger: "MANUAL",
     },
+    emailResources: [],
+    smsResources: [],
     resources: [],
   };
 
@@ -339,7 +406,10 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
     b2b: {
       tagPresets: b2bTagPresets,
       niche: typeof b2b.niche === "string" ? b2b.niche.slice(0, 200) : "",
+      nicheSelections: mergePrimaryAndSelections(b2b.niche, (b2b as any).nicheSelections, (b2b as any).fallbackNiches),
       location: typeof b2b.location === "string" ? b2b.location.slice(0, 200) : "",
+      locationSelections: mergePrimaryAndSelections(b2b.location, (b2b as any).locationSelections, (b2b as any).fallbackLocations),
+      latestRunLeadIds: normalizeLeadIdList((b2b as any).latestRunLeadIds),
       fallbackEnabled: Boolean((b2b as any).fallbackEnabled),
       fallbackLocations: normalizeStringList((b2b as any).fallbackLocations),
       fallbackNiches: normalizeStringList((b2b as any).fallbackNiches),
@@ -347,12 +417,15 @@ function normalizeSettings(value: unknown): NormalizedLeadScrapingSettings {
         typeof b2b.count === "number" && Number.isFinite(b2b.count)
           ? Math.min(500, Math.max(1, Math.floor(b2b.count)))
           : 25,
+      requireAddress: typeof (b2b as any).requireAddress === "boolean" ? Boolean((b2b as any).requireAddress) : true,
+      aiVerifyBusinesses: Boolean((b2b as any).aiVerifyBusinesses),
       requireEmail: Boolean((b2b as any).requireEmail),
       requirePhone: Boolean(b2b.requirePhone),
       requireWebsite: Boolean(b2b.requireWebsite),
       excludeNameContains: normalizeStringList(b2b.excludeNameContains),
       excludeDomains: normalizeStringList(b2b.excludeDomains, { lower: true }),
       excludePhones: normalizeStringList(b2b.excludePhones),
+      excludeAddresses: normalizeStringList((b2b as any).excludeAddresses),
       scheduleEnabled: Boolean(b2b.scheduleEnabled),
       frequencyDays:
         typeof b2b.frequencyDays === "number" && Number.isFinite(b2b.frequencyDays)
@@ -404,6 +477,39 @@ async function loadSettings(ownerId: string): Promise<NormalizedLeadScrapingSett
   return normalizeSettings(row?.dataJson);
 }
 
+async function loadSettingsSafe(ownerId: string): Promise<NormalizedLeadScrapingSettings> {
+  try {
+    return await loadSettings(ownerId);
+  } catch (error) {
+    console.error("[lead-scraping/settings] failed to load saved settings", error);
+    return normalizeSettings(null);
+  }
+}
+
+async function loadCreditsSafe(ownerId: string): Promise<number | null> {
+  try {
+    const credits = await getCreditsState(ownerId);
+    return credits.balance;
+  } catch (error) {
+    console.error("[lead-scraping/settings] failed to load credits", error);
+    return null;
+  }
+}
+
+async function withTimeout<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 async function loadProfileLocation(ownerId: string): Promise<string | null> {
   const row = await prisma.portalServiceSetup
     .findUnique({
@@ -423,8 +529,93 @@ async function loadProfileLocation(ownerId: string): Promise<string | null> {
   return `${city}, ${state}`;
 }
 
+async function recoverLatestRunSnapshot(
+  ownerId: string,
+  lastRunAtIso: string | null,
+): Promise<{ lastRunAtIso: string | null; latestRunLeadIds: string[] }> {
+  const candidateIsos = [lastRunAtIso].filter((value): value is string => Boolean(value));
+
+  if (!candidateIsos.length) {
+    const latestLead = await prisma.portalLead.findFirst({
+      where: {
+        ownerId,
+        kind: "B2B",
+      },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }).catch(() => null);
+
+    if (latestLead?.createdAt) {
+      candidateIsos.push(latestLead.createdAt.toISOString());
+    }
+  }
+
+  for (const candidateIso of candidateIsos) {
+    const candidateAt = new Date(candidateIso);
+    if (Number.isNaN(candidateAt.getTime())) continue;
+
+    const upperBound = new Date(candidateAt.getTime() + 2 * 60 * 1000);
+    const lowerBound = new Date(candidateAt.getTime() - 6 * 60 * 60 * 1000);
+
+    const rows = await prisma.portalLead.findMany({
+      where: {
+        ownerId,
+        kind: "B2B",
+        createdAt: {
+          gte: lowerBound,
+          lte: upperBound,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 150,
+      select: { id: true, createdAt: true },
+    }).catch(() => [] as Array<{ id: string; createdAt: Date }>);
+
+    if (!rows.length) continue;
+
+    const newestCreatedAt = rows[0].createdAt.getTime();
+    return {
+      lastRunAtIso: rows[0].createdAt.toISOString(),
+      latestRunLeadIds: rows
+        .filter((row) => newestCreatedAt - row.createdAt.getTime() <= 45 * 60 * 1000)
+        .map((row) => String(row.id))
+        .filter(Boolean)
+        .slice(0, 150),
+    };
+  }
+
+  return { lastRunAtIso: null, latestRunLeadIds: [] };
+}
+
+async function loadAiCampaignsLiteSafe(ownerId: string): Promise<AiCampaignLiteRow[]> {
+  try {
+    await ensurePortalAiOutboundCallsSchema().catch(() => null);
+    const rows = await prisma.portalAiOutboundCallCampaign.findMany({
+      where: { ownerId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+      },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      take: 200,
+    });
+
+    return rows
+      .map((row) => ({
+        id: String(row.id || "").trim(),
+        name: String(row.name || "").trim(),
+        status: String(row.status || "").trim(),
+      }))
+      .filter((row) => row.id && row.name);
+  } catch (error) {
+    console.error("[lead-scraping/settings] failed to load lite ai campaigns", error);
+    return [];
+  }
+}
+
 export async function GET() {
-  const auth = await requireClientSessionForService("leadScraping");
+  const auth = await requireClientSession();
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -433,24 +624,70 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const entitlements = await resolveEntitlementsForOwnerId(ownerId, auth.session.user.email);
+  const demoEntitlements = demoEntitlementsByEmail(auth.session.user.email ?? "");
   const b2cUnlocked = isB2cLeadPullUnlocked({ email: auth.session.user.email, role: auth.session.user.role });
-  const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
+  const leadOutboundUnlocked = await withTimeout(
+    resolveEntitlementsForOwnerId(ownerId, auth.session.user.email).then((entitlements) => Boolean(entitlements.leadOutbound)),
+    1200,
+    Boolean(demoEntitlements?.leadOutbound),
+  );
+  const aiCallsUnlocked = await withTimeout(
+    leadOutboundUnlocked ? Promise.resolve(true) : requireClientSessionForService("aiOutboundCalls").then((result) => result.ok),
+    1200,
+    false,
+  );
 
-  const [settingsRaw, credits, profileLocation] = await Promise.all([
-    loadSettings(ownerId),
-    getCreditsState(ownerId),
-    loadProfileLocation(ownerId),
+  const [settingsRaw, creditsBalance, profileLocation, aiCampaignsLite] = await Promise.all([
+    withTimeout(loadSettingsSafe(ownerId), 1500, normalizeSettings(null)),
+    withTimeout(loadCreditsSafe(ownerId), 1200, null),
+    withTimeout(loadProfileLocation(ownerId), 1200, null),
+    aiCallsUnlocked ? withTimeout(loadAiCampaignsLiteSafe(ownerId), 10000, [] as AiCampaignLiteRow[]) : Promise.resolve([] as AiCampaignLiteRow[]),
   ]);
 
+  const recoveredLatestRunSnapshot =
+    settingsRaw.b2b.latestRunLeadIds?.length || settingsRaw.b2b.lastRunAtIso
+      ? await withTimeout(
+          recoverLatestRunSnapshot(ownerId, settingsRaw.b2b.lastRunAtIso),
+          3000,
+          {
+            lastRunAtIso: settingsRaw.b2b.lastRunAtIso,
+            latestRunLeadIds: settingsRaw.b2b.latestRunLeadIds ?? [],
+          },
+        )
+      : await withTimeout(recoverLatestRunSnapshot(ownerId, null), 3000, {
+          lastRunAtIso: null,
+          latestRunLeadIds: [],
+        });
+
+  const settingsWithLatestRunIds: NormalizedLeadScrapingSettings =
+    settingsRaw.b2b.latestRunLeadIds?.length
+      ? settingsRaw
+      : {
+          ...settingsRaw,
+          b2b: {
+            ...settingsRaw.b2b,
+            lastRunAtIso: settingsRaw.b2b.lastRunAtIso ?? recoveredLatestRunSnapshot.lastRunAtIso,
+            latestRunLeadIds: recoveredLatestRunSnapshot.latestRunLeadIds,
+          },
+        };
+
   const settings: NormalizedLeadScrapingSettings =
-    !settingsRaw.b2b.location.trim() && profileLocation
-      ? { ...settingsRaw, b2b: { ...settingsRaw.b2b, location: profileLocation } }
-      : settingsRaw;
+    !settingsWithLatestRunIds.b2b.location.trim() && profileLocation
+      ? {
+          ...settingsWithLatestRunIds,
+          b2b: {
+            ...settingsWithLatestRunIds.b2b,
+            location: profileLocation,
+            locationSelections: settingsWithLatestRunIds.b2b.locationSelections?.length
+              ? settingsWithLatestRunIds.b2b.locationSelections
+              : [profileLocation],
+          },
+        }
+      : settingsWithLatestRunIds;
 
   // Outbound is a separately gated feature. If the account isn't entitled,
   // never surface an enabled outbound config.
-  const gatedSettings: NormalizedLeadScrapingSettings = entitlements.leadOutbound
+  const gatedSettings: NormalizedLeadScrapingSettings = leadOutboundUnlocked
     ? settings
     : {
         ...settings,
@@ -492,10 +729,11 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     settings: gatedSettings2,
-    credits: credits.balance,
+    credits: creditsBalance,
     placesConfigured: hasPlacesKey(),
     b2cUnlocked,
     aiCallsUnlocked,
+    aiCampaignsLite,
   });
 }
 
@@ -513,7 +751,7 @@ export async function PUT(req: Request) {
   const ownerId = auth.session.user.id;
   const entitlements = await resolveEntitlementsForOwnerId(ownerId, auth.session.user.email);
   const b2cUnlocked = isB2cLeadPullUnlocked({ email: auth.session.user.email, role: auth.session.user.role });
-  const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
+  const aiCallsUnlocked = Boolean(entitlements.leadOutbound) || (await requireClientSessionForService("aiOutboundCalls")).ok;
 
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = putSchema.safeParse(body);

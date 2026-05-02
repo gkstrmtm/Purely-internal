@@ -2,15 +2,21 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AppModal } from "@/components/AppModal";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type Status = {
   businessProfileComplete: boolean;
   blogsSetupComplete: boolean;
+  creditsBalance: number;
   needsOnboarding: boolean;
+  puraOnboarding?: {
+    summary?: string;
+    missingProfileFields?: Array<{ key: string; label: string }>;
+  };
 };
 
 export function PortalOnboardingClient() {
@@ -18,6 +24,7 @@ export function PortalOnboardingClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const appBase = pathname.startsWith("/credit") ? "/credit/app" : "/portal/app";
+  const portalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
 
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,21 +48,26 @@ export function PortalOnboardingClient() {
     return href.includes("?") ? `${href}&from=onboarding` : `${href}?from=onboarding`;
   }
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setLoading(true);
-    const res = await fetch("/api/portal/onboarding/status", { cache: "no-store" });
+    const res = await fetch("/api/portal/onboarding/status", {
+      cache: "no-store",
+      headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+    });
     const json = (await res.json().catch(() => ({}))) as Partial<Status>;
     setStatus({
       businessProfileComplete: Boolean(json.businessProfileComplete),
       blogsSetupComplete: Boolean(json.blogsSetupComplete),
+      creditsBalance: typeof json.creditsBalance === "number" && Number.isFinite(json.creditsBalance) ? Math.max(0, json.creditsBalance) : 0,
       needsOnboarding: Boolean(json.needsOnboarding),
+      puraOnboarding: json.puraOnboarding,
     });
     setLoading(false);
-  }
+  }, [portalVariant]);
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
 
   if (loading && !status) {
     return (
@@ -67,6 +79,12 @@ export function PortalOnboardingClient() {
 
   const businessDone = status?.businessProfileComplete ?? false;
   const blogsDone = status?.blogsSetupComplete ?? false;
+  const creditsBalance = status?.creditsBalance ?? 0;
+  const creditsDone = creditsBalance > 0 || creditsAdded > 0;
+  const puraOnboardingSummary = typeof status?.puraOnboarding?.summary === "string" ? status.puraOnboarding.summary.trim() : "";
+  const missingProfileLabels = Array.isArray(status?.puraOnboarding?.missingProfileFields)
+    ? status.puraOnboarding.missingProfileFields.map((field) => String(field?.label || "").trim()).filter(Boolean)
+    : [];
 
   const stepRow = (opts: {
     label: string;
@@ -102,7 +120,41 @@ export function PortalOnboardingClient() {
   return (
     <div className="mx-auto w-full max-w-4xl">
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-        <div className="text-sm font-semibold text-zinc-900">Setup checklist</div>
+        <div className="rounded-3xl border border-brand-ink/10 bg-zinc-50 p-5">
+          <div className="text-sm font-semibold text-zinc-900">Choose how you want to onboard</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Click through the checklist yourself, or let Pura guide the setup and keep multiple onboarding tasks moving in one conversation.
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+            <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-4">
+              <div className="text-sm font-semibold text-zinc-900">Manual checklist</div>
+              <div className="mt-1 text-xs text-zinc-600">
+                Use the steps below if you want to handle each setup area one by one.
+              </div>
+            </div>
+            <div className="rounded-2xl border border-brand-ink/15 bg-white px-4 py-4">
+              <div className="text-sm font-semibold text-zinc-900">Onboard with Pura</div>
+              <div className="mt-1 text-xs text-zinc-600">
+                {puraOnboardingSummary || "Pura will ask only for missing setup details, then help you handle the next onboarding tasks in one flow."}
+              </div>
+              {missingProfileLabels.length ? (
+                <div className="mt-2 text-xs text-zinc-500">
+                  Missing right now: {missingProfileLabels.join(", ")}.
+                </div>
+              ) : null}
+              <div className="mt-3">
+                <Link
+                  href={withFromOnboarding(`${appBase}/ai-chat?onboarding=1`)}
+                  className="inline-flex items-center justify-center rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                >
+                  Onboard with Pura
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 text-sm font-semibold text-zinc-900">Setup checklist</div>
         <div className="mt-2 text-sm text-zinc-600">
           Do these in order. Everything is editable later in Profile and service settings.
         </div>
@@ -117,9 +169,11 @@ export function PortalOnboardingClient() {
 
           {stepRow({
             label: "2) Add credits",
-            status: "Next",
+            status: creditsDone ? "Done" : "Next",
             href: withFromOnboarding(`${appBase}/billing`),
-            detail: "Credits power usage-based actions like AI calls, scrapes, and automations. You can top up anytime.",
+            detail: creditsDone
+              ? `You already have ${Math.max(0, Math.trunc(creditsBalance || creditsAdded)).toLocaleString()} credits ready for usage-based actions.`
+              : "Credits power usage-based actions like AI calls, scrapes, and automations. You can top up anytime.",
           })}
 
           {stepRow({

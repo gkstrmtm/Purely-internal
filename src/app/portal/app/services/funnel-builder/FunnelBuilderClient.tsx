@@ -35,6 +35,7 @@ import { CREDIT_FORM_TEMPLATES, coerceCreditFormTemplateKey, getCreditFormTempla
 import { CREDIT_FORM_THEMES, coerceCreditFormThemeKey, getCreditFormTheme, type CreditFormThemeKey } from "@/lib/creditFormThemes";
 import { CREDIT_FUNNEL_TEMPLATES, coerceCreditFunnelTemplateKey, getCreditFunnelTemplate, type CreditFunnelTemplateKey } from "@/lib/creditFunnelTemplates";
 import { CREDIT_FUNNEL_THEMES, coerceCreditFunnelThemeKey, getCreditFunnelTheme, type CreditFunnelThemeKey } from "@/lib/creditFunnelThemes";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type CreditFunnel = {
   id: string;
@@ -251,6 +252,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const { initialTab } = props;
   const pathname = usePathname();
   const basePath = pathname === "/credit" || pathname.startsWith("/credit/") ? "/credit" : "/portal";
+  const portalVariant = basePath === "/credit" ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   const toast = useToast();
 
@@ -361,10 +364,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [stripeStatus, setStripeStatus] = useState<StripeIntegrationStatus | null>(null);
   const [stripeStatusBusy, setStripeStatusBusy] = useState(false);
 
-  const [funnelDomainBusy, setFunnelDomainBusy] = useState<Record<string, boolean>>({});
-
-  const [funnelStatusBusy, setFunnelStatusBusy] = useState<Record<string, boolean>>({});
-
   const [openFunnelMenuId, setOpenFunnelMenuId] = useState<string | null>(null);
   const funnelMenuRootRef = useRef<HTMLDivElement | null>(null);
   const funnelMenuElRef = useRef<HTMLDivElement | null>(null);
@@ -438,7 +437,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const loadStripeStatus = useCallback(async () => {
     setStripeStatusBusy(true);
     try {
-      const res = await fetch("/api/portal/integrations/stripe", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/integrations/stripe", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!res?.ok) return;
       const json = (await res.json().catch(() => null)) as any;
       if (!json || json.ok !== true || !json.stripe) return;
@@ -450,7 +449,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     } finally {
       setStripeStatusBusy(false);
     }
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     if (tab !== "settings") return;
@@ -590,22 +589,22 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   }, []);
 
   const loadFunnels = useCallback(async () => {
-    const json = (await fetchJsonWithTimeout<any>("/api/portal/funnel-builder/funnels", { cache: "no-store" }, 20000)) as any;
+    const json = (await fetchJsonWithTimeout<any>("/api/portal/funnel-builder/funnels", { cache: "no-store", headers: variantHeaders }, 20000)) as any;
     if (!json || json.ok !== true) throw new Error(json?.error || "Failed to load funnels");
     setFunnels(Array.isArray(json.funnels) ? json.funnels : []);
-  }, []);
+  }, [variantHeaders]);
 
   const loadForms = useCallback(async () => {
-    const json = (await fetchJsonWithTimeout<any>("/api/portal/funnel-builder/forms", { cache: "no-store" }, 20000)) as any;
+    const json = (await fetchJsonWithTimeout<any>("/api/portal/funnel-builder/forms", { cache: "no-store", headers: variantHeaders }, 20000)) as any;
     if (!json || json.ok !== true) throw new Error(json?.error || "Failed to load forms");
     setForms(Array.isArray(json.forms) ? json.forms : []);
-  }, []);
+  }, [variantHeaders]);
 
   const loadDomains = useCallback(async () => {
-    const json = (await fetchJsonWithTimeout<any>("/api/portal/funnel-builder/domains", { cache: "no-store" }, 20000)) as any;
+    const json = (await fetchJsonWithTimeout<any>("/api/portal/funnel-builder/domains", { cache: "no-store", headers: variantHeaders }, 20000)) as any;
     if (!json || json.ok !== true) throw new Error(json?.error || "Failed to load domains");
     setDomains(Array.isArray(json.domains) ? json.domains : []);
-  }, []);
+  }, [variantHeaders]);
 
   const deleteFunnel = useCallback(
     async (f: CreditFunnel) => {
@@ -614,6 +613,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       try {
         const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(f.id)}`, {
           method: "DELETE",
+          headers: variantHeaders,
         });
         const json = (await res.json().catch(() => ({}))) as any;
         if (!res.ok || json?.ok !== true) throw new Error(json?.error || "Failed to delete funnel");
@@ -630,7 +630,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         setFunnelDeleteBusy((m) => ({ ...m, [f.id]: false }));
       }
     },
-    [funnelDeleteBusy, loadDomains, toast],
+    [funnelDeleteBusy, loadDomains, toast, variantHeaders],
   );
 
   const deleteForm = useCallback(
@@ -640,6 +640,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       try {
         const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(f.id)}`, {
           method: "DELETE",
+          headers: variantHeaders,
         });
         const json = (await res.json().catch(() => ({}))) as any;
         if (!res.ok || json?.ok !== true) throw new Error(json?.error || "Failed to delete form");
@@ -651,7 +652,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         setFormDeleteBusy((m) => ({ ...m, [f.id]: false }));
       }
     },
-    [formDeleteBusy, toast],
+    [formDeleteBusy, toast, variantHeaders],
   );
 
   const patchForm = useCallback(
@@ -661,7 +662,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       try {
         const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(form.id)}`, {
           method: "PATCH",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify(data),
         });
         const json = (await res.json().catch(() => null)) as any;
@@ -684,7 +685,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         setFormSaveBusy((m) => ({ ...m, [form.id]: false }));
       }
     },
-    [formSaveBusy, loadForms, toast],
+    [formSaveBusy, loadForms, toast, variantHeaders],
   );
 
   const patchFunnel = useCallback(
@@ -697,7 +698,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       try {
         const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnel.id)}`, {
           method: "PATCH",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify(data),
         });
         const json = (await res.json().catch(() => null)) as any;
@@ -720,7 +721,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         setFunnelSaveBusy((m) => ({ ...m, [funnel.id]: false }));
       }
     },
-    [funnelSaveBusy, loadFunnels, toast],
+    [funnelSaveBusy, loadFunnels, toast, variantHeaders],
   );
 
   const copyText = useCallback(async (text: string) => {
@@ -739,6 +740,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         const res = await fetch(`/api/portal/funnel-builder/domains/${encodeURIComponent(domain.id)}/verify`, {
           method: "POST",
           cache: "no-store",
+          headers: variantHeaders,
         });
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Verification failed");
@@ -804,7 +806,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         setDomainVerifyBusy((m) => ({ ...m, [domain.id]: false }));
       }
     },
-    [domainVercelVerificationById, toast],
+    [domainVercelVerificationById, toast, variantHeaders],
   );
 
   const patchDomainSettings = useCallback(
@@ -820,7 +822,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       try {
         const res = await fetch("/api/portal/funnel-builder/domains", {
           method: "PATCH",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify({ domain: domain.domain, rootMode: next.rootMode, rootFunnelSlug: next.rootFunnelSlug }),
         });
         const json = (await res.json().catch(() => null)) as any;
@@ -847,106 +849,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         setDomainSettingsBusy((m) => ({ ...m, [domain.id]: false }));
       }
     },
-    [loadDomains, toast],
-  );
-
-  const patchFunnelDomain = useCallback(
-    async (funnel: CreditFunnel, nextDomain: string | null) => {
-      setFunnelDomainBusy((m) => ({ ...m, [funnel.id]: true }));
-
-      // Optimistic update
-      setFunnels((prev) => {
-        if (!prev) return prev;
-        return prev.map((f) => {
-          if (f.id !== funnel.id) return f;
-          return { ...f, assignedDomain: nextDomain };
-        });
-      });
-
-      try {
-        const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnel.id)}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ domain: nextDomain }),
-        });
-        const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update funnel domain");
-        const assigned = (json?.funnel?.assignedDomain ?? null) as string | null;
-        const status = (json?.funnel?.status ?? null) as CreditFunnel["status"] | null;
-
-        setFunnels((prev) => {
-          if (!prev) return prev;
-          return prev.map((f) =>
-            f.id === funnel.id
-              ? {
-                  ...f,
-                  assignedDomain: assigned,
-                  status: status && (status === "DRAFT" || status === "ACTIVE" || status === "ARCHIVED") ? status : f.status,
-                }
-              : f,
-          );
-        });
-        toast.success("Funnel domain updated.");
-      } catch (e) {
-        toast.error((e as any)?.message ? String((e as any).message) : "Failed to update funnel domain");
-        try {
-          await loadFunnels();
-        } catch {
-          // ignore
-        }
-      } finally {
-        setFunnelDomainBusy((m) => ({ ...m, [funnel.id]: false }));
-      }
-    },
-    [loadFunnels, toast],
-  );
-
-  const patchFunnelStatus = useCallback(
-    async (funnel: CreditFunnel, nextStatus: CreditFunnel["status"]) => {
-      if (funnelStatusBusy[funnel.id]) return false;
-      if (funnel.status === nextStatus) return true;
-
-      setFunnelStatusBusy((m) => ({ ...m, [funnel.id]: true }));
-
-      // Optimistic update
-      setFunnels((prev) => {
-        if (!prev) return prev;
-        return prev.map((f) => (f.id === funnel.id ? { ...f, status: nextStatus } : f));
-      });
-
-      try {
-        const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnel.id)}`, {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ status: nextStatus }),
-        });
-        const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update funnel status");
-
-        const status = (json?.funnel?.status ?? null) as CreditFunnel["status"] | null;
-        if (status && (status === "DRAFT" || status === "ACTIVE" || status === "ARCHIVED")) {
-          setFunnels((prev) => {
-            if (!prev) return prev;
-            return prev.map((f) => (f.id === funnel.id ? { ...f, status } : f));
-          });
-        }
-
-        toast.success("Funnel status updated.");
-        return true;
-      } catch (e) {
-        toast.error((e as any)?.message ? String((e as any).message) : "Failed to update funnel status");
-        try {
-          await loadFunnels();
-        } catch {
-          // ignore
-        }
-
-        return false;
-      } finally {
-        setFunnelStatusBusy((m) => ({ ...m, [funnel.id]: false }));
-      }
-    },
-    [funnelStatusBusy, loadFunnels, toast],
+    [loadDomains, toast, variantHeaders],
   );
 
   useEffect(() => {
@@ -998,7 +901,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       const endpoint = creatingKind === "funnel" ? "/api/portal/funnel-builder/funnels" : "/api/portal/funnel-builder/forms";
       const res = await fetch(endpoint, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({
           slug,
           name: createName.trim() || undefined,
@@ -1039,7 +942,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       const sig = domainInput.trim();
       const res = await fetch("/api/portal/funnel-builder/domains", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ domain: sig }),
       });
       const json = (await res.json().catch(() => null)) as any;
@@ -1567,8 +1470,14 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               <div className="mt-1 text-sm text-zinc-600">Host forms and collect submissions.</div>
             </button>
 
-            {(forms || []).map((f) => (
-              <div key={f.id} className="flex h-50 flex-col rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_12px_32px_rgba(15,23,42,0.04)]">
+            {(forms || []).map((f) => {
+              const formLiveHref = getFormLiveHref(f.slug, f.id) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`);
+              const isFormLive = f.status === "ACTIVE";
+              const formActionLabel = isFormLive ? "Live" : "Preview";
+              const formUrlLabel = isFormLive ? "Hosted live URL" : "Hosted preview URL";
+
+              return (
+              <div key={f.id} className="flex h-56 flex-col rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_12px_32px_rgba(15,23,42,0.04)]">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-base font-semibold text-brand-ink">{f.name}</div>
@@ -1633,16 +1542,29 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               Responses
                             </Link>
                             <Link
-                              href={getFormLiveHref(f.slug, f.id) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
+                              href={formLiveHref}
                               target="_blank"
                               className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-white/16"
                               onClick={() => setOpenFormMenuId(null)}
                             >
                               <span className="inline-flex items-center" aria-hidden="true">
-                                <IconEyeGlyph size={16} />
+                                {isFormLive ? <IconGlobeGlyph size={16} /> : <IconEyeGlyph size={16} />}
                               </span>
-                              Preview
+                              {formActionLabel}
                             </Link>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void copyText(formLiveHref);
+                                setOpenFormMenuId(null);
+                              }}
+                              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-700 transition-colors duration-150 hover:bg-white/16"
+                            >
+                              <span className="inline-flex items-center" aria-hidden="true">
+                                <IconCopy size={16} />
+                              </span>
+                              Copy URL
+                            </button>
 
                             <div className="my-2 h-px bg-white/40" />
 
@@ -1686,6 +1608,28 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                     </div>
                   </div>
                 </div>
+                <div className="mt-4 flex-1 rounded-2xl bg-zinc-50 px-4 py-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{formUrlLabel}</div>
+                  <div className="mt-1 break-all font-mono text-xs text-zinc-700">{formLiveHref}</div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <Link
+                      href={formLiveHref}
+                      target="_blank"
+                      className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-zinc-100"
+                    >
+                      {isFormLive ? <IconGlobeGlyph size={14} /> : <IconEyeGlyph size={14} />}
+                      {isFormLive ? "Open live form" : "Open preview"}
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => void copyText(formLiveHref)}
+                      className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700 transition-colors duration-150 hover:bg-zinc-100"
+                    >
+                      <IconCopy size={14} />
+                      Copy URL
+                    </button>
+                  </div>
+                </div>
                 <div className="mt-auto flex items-center justify-between gap-3 pt-4">
                   {(() => {
                     const label = f.status === "ACTIVE" ? "LIVE" : f.status === "ARCHIVED" ? "ARCHIVED" : "DRAFT";
@@ -1700,10 +1644,11 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       </span>
                     );
                   })()}
-                  <div className="text-[11px] text-zinc-500">Form</div>
+                  <div className="text-[11px] text-zinc-500">{formUrlLabel}</div>
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
 
           {forms === null ? (
@@ -2150,7 +2095,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 disabled={busy}
                 aria-label="Close create"
                 title="Close"
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-transparent bg-white text-lg font-semibold text-zinc-700 transition-colors duration-150 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60"
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/70 bg-white/78 text-lg font-semibold text-zinc-700 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-150 hover:bg-white hover:text-zinc-900 disabled:opacity-60"
               >
                 ×
               </button>

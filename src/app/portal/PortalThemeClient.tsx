@@ -13,17 +13,6 @@ function normalizePreviewMode(input: unknown): PortalThemeMode | null {
   return null;
 }
 
-function resolveTheme(mode: PortalThemeMode): "light" | "dark" {
-  if (mode === "dark") return "dark";
-  if (mode === "light") return "light";
-
-  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  }
-
-  return "light";
-}
-
 export function PortalThemeClient({
   preferredMode,
   children,

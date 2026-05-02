@@ -83,6 +83,7 @@ export async function getPortalServiceStatusesForOwner(opts: {
   ownerId: string;
   fallbackEmail: string | null | undefined;
   portalVariant?: PortalVariant | null | undefined;
+  serviceSlugs?: string[] | null | undefined;
 }) {
   const owner = await prisma.user
     .findUnique({ where: { id: opts.ownerId }, select: { email: true } })
@@ -97,25 +98,37 @@ export async function getPortalServiceStatusesForOwner(opts: {
   const entitlements = await resolveEntitlements(entitlementsEmail, { ownerId: opts.ownerId });
   const stripeConfigured = isStripeConfigured();
 
-  const serviceSlugs = PORTAL_SERVICES.map((s) => s.slug);
+  const selectedServices = (Array.isArray(opts.serviceSlugs) && opts.serviceSlugs.length
+    ? PORTAL_SERVICES.filter((service) => opts.serviceSlugs?.includes(service.slug))
+    : PORTAL_SERVICES
+  ).filter(Boolean);
+
+  const serviceSlugs = selectedServices.map((s) => s.slug);
+  const needsBookingSite = serviceSlugs.includes("booking");
+  const needsBlogSite = serviceSlugs.includes("blogs");
+  const needsTaskCount = serviceSlugs.includes("tasks");
+  const needsOutboundCampaignCount = serviceSlugs.includes("ai-outbound-calls");
+  const needsTwilioConfig = serviceSlugs.includes("ai-outbound-calls");
 
   const [setupRows, bookingSite, blogSite, taskCount, outboundCampaignCount, twilioConfig] = await Promise.all([
     prisma.portalServiceSetup.findMany({
       where: { ownerId: opts.ownerId, serviceSlug: { in: serviceSlugs } },
       select: { serviceSlug: true, status: true, dataJson: true },
     }),
-    prisma.portalBookingSite.findUnique({ where: { ownerId: opts.ownerId }, select: { enabled: true } }),
-    prisma.clientBlogSite.findUnique({ where: { ownerId: opts.ownerId }, select: { id: true } }),
-    prisma.portalTask.count({ where: { ownerId: opts.ownerId } }),
-    (async () => {
+    needsBookingSite ? prisma.portalBookingSite.findUnique({ where: { ownerId: opts.ownerId }, select: { enabled: true } }) : Promise.resolve(null),
+    needsBlogSite ? prisma.clientBlogSite.findUnique({ where: { ownerId: opts.ownerId }, select: { id: true } }) : Promise.resolve(null),
+    needsTaskCount ? prisma.portalTask.count({ where: { ownerId: opts.ownerId } }) : Promise.resolve(0),
+    needsOutboundCampaignCount
+      ? (async () => {
       try {
         await ensurePortalAiOutboundCallsSchema();
         return await prisma.portalAiOutboundCallCampaign.count({ where: { ownerId: opts.ownerId } });
       } catch {
         return 0;
       }
-    })(),
-    getOwnerTwilioSmsConfig(opts.ownerId).catch(() => null),
+    })()
+      : Promise.resolve(0),
+    needsTwilioConfig ? getOwnerTwilioSmsConfig(opts.ownerId).catch(() => null) : Promise.resolve(null),
   ]);
 
   const setupBySlug = new Map<string, { status: string; dataJson: unknown }>();
@@ -125,7 +138,7 @@ export async function getPortalServiceStatusesForOwner(opts: {
 
   const statuses: Record<string, PortalServiceStatus> = {};
 
-  for (const s of PORTAL_SERVICES) {
+  for (const s of selectedServices) {
     const setup = setupBySlug.get(s.slug);
     const comingSoon = isComingSoon(s);
     if (comingSoon) {

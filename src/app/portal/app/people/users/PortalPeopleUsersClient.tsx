@@ -365,7 +365,14 @@ export function PortalPeopleUsersClient() {
       </div>
 
       {loading ? (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
+        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="h-4 w-28 animate-pulse rounded-full bg-zinc-100" aria-hidden="true" />
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" aria-hidden="true">
+            <div className="h-48 rounded-3xl bg-zinc-50" />
+            <div className="h-48 rounded-3xl bg-zinc-50" />
+          </div>
+          <p className="mt-4 text-sm text-zinc-600">Pulling in your team members and invite links.</p>
+        </div>
       ) : null}
 
       {data ? (

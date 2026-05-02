@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
+import { extractBlogAutomationContextFiles } from "@/lib/blogAutomationContext";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { slugify } from "@/lib/slugify";
@@ -16,6 +17,16 @@ type StoredSettings = {
   enabled?: boolean;
   frequencyDays?: number;
   topics?: string[];
+  contextFiles?: Array<{
+    id?: string;
+    fileName?: string;
+    mimeType?: string;
+    fileSize?: number;
+    tag?: string;
+    shareUrl?: string;
+    previewUrl?: string;
+    createdAt?: string;
+  }>;
   cursor?: number;
   autoPublish?: boolean;
   lastRunAt?: string;
@@ -33,6 +44,18 @@ function normalizeSettings(value: unknown) {
       ? Math.min(30, Math.max(1, Math.floor(rec.frequencyDays)))
       : 7,
     topics,
+    contextFiles: Array.isArray(rec?.contextFiles)
+      ? (rec?.contextFiles as unknown[])
+          .filter((item) => item && typeof item === "object")
+          .map((item) => ({
+            fileName: typeof (item as any).fileName === "string" ? String((item as any).fileName).trim().slice(0, 180) : undefined,
+            mimeType: typeof (item as any).mimeType === "string" ? String((item as any).mimeType).trim().slice(0, 120) : undefined,
+            tag: typeof (item as any).tag === "string" ? String((item as any).tag).trim().slice(0, 120) : undefined,
+            url: typeof (item as any).shareUrl === "string" ? String((item as any).shareUrl).trim().slice(0, 1000) : undefined,
+          }))
+          .filter((item) => item.fileName || item.tag || item.url)
+          .slice(0, 12)
+      : [],
     cursor: typeof rec?.cursor === "number" && Number.isFinite(rec.cursor) ? Math.max(0, Math.floor(rec.cursor)) : 0,
     autoPublish: Boolean(rec?.autoPublish),
     lastRunAt: typeof rec?.lastRunAt === "string" ? rec.lastRunAt : undefined,
@@ -126,6 +149,7 @@ export async function GET(req: Request) {
             enabled: s.enabled,
             frequencyDays: s.frequencyDays,
             topics: s.topics,
+            contextFiles: (setup.dataJson as any)?.contextFiles,
             cursor: s.cursor,
             autoPublish: s.autoPublish,
             lastRunAt: now.toISOString(),
@@ -152,6 +176,7 @@ export async function GET(req: Request) {
             enabled: s.enabled,
             frequencyDays: s.frequencyDays,
             topics: s.topics,
+            contextFiles: (setup.dataJson as any)?.contextFiles,
             cursor: s.cursor,
             autoPublish: s.autoPublish,
             lastRunAt: now.toISOString(),
@@ -179,6 +204,9 @@ export async function GET(req: Request) {
         ? (profile?.primaryGoals as unknown[]).filter((x) => typeof x === "string").map((x) => String(x)).slice(0, 10)
         : undefined;
 
+      const extractedContextFiles = await extractBlogAutomationContextFiles({ ownerId: setup.ownerId, contextFiles: (setup.dataJson as any)?.contextFiles });
+      const strictTopicOnly = Boolean(String(topic || "").trim()) || extractedContextFiles.length > 0;
+
       const draft = await generateClientBlogDraft({
         businessName: profile?.businessName,
         websiteUrl: profile?.websiteUrl,
@@ -188,6 +216,15 @@ export async function GET(req: Request) {
         targetCustomer: profile?.targetCustomer,
         brandVoice: profile?.brandVoice,
         topic,
+        strictTopicOnly,
+        referenceAssets: extractedContextFiles.map((file) => ({
+          fileName: file.fileName,
+          mimeType: file.mimeType,
+          tag: file.tag,
+          url: file.sourceUrl,
+          extractionKind: file.extractionKind,
+          extractedText: file.extractedText,
+        })),
       });
 
       const slug = await uniqueSlug(site.id, draft.title);
@@ -250,6 +287,7 @@ export async function GET(req: Request) {
         enabled: s.enabled,
         frequencyDays: s.frequencyDays,
         topics: s.topics,
+        contextFiles: (setup.dataJson as any)?.contextFiles,
         cursor: s.cursor + 1,
         autoPublish: s.autoPublish,
         lastRunAt: now.toISOString(),

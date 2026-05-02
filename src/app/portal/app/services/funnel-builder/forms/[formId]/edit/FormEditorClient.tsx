@@ -9,6 +9,7 @@ import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { normalizeCreditFormContent, normalizeCreditFormSuccessContent, parseCreditFormContent, parseCreditFormSuccessContent, type CreditFormContent, type CreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { hostedFormPath } from "@/lib/publicHostedKeys";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
@@ -264,6 +265,8 @@ const PRIMARY_BUTTON_CLASS = `rounded-2xl bg-(--color-brand-blue) px-4 py-2 text
 
 export function FormEditorClient({ basePath, formId }: { basePath: string; formId: string }) {
   const backHref = useMemo(() => `${basePath}/app/services/funnel-builder`, [basePath]);
+  const portalVariant = useMemo(() => (basePath.startsWith("/credit") ? "credit" : "portal"), [basePath]);
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -313,7 +316,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
   const load = async () => {
     setError(null);
-    const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { cache: "no-store" });
+    const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { cache: "no-store", headers: variantHeaders });
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load form");
     const f = json.form as Form;
@@ -382,7 +385,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     try {
       const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, {
         method: "PATCH",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({
           name: trimmedName,
           ...(opts || {}),
@@ -410,7 +413,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { method: "DELETE" });
+      const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { method: "DELETE", headers: variantHeaders });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to delete");
       window.location.href = backHref;

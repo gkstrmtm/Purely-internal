@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
@@ -10,10 +11,70 @@ import { PURA_AI_PROFILE_VALUES, normalizePuraAiProfile } from "@/lib/puraAiProf
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function isTransientPortalAiChatDbError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P1017" || error.code === "P2024") return true;
+  }
+
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const normalized = String(message || "").toLowerCase();
+  if (!normalized) return false;
+
+  return (
+    (normalized.includes("connection pool") && normalized.includes("timed out")) ||
+    normalized.includes("server has closed the connection") ||
+    normalized.includes("connection terminated unexpectedly") ||
+    normalized.includes("connection reset") ||
+    normalized.includes("connection refused")
+  );
+}
+
+async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempts?: number; delayMs?: number }): Promise<T> {
+  const attempts = Math.max(1, Math.min(4, Math.floor(opts?.attempts ?? 3)));
+  const delayMs = Math.max(50, Math.min(2_000, Math.floor(opts?.delayMs ?? 200)));
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientPortalAiChatDbError(error) || attempt >= attempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+
+  throw lastError;
+}
+
+function portalAiChatDbUnavailableResponse() {
+  return NextResponse.json(
+    { ok: false, error: "Chat is temporarily unavailable. Please try again." },
+    { status: 503 },
+  );
+}
+
 const CreateThreadSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
   chatMode: z.enum(["plan", "work"]).optional(),
   responseProfile: z.enum(PURA_AI_PROFILE_VALUES).optional(),
+  bootstrapContext: z
+    .object({
+      kind: z.literal("portal_onboarding"),
+      missingProfileFields: z
+        .array(
+          z.object({
+            key: z.string().trim().min(1).max(80),
+            label: z.string().trim().min(1).max(120),
+          }).strict(),
+        )
+        .max(12)
+        .optional(),
+      recommendedTaskKeys: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+      summary: z.string().trim().max(1000).optional(),
+    })
+    .strict()
+    .optional(),
 });
 
 function normalizeThreadChatMode(raw: unknown): "plan" | "work" {
@@ -67,7 +128,7 @@ function normalizeThreadNextStepContext(raw: unknown) {
 }
 
 async function loadLatestRunStatusByThread(ownerId: string, threadIds: string[]) {
-  const ids = Array.from(new Set((threadIds || []).map((id) => String(id || "").trim()).filter(Boolean))).slice(0, 200);
+  const ids = Array.from(new Set((threadIds || []).map((id) => String(id || "").trim()).filter(Boolean)));
   if (!ids.length) return new Map<string, { status: string; runId: string | null; updatedAt: string | null }>();
 
   const rows = await (prisma as any).portalAiChatRun.findMany({
@@ -105,7 +166,12 @@ export async function GET(req: Request) {
     );
   }
 
-  await ensurePortalAiChatSchema();
+  try {
+    await withPortalAiChatDbRetry(() => ensurePortalAiChatSchema());
+  } catch (error) {
+    if (isTransientPortalAiChatDbError(error)) return portalAiChatDbUnavailableResponse();
+    throw error;
+  }
 
   const ownerId = auth.session.user.id;
   const memberId = (auth.session.user as any).memberId || ownerId;
@@ -118,42 +184,54 @@ export async function GET(req: Request) {
   // Cleanup: remove empty placeholder threads created by older client behavior.
   // "Empty" means: no messages at all.
   try {
-    await (prisma as any).portalAiChatThread.deleteMany({
-      where: {
-        ownerId,
-        isPinned: false,
-        lastMessageAt: null,
-        createdAt: { lt: emptyThreadCleanupCutoff },
-        messages: { none: {} },
-      },
-    });
-  } catch {
+    await withPortalAiChatDbRetry(() =>
+      (prisma as any).portalAiChatThread.deleteMany({
+        where: {
+          ownerId,
+          isPinned: false,
+          lastMessageAt: null,
+          createdAt: { lt: emptyThreadCleanupCutoff },
+          messages: { none: {} },
+        },
+      }),
+    );
+  } catch (error) {
+    if (!isTransientPortalAiChatDbError(error)) {
+      // ignore cleanup errors
+    }
     // ignore cleanup errors
   }
 
-  const threads = await (prisma as any).portalAiChatThread.findMany({
-    // Never return empty threads; a thread should exist only if it has content.
-    where: { ownerId, messages: { some: {} } },
-    orderBy: [
-      { isPinned: "desc" },
-      { pinnedAt: "desc" },
-      { lastMessageAt: "desc" },
-      { updatedAt: "desc" },
-    ],
-    take: 200,
-    select: {
-      id: true,
-      title: true,
-      lastMessageAt: true,
-      isPinned: true,
-      pinnedAt: true,
-      createdAt: true,
-      updatedAt: true,
-      ownerId: true,
-      createdByUserId: true,
-      contextJson: true,
-    },
-  });
+  let threads;
+  try {
+    threads = await withPortalAiChatDbRetry(() =>
+      (prisma as any).portalAiChatThread.findMany({
+        // Never return empty threads; a thread should exist only if it has content.
+        where: { ownerId, messages: { some: {} } },
+        orderBy: [
+          { isPinned: "desc" },
+          { pinnedAt: "desc" },
+          { lastMessageAt: "desc" },
+          { updatedAt: "desc" },
+        ],
+        select: {
+          id: true,
+          title: true,
+          lastMessageAt: true,
+          isPinned: true,
+          pinnedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          ownerId: true,
+          createdByUserId: true,
+          contextJson: true,
+        },
+      }),
+    );
+  } catch (error) {
+    if (isTransientPortalAiChatDbError(error)) return portalAiChatDbUnavailableResponse();
+    throw error;
+  }
 
   const visible = (Array.isArray(threads) ? threads : [])
     .filter((t: any) => canAccessPortalAiChatThread({ thread: t, memberId }))
@@ -174,7 +252,13 @@ export async function GET(req: Request) {
       };
     });
 
-  const latestRunStatusByThread = await loadLatestRunStatusByThread(ownerId, visible.map((thread) => thread.id));
+  let latestRunStatusByThread;
+  try {
+    latestRunStatusByThread = await withPortalAiChatDbRetry(() => loadLatestRunStatusByThread(ownerId, visible.map((thread) => thread.id)));
+  } catch (error) {
+    if (isTransientPortalAiChatDbError(error)) return portalAiChatDbUnavailableResponse();
+    throw error;
+  }
 
   const visibleWithRuns = visible.map((thread) => ({
     ...thread,
@@ -193,7 +277,12 @@ export async function POST(req: Request) {
     );
   }
 
-  await ensurePortalAiChatSchema();
+  try {
+    await withPortalAiChatDbRetry(() => ensurePortalAiChatSchema());
+  } catch (error) {
+    if (isTransientPortalAiChatDbError(error)) return portalAiChatDbUnavailableResponse();
+    throw error;
+  }
 
   const ownerId = auth.session.user.id;
   const createdByUserId = auth.session.user.memberId || ownerId;
@@ -207,27 +296,36 @@ export async function POST(req: Request) {
   const title = parsed.data.title?.trim() || "New chat";
   const chatMode = normalizeThreadChatMode(parsed.data.chatMode);
   const responseProfile = normalizePuraAiProfile(parsed.data.responseProfile);
+  const bootstrapContext = parsed.data.bootstrapContext ?? null;
 
-  const thread = await (prisma as any).portalAiChatThread.create({
-    data: {
-      ownerId,
-      title,
-      createdByUserId,
-      lastMessageAt: null,
-      isPinned: false,
-      pinnedAt: null,
-      contextJson: { chatMode, responseProfile },
-    },
-    select: {
-      id: true,
-      title: true,
-      lastMessageAt: true,
-      isPinned: true,
-      pinnedAt: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+  let thread;
+  try {
+    thread = await withPortalAiChatDbRetry(() =>
+      (prisma as any).portalAiChatThread.create({
+        data: {
+          ownerId,
+          title,
+          createdByUserId,
+          lastMessageAt: null,
+          isPinned: false,
+          pinnedAt: null,
+          contextJson: { chatMode, responseProfile, ...(bootstrapContext ? { bootstrapContext } : {}) },
+        },
+        select: {
+          id: true,
+          title: true,
+          lastMessageAt: true,
+          isPinned: true,
+          pinnedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+    );
+  } catch (error) {
+    if (isTransientPortalAiChatDbError(error)) return portalAiChatDbUnavailableResponse();
+    throw error;
+  }
 
-  return NextResponse.json({ ok: true, thread: { ...thread, chatMode, responseProfile } });
+  return NextResponse.json({ ok: true, thread: { ...(thread as any), chatMode, responseProfile } });
 }

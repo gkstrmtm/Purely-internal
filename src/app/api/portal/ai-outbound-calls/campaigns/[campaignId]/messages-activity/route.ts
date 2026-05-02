@@ -3,7 +3,6 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
-import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,8 +26,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ campaignId: str
 
   const url = new URL(req.url);
   const take = Math.max(1, Math.min(60, Number(url.searchParams.get("take") || 60) || 60));
-
-  await ensurePortalAiOutboundCallsSchema();
 
   const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },

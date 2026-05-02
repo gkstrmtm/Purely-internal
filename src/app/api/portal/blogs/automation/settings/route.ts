@@ -11,9 +11,21 @@ type StoredSettings = {
   enabled?: boolean;
   frequencyDays?: number;
   topics?: string[];
+  contextFiles?: AutomationContextFile[];
   cursor?: number;
   autoPublish?: boolean;
   lastRunAt?: string;
+};
+
+type AutomationContextFile = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  tag: string;
+  shareUrl: string;
+  previewUrl?: string;
+  createdAt?: string;
 };
 
 function normalizeTopics(items: unknown): string[] {
@@ -33,7 +45,39 @@ function normalizeTopics(items: unknown): string[] {
   return out;
 }
 
-function parseStored(value: unknown): Required<Pick<StoredSettings, "enabled" | "frequencyDays" | "topics" | "cursor" | "autoPublish">> & Pick<StoredSettings, "lastRunAt"> {
+function normalizeContextFiles(items: unknown): AutomationContextFile[] {
+  if (!Array.isArray(items)) return [];
+  const out: AutomationContextFile[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const id = String((item as any).id || "").trim().slice(0, 120);
+    const fileName = String((item as any).fileName || "").trim().slice(0, 260);
+    const mimeType = String((item as any).mimeType || "application/octet-stream").trim().slice(0, 200);
+    const fileSize = Number.isFinite((item as any).fileSize) ? Math.max(0, Math.floor(Number((item as any).fileSize))) : 0;
+    const tag = String((item as any).tag || "").trim().slice(0, 120);
+    const shareUrl = String((item as any).shareUrl || "").trim().slice(0, 2000);
+    const previewUrl = String((item as any).previewUrl || "").trim().slice(0, 2000);
+    const createdAt = String((item as any).createdAt || "").trim().slice(0, 120);
+    if (!id || !fileName || !shareUrl) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      fileName,
+      mimeType,
+      fileSize,
+      tag,
+      shareUrl,
+      ...(previewUrl ? { previewUrl } : {}),
+      ...(createdAt ? { createdAt } : {}),
+    });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+function parseStored(value: unknown): Required<Pick<StoredSettings, "enabled" | "frequencyDays" | "topics" | "contextFiles" | "cursor" | "autoPublish">> & Pick<StoredSettings, "lastRunAt"> {
   const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
   return {
     enabled: Boolean(rec?.enabled),
@@ -41,6 +85,7 @@ function parseStored(value: unknown): Required<Pick<StoredSettings, "enabled" | 
       ? Math.min(30, Math.max(1, Math.floor(rec.frequencyDays)))
       : 7,
     topics: normalizeTopics(rec?.topics),
+    contextFiles: normalizeContextFiles(rec?.contextFiles),
     cursor: typeof rec?.cursor === "number" && Number.isFinite(rec.cursor) ? Math.max(0, Math.floor(rec.cursor)) : 0,
     autoPublish: Boolean(rec?.autoPublish),
     lastRunAt: typeof rec?.lastRunAt === "string" ? rec.lastRunAt : undefined,
@@ -51,6 +96,18 @@ const putSchema = z.object({
   enabled: z.boolean(),
   frequencyDays: z.number().int().min(1).max(30),
   topics: z.array(z.string().trim().min(1).max(200)).max(50),
+  contextFiles: z.array(
+    z.object({
+      id: z.string().trim().min(1).max(120),
+      fileName: z.string().trim().min(1).max(260),
+      mimeType: z.string().trim().min(1).max(200),
+      fileSize: z.number().int().min(0).max(250 * 1024 * 1024),
+      tag: z.string().trim().max(120).optional().default(""),
+      shareUrl: z.string().trim().min(1).max(2000),
+      previewUrl: z.string().trim().max(2000).optional(),
+      createdAt: z.string().trim().max(120).optional(),
+    }),
+  ).max(12).optional().default([]),
   autoPublish: z.boolean().optional(),
 });
 
@@ -126,6 +183,7 @@ export async function PUT(req: Request) {
     enabled: parsed.data.enabled,
     frequencyDays: parsed.data.frequencyDays,
     topics: normalizeTopics(parsed.data.topics),
+    contextFiles: normalizeContextFiles(parsed.data.contextFiles),
     cursor: prev.cursor,
     autoPublish: Boolean(parsed.data.autoPublish),
     lastRunAt: prev.lastRunAt,

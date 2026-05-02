@@ -1,32 +1,35 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import { ToastProvider } from "@/components/ToastProvider";
 import { AiReceptionistWidget } from "@/components/AiReceptionistWidget";
+import { PLATFORM_METADATA, hostnameFromHeader, isPlatformHostname } from "@/lib/customDomainMetadata";
 
-export const metadata: Metadata = {
-  title: "Purely Automation",
-  description: "Automation systems for businesses so you can focus on higher leverage tasks.",
-  metadataBase: new URL("https://purelyautomation.com"),
-  icons: {
-    icon: [{ url: "/brand/purelylogo.png", type: "image/png" }],
-    shortcut: [{ url: "/brand/purelylogo.png", type: "image/png" }],
-    apple: [{ url: "/brand/purelylogo.png", type: "image/png" }],
-  },
-  openGraph: {
-    title: "Purely Automation",
-    description: "Automation systems for businesses so you can focus on higher leverage tasks.",
-    url: "/",
-    siteName: "Purely Automation",
-    images: [{ url: "/opengraph-image.svg", width: 1200, height: 630, alt: "Purely Automation" }],
-    type: "website",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Purely Automation",
-    description: "Automation systems for businesses so you can focus on higher leverage tasks.",
-    images: ["/opengraph-image.svg"],
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const h = await headers();
+  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
+
+  if (!isPlatformHostname(host) && host) {
+    const protocol = host === "localhost" || host === "127.0.0.1" ? "http" : "https";
+    return {
+      metadataBase: new URL(`${protocol}://${host}`),
+      icons: {
+        icon: [],
+        shortcut: [],
+        apple: [],
+      },
+    };
+  }
+
+  return {
+    ...PLATFORM_METADATA,
+    icons: {
+      icon: [{ url: "/brand/purelylogo.png", type: "image/png" }],
+      shortcut: [{ url: "/brand/purelylogo.png", type: "image/png" }],
+      apple: [{ url: "/brand/purelylogo.png", type: "image/png" }],
+    },
+  };
+}
 
 export const viewport: Viewport = {
   width: "device-width",

@@ -13,6 +13,9 @@ const NO_CONFIRM_KEYS = new Set<PortalAgentActionKey>([
   "contacts.create",
   "tasks.create",
   "tasks.update",
+  "inbox.send",
+  "inbox.send_sms",
+  "inbox.send_email",
   "ai_receptionist.highlights.get",
 ]);
 
@@ -58,7 +61,6 @@ export function getConfirmSpecForPortalAgentAction(action: PortalAgentActionKey)
     action === "integrations.stripe.delete" ||
     action === "integrations.sales_reporting.disconnect" ||
     action === "integrations.api_keys.reveal" ||
-    action === "funnel.create" ||
     action === "people.contacts.merge" ||
     action === "services.lifecycle.update" ||
     action === "tasks.create_for_all" ||
@@ -199,7 +201,11 @@ export function portalCanvasUrlForAction(action: PortalAgentActionKey, args?: Re
   // Inbox.
   if (a.startsWith("inbox.")) {
     const threadId = pickStringArg(safeArgs, "threadId");
-    const channel = (pickStringArg(safeArgs, "channel") || pickStringArg(safeArgs, "inboxChannel")) as any;
+    const channel = ((() => {
+      if (a === "inbox.send_sms") return "sms";
+      if (a === "inbox.send_email") return "email";
+      return pickStringArg(safeArgs, "channel") || pickStringArg(safeArgs, "inboxChannel");
+    })()) as any;
     const to = pickStringArg(safeArgs, "to");
     const compose = a === "inbox.send" || a === "inbox.send_sms" || a === "inbox.send_email";
     return portalInboxUiUrl({

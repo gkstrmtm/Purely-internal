@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
+import DomainRouterBlogsPage, { generateMetadata as generateDomainRouterBlogsMetadata } from "@/app/domain-router/[domain]/blogs/page";
+import { hostnameFromHeader, isPlatformHostname } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { formatBlogDate } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
@@ -22,6 +25,12 @@ type PageProps = {
 
 export async function generateMetadata(props: PageProps) {
   const { siteSlug } = await props.params;
+  const h = await headers();
+  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
+
+  if (!isPlatformHostname(host) && host) {
+    return generateDomainRouterBlogsMetadata({ params: Promise.resolve({ domain: encodeURIComponent(host) }) });
+  }
 
   try {
     const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
@@ -64,6 +73,15 @@ export async function generateMetadata(props: PageProps) {
 }
 
 export default async function ClientBlogsIndexPage(props: PageProps) {
+  const h = await headers();
+  const host = hostnameFromHeader(h.get("x-forwarded-host")) || hostnameFromHeader(h.get("host")) || null;
+  if (!isPlatformHostname(host) && host) {
+    return DomainRouterBlogsPage({
+      params: Promise.resolve({ domain: encodeURIComponent(host) }),
+      searchParams: props.searchParams,
+    });
+  }
+
   const { siteSlug } = await props.params;
 
   const spUnknown: unknown = (await props.searchParams?.catch(() => ({}))) ?? {};

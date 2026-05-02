@@ -1,9 +1,11 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 
 import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -49,6 +51,7 @@ export function PortalVariablePickerModal(props: {
   };
 }) {
   const { open, title, subtitle, variables, onPick, onClose, createCustom } = props;
+  const pathname = usePathname();
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"pick" | "create">("pick");
   const [newKey, setNewKey] = useState("");
@@ -61,6 +64,8 @@ export function PortalVariablePickerModal(props: {
   const [createContactQuery, setCreateContactQuery] = useState("");
   const [createContactId, setCreateContactId] = useState<string>("");
   const [localCreatedKeys, setLocalCreatedKeys] = useState<string[]>([]);
+  const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   useEffect(() => {
     if (!open) return;
@@ -146,7 +151,7 @@ export function PortalVariablePickerModal(props: {
     setCreateContactsLoading(true);
     (async () => {
       try {
-        const res = await fetch("/api/portal/people/contacts?take=50", { cache: "no-store" }).catch(() => null as any);
+        const res = await fetch("/api/portal/people/contacts?take=50", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
         const json = (await res?.json?.().catch(() => null)) as any;
         if (!res?.ok || !json?.ok || !Array.isArray(json?.contacts)) {
           if (!canceled) setCreateContacts([]);
@@ -173,7 +178,7 @@ export function PortalVariablePickerModal(props: {
     return () => {
       canceled = true;
     };
-  }, [canCreateCustom, createContacts, createContactsLoading, createNeedsContactPick, mode, open]);
+  }, [canCreateCustom, createContacts, createContactsLoading, createNeedsContactPick, mode, open, variantHeaders]);
 
   const filteredCreateContacts = useMemo(() => {
     const base = Array.isArray(createContacts) ? createContacts : [];
@@ -188,7 +193,7 @@ export function PortalVariablePickerModal(props: {
   async function defaultCreateCustomVariable(key: string, value: string, contactId: string) {
     const res = await fetch(`/api/portal/people/contacts/${encodeURIComponent(contactId)}/custom-variables`, {
       method: "PATCH",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ key, value }),
     });
 
@@ -300,7 +305,7 @@ export function PortalVariablePickerModal(props: {
                   mode === "pick" ? (
                     <button
                       type="button"
-                      className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                      className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-xs font-semibold text-brand-blue shadow-[0_10px_24px_rgba(29,78,216,0.12)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[rgba(29,78,216,0.18)]"
                       onClick={() => setMode("create")}
                     >
                       New
@@ -308,10 +313,12 @@ export function PortalVariablePickerModal(props: {
                   ) : (
                     <button
                       type="button"
-                      className={classNames("rounded-xl px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-[rgba(29,78,216,0.12)] text-brand-blue shadow-[0_10px_24px_rgba(29,78,216,0.12)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[rgba(29,78,216,0.18)]"
                       onClick={() => setMode("pick")}
+                      aria-label="Back"
+                      title="Back"
                     >
-                      Back
+                      <span className="text-base leading-none">←</span>
                     </button>
                   )
                 ) : null}
@@ -320,7 +327,7 @@ export function PortalVariablePickerModal(props: {
                   onClick={onClose}
                   aria-label="Close"
                   className={classNames(
-                    "inline-flex h-9 w-9 items-center justify-center rounded-xl text-zinc-500 hover:bg-white/80 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]",
+                    "inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/70 bg-white/78 text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]",
                     portalGlassButtonClass,
                   )}
                   title="Close"
@@ -380,14 +387,6 @@ export function PortalVariablePickerModal(props: {
                       autoComplete="off"
                       autoFocus
                     />
-                    <div className="mt-1 text-[11px] text-zinc-500">
-                      Inserts as{" "}
-                      <span className="font-mono">
-                        {createUsesDefaultContactSave
-                          ? `{contact.custom.${newKey.trim() || "variable"}}`
-                          : `{${newKey.trim() || "variable"}}`}
-                      </span>
-                    </div>
                   </div>
 
                   <div className="sm:col-span-6">
@@ -398,22 +397,22 @@ export function PortalVariablePickerModal(props: {
                       className="mt-1 w-full rounded-2xl border border-white/35 bg-white/55 px-4 py-3 text-sm outline-none focus:border-white/60"
                       placeholder="Value"
                     />
-                    <div className="mt-1 text-[11px] text-zinc-500">
-                      {createUsesDefaultContactSave ? "Saved on the selected contact." : ""}
-                    </div>
                   </div>
 
-                  <div className="sm:col-span-1">
+                  <div className="sm:col-span-1 flex items-end justify-start sm:justify-center">
                     <button
                       type="button"
                       onClick={tryCreateCustom}
                       disabled={createBusy}
-                      className="w-full rounded-2xl bg-brand-ink px-3 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[rgba(29,78,216,0.12)] text-lg font-semibold text-brand-blue shadow-[0_10px_24px_rgba(29,78,216,0.12)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+                      aria-label="Create variable"
                     >
                       +
                     </button>
                   </div>
                 </div>
+
+                {createUsesDefaultContactSave ? <div className="mt-2 text-[11px] text-zinc-500">Saved on the selected contact.</div> : null}
 
                 {createError ? <div className="mt-2 text-xs font-semibold text-red-700">{createError}</div> : null}
               </div>

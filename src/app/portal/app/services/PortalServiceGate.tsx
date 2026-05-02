@@ -7,6 +7,20 @@ import { getPortalServiceStatusesForOwner } from "@/lib/portalServicesStatus";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
 import { normalizePortalVariant, portalBasePath, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
+async function withTimeout<T>(work: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timeoutId: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 function serviceKeysForSlug(slug: string): readonly PortalServiceKey[] {
   switch (slug) {
     case "inbox":
@@ -235,7 +249,27 @@ export async function PortalServiceGate({
       : await requirePortalUserForAnyService(keys.slice(), "view");
 
   const ownerId = user.id;
-  const result = await getPortalServiceStatusesForOwner({ ownerId, fallbackEmail: user.email, portalVariant: variant });
+  const result = await withTimeout(
+    getPortalServiceStatusesForOwner({
+      ownerId,
+      fallbackEmail: user.email,
+      portalVariant: variant,
+      serviceSlugs: [slug],
+    }).catch((error) => {
+      console.error("[portal][service-gate] status lookup failed", {
+        ownerId,
+        slug,
+        variant,
+        error: error instanceof Error ? error.message : String(error ?? "unknown"),
+      });
+      return null;
+    }),
+    2000,
+    null,
+  );
+  if (!result) {
+    return children;
+  }
   const st = result.statuses?.[slug];
   const state = String(st?.state || "").toLowerCase();
 

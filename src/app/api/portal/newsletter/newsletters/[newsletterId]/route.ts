@@ -115,3 +115,28 @@ export async function PUT(req: Request, ctx: { params: Promise<{ newsletterId: s
 
   return NextResponse.json({ ok: true, newsletter: { id: updated.id, updatedAtIso: updated.updatedAt.toISOString() } });
 }
+
+export async function DELETE(_req: Request, ctx: { params: Promise<{ newsletterId: string }> }) {
+  const auth = await requireClientSessionForService("newsletter", "edit");
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
+  }
+
+  const ownerId = auth.session.user.id;
+  const { newsletterId } = await ctx.params;
+
+  const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true } });
+
+  const existing = await prisma.clientNewsletter.findFirst({
+    where: { id: newsletterId, siteId: site.id },
+    select: { id: true },
+  });
+
+  if (!existing) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
+
+  await prisma.clientNewsletter.delete({ where: { id: existing.id } });
+
+  return NextResponse.json({ ok: true });
+}

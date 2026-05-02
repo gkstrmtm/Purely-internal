@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type PortalPricing = {
   ok: true;
@@ -120,6 +121,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
   const variant = pathname === "/credit" || pathname.startsWith("/credit/") ? "credit" : "portal";
   const portalBase = variant === "credit" ? "/credit" : "/portal";
   const appBase = `${portalBase}/app`;
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: variant }), [variant]);
 
   const service = useMemo(
     () => {
@@ -139,8 +141,8 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
     let mounted = true;
     (async () => {
       const [pricingRes, statusRes] = await Promise.all([
-        fetch("/api/portal/pricing", { cache: "no-store" }).catch(() => null as any),
-        fetch("/api/portal/services/status", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/pricing", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+        fetch("/api/portal/services/status", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
       ]);
       if (!mounted) return;
       if (pricingRes && pricingRes.ok) {
@@ -162,7 +164,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [variantHeaders]);
 
   const serviceStatus = statusRes && statusRes.ok === true ? statusRes.statuses?.[slug] ?? null : null;
   const state = String(serviceStatus?.state || "").toLowerCase();

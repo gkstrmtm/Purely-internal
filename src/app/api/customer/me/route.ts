@@ -27,6 +27,20 @@ function hoursFromMinutes(minutes: number): number {
   return minutes / 60;
 }
 
+async function withTimeout<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 async function computeHoursSaved(ownerId: string): Promise<{ hoursSavedThisWeek: number; hoursSavedAllTime: number }> {
   const now = new Date();
   const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -293,16 +307,23 @@ export async function GET(req: Request) {
         .then((u) => u?.id ?? null)
         .catch(() => null);
 
-  const metrics = metricsOwnerId ? await computeHoursSaved(metricsOwnerId) : { hoursSavedThisWeek: 0, hoursSavedAllTime: 0 };
-  const businessName =
+  const [metrics, businessName] = await Promise.all([
+    metricsOwnerId
+      ? withTimeout(computeHoursSaved(metricsOwnerId), 1500, { hoursSavedThisWeek: 0, hoursSavedAllTime: 0 })
+      : Promise.resolve({ hoursSavedThisWeek: 0, hoursSavedAllTime: 0 }),
     app === "portal" && ownerIdForEntitlements
-      ? await getPortalBusinessProfile({ ownerId: ownerIdForEntitlements })
-          .then((result) => {
-            const raw = result.json && typeof result.json === "object" ? (result.json as any)?.profile?.businessName : "";
-            return typeof raw === "string" ? raw.trim() : "";
-          })
-          .catch(() => "")
-      : "";
+      ? withTimeout(
+          getPortalBusinessProfile({ ownerId: ownerIdForEntitlements })
+            .then((result) => {
+              const raw = result.json && typeof result.json === "object" ? (result.json as any)?.profile?.businessName : "";
+              return typeof raw === "string" ? raw.trim() : "";
+            })
+            .catch(() => ""),
+          1200,
+          "",
+        )
+      : Promise.resolve(""),
+  ]);
 
   return NextResponse.json({
     user: {

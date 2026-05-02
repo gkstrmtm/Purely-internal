@@ -31,6 +31,7 @@ export function PortalInviteAcceptClient({
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionEmail, setSessionEmail] = useState("");
 
   const state = useMemo(() => {
     if (!invite) return { ok: false, reason: "Invite not found" as const };
@@ -40,9 +41,42 @@ export function PortalInviteAcceptClient({
     return { ok: true as const };
   }, [invite]);
 
+  const inviteEmail = useMemo(() => String(invite?.email || "").trim().toLowerCase(), [invite]);
+  const sessionMatchesInvite = useMemo(() => {
+    return Boolean(inviteEmail && sessionEmail.trim().toLowerCase() === inviteEmail);
+  }, [inviteEmail, sessionEmail]);
+
+  const loginHref = useMemo(() => {
+    const currentPath = String(pathname || "").trim();
+    const from = currentPath || `/portalinvite/${token}`;
+    const base = from.startsWith("/credit") ? "/credit" : "/portal";
+    return `${base}/login?from=${encodeURIComponent(from)}`;
+  }, [pathname, token]);
+
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const res = await fetch("/api/customer/me", {
+        cache: "no-store",
+        headers: { "x-pa-app": "portal", "x-portal-variant": "portal" },
+      }).catch(() => null as any);
+      if (!active || !res?.ok) return;
+      const json = (await res.json().catch(() => null)) as { user?: { email?: string; name?: string | null } } | null;
+      if (!active) return;
+
+      const nextEmail = typeof json?.user?.email === "string" ? json.user.email.trim() : "";
+      const nextName = typeof json?.user?.name === "string" ? json.user.name.trim() : "";
+      setSessionEmail(nextEmail);
+      if (!name.trim() && nextName) setName(nextName);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [name, pathname]);
 
   useEffect(() => {
     const msg = !invite ? "Invite not found." : !state.ok ? state.reason : null;
@@ -62,17 +96,19 @@ export function PortalInviteAcceptClient({
       setError("Please enter your name.");
       return;
     }
-    if (password.trim().length < 6) {
+    if (!sessionMatchesInvite && password.trim().length < 6) {
       setError("Password must be at least 6 characters.");
       return;
     }
+
+    const passwordToSend = sessionMatchesInvite && password.trim().length < 6 ? `accept-${token.slice(0, 8)}` : password;
 
     setBusy(true);
     try {
       const res = await fetch("/api/public/portal-invite/accept", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token, name: safeName, password }),
+        body: JSON.stringify({ token, name: safeName, password: passwordToSend }),
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json?.ok) {
@@ -125,20 +161,26 @@ export function PortalInviteAcceptClient({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Jane Doe"
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
                 />
               </div>
 
-              <div>
-                <div className="text-xs font-semibold text-zinc-700">Create password</div>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
-                />
-              </div>
+              {sessionMatchesInvite ? (
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                  You are already signed in as <span className="font-semibold">{invite.email}</span>. You can accept this invite without changing your password.
+                </div>
+              ) : (
+                <div>
+                  <div className="text-xs font-semibold text-zinc-700">Create password</div>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
+                  />
+                </div>
+              )}
 
               <button
                 type="button"
@@ -146,7 +188,7 @@ export function PortalInviteAcceptClient({
                 onClick={() => accept()}
                 className={classNames(
                   "w-full rounded-2xl px-4 py-2 text-sm font-semibold",
-                  busy ? "cursor-not-allowed bg-zinc-200 text-zinc-600" : "bg-[color:var(--color-brand-blue)] text-white hover:brightness-95",
+                  busy ? "cursor-not-allowed bg-zinc-200 text-zinc-600" : "bg-(--color-brand-blue) text-white hover:brightness-95",
                 )}
               >
                 {busy ? "Accepting…" : "Accept invite"}
@@ -154,8 +196,8 @@ export function PortalInviteAcceptClient({
 
               <div className="text-center text-xs text-zinc-500">
                 Already have an account?{" "}
-                <Link href="/login?from=%2Fportal%2Fapp" className="font-semibold text-brand-ink hover:underline">
-                  Log in
+                <Link href={loginHref} className="font-semibold text-brand-ink hover:underline">
+                  Log in to continue with this invite
                 </Link>
               </div>
             </div>

@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -5,6 +6,7 @@ import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { requirePortalUser } from "@/lib/portalAuth";
 import { getTutorialPhotoUrls, getTutorialVideoUrl } from "@/lib/portalTutorialVideos";
+import { normalizePortalVariant, PORTAL_VARIANT_HEADER, portalBasePath, type PortalVariant } from "@/lib/portalVariant";
 
 type TutorialSection = {
   title: string;
@@ -1125,10 +1127,15 @@ const TUTORIALS: Record<string, TutorialConfig> = {
   },
 };
 
-export default async function PortalTutorialDetailPage(props: { params: Promise<{ slug: string }> }) {
-  await requirePortalUser();
+async function PortalTutorialDetailPageContent(
+  props: { params: Promise<{ slug: string }>; variantOverride?: PortalVariant },
+) {
+  const h = await headers();
+  const variant = props.variantOverride || normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
+  await requirePortalUser({ variant });
+  const base = portalBasePath(variant);
   const { slug } = await props.params;
-  const serviceFromCatalog = PORTAL_SERVICES.find((s) => s.slug === slug && !s.hidden);
+  const serviceFromCatalog = PORTAL_SERVICES.find((s) => s.slug === slug && !s.hidden && (!s.variants || s.variants.includes(variant)));
   const service: TutorialUiService | null = serviceFromCatalog
     ? {
         slug: serviceFromCatalog.slug,
@@ -1157,7 +1164,7 @@ export default async function PortalTutorialDetailPage(props: { params: Promise<
     <div className="w-full bg-white">
       <div className="mx-auto w-full max-w-4xl px-6 py-10">
         <div className="mb-4 text-xs text-zinc-500">
-          <Link href="/portal/tutorials" className="hover:underline">
+          <Link href={`${base}/tutorials`} className="hover:underline">
             Help &amp; tutorials
           </Link>
           <span className="mx-1">/</span>
@@ -1251,4 +1258,8 @@ export default async function PortalTutorialDetailPage(props: { params: Promise<
       </div>
     </div>
   );
+}
+
+export default async function PortalTutorialDetailPage(props: { params: Promise<{ slug: string }> }) {
+  return <PortalTutorialDetailPageContent {...props} />;
 }

@@ -9,6 +9,9 @@ type LiquidGlassPopupSurfaceProps = HTMLAttributes<HTMLDivElement> & {
   children: ReactNode;
   contentClassName?: string;
   borderRadius?: number;
+  overlayClassName?: string;
+  showGlass?: boolean;
+  showTopGlow?: boolean;
 };
 
 const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(" ");
@@ -34,7 +37,7 @@ const liquidGlassSurfaceProps = {
 };
 
 const LiquidGlassPopupSurface = forwardRef<HTMLDivElement, LiquidGlassPopupSurfaceProps>(function LiquidGlassPopupSurface(
-  { children, className, contentClassName, style, borderRadius = 28, ...rest },
+  { children, className, contentClassName, style, borderRadius = 28, overlayClassName, showGlass = true, showTopGlow = true, ...rest },
   ref,
 ) {
   const rootPositionClass = hasExplicitPositionClass(className) ? null : "relative";
@@ -47,21 +50,28 @@ const LiquidGlassPopupSurface = forwardRef<HTMLDivElement, LiquidGlassPopupSurfa
       style={{ ...(style as CSSProperties | undefined), borderRadius }}
     >
       <div
-        className="pointer-events-none absolute inset-0 border border-white/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.82),rgba(255,255,255,0.54))] shadow-[0_20px_48px_rgba(15,23,42,0.18)] backdrop-blur-[18px]"
+        className={classNames(
+          "pointer-events-none absolute inset-0 border border-transparent bg-[rgba(255,255,255,0.5)] shadow-[0_20px_48px_rgba(15,23,42,0.18)] backdrop-blur-[18px]",
+          overlayClassName,
+        )}
         style={{ borderRadius }}
         aria-hidden="true"
       />
-      <GlassSurface
-        {...liquidGlassSurfaceProps}
-        width="100%"
-        height="100%"
-        borderRadius={borderRadius}
-        className="pointer-events-none absolute inset-0 h-full w-full"
-      />
-      <div
-        className="pointer-events-none absolute inset-x-4 top-1 h-10 rounded-full bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(255,255,255,0.18))] opacity-90 blur-sm"
-        aria-hidden="true"
-      />
+      {showGlass ? (
+        <GlassSurface
+          {...liquidGlassSurfaceProps}
+          width="100%"
+          height="100%"
+          borderRadius={borderRadius}
+          className="pointer-events-none absolute inset-0 h-full w-full"
+        />
+      ) : null}
+      {showTopGlow ? (
+        <div
+          className="pointer-events-none absolute inset-x-4 top-1 h-10 rounded-full bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(255,255,255,0.18))] opacity-90 blur-sm"
+          aria-hidden="true"
+        />
+      ) : null}
       <div className={classNames("relative", contentClassName)}>{children}</div>
     </div>
   );

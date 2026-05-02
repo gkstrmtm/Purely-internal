@@ -1,10 +1,47 @@
 import { requireClientSession } from "@/lib/apiAuth";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+function isTransientPortalAiChatDbError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P1017" || error.code === "P2024") return true;
+  }
+
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const normalized = String(message || "").toLowerCase();
+  if (!normalized) return false;
+
+  return (
+    (normalized.includes("connection pool") && normalized.includes("timed out")) ||
+    normalized.includes("server has closed the connection") ||
+    normalized.includes("connection terminated unexpectedly") ||
+    normalized.includes("connection reset") ||
+    normalized.includes("connection refused")
+  );
+}
+
+async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempts?: number; delayMs?: number }): Promise<T> {
+  const attempts = Math.max(1, Math.min(4, Math.floor(opts?.attempts ?? 3)));
+  const delayMs = Math.max(50, Math.min(2_000, Math.floor(opts?.delayMs ?? 200)));
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientPortalAiChatDbError(error) || attempt >= attempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+
+  throw lastError;
+}
 
 function normalizeThreadContext(raw: unknown) {
   const ctxJson = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, any>) : {};
@@ -45,7 +82,17 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
     });
   }
 
-  await ensurePortalAiChatSchema();
+  try {
+    await withPortalAiChatDbRetry(() => ensurePortalAiChatSchema());
+  } catch (error) {
+    if (isTransientPortalAiChatDbError(error)) {
+      return new Response(JSON.stringify({ ok: false, error: "Chat is temporarily unavailable. Please try again." }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw error;
+  }
 
   const ownerId = auth.session.user.id;
   const memberId = (auth.session.user as any).memberId || ownerId;
@@ -84,26 +131,32 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
       };
 
       const sendSnapshot = async () => {
-        const thread = await (prisma as any).portalAiChatThread.findFirst({
-          where: { id: threadId, ownerId },
-          select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
-        });
+        const thread = await withPortalAiChatDbRetry(() =>
+          (prisma as any).portalAiChatThread.findFirst({
+            where: { id: threadId, ownerId },
+            select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
+          }),
+        );
         if (!thread || !canAccessPortalAiChatThread({ thread, memberId })) {
           push("closed", { ok: false, error: "Not found" });
           close();
           return;
         }
 
-        const threadContext = normalizeThreadContext(thread.contextJson);
+        const threadContext = normalizeThreadContext((thread as any).contextJson);
         const payload = JSON.stringify({ ok: true, threadContext });
         if (payload === lastPayload) return;
         lastPayload = payload;
         push("status", { ok: true, threadContext });
       };
 
-      void sendSnapshot().catch(() => close());
+      void sendSnapshot().catch((error) => {
+        if (!isTransientPortalAiChatDbError(error)) close();
+      });
       statusInterval = setInterval(() => {
-        void sendSnapshot().catch(() => close());
+        void sendSnapshot().catch((error) => {
+          if (!isTransientPortalAiChatDbError(error)) close();
+        });
       }, 1200);
       heartbeatInterval = setInterval(() => {
         pushComment("keepalive");

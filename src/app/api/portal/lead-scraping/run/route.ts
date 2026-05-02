@@ -21,6 +21,14 @@ import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { sendTransactionalEmail } from "@/lib/emailSender";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { getFollowUpSettings } from "@/lib/followUpAutomation";
+import { enrichLeadScrapeBusiness } from "@/lib/leadScrapeAiEnrichment";
+import {
+  finalizeLeadScrapeRunError,
+  LeadScrapeRunCanceledError,
+  LEAD_SCRAPE_RUN_CANCELED_MESSAGE,
+  normalizeLeadScrapeRunId,
+  throwIfLeadScrapeRunCanceled,
+} from "@/lib/leadScrapeRunControl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,6 +54,7 @@ const TAG_COLORS = [
 
 const runSchema = z.object({
   kind: z.enum(["B2B", "B2C"]),
+  runId: z.string().trim().max(80).optional(),
 });
 
 function normalizePhone(phone?: string | null): string | null {
@@ -70,17 +79,23 @@ type Settings = {
   tagPresets: Array<{ label: string; color: string }>;
   b2b: {
     niche: string;
+    nicheSelections?: string[];
     location: string;
+    locationSelections?: string[];
+    latestRunLeadIds?: string[];
     fallbackEnabled: boolean;
     fallbackLocations: string[];
     fallbackNiches: string[];
     count: number;
+    requireAddress?: boolean;
+    aiVerifyBusinesses?: boolean;
     requireEmail: boolean;
     requirePhone: boolean;
     requireWebsite: boolean;
     excludeNameContains: string[];
     excludeDomains: string[];
     excludePhones: string[];
+    excludeAddresses: string[];
     scheduleEnabled: boolean;
     frequencyDays: number;
     lastRunAtIso: string | null;
@@ -115,6 +130,8 @@ type Settings = {
       enabled: boolean;
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
     };
+    emailResources?: Array<{ label: string; url: string }>;
+    smsResources?: Array<{ label: string; url: string }>;
     resources: Array<{ label: string; url: string }>;
   };
   outboundState: {
@@ -202,6 +219,28 @@ function normalizeStringList(xs: unknown, { lower }: { lower?: boolean } = {}) {
     .slice(0, 200);
 }
 
+function normalizeLeadIdList(xs: unknown) {
+  const arr = Array.isArray(xs) ? xs : [];
+  const next: string[] = [];
+  const seen = new Set<string>();
+  for (const value of arr) {
+    const id = typeof value === "string" ? value.trim() : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    next.push(id);
+    if (next.length >= 500) break;
+  }
+  return next;
+}
+
+function mergePrimaryAndSelections(primary: unknown, selections: unknown, legacyFallbacks: unknown) {
+  return normalizeStringList([
+    ...(typeof primary === "string" ? [primary] : []),
+    ...(Array.isArray(selections) ? selections : []),
+    ...(Array.isArray(legacyFallbacks) ? legacyFallbacks : []),
+  ]).slice(0, 20);
+}
+
 function normalizeIsoString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const s = value.trim();
@@ -226,8 +265,8 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
     typeof (rec as any).emailHtml === "string" ||
     typeof (rec as any).emailText === "string";
 
-  const resourcesRaw = Array.isArray(rec.resources) ? rec.resources : [];
-  const resources = resourcesRaw
+  const normalizeResources = (raw: unknown) =>
+    (Array.isArray(raw) ? raw : [])
     .map((r) => (r && typeof r === "object" ? (r as Record<string, unknown>) : {}))
     .map((r) => ({
       label: (typeof r.label === "string" ? r.label.trim() : "").slice(0, 120) || "Resource",
@@ -235,6 +274,13 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
     }))
     .filter((r) => Boolean(r.url))
     .slice(0, 30);
+
+  const resources = normalizeResources(rec.resources);
+  const emailResources = normalizeResources((rec as any).emailResources ?? resources);
+  const smsResources = normalizeResources((rec as any).smsResources ?? resources);
+  const mergedResources = Array.from(
+    new Map([...emailResources, ...smsResources].map((resource) => [`${resource.url}::${resource.label.toLowerCase()}`, resource])).values(),
+  ).slice(0, 30);
 
   const parseTrigger = (t: unknown) => {
     const raw = typeof t === "string" ? t.trim() : "MANUAL";
@@ -271,7 +317,9 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
         enabled: false,
         trigger: "MANUAL",
       },
-      resources,
+      emailResources,
+      smsResources,
+      resources: mergedResources,
     };
   }
 
@@ -299,8 +347,18 @@ function normalizeOutbound(value: unknown): Settings["outbound"] {
       enabled: Boolean((callsRec as any).enabled),
       trigger: parseTrigger((callsRec as any).trigger),
     },
-    resources,
+    emailResources,
+    smsResources,
+    resources: mergedResources,
   };
+}
+
+function getOutboundResourcesForChannel(
+  outbound: Settings["outbound"],
+  channel: "email" | "sms",
+) {
+  const explicit = channel === "email" ? outbound.emailResources : outbound.smsResources;
+  return Array.isArray(explicit) ? explicit : outbound.resources;
 }
 function normalizeOutboundState(value: unknown): Settings["outboundState"] {
   const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -456,6 +514,8 @@ function normalizeSettings(value: unknown): Settings {
       enabled: false,
       trigger: "MANUAL",
     },
+    emailResources: [],
+    smsResources: [],
     resources: [],
   };
 
@@ -477,6 +537,8 @@ function normalizeSettings(value: unknown): Settings {
       ...defaultOutbound.calls,
       ...outbound.calls,
     },
+    emailResources: outbound.emailResources ?? defaultOutbound.emailResources,
+    smsResources: outbound.smsResources ?? defaultOutbound.smsResources,
     resources: outbound.resources ?? defaultOutbound.resources,
   };
 
@@ -489,7 +551,10 @@ function normalizeSettings(value: unknown): Settings {
     tagPresets: normalizeTagPresets((rec as any).tagPresets),
     b2b: {
       niche: typeof b2b.niche === "string" ? b2b.niche.slice(0, 200) : "",
+      nicheSelections: mergePrimaryAndSelections(b2b.niche, (b2b as any).nicheSelections, (b2b as any).fallbackNiches),
       location: typeof b2b.location === "string" ? b2b.location.slice(0, 200) : "",
+      locationSelections: mergePrimaryAndSelections(b2b.location, (b2b as any).locationSelections, (b2b as any).fallbackLocations),
+      latestRunLeadIds: normalizeLeadIdList((b2b as any).latestRunLeadIds),
       fallbackEnabled: Boolean((b2b as any).fallbackEnabled),
       fallbackLocations: normalizeStringList((b2b as any).fallbackLocations),
       fallbackNiches: normalizeStringList((b2b as any).fallbackNiches),
@@ -497,12 +562,15 @@ function normalizeSettings(value: unknown): Settings {
         typeof b2b.count === "number" && Number.isFinite(b2b.count)
           ? Math.min(500, Math.max(1, Math.floor(b2b.count)))
           : 25,
+      requireAddress: typeof (b2b as any).requireAddress === "boolean" ? Boolean((b2b as any).requireAddress) : true,
+      aiVerifyBusinesses: Boolean((b2b as any).aiVerifyBusinesses),
       requireEmail: Boolean((b2b as any).requireEmail),
       requirePhone: Boolean(b2b.requirePhone),
       requireWebsite: Boolean(b2b.requireWebsite),
       excludeNameContains: normalizeStringList(b2b.excludeNameContains),
       excludeDomains: normalizeStringList(b2b.excludeDomains, { lower: true }),
       excludePhones: normalizeStringList(b2b.excludePhones),
+      excludeAddresses: normalizeStringList((b2b as any).excludeAddresses),
       scheduleEnabled: Boolean(b2b.scheduleEnabled),
       frequencyDays:
         typeof b2b.frequencyDays === "number" && Number.isFinite(b2b.frequencyDays)
@@ -635,6 +703,15 @@ function matchesNameExclusion(businessName: string, excludeNameContains: string[
   });
 }
 
+function matchesAddressExclusion(address: string | null | undefined, excludeAddresses: string[]) {
+  const normalized = String(address || "").toLowerCase();
+  if (!normalized) return false;
+  return excludeAddresses.some((term) => {
+    const candidate = term.toLowerCase().trim();
+    return candidate ? normalized.includes(candidate) : false;
+  });
+}
+
 export async function POST(req: Request) {
   const auth = await requireClientSessionForService("leadScraping");
   if (!auth.ok) {
@@ -647,7 +724,7 @@ export async function POST(req: Request) {
   const ownerId = auth.session.user.id;
   const entitlements = await resolveEntitlementsForOwnerId(ownerId, auth.session.user.email);
   const outboundUnlocked = Boolean(entitlements.leadOutbound);
-  const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
+  const aiCallsUnlocked = outboundUnlocked || (await requireClientSessionForService("aiOutboundCalls")).ok;
   const followUpCustomVariables = (await getFollowUpSettings(ownerId).catch(() => null))?.customVariables ?? {};
   const profile = await prisma.businessProfile.findUnique({
     where: { ownerId },
@@ -661,6 +738,8 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
   }
+
+  const runId = normalizeLeadScrapeRunId(parsed.data.runId) || crypto.randomUUID().replace(/-/g, "");
 
   if (parsed.data.kind === "B2C") {
     const b2cUnlocked = isB2cLeadPullUnlocked({ email: auth.session.user.email, role: auth.session.user.role });
@@ -705,6 +784,7 @@ export async function POST(req: Request) {
 
     const run = await prisma.portalLeadScrapeRun.create({
       data: {
+        id: runId,
         ownerId,
         kind: "B2C",
         requestedCount,
@@ -718,6 +798,7 @@ export async function POST(req: Request) {
     let error: string | null = null;
 
     try {
+      await throwIfLeadScrapeRunCanceled(run.id);
       const geocodeQuery = country ? `${location}, ${country}` : location;
       const geo = await geocodeToBbox(geocodeQuery);
       if (!geo) throw new Error("Unable to geocode location. Try a more specific location.");
@@ -732,6 +813,7 @@ export async function POST(req: Request) {
       const seen = new Set<string>();
 
       for (const el of elements) {
+        await throwIfLeadScrapeRunCanceled(run.id);
         if (createdCount >= requestedCount) break;
         const tags = el.tags ?? {};
         const name = (tags["name"] || "").trim();
@@ -789,7 +871,7 @@ export async function POST(req: Request) {
         }
       }
     } catch (e: any) {
-      error = typeof e?.message === "string" ? e.message : "Unknown error";
+      error = e instanceof LeadScrapeRunCanceledError ? LEAD_SCRAPE_RUN_CANCELED_MESSAGE : typeof e?.message === "string" ? e.message : "Unknown error";
     }
 
     const refundedCredits = Math.max(0, reservedCredits - createdCount);
@@ -851,7 +933,8 @@ export async function POST(req: Request) {
         {
           ok: false,
           error,
-          code: "RUN_FAILED",
+          code: error === LEAD_SCRAPE_RUN_CANCELED_MESSAGE ? "RUN_CANCELED" : "RUN_FAILED",
+          runId: run.id,
           requestedCount,
           chargedCredits: reservedCredits,
           refundedCredits,
@@ -859,12 +942,13 @@ export async function POST(req: Request) {
           plannedBatches: 1,
           batchesRan: 1,
         },
-        { status: 500 },
+        { status: error === LEAD_SCRAPE_RUN_CANCELED_MESSAGE ? 409 : 500 },
       );
     }
 
     return NextResponse.json({
       ok: true,
+      runId: run.id,
       requestedCount,
       chargedCredits: reservedCredits,
       refundedCredits,
@@ -924,6 +1008,7 @@ export async function POST(req: Request) {
 
   const run = await prisma.portalLeadScrapeRun.create({
     data: {
+      id: runId,
       ownerId,
       kind: "B2B",
       requestedCount,
@@ -939,17 +1024,27 @@ export async function POST(req: Request) {
   const maxPerPlacesBatch = 60;
   const baseBatches = Math.max(1, Math.ceil(requestedCount / maxPerPlacesBatch));
   const plannedPrimaryBatches = Math.min(10, baseBatches + (requestedCount >= 50 ? 1 : 0));
-  const fallbackLocations = settings.b2b.fallbackEnabled
-    ? settings.b2b.fallbackLocations.map((s) => s.trim()).filter(Boolean).slice(0, 5)
-    : [];
-  const fallbackNiches = settings.b2b.fallbackEnabled
-    ? settings.b2b.fallbackNiches.map((s) => s.trim()).filter(Boolean).slice(0, 5)
-    : [];
+  const locationsToTry = Array.from(
+    new Set(
+      ((settings.b2b.locationSelections?.length ? settings.b2b.locationSelections : [settings.b2b.location]) || [])
+        .map((s) => String(s || "").trim())
+        .filter(Boolean)
+        .slice(0, 6),
+    ),
+  );
+  const nichesToTry = Array.from(
+    new Set(
+      ((settings.b2b.nicheSelections?.length ? settings.b2b.nicheSelections : [settings.b2b.niche]) || [])
+        .map((s) => String(s || "").trim())
+        .filter(Boolean)
+        .slice(0, 6),
+    ),
+  );
   const plannedBatches = Math.min(
     25,
     plannedPrimaryBatches +
-      (fallbackLocations.length ? fallbackLocations.length * 2 : 0) +
-      (fallbackNiches.length ? fallbackNiches.length * 2 : 0),
+      (locationsToTry.length > 1 ? (locationsToTry.length - 1) * 2 : 0) +
+      (nichesToTry.length > 1 ? (nichesToTry.length - 1) * 2 : 0),
   );
   let batchesRan = 0;
   const usedFallbackLocations: string[] = [];
@@ -962,9 +1057,12 @@ export async function POST(req: Request) {
     website: string | null;
     address: string | null;
     niche: string | null;
+    placeId?: string | null;
+    placeDetails?: unknown;
   }> = [];
 
   try {
+    await throwIfLeadScrapeRunCanceled(run.id);
     const buildQueryVariants = ({ nicheTerm, loc }: { nicheTerm: string; loc: string }) =>
       Array.from(
         new Set(
@@ -987,9 +1085,6 @@ export async function POST(req: Request) {
 
     const seenPlaceIds = new Set<string>();
 
-    const locationsToTry = [location, ...fallbackLocations];
-    const nichesToTry = [niche, ...fallbackNiches];
-
     const combos: Array<{ nicheTerm: string; loc: string; isFallbackLocation: boolean; isFallbackNiche: boolean }> = [];
     for (let nicheIndex = 0; nicheIndex < nichesToTry.length; nicheIndex++) {
       for (let locIndex = 0; locIndex < locationsToTry.length; locIndex++) {
@@ -1003,6 +1098,7 @@ export async function POST(req: Request) {
     }
 
     for (let comboIndex = 0; comboIndex < combos.length; comboIndex++) {
+      await throwIfLeadScrapeRunCanceled(run.id);
       if (createdCount >= requestedCount) break;
 
       const combo = combos[comboIndex];
@@ -1014,6 +1110,7 @@ export async function POST(req: Request) {
         : Math.min(5, Math.max(1, Math.ceil((requestedCount - createdCount) / maxPerPlacesBatch) + 1));
 
       for (let attempt = 0; attempt < attemptsForThisCombo; attempt++) {
+        await throwIfLeadScrapeRunCanceled(run.id);
         if (createdCount >= requestedCount) break;
         if (batchesRan >= plannedBatches) break;
         batchesRan++;
@@ -1027,6 +1124,7 @@ export async function POST(req: Request) {
         let createdThisAttempt = 0;
 
         for (const place of results) {
+          await throwIfLeadScrapeRunCanceled(run.id);
           if (createdCount >= requestedCount) break;
 
           const businessName = place.name?.trim() || "";
@@ -1047,6 +1145,9 @@ export async function POST(req: Request) {
           const domain = website ? extractDomain(website) : null;
           if (domain && settings.b2b.excludeDomains.includes(domain)) continue;
 
+          const address = details.formatted_address || place.formatted_address || null;
+          if (matchesAddressExclusion(address, settings.b2b.excludeAddresses)) continue;
+
           if (settings.b2b.requirePhone && !phoneNorm) continue;
           if (settings.b2b.requireWebsite && !website) continue;
 
@@ -1057,13 +1158,14 @@ export async function POST(req: Request) {
             businessName,
             phone: phoneNorm,
             website,
-            address: details.formatted_address || place.formatted_address || null,
+            address,
             niche: combo.nicheTerm,
             placeId,
             dataJson: {
               googlePlaces: {
                 placeId,
                 details,
+                location: details.location ?? null,
               },
               leadScraping: {
                 location: combo.loc,
@@ -1078,6 +1180,8 @@ export async function POST(req: Request) {
             createdLeads.push({
               ...created,
               email: null,
+              placeId,
+              placeDetails: details,
             });
             createdCount++;
             createdThisAttempt++;
@@ -1106,8 +1210,13 @@ export async function POST(req: Request) {
       }
     }
   } catch (e: any) {
-    internalError = typeof e?.message === "string" ? e.message : "Unknown error";
-    error = CLIENT_FRIENDLY_SCRAPE_FAILURE_MESSAGE;
+    if (e instanceof LeadScrapeRunCanceledError) {
+      internalError = e.message;
+      error = LEAD_SCRAPE_RUN_CANCELED_MESSAGE;
+    } else {
+      internalError = typeof e?.message === "string" ? e.message : "Unknown error";
+      error = CLIENT_FRIENDLY_SCRAPE_FAILURE_MESSAGE;
+    }
 
     // Keep real error out of the client/UI, but log it for debugging.
     try {
@@ -1127,11 +1236,79 @@ export async function POST(req: Request) {
   }
 
   const nowIso = new Date().toISOString();
+
+  if (!error && settings.b2b.aiVerifyBusinesses && createdLeads.length) {
+    const existingLeadRows = await prisma.portalLead.findMany({
+      where: { ownerId, id: { in: createdLeads.map((lead) => lead.id) } },
+      select: { id: true, dataJson: true },
+    });
+    const dataJsonByLeadId = new Map(
+      existingLeadRows.map((lead) => [String(lead.id), lead.dataJson] as const),
+    );
+
+    for (let index = 0; index < createdLeads.length; index += 3) {
+      await throwIfLeadScrapeRunCanceled(run.id);
+      const batch = createdLeads.slice(index, index + 3);
+      await Promise.all(
+        batch.map(async (lead) => {
+          try {
+            const next = await enrichLeadScrapeBusiness({
+              businessName: lead.businessName,
+              niche: lead.niche,
+              address: lead.address,
+              website: lead.website,
+              existingEmail: lead.email,
+              existingPhone: lead.phone,
+              placeDetails: lead.placeDetails ?? null,
+            });
+
+            if (!next.enrichment && !next.primaryEmail && !next.primaryPhone) return;
+
+            const existingDataJson = dataJsonByLeadId.get(String(lead.id));
+            const root =
+              existingDataJson && typeof existingDataJson === "object" && !Array.isArray(existingDataJson)
+                ? { ...(existingDataJson as Record<string, unknown>) }
+                : {};
+
+            const nextDataJson = {
+              ...root,
+              aiVerification: next.enrichment
+                ? {
+                    ...next.enrichment,
+                    verifiedAtIso: nowIso,
+                  }
+                : (root as any).aiVerification ?? null,
+            };
+
+            await prisma.portalLead.updateMany({
+              where: { id: lead.id, ownerId },
+              data: {
+                email: lead.email || next.primaryEmail || null,
+                phone: lead.phone || next.primaryPhone || null,
+                dataJson: nextDataJson,
+              } as any,
+            });
+
+            dataJsonByLeadId.set(String(lead.id), nextDataJson);
+            lead.email = lead.email || next.primaryEmail || null;
+            lead.phone = lead.phone || next.primaryPhone || null;
+          } catch {
+            // Non-fatal. Scraping should still finish even if enrichment fails for a lead.
+          }
+        }),
+      );
+    }
+  }
+
   const updatedSettings: Settings = {
     ...settings,
     b2b: {
       ...settings.b2b,
       lastRunAtIso: nowIso,
+      latestRunLeadIds:
+        createdLeads.length > 0
+          ? createdLeads.map((lead) => lead.id).filter(Boolean).slice(0, 500)
+          : settings.b2b.latestRunLeadIds ?? [],
     },
   };
 
@@ -1163,7 +1340,13 @@ export async function POST(req: Request) {
     for (const lead of createdLeads) {
       try {
         let didSend = false;
-        const resources = updatedSettings.outbound.resources
+        const emailResources = getOutboundResourcesForChannel(updatedSettings.outbound, "email")
+          .map((r) => ({
+            label: r.label,
+            url: r.url.startsWith("/") ? `${base}${r.url}` : r.url,
+          }))
+          .filter((r) => Boolean(r.url));
+        const smsResources = getOutboundResourcesForChannel(updatedSettings.outbound, "sms")
           .map((r) => ({
             label: r.label,
             url: r.url.startsWith("/") ? `${base}${r.url}` : r.url,
@@ -1226,7 +1409,7 @@ export async function POST(req: Request) {
             try {
               const draft = await draftLeadOutboundEmail({
                 lead,
-                resources,
+                resources: emailResources,
                 fromName,
                 prompt: updatedSettings.outbound.aiPrompt,
                 senderBusinessContext,
@@ -1238,8 +1421,8 @@ export async function POST(req: Request) {
             }
           }
 
-          const textResources = resources.length
-            ? `\n\nResources:\n${resources.map((r) => `- ${r.label}: ${r.url}`).join("\n")}`
+          const textResources = emailResources.length
+            ? `\n\nResources:\n${emailResources.map((r) => `- ${r.label}: ${r.url}`).join("\n")}`
             : "";
           const text = (textBase + textResources).slice(0, 20000);
 
@@ -1260,7 +1443,7 @@ export async function POST(req: Request) {
             try {
               const draft = await draftLeadOutboundSms({
                 lead,
-                resources,
+                resources: smsResources,
                 fromName,
                 prompt: updatedSettings.outbound.aiPrompt,
                 senderBusinessContext,
@@ -1274,12 +1457,12 @@ export async function POST(req: Request) {
           if (smsBodyBase.trim()) {
             let smsBody = smsBodyBase;
 
-            if (resources.length) {
+            if (smsResources.length) {
               const prefix = "\n\nResources:\n";
               const remaining = 900 - smsBody.length;
               if (remaining > prefix.length + 10) {
                 let suffix = prefix;
-                for (const r of resources) {
+                for (const r of smsResources) {
                   const line = `- ${r.label}: ${r.url}`;
                   if (suffix.length + line.length + 1 > remaining) break;
                   suffix += line + "\n";
@@ -1338,6 +1521,8 @@ export async function POST(req: Request) {
     };
   }
 
+  const finalError = finalizeLeadScrapeRunError(error);
+
   await prisma.$transaction([
     prisma.portalLeadScrapeRun.update({
       where: { id: run.id },
@@ -1345,7 +1530,7 @@ export async function POST(req: Request) {
         createdCount,
         refundedCredits,
         // Store a client-friendly error message. Raw upstream failures are logged server-side.
-        error,
+        error: finalError,
       },
       select: { id: true },
     }),
@@ -1363,9 +1548,9 @@ export async function POST(req: Request) {
     void tryNotifyPortalAccountUsers({
       ownerId,
       kind: "lead_scrape_run_completed",
-      subject: error ? "Lead scrape failed (B2B)" : "Lead scrape completed (B2B)",
+      subject: finalError ? "Lead scrape failed (B2B)" : "Lead scrape completed (B2B)",
       text: [
-        error ? "Lead scraping failed." : "Lead scraping completed.",
+        finalError ? "Lead scraping failed." : "Lead scraping completed.",
         "",
         `Kind: B2B`,
         niche ? `Niche: ${niche}` : null,
@@ -1374,7 +1559,7 @@ export async function POST(req: Request) {
         `Created: ${createdCount}`,
         `Credits charged: ${reservedCredits}`,
         `Credits refunded: ${refundedCredits}`,
-        error ? `Error: ${error}` : null,
+        finalError ? `Error: ${finalError}` : null,
         "",
         `Open lead scraping: ${baseUrl}/portal/app/services/lead-scraping`,
       ]
@@ -1388,31 +1573,35 @@ export async function POST(req: Request) {
   // Refunds are not implemented (we didn't build a credit refund primitive).
   // We still surface charged vs created in run history so billing can be audited.
 
-  if (error) {
+  if (finalError) {
     return NextResponse.json(
       {
         ok: false,
-        error,
-        code: "RUN_FAILED",
+        error: finalError,
+        code: finalError === LEAD_SCRAPE_RUN_CANCELED_MESSAGE ? "RUN_CANCELED" : "RUN_FAILED",
+        runId: run.id,
         requestedCount,
         chargedCredits: reservedCredits,
         refundedCredits,
         createdCount,
+        createdLeadIds: createdLeads.map((lead) => lead.id),
         plannedBatches,
         batchesRan,
         usedFallbackLocations,
         usedFallbackNiches,
       },
-      { status: 500 },
+      { status: finalError === LEAD_SCRAPE_RUN_CANCELED_MESSAGE ? 409 : 500 },
     );
   }
 
   return NextResponse.json({
     ok: true,
+    runId: run.id,
     requestedCount,
     chargedCredits: reservedCredits,
     refundedCredits,
     createdCount,
+    createdLeadIds: createdLeads.map((lead) => lead.id),
     plannedBatches,
     batchesRan,
     usedFallbackLocations,

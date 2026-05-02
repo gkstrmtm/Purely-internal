@@ -1,4 +1,4 @@
-import { generateText } from "@/lib/ai";
+import { generatePuraText as generateText, isPuraAiConfigured } from "@/lib/puraAi";
 import { portalCreditCostsForSupportText } from "@/lib/portalCreditCosts";
 import { PORTAL_ONBOARDING_PLANS } from "@/lib/portalOnboardingWizardCatalog";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
@@ -15,7 +15,7 @@ export type PortalSupportChatMeta = {
 };
 
 export function isPortalSupportChatConfigured() {
-  return Boolean((process.env.AI_BASE_URL ?? "").trim() && (process.env.AI_API_KEY ?? "").trim());
+  return isPuraAiConfigured();
 }
 
 function normalizeText(s: string): string {
@@ -262,6 +262,8 @@ export async function runPortalSupportChat(opts: {
     "SUPPORT PLAYBOOK (how to respond):",
     "- Default: answer directly with 3-7 concrete steps (exact clicks + fields).",
     "- Clarifying questions: ask at most 1 only when truly necessary; do NOT block the answer. Give best-guess steps, then ask the one question to confirm.",
+    "- If the user already named the surfaces or scope they want assessed, do not bounce back with 'which area' or 'what do you mean'. Give the best assessment you can from the provided context and stop.",
+    "- Do not end with generic offers like 'anything else?', 'which area?', or 'do you want to explore further?' unless a missing detail truly blocks the answer.",
     "- When the user is lost: first restate where they likely are (based on URL/service), then give the next 2 clicks to get unstuck.",
     "- When troubleshooting: check (1) module enabled in Billing, (2) permissions/role, (3) required fields present, (4) integration configured, (5) sync/test performed.",
     "- Escalate: if it smells like a product bug or data inconsistency, tell them to click Report bug and include exact clicks, expected vs actual, and a screenshot.",
@@ -276,6 +278,7 @@ export async function runPortalSupportChat(opts: {
     "Do not write blanket refusals like 'I can't do that' when a portal workflow or whitelisted action exists.",
     "Write short answers: aim for 3-8 lines. Use bullet points or numbered steps when helpful.",
     "Ask 1 clarifying question only if absolutely needed, and do not block the answer while waiting.",
+    "Do not end with generic follow-up questions or open-ended invitations when you already have enough context to answer.",
     "Give step-by-step guidance with exact clicks/fields whenever possible.",
     "Assume the user is already logged into the portal; never tell them to log in.",
     "If asked about credits-only vs subscription billing, explain the difference succinctly.",

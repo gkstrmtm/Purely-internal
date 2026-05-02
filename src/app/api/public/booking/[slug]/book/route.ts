@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { findAvailabilityCoverage } from "@/lib/bookingAvailability";
+import { createTaskForBookedCall } from "@/lib/bookingTasks";
 import { prisma } from "@/lib/db";
 import { getBookingFormConfig } from "@/lib/bookingForm";
 import { hasPublicColumn } from "@/lib/dbSchema";
@@ -350,6 +351,23 @@ export async function POST(
   // Best-effort follow-up scheduling (never block a successful booking).
   try {
     await scheduleFollowUpsForBooking(String(site.ownerId), String(booking.id));
+  } catch {
+    // ignore
+  }
+
+  try {
+    await createTaskForBookedCall({
+      ownerId: String(site.ownerId),
+      bookingId: String(booking.id),
+      title: `Attend booking: ${parsed.data.contactName}`,
+      contactName: parsed.data.contactName,
+      contactEmail: parsed.data.contactEmail,
+      contactPhone: phone || null,
+      notes: finalNotes || null,
+      meetingLocation: effectiveLocation,
+      meetingDetails: (site as any).meetingDetails ?? null,
+      startAt,
+    });
   } catch {
     // ignore
   }

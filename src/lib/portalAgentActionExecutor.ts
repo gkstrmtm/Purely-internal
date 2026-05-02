@@ -16,8 +16,10 @@ import { groupPortalServices } from "@/app/portal/services/categories";
 import { prisma } from "@/lib/db";
 import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
 import { parseCsv } from "@/lib/csv";
+import { findPlaceholderIdPaths, looksLikePlaceholderId, sanitizeIdLikeObjectDeep } from "@/lib/agentIdSanitizer";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
+import { enrichLeadScrapeBusiness } from "@/lib/leadScrapeAiEnrichment";
 import { getPortalServiceStatusesForOwner } from "@/lib/portalServicesStatus";
 import {
   createPortalAccountInvite,
@@ -27,22 +29,17 @@ import {
 } from "@/lib/portalAccounts";
 import { hasPortalServiceCapability, normalizePortalPermissions, type PortalServiceCapability } from "@/lib/portalPermissions";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
-import {
-  PortalAgentActionArgsSchemaByKey,
-  type PortalAgentActionKey,
-} from "@/lib/portalAgentActions";
+import { PortalAgentActionArgsSchemaByKey, type PortalAgentActionKey } from "@/lib/portalAgentActions";
 import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction } from "@/lib/portalAgentActionMeta";
 import { resolvePlanArgs } from "@/lib/puraResolver";
-import { findPlaceholderIdPaths, looksLikePlaceholderId, sanitizeIdLikeObjectDeep } from "@/lib/agentIdSanitizer";
 import { addCredits, addCreditsTx, consumeCredits, consumeCreditsOnce, getCreditsLifecycleForOwner, getCreditsState, setAutoTopUp } from "@/lib/credits";
 import { recordThresholdMeterUsage } from "@/lib/creditsMetering";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
-import { getUsdPerCreditForOwner } from "@/lib/creditsPricing.server";
-import { getCentsPerCreditForOwner } from "@/lib/creditsPricing.server";
+import { getCentsPerCreditForOwner, getUsdPerCreditForOwner } from "@/lib/creditsPricing.server";
 import { moduleByKey, usdToCents } from "@/lib/portalModulesCatalog";
-import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG, isCreditsOnlyBilling } from "@/lib/portalBillingModel";
+import { isCreditsOnlyBilling, PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import { ensureMonthlyCreditsGiftSchedule, processDueMonthlyCreditsGifts } from "@/lib/portalMonthlyCreditsGift";
 import {
@@ -66,9 +63,11 @@ import { slugify } from "@/lib/slugify";
 import { getBookingCalendarsConfig, setBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { getBookingFormConfig, setBookingFormConfig } from "@/lib/bookingForm";
 import { computeAvailableSlots } from "@/lib/bookingSlots";
+import { processDueBookingInternalReminders } from "@/lib/bookingInternalReminders";
 import { getBlogAppearance, setBlogAppearance } from "@/lib/blogAppearance";
 import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug, setStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
-import { formatAssistantMarkdownLink, normalizeAssistantLinkUrl } from "@/lib/portalAssistantLinks";
+import { normalizeAssistantLinkUrl } from "@/lib/portalAssistantLinks";
+import { cleanPuraGeneratedReply, isLowQualityPuraGeneratedReply } from "@/lib/puraReplyQuality";
 import {
   getAppointmentReminderSettingsForCalendar,
   listAppointmentReminderEvents,
@@ -76,20 +75,25 @@ import {
   processDueAppointmentReminders,
   setAppointmentReminderSettingsForCalendar,
 } from "@/lib/appointmentReminders";
-import { processDueBookingInternalReminders } from "@/lib/bookingInternalReminders";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact, normalizeEmailKey, normalizeNameKey as normalizeContactNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { listDuplicatePortalContactsByPhoneKey, mergePortalContacts } from "@/lib/portalContactDedup";
+
+async function refundCreditsBestEffort(ownerId: string, amount: number) {
+  const safeAmount = Math.max(0, Math.floor(amount));
+  if (!safeAmount) return;
+  await addCredits(ownerId, safeAmount).catch(() => null);
+}
 import { recordPortalContactServiceTrigger } from "@/lib/portalContactServiceTriggers";
 import {
   addContactTagAssignment,
   createOwnerContactTag,
   deleteOwnerContactTag,
   ensureOwnerContactTagsSeededFromLeadScrapingPresets,
-  ensurePortalContactTagsReady,
   listContactTagsForContact,
   listOwnerContactTags,
   removeContactTagAssignment,
+  ensurePortalContactTagsReady,
   updateOwnerContactTag,
 } from "@/lib/portalContactTags";
 import { extractEmailAddress, getPortalInboxSettings, regeneratePortalInboxWebhookToken } from "@/lib/portalInbox";
@@ -158,11 +162,31 @@ import { checkHttpsReachable, ensureVercelProjectDomain, formatVercelVerificatio
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { blocksToCustomHtmlDocument, escapeHtml } from "@/lib/funnelBlocksToCustomHtmlDocument";
 import {
+  bootstrapHostedPageDocuments,
+  exportHostedPageDocumentCustomHtml,
+  getDefaultHostedPagePrompt,
+  getHostedPageDocument,
+  getHostedPagePreviewData,
+  listAllHostedPageDocuments,
+  portalServiceKeyForHostedPageService,
+  parseHostedPageService,
+  resetHostedPageDocumentToDefault,
+  setHostedPageDocumentStatus,
+  updateHostedPageDocument,
+} from "@/lib/hostedPageDocuments";
+import { generateHostedPageHtml } from "@/lib/hostedPageGeneration";
+import {
   createFunnelPageBlockSnapshotUpdate,
   createFunnelPageDraftUpdate,
   createFunnelPageMirroredHtmlUpdate,
   getFunnelPageCurrentHtml,
 } from "@/lib/funnelPageState";
+import {
+  applyDraftHtmlWriteCompat,
+  dbHasCreditFunnelPageDraftHtmlColumn,
+  normalizeDraftHtml,
+  withDraftHtmlSelect,
+} from "@/lib/funnelPageDbCompat";
 import { generateCreditText } from "@/lib/creditAi";
 import { clearStripeIntegration, getStripeIntegrationStatus, getStripeSecretKeyForOwner, setStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { connectStripeAndActivate, disconnectSalesProvider, getSalesReportingStatus, setActiveSalesProvider, setProviderCredentials } from "@/lib/salesReportingIntegration.server";
@@ -207,6 +231,7 @@ import { buildSpeakerTranscriptAlignedToFull } from "@/lib/dualChannelTranscript
 import { splitStereoPcmWavToMonoWavs } from "@/lib/wav";
 import { getPortalBusinessProfile, upsertPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
 import { getElevenLabsConvaiConversationSignedUrl, getElevenLabsConvaiConversationToken } from "@/lib/portalElevenLabsConvaiAuth.server";
+import { buildDefaultAiOutboundCallFirstMessage, ensureAiOutboundCallCampaignVoiceAgent } from "@/lib/portalAiOutboundCallVoiceAgent";
 import { clampPortalReportingRangeKey, getPortalReportingSummaryForOwner } from "@/lib/portalReportingSummary.server";
 import { clampStripeChargesRangeKey, getStripeChargesReportForOwner } from "@/lib/portalStripeChargesReport.server";
 import { clampSalesRangeKey, getSalesReportForOwner } from "@/lib/salesReportingReport.server";
@@ -218,6 +243,19 @@ import { buildSuggestedSetupPreviewForOwner } from "@/lib/suggestedSetup/server"
 import { applySuggestedSetupActions } from "@/lib/suggestedSetup/executor";
 import { renderTextToPdfBytes } from "@/lib/simplePdf";
 import { provisionTwilioSmsWebhooksForFromNumber } from "@/lib/twilioProvisioning";
+import { resolvePortalMediaItemBytes } from "@/lib/portalInboxAttachmentMedia";
+
+
+const PRISMA_CREDIT_FUNNEL_PAGE_HAS_DRAFT_HTML = Boolean(
+  (Prisma as any)?.dmmf?.datamodel?.models?.some(
+    (model: any) => model?.name === "CreditFunnelPage" && Array.isArray(model?.fields) && model.fields.some((field: any) => field?.name === "draftHtml"),
+  ),
+);
+
+async function canUseCreditFunnelPageDraftHtml() {
+  if (!PRISMA_CREDIT_FUNNEL_PAGE_HAS_DRAFT_HTML) return false;
+  return dbHasCreditFunnelPageDraftHtmlColumn().catch(() => false);
+}
 
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
@@ -1120,6 +1158,7 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
           };
         }
       }
+
       return args;
     }
 
@@ -1434,8 +1473,10 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
 
     case "reviews.reply": {
       const reviewId = pickFirstDefined(args, ["reviewId", "review", "id"]);
+      const reviewName = pickFirstDefined(args, ["reviewName", "name", "reviewerName", "customerName"]);
       const reply = pickFirstDefined(args, ["reply", "body", "message", "text", "response"]);
       if (reviewId !== undefined) args.reviewId = reviewId;
+      if (reviewName !== undefined) args.reviewName = reviewName;
       if (reply !== undefined) args.reply = reply;
       return args;
     }
@@ -1746,6 +1787,90 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       if (frequencyDays !== undefined) args.frequencyDays = frequencyDays;
       if (topics !== undefined) args.topics = Array.isArray(topics) ? topics : splitLooseStringList(topics);
       if (autoPublish !== undefined) args.autoPublish = autoPublish;
+      return args;
+    }
+
+    case "hosted_pages.documents.list":
+    case "hosted_pages.documents.bootstrap": {
+      const service = pickFirstDefined(args, ["service", "hostedPageService", "pageService", "siteService"]);
+      if (service !== undefined) args.service = service;
+      return args;
+    }
+
+    case "hosted_pages.documents.get":
+    case "hosted_pages.documents.preview_data":
+    case "hosted_pages.documents.publish":
+    case "hosted_pages.documents.reset_to_default": {
+      const documentId = pickFirstDefined(args, ["documentId", "document", "id", "hostedPageDocumentId"]);
+      const service = pickFirstDefined(args, ["service", "hostedPageService", "pageService", "siteService"]);
+      const pageKey = pickFirstDefined(args, ["pageKey", "documentKey", "hostedPageKey", "page", "key"]);
+      if (documentId !== undefined) args.documentId = documentId;
+      if (service !== undefined) args.service = service;
+      if (pageKey !== undefined) args.pageKey = pageKey;
+      return args;
+    }
+
+    case "hosted_pages.documents.update": {
+      const documentId = pickFirstDefined(args, ["documentId", "document", "id", "hostedPageDocumentId"]);
+      const service = pickFirstDefined(args, ["service", "hostedPageService", "pageService", "siteService"]);
+      const pageKey = pickFirstDefined(args, ["pageKey", "documentKey", "hostedPageKey", "page", "key"]);
+      const title = pickFirstDefined(args, ["title", "name", "pageTitle"]);
+      const slug = pickFirstDefined(args, ["slug", "pageSlug"]);
+      const status = pickFirstDefined(args, ["status", "state"]);
+      const contentMarkdown = pickFirstDefined(args, ["contentMarkdown", "content", "body", "markdown", "text"]);
+      const editorMode = pickFirstDefined(args, ["editorMode", "mode"]);
+      const customHtml = pickFirstDefined(args, ["customHtml", "html"]);
+      const blocksJson = pickFirstDefined(args, ["blocksJson", "blocks"]);
+      const customChatJson = pickFirstDefined(args, ["customChatJson", "chatJson"]);
+      const themeJson = pickFirstDefined(args, ["themeJson", "theme"]);
+      const dataBindingsJson = pickFirstDefined(args, ["dataBindingsJson", "dataBindings"]);
+      const seo = pickFirstDefined(args, ["seo", "seoMeta"]);
+      if (documentId !== undefined) args.documentId = documentId;
+      if (service !== undefined) args.service = service;
+      if (pageKey !== undefined) args.pageKey = pageKey;
+      if (title !== undefined) args.title = title;
+      if (slug !== undefined) args.slug = slug;
+      if (status !== undefined) args.status = status;
+      if (contentMarkdown !== undefined) args.contentMarkdown = contentMarkdown;
+      if (editorMode !== undefined) args.editorMode = editorMode;
+      if (customHtml !== undefined) args.customHtml = customHtml;
+      if (blocksJson !== undefined) args.blocksJson = blocksJson;
+      if (customChatJson !== undefined) args.customChatJson = customChatJson;
+      if (themeJson !== undefined) args.themeJson = themeJson;
+      if (dataBindingsJson !== undefined) args.dataBindingsJson = dataBindingsJson;
+      if (seo !== undefined) args.seo = seo;
+      return args;
+    }
+
+    case "hosted_pages.documents.generate_html": {
+      const documentId = pickFirstDefined(args, ["documentId", "document", "id", "hostedPageDocumentId"]);
+      const service = pickFirstDefined(args, ["service", "hostedPageService", "pageService", "siteService"]);
+      const pageKey = pickFirstDefined(args, ["pageKey", "documentKey", "hostedPageKey", "page", "key"]);
+      const prompt = pickFirstDefined(args, ["prompt", "request", "instruction", "text"]);
+      const currentHtml = pickFirstDefined(args, ["currentHtml", "html"]);
+      const attachments = pickFirstDefined(args, ["attachments", "files", "media"]);
+      if (documentId !== undefined) args.documentId = documentId;
+      if (service !== undefined) args.service = service;
+      if (pageKey !== undefined) args.pageKey = pageKey;
+      if (prompt !== undefined) args.prompt = prompt;
+      if (currentHtml !== undefined) args.currentHtml = currentHtml;
+      if (attachments !== undefined) args.attachments = attachments;
+      return args;
+    }
+
+    case "hosted_pages.documents.export_custom_html": {
+      const documentId = pickFirstDefined(args, ["documentId", "document", "id", "hostedPageDocumentId"]);
+      const service = pickFirstDefined(args, ["service", "hostedPageService", "pageService", "siteService"]);
+      const pageKey = pickFirstDefined(args, ["pageKey", "documentKey", "hostedPageKey", "page", "key"]);
+      const title = pickFirstDefined(args, ["title", "name", "pageTitle"]);
+      const blocksJson = pickFirstDefined(args, ["blocksJson", "blocks"]);
+      const setEditorMode = pickFirstDefined(args, ["setEditorMode", "editorMode", "mode"]);
+      if (documentId !== undefined) args.documentId = documentId;
+      if (service !== undefined) args.service = service;
+      if (pageKey !== undefined) args.pageKey = pageKey;
+      if (title !== undefined) args.title = title;
+      if (blocksJson !== undefined) args.blocksJson = blocksJson;
+      if (setEditorMode !== undefined) args.setEditorMode = setEditorMode;
       return args;
     }
 
@@ -2325,261 +2450,118 @@ async function generateAssistantTextForActionResult(opts: {
   clientUiAction?: any;
 }): Promise<string> {
   const assistantLinkUrl = normalizeAssistantLinkUrl(opts.linkUrl ?? null);
-  const deterministic = renderDeterministicAssistantTextForActionResult({ ...opts, linkUrl: assistantLinkUrl });
-  if (deterministic) return deterministic;
+  const payload = {
+    action: opts.action,
+    ok: opts.ok,
+    status: opts.status,
+    linkUrl: assistantLinkUrl,
+    args: opts.args ?? {},
+    result: stripAssistantVisibleAccountingFields(opts.result ?? null),
+    clientUiAction: opts.clientUiAction ?? null,
+  };
 
-  try {
+  const runDraft = async (
+    mode: "draft" | "rewrite" | "salvage",
+    priorDraft?: string,
+    opts?: { omitGroundedText?: boolean },
+  ) => {
     const system = [
       "You are Pura, an AI assistant inside a SaaS business portal.",
-      "Summarize the outcome of running a tool/action for the user.",
-      "Write concise markdown.",
-      "Rules:",
-      "- Be explicit about what happened, whether it succeeded, and what the user should understand next.",
-      "- Never imply that work finished successfully unless ok=true and status is 2xx.",
-      "- Do not invent details that are not present in the JSON.",
-      "- If the action failed, say what failed and include the error message if provided.",
-      "- If the action partially succeeded or needs follow-up, say that plainly.",
-      "- Do not mention internal IDs unless the user must paste one.",
-      "- If a linkUrl is provided, include ONE markdown link CTA.",
-      "- Do not say 'all set' or similar unless the result clearly shows success.",
-      "- No JSON output.",
+      "Write the exact assistant chat reply that should appear after one action runs.",
+      "This must sound like a live AI chat reply, not a status report, template, or release note.",
+      "Hard constraints:",
+      "- Write in first person as Pura.",
+      "- If result.question exists, ask only that question and stop there.",
+      "- If result.question does not exist, do not ask a new follow-up or clarifying question.",
+      "- Be explicit about what changed, what failed, or what decision is still needed.",
+      "- Mention unchanged settings only if they directly explain the outcome.",
+      "- Never imply success unless ok=true and status is 2xx.",
+      "- Never invent details, URLs, placeholder domains, or outcomes.",
+      "- Use grounded facts from the payload and do not replace them with generic portal-tour wording.",
+      "- Ignore incidental discovery/list/read results unless they materially changed the answer the user asked for.",
+      "- Never mention internal IDs, raw slugs, method names, stack traces, or implementation symbols.",
+      "- If the action partly worked or returned warnings, say that plainly instead of asking whether the user wants details.",
+      "- Never output a bare raw URL. If you include a link, it must be one markdown link using the provided linkUrl.",
+      "- Never use phrases like 'The action to...', 'The action was...', 'completed successfully', 'has been successfully created', 'was sent successfully', 'for more details', or 'let me know if you need anything else'.",
+      "- Do not append generic tails like 'you can check them here', 'you can review it here', 'you can edit it here', 'feel free to ask', 'just let me know', or 'if you want to explore that further'.",
+      "- Never end with invitation lines like 'If you have specific areas you want to dive deeper into' or 'You can visit/check/view it in the portal' unless the user explicitly asked for navigation help.",
+      "Style rules:",
+      "- 1 or 2 short paragraphs max.",
+      "- No headings, bullet lists, tables, code blocks, or JSON.",
+      "- Keep it concise and human.",
+      "- Do not end with a separate sentence whose only purpose is telling the user to check, view, manage, open, review, or edit something at a link.",
+      "- If linkUrl is provided, you may include one markdown link using only that exact linkUrl.",
+      "- If you include a link, weave it into the main sentence instead of appending a generic CTA.",
+      "- Avoid stiff status-report wording like 'currently in draft status' unless it directly matters.",
+      "- Do not paste long chunks of newsletter, blog, funnel, or email body copy unless the user explicitly asked to see the copy itself.",
+      "- For content create/update actions, summarize what changed instead of quoting the rewritten body, intro, or template copy.",
+      "- If a send action did not reach anyone because no channels or audience were requested, say that plainly in one sentence and stop.",
+      "- If a lookup finds nothing, say that plainly in one short sentence and stop.",
+      "- Do not add advice like 'adjust your settings', 'review it before it goes live', or 'check the generated HTML' unless the user explicitly asked for next steps.",
+      "- Never include bundles of action links like open/download/share after an import result; just state the result plainly.",
+      "- Mention draft status only when it materially affects whether something is live; do not add extra review/go-live commentary.",
+      "- Avoid lines like 'You can view it in the nurture campaigns section', 'You can check the newsletter service', or bare markdown links on their own line.",
     ].join("\n");
 
-    const payload = {
-      action: opts.action,
-      ok: opts.ok,
-      status: opts.status,
-      linkUrl: assistantLinkUrl,
-      args: opts.args ?? {},
-      result: stripAssistantVisibleAccountingFields(opts.result ?? null),
-      clientUiAction: opts.clientUiAction ?? null,
-    };
+    const promptPayload = opts?.omitGroundedText
+      ? { ...payload, directMessage: null, fallbackCandidate: null, assistantText: null }
+      : payload;
 
-    const user = `Action execution result (JSON):\n${safeJsonForPrompt(payload)}`;
-    const out = String(await generateText({ system, user })).trim();
-    return out ? out.slice(0, 12000) : "";
+    const user = mode === "draft"
+      ? `Action execution result (JSON):\n${safeJsonForPrompt(promptPayload)}`
+      : mode === "rewrite"
+        ? `Rewrite this Pura reply so it follows the rules exactly and sounds natural in chat.\n\nDraft reply:\n${String(priorDraft || "").trim()}\n\nAction execution result (JSON):\n${safeJsonForPrompt(promptPayload)}`
+        : `This draft is still too stiff or generic for chat. Rewrite it in plain first-person language, keep only supported facts, remove canned follow-up lines, and do not expose internal IDs. Do not reuse portal-tour wording, instructional steps, or filler from the draft. Reground the reply from the structured action result.\n\nDraft reply:\n${String(priorDraft || "").trim()}\n\nAction execution result (JSON):\n${safeJsonForPrompt(promptPayload)}`;
+
+    const rawOut = String(await generateText({ system, user })).trim();
+    const cleanedOut = cleanPuraGeneratedReply(rawOut, { allowBullets: false, maxLength: 12_000 });
+    return cleanedOut || rawOut;
+  };
+
+  try {
+    const firstDraft = await runDraft("draft");
+    if (firstDraft && !isLowQualityPuraGeneratedReply(firstDraft, { allowBullets: false })) {
+      return firstDraft;
+    }
+
+    const rewritten = await runDraft("rewrite", firstDraft);
+    if (rewritten && !isLowQualityPuraGeneratedReply(rewritten, { allowBullets: false })) {
+      return rewritten;
+    }
+
+    const regrounded = await runDraft("salvage", rewritten || firstDraft, { omitGroundedText: true });
+    if (regrounded && !isLowQualityPuraGeneratedReply(regrounded, { allowBullets: false })) {
+      return regrounded;
+    }
+
+    const salvageSource = String(regrounded || rewritten || firstDraft || "").trim();
+    if (salvageSource) {
+      const salvaged = await runDraft("salvage", salvageSource, { omitGroundedText: true });
+      if (salvaged && !isLowQualityPuraGeneratedReply(salvaged, { allowBullets: false })) {
+        return salvaged;
+      }
+
+      const cleanedFallback = cleanPuraGeneratedReply(String(salvaged || regrounded || rewritten || firstDraft || "").trim(), {
+        allowBullets: false,
+        maxLength: 12_000,
+      });
+      if (cleanedFallback && !isLowQualityPuraGeneratedReply(cleanedFallback, { allowBullets: false })) {
+        return cleanedFallback;
+      }
+
+      const lastResort = cleanPuraGeneratedReply(String(cleanedFallback || salvaged || regrounded || rewritten || firstDraft || "").trim(), {
+        allowBullets: false,
+        maxLength: 12_000,
+      });
+      if (lastResort) return lastResort;
+
+      return cleanedFallback || "";
+    }
+
+    return "";
   } catch {
     return "";
   }
-}
-
-function shortIso(raw: unknown): string {
-  if (typeof raw !== "string") return "";
-  const ms = Date.parse(raw);
-  if (!Number.isFinite(ms)) return "";
-  return new Date(ms).toLocaleString();
-}
-
-function assistantLink(label: string, raw: unknown, prefix = ""): string {
-  const link = formatAssistantMarkdownLink(label, raw);
-  return link ? `${prefix}${link}` : "";
-}
-
-function renderDeterministicAssistantTextForActionResult(opts: {
-  action: PortalAgentActionKey;
-  ok: boolean;
-  status: number;
-  args: Record<string, unknown>;
-  result: any;
-  linkUrl?: string | null;
-}): string | null {
-  if (!opts.ok || opts.status < 200 || opts.status >= 300 || !opts.result || typeof opts.result !== "object") return null;
-
-  if (opts.action === "tasks.list") {
-    const tasks = Array.isArray((opts.result as any).tasks) ? ((opts.result as any).tasks as any[]) : [];
-    const q = typeof (opts.args as any)?.q === "string" ? String((opts.args as any).q).trim() : "";
-    const statusRaw = typeof (opts.args as any)?.status === "string" ? String((opts.args as any).status).trim().toUpperCase() : "OPEN";
-    const label = statusRaw === "ALL" ? "tasks" : statusRaw === "DONE" ? "done tasks" : statusRaw === "CANCELED" ? "canceled tasks" : "open tasks";
-    if (!tasks.length) {
-      return q
-        ? `I didn’t find any ${label} matching “${q}”.${assistantLink("Open Tasks", opts.linkUrl, " Review them here: ")}`
-        : `You don’t have any ${label} right now.${assistantLink("Open Tasks", opts.linkUrl, " Review them here: ")}`;
-    }
-
-    const lines = tasks.slice(0, 6).map((task) => {
-      const title = String(task?.title || "Task").trim() || "Task";
-      const status = String(task?.status || "OPEN").trim().toUpperCase();
-      const due = shortIso(task?.dueAtIso);
-      return `- [${status}] ${title}${due ? ` - due ${due}` : ""}`;
-    });
-
-    return `${q ? `I found ${tasks.length} task${tasks.length === 1 ? "" : "s"} matching “${q}”` : `Here ${tasks.length === 1 ? "is" : "are"} your ${label}`}:
-
-  ${lines.join("\n")}${assistantLink("Open Tasks", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "contacts.list") {
-    const contacts = Array.isArray((opts.result as any).contacts) ? ((opts.result as any).contacts as any[]) : [];
-    const q = typeof (opts.args as any)?.q === "string" ? String((opts.args as any).q).trim() : "";
-    if (!contacts.length) {
-      return q
-        ? `I couldn’t find a contact matching “${q}”.${assistantLink("Open Contacts", opts.linkUrl, " Review contacts here: ")}`
-        : `I couldn’t find any contacts to show right now.${assistantLink("Open Contacts", opts.linkUrl, " Review contacts here: ")}`;
-    }
-
-    const lines = contacts.slice(0, 6).map((contact) => {
-      const name = String(contact?.name || "Contact").trim() || "Contact";
-      const email = typeof contact?.email === "string" && contact.email.trim() ? ` - ${String(contact.email).trim()}` : "";
-      const phone = typeof contact?.phone === "string" && contact.phone.trim() ? `${email ? " | " : " - "}${String(contact.phone).trim()}` : "";
-      return `- ${name}${email}${phone}`;
-    });
-
-    return `${q ? `I found ${contacts.length} contact${contacts.length === 1 ? "" : "s"} matching “${q}”` : `Here ${contacts.length === 1 ? "is" : "are"} the contact${contacts.length === 1 ? "" : "s"} I found`}:
-
-  ${lines.join("\n")}${assistantLink("Open Contacts", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "contacts.get") {
-    const contact = (opts.result as any)?.contact && typeof (opts.result as any).contact === "object" ? (opts.result as any).contact : null;
-    if (!contact) return null;
-    const name = String(contact?.name || "Contact").trim() || "Contact";
-    const lines = [
-      `- Name: ${name}`,
-      typeof contact?.email === "string" && contact.email.trim() ? `- Email: ${String(contact.email).trim()}` : null,
-      typeof contact?.phone === "string" && contact.phone.trim() ? `- Phone: ${String(contact.phone).trim()}` : null,
-    ].filter(Boolean);
-    return `Here are the important details I found for ${name}:\n\n${lines.join("\n")}${assistantLink("Open Contact", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "inbox.threads.list") {
-    const threads = Array.isArray((opts.result as any).threads) ? ((opts.result as any).threads as any[]) : [];
-    const q = typeof (opts.args as any)?.q === "string" ? String((opts.args as any).q).trim() : "";
-    if (!threads.length) {
-      return q
-        ? `I couldn’t find any inbox threads matching “${q}”.${assistantLink("Open Inbox", opts.linkUrl, " Review the inbox here: ")}`
-        : `I couldn’t find any inbox threads to summarize.${assistantLink("Open Inbox", opts.linkUrl, " Review the inbox here: ")}`;
-    }
-
-    const lines = threads.slice(0, 6).map((thread) => {
-      const contactName = typeof thread?.contact?.name === "string" && thread.contact.name.trim()
-        ? String(thread.contact.name).trim()
-        : String(thread?.peerAddress || "Conversation").trim() || "Conversation";
-      const channel = String(thread?.channel || "").trim().toUpperCase();
-      const preview = typeof thread?.lastMessagePreview === "string" ? String(thread.lastMessagePreview).trim().replace(/\s+/g, " ").slice(0, 140) : "";
-      const needsReply = thread?.needsReply === true ? " - needs reply" : "";
-      return `- ${contactName}${channel ? ` (${channel})` : ""}${preview ? ` - ${preview}` : ""}${needsReply}`;
-    });
-
-    return `${q ? `I found ${threads.length} inbox thread${threads.length === 1 ? "" : "s"} matching “${q}”` : `Here ${threads.length === 1 ? "is" : "are"} the inbox thread${threads.length === 1 ? "" : "s"} I found`}:
-
-  ${lines.join("\n")}${assistantLink("Open Inbox", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "inbox.thread.messages.list") {
-    const messages = Array.isArray((opts.result as any).messages) ? ((opts.result as any).messages as any[]) : [];
-    if (!messages.length) {
-      return `I found the conversation, but there aren’t any messages in it yet.${assistantLink("Open Conversation", opts.linkUrl, " Open it here: ")}`;
-    }
-
-    const summaryLines = messages.slice(-6).map((message) => {
-      const direction = String(message?.direction || "").trim().toUpperCase() === "OUT" ? "You" : "Contact";
-      const body = typeof message?.bodyText === "string" ? String(message.bodyText).trim().replace(/\s+/g, " ").slice(0, 160) : "";
-      return `- ${direction}: ${body || "(no text)"}`;
-    });
-
-    return `Here’s the recent message flow from that conversation:\n\n${summaryLines.join("\n")}${assistantLink("Open Conversation", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "reviews.inbox.list") {
-    const reviews = Array.isArray((opts.result as any).reviews) ? ((opts.result as any).reviews as any[]) : [];
-    if (!reviews.length) {
-      return `You don’t have any reviews to summarize right now.${assistantLink("Open Reviews", opts.linkUrl, " Review them here: ")}`;
-    }
-    const lines = reviews.slice(0, 6).map((review) => {
-      const name = String(review?.name || "Review").trim() || "Review";
-      const rating = Number(review?.rating || 0);
-      const body = typeof review?.body === "string" ? String(review.body).trim().replace(/\s+/g, " ").slice(0, 140) : "";
-      return `- ${name}${rating ? ` - ${rating}★` : ""}${body ? ` - ${body}` : ""}`;
-    });
-    return `Here are your latest reviews:\n\n${lines.join("\n")}${assistantLink("Open Reviews", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "blogs.posts.generate_draft") {
-    const draft = (opts.result as any)?.draft && typeof (opts.result as any).draft === "object" ? (opts.result as any).draft : null;
-    if (!draft) return null;
-    const title = String(draft?.title || "Blog draft").trim() || "Blog draft";
-    const excerpt = typeof draft?.excerpt === "string" ? String(draft.excerpt).trim().replace(/\s+/g, " ").slice(0, 220) : "";
-    return `I generated a stronger blog draft for “${title}.”${excerpt ? `\n\n${excerpt}` : ""}${assistantLink("Open Blogs", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "blogs.posts.publish") {
-    const post = (opts.result as any)?.post && typeof (opts.result as any).post === "object" ? (opts.result as any).post : null;
-    if (!post) return null;
-    const title = String(post?.title || post?.slug || "Blog post").trim() || "Blog post";
-    const publishedAt = typeof post?.publishedAt === "string" ? shortIso(post.publishedAt) : "";
-    return `I published “${title}.”${publishedAt ? `\n\n- Published: ${publishedAt}` : ""}${assistantLink("Open Blogs", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "newsletter.newsletters.create") {
-    const newsletter = (opts.result as any)?.newsletter && typeof (opts.result as any).newsletter === "object" ? (opts.result as any).newsletter : null;
-    if (!newsletter) return null;
-    const title = typeof (opts.args as any)?.title === "string" ? String((opts.args as any).title).trim() : "Newsletter";
-    const status = String(newsletter?.status || "DRAFT").trim().toUpperCase();
-    return `I created the newsletter “${title || "Newsletter"}.”\n\n- Status: ${status}${assistantLink("Open Newsletter", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "newsletter.newsletters.update") {
-    const resultTitle = typeof (opts.result as any)?.newsletter?.title === "string" ? String((opts.result as any).newsletter.title).trim() : "";
-    const title = resultTitle || (typeof (opts.args as any)?.title === "string" ? String((opts.args as any).title).trim() : "Newsletter");
-    return `I updated the newsletter${title ? ` “${title}”` : ""}.${assistantLink("Open Newsletter", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "booking.settings.update") {
-    const site = (opts.result as any)?.site && typeof (opts.result as any).site === "object" ? (opts.result as any).site : null;
-    const title = typeof site?.title === "string" ? String(site.title).trim() : "Booking settings";
-    const slug = typeof site?.slug === "string" ? String(site.slug).trim() : "";
-    const editorLink = assistantLink("Open Booking Settings", opts.linkUrl, "\n\n");
-    const liveLink = slug ? `\n- Live booking link: [Open Live Booking](/book/${encodeURIComponent(slug)})` : "";
-    return `I updated the booking settings for “${title || "Booking settings"}.”${editorLink}${liveLink}`;
-  }
-
-  if (opts.action === "funnel.create") {
-    const funnel = (opts.result as any)?.funnel && typeof (opts.result as any).funnel === "object" ? (opts.result as any).funnel : null;
-    if (!funnel) return null;
-    const name = String(funnel?.name || funnel?.slug || "Funnel").trim() || "Funnel";
-    return `I created the funnel “${name}.”${assistantLink("Open Funnel Builder", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "funnel_builder.pages.create" || opts.action === "funnel_builder.pages.generate_html") {
-    const page = (opts.result as any)?.page && typeof (opts.result as any).page === "object" ? (opts.result as any).page : null;
-    const title = String(page?.title || page?.slug || "Page").trim() || "Page";
-    const verb = opts.action === "funnel_builder.pages.create" ? "created" : "updated";
-    return `I ${verb} the funnel page “${title}.”${assistantLink("Open Funnel Builder", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "reviews.reply") {
-    return `I posted the review reply.${assistantLink("Open Reviews", opts.linkUrl, "\n\n")}`;
-  }
-
-  if (opts.action === "ai_receptionist.highlights.get") {
-    const stats = (opts.result as any)?.stats && typeof (opts.result as any).stats === "object" ? (opts.result as any).stats : null;
-    const warnings = Array.isArray((opts.result as any).warnings) ? ((opts.result as any).warnings as string[]) : [];
-    const issues = Array.isArray((opts.result as any).issues) ? ((opts.result as any).issues as any[]) : [];
-    if (!stats) return null;
-    const lines = [
-      `- Total recent calls: ${Number(stats.total || 0)}`,
-      `- Completed: ${Number(stats.completed || 0)}`,
-      `- Failed: ${Number(stats.failed || 0)}`,
-      `- In progress: ${Number(stats.inProgress || 0)}`,
-    ];
-    if (warnings.length) lines.push(`- Warning: ${String(warnings[0]).trim()}`);
-    if (issues.length) lines.push(`- Top issue: ${String(issues[0]?.summary || "").trim()}`);
-    return `Here’s the recent AI receptionist snapshot:\n\n${lines.join("\n")}`;
-  }
-
-  if (opts.action === "me.get") {
-    const role = typeof (opts.result as any)?.role === "string" ? String((opts.result as any).role).trim().toUpperCase() : "UNKNOWN";
-    const memberId = typeof (opts.result as any)?.memberId === "string" ? String((opts.result as any).memberId).trim() : "";
-    const ownerId = typeof (opts.result as any)?.ownerId === "string" ? String((opts.result as any).ownerId).trim() : "";
-    const permissions = (opts.result as any)?.permissions && typeof (opts.result as any).permissions === "object" ? (opts.result as any).permissions : {};
-    const enabledAreas = Object.entries(permissions)
-      .filter(([, value]) => value && typeof value === "object" && Object.values(value as Record<string, unknown>).some(Boolean))
-      .slice(0, 6)
-      .map(([key]) => key);
-    return `You’re signed in as ${role === "OWNER" ? "the account owner" : role.toLowerCase()}. ${memberId && ownerId && memberId === ownerId ? "This member is the owner record for the account." : ""}${enabledAreas.length ? ` Enabled areas include ${enabledAreas.join(", ")}.` : ""}${assistantLink("Open Profile", opts.linkUrl, " ")}`.trim();
-  }
-
-  return null;
 }
 
 function sanitizeHumanName(raw: unknown, maxLen: number) {
@@ -3435,6 +3417,7 @@ async function runDirectAction(opts: {
   args: any;
 }): Promise<{ status: number; json: any }> {
   const { action, ownerId, actorUserId, args } = opts;
+  type HostedPageDocumentRecord = NonNullable<Awaited<ReturnType<typeof getHostedPageDocument>>>;
 
   function readStringArray(json: unknown): string[] {
     if (!Array.isArray(json)) return [];
@@ -3472,6 +3455,134 @@ async function runDirectAction(opts: {
     }
 
     return { body: raw };
+  }
+
+  function normalizeWhitespace(value: unknown, maxLen = 500): string {
+    return String(value || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, maxLen);
+  }
+
+  function stripLeadingInstructionLabel(value: string): string {
+    return value
+      .replace(/^(rewrite|topic) instruction\s*:/i, "")
+      .replace(/^keep the draft centered on this exact topic\/title\s*:/i, "")
+      .replace(/^current (excerpt|draft context)\s*:/i, "")
+      .trim();
+  }
+
+  function extractOfferPhrase(prompt: string): string {
+    const text = normalizeWhitespace(prompt, 240);
+    if (!text) return "";
+    const offerMatch = text.match(/\boffers?\s+(?:an?\s+)?(.+?)(?:[.!,]|$)/i);
+    if (offerMatch?.[1]) return stripLeadingInstructionLabel(offerMatch[1]).slice(0, 120);
+    const forMatch = text.match(/\bfor\s+those leads\s+that\s+(.+?)(?:[.!,]|$)/i);
+    if (forMatch?.[1]) return stripLeadingInstructionLabel(forMatch[1]).slice(0, 120);
+    return stripLeadingInstructionLabel(text).slice(0, 120);
+  }
+
+  function buildLeadOutboundFallback(opts: {
+    kind: "EMAIL" | "SMS";
+    prompt: string;
+    existingSubject?: string;
+    existingBody?: string;
+    senderBusinessName?: string;
+  }): { subject?: string; body: string } {
+    const offer = extractOfferPhrase(opts.prompt) || "a quick outreach idea";
+    const senderName = normalizeWhitespace(opts.senderBusinessName, 120) || "The team";
+
+    if (opts.kind === "SMS") {
+      const body = [
+        `Hi {businessName}, I noticed your ${"{website}"} could be a fit for ${offer}.`,
+        "If helpful, I can send over 2 or 3 practical ideas you could use right away.",
+        `- ${senderName}`,
+      ]
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 320);
+      return { body };
+    }
+
+    const subject = normalizeWhitespace(opts.existingSubject, 200) || `Quick idea for {businessName}`;
+    const opening = normalizeWhitespace(opts.existingBody, 240)
+      || `I came across {website} and thought ${offer} could help turn more interest into real conversations.`;
+    const body = [
+      "Hi {businessName} team,",
+      "",
+      opening,
+      "",
+      `We help businesses tighten the path from first click to booked call, and I thought a ${offer} could be a useful next step.`,
+      "",
+      "If you want, I can send over 2 or 3 practical recommendations based on your current flow.",
+      "",
+      `Best,\n${senderName}`,
+    ]
+      .join("\n")
+      .trim()
+      .slice(0, 8000);
+
+    return { subject, body };
+  }
+
+  function buildBlogDraftFallback(opts: {
+    existingTitle?: string;
+    existingExcerpt?: string;
+    existingContent?: string;
+    prompt?: string;
+    topic?: string;
+    businessName?: string;
+    brandVoice?: string;
+  }) {
+    const resolvedTitle = normalizeWhitespace(opts.existingTitle, 180)
+      || stripLeadingInstructionLabel(normalizeWhitespace(opts.prompt || opts.topic, 180))
+      || "How to tighten a conversion-focused draft";
+    const resolvedExcerpt = normalizeWhitespace(opts.existingExcerpt, 320)
+      || `A sharper, more practical take on ${resolvedTitle.toLowerCase()} with a clearer promise and next steps.`;
+    const cleanedExistingContent = String(opts.existingContent || "").trim();
+    const businessName = normalizeWhitespace(opts.businessName, 120) || "your business";
+    const brandVoice = normalizeWhitespace(opts.brandVoice, 120);
+
+    const content = [
+      `## ${resolvedTitle}`,
+      "",
+      resolvedExcerpt,
+      "",
+      "## What to sharpen",
+      "- Lead with the concrete outcome the reader wants.",
+      "- Replace vague claims with specific webinar or funnel steps and examples.",
+      brandVoice ? `- Keep the tone ${brandVoice.toLowerCase()} while staying clear and practical.` : "- Keep the tone clear, confident, and practical.",
+      "",
+      cleanedExistingContent
+        ? "## Refined draft direction"
+        : "## Draft direction",
+      cleanedExistingContent
+        ? cleanedExistingContent.slice(0, 4000)
+        : [
+            `If ${businessName.toLowerCase()} wants this piece to convert, the opening should immediately explain why ${resolvedTitle.toLowerCase()} matters now.`,
+            "",
+            "A stronger version should move from the core pain point, to the practical fix, to a short list of actions the reader can take this week.",
+            "",
+            "Include a short section with examples, a section that removes likely objections, and a closing CTA that points the reader toward the next conversation or audit.",
+          ].join("\n"),
+      "",
+      "## Next step",
+      "Use this as the working draft, then do a final voice pass when AI generation is available again.",
+      "",
+      "For a publish-ready automation stack, see [Purely Automation](https://purelyautomation.com).",
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .trim()
+      .slice(0, 200000);
+
+    return {
+      title: resolvedTitle,
+      excerpt: resolvedExcerpt,
+      content,
+      seoKeywords: [],
+    };
   }
 
   async function requireOwnerOrAdmin() {
@@ -4033,7 +4144,233 @@ async function runDirectAction(opts: {
     automations: z.array(automationSchema).max(50),
   });
 
+  async function resolveHostedPageDocumentTarget(
+    rawArgs: Record<string, unknown>,
+    capability: PortalServiceCapability,
+  ): Promise<
+    | { ok: true; document: HostedPageDocumentRecord }
+    | { ok: false; status: number; error: string }
+  > {
+    const documentId = typeof rawArgs.documentId === "string" ? rawArgs.documentId.trim() : "";
+    if (documentId) {
+      const document = await getHostedPageDocument(ownerId, documentId);
+      if (!document) return { ok: false, status: 404, error: "Hosted page document not found" };
+      if (!(await requireServiceCapability(portalServiceKeyForHostedPageService(document.service), capability))) {
+        return { ok: false, status: 403, error: "Forbidden" };
+      }
+      return { ok: true, document };
+    }
+
+    const rawService = typeof rawArgs.service === "string" ? rawArgs.service.trim() : "";
+    const service = parseHostedPageService(rawService);
+    if (!service) {
+      return { ok: false, status: 400, error: "Invalid service" };
+    }
+    if (!(await requireServiceCapability(portalServiceKeyForHostedPageService(service), capability))) {
+      return { ok: false, status: 403, error: "Forbidden" };
+    }
+
+    const documents = await bootstrapHostedPageDocuments(ownerId, service);
+    const requestedKey = typeof rawArgs.pageKey === "string" ? rawArgs.pageKey.trim().toLowerCase() : "";
+    const requestedSlug = typeof rawArgs.slug === "string" ? rawArgs.slug.trim().toLowerCase() : "";
+    let document: HostedPageDocumentRecord | null =
+      documents.find((entry: HostedPageDocumentRecord) => String(entry?.pageKey || "").trim().toLowerCase() === requestedKey) ||
+      documents.find((entry: HostedPageDocumentRecord) => String(entry?.slug || "").trim().toLowerCase() === requestedKey) ||
+      documents.find((entry: HostedPageDocumentRecord) => String(entry?.slug || "").trim().toLowerCase() === requestedSlug) ||
+      null;
+
+    if (!document) {
+      const defaultPageKeyByService: Record<string, string> = {
+        BOOKING: "booking_main",
+        NEWSLETTER: "newsletter_home",
+        REVIEWS: "reviews_home",
+        BLOGS: "blogs_index",
+      };
+      const defaultPageKey = defaultPageKeyByService[String(service).toUpperCase()] || "";
+      document = documents.find((entry: HostedPageDocumentRecord) => String(entry?.pageKey || "").trim().toLowerCase() === defaultPageKey) || documents[0] || null;
+    }
+
+    if (!document) return { ok: false, status: 404, error: "Hosted page document not found" };
+    return { ok: true, document };
+  }
+
   switch (action) {
+    case "hosted_pages.documents.list": {
+      const rawService = typeof args.service === "string" ? args.service.trim() : "";
+      if (rawService.toUpperCase() === "ALL") {
+        if (!(await requireAnyServiceCapability(["booking", "newsletter", "reviews", "blogs"], "view"))) {
+          return { status: 403, json: { ok: false, error: "Forbidden" } };
+        }
+        const documents = await listAllHostedPageDocuments(ownerId);
+        return { status: 200, json: { ok: true, service: "ALL", generatorPrompt: null, documents } };
+      }
+
+      const service = parseHostedPageService(rawService);
+      if (!service) return { status: 400, json: { ok: false, error: "Invalid service" } };
+      if (!(await requireServiceCapability(portalServiceKeyForHostedPageService(service), "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const documents = await bootstrapHostedPageDocuments(ownerId, service);
+      return {
+        status: 200,
+        json: { ok: true, service, generatorPrompt: getDefaultHostedPagePrompt(service), documents },
+      };
+    }
+
+    case "hosted_pages.documents.bootstrap": {
+      const service = parseHostedPageService(typeof args.service === "string" ? args.service.trim() : "");
+      if (!service) return { status: 400, json: { ok: false, error: "Invalid service" } };
+      if (!(await requireServiceCapability(portalServiceKeyForHostedPageService(service), "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+      const documents = await bootstrapHostedPageDocuments(ownerId, service);
+      return {
+        status: 200,
+        json: { ok: true, service, generatorPrompt: getDefaultHostedPagePrompt(service), documents },
+      };
+    }
+
+    case "hosted_pages.documents.get": {
+      const target = await resolveHostedPageDocumentTarget(args, "view");
+      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          document: target.document,
+          generatorPrompt: getDefaultHostedPagePrompt(target.document.service, target.document),
+        },
+      };
+    }
+
+    case "hosted_pages.documents.update": {
+      const target = await resolveHostedPageDocumentTarget(args, "edit");
+      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
+      const document = await updateHostedPageDocument(ownerId, target.document.id, {
+        title: args.title,
+        slug: args.slug,
+        status: args.status,
+        contentMarkdown: args.contentMarkdown,
+        editorMode: args.editorMode,
+        customHtml: args.customHtml,
+        blocksJson: args.blocksJson,
+        customChatJson: args.customChatJson,
+        themeJson: args.themeJson,
+        dataBindingsJson: args.dataBindingsJson,
+        seo: Object.prototype.hasOwnProperty.call(args ?? {}, "seo") ? ((args as any).seo ?? null) : undefined,
+      });
+      if (!document) return { status: 404, json: { ok: false, error: "Hosted page document not found" } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          document,
+          generatorPrompt: getDefaultHostedPagePrompt(document.service, document),
+        },
+      };
+    }
+
+    case "hosted_pages.documents.preview_data": {
+      const target = await resolveHostedPageDocumentTarget(args, "view");
+      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
+      const previewData = await getHostedPagePreviewData(ownerId, target.document.id);
+      if (!previewData) return { status: 404, json: { ok: false, error: "Hosted page document not found" } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          document: target.document,
+          previewData,
+          generatorPrompt: getDefaultHostedPagePrompt(target.document.service, target.document),
+        },
+      };
+    }
+
+    case "hosted_pages.documents.publish": {
+      const target = await resolveHostedPageDocumentTarget(args, "edit");
+      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
+      const document = await setHostedPageDocumentStatus(ownerId, target.document.id, "PUBLISHED");
+      if (!document) return { status: 404, json: { ok: false, error: "Hosted page document not found" } };
+      return {
+        status: 200,
+        json: { ok: true, document, generatorPrompt: getDefaultHostedPagePrompt(document.service, document) },
+      };
+    }
+
+    case "hosted_pages.documents.reset_to_default": {
+      const target = await resolveHostedPageDocumentTarget(args, "edit");
+      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
+      const document = await resetHostedPageDocumentToDefault(ownerId, target.document.id);
+      if (!document) return { status: 404, json: { ok: false, error: "Hosted page document not found" } };
+      return {
+        status: 200,
+        json: { ok: true, document, generatorPrompt: getDefaultHostedPagePrompt(document.service, document) },
+      };
+    }
+
+    case "hosted_pages.documents.generate_html": {
+      const target = await resolveHostedPageDocumentTarget(args, "edit");
+      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
+      const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
+      if (!prompt) return { status: 400, json: { ok: false, error: "Missing prompt" } };
+      let result;
+      try {
+        result = await generateHostedPageHtml({
+          ownerId,
+          documentId: target.document.id,
+          prompt,
+          currentHtml: typeof args.currentHtml === "string" ? args.currentHtml : undefined,
+          attachments: args.attachments,
+          requestOrigin: getAppBaseUrl(),
+        });
+      } catch (error) {
+        return {
+          status: 502,
+          json: {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error ?? "Hosted page generation failed."),
+          },
+        };
+      }
+      if (!result) return { status: 404, json: { ok: false, error: "Hosted page document not found" } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          ...(result.question ? { question: result.question } : { html: result.html }),
+          document: result.document,
+          generatorPrompt: getDefaultHostedPagePrompt(result.document.service, result.document),
+        },
+      };
+    }
+
+    case "hosted_pages.documents.export_custom_html": {
+      const target = await resolveHostedPageDocumentTarget(args, "edit");
+      if (!target.ok) return { status: target.status, json: { ok: false, error: target.error } };
+      const result = await exportHostedPageDocumentCustomHtml({
+        ownerId,
+        documentId: target.document.id,
+        title: typeof args.title === "string" ? args.title : undefined,
+        blocksJson: args.blocksJson,
+        setEditorMode:
+          typeof args.setEditorMode === "string" && (args.setEditorMode === "BLOCKS" || args.setEditorMode === "CUSTOM_HTML")
+            ? args.setEditorMode
+            : undefined,
+        basePath: portalBasePath("portal"),
+      });
+      if (!result) return { status: 404, json: { ok: false, error: "Hosted page document not found" } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          html: result.html,
+          document: result.document,
+          generatorPrompt: getDefaultHostedPagePrompt(result.document.service, result.document),
+        },
+      };
+    }
+
     case "tasks.create": {
       if (!(await requireServiceCapability("tasks", "edit"))) {
         return { status: 403, json: { ok: false, error: "Forbidden" } };
@@ -4508,6 +4845,7 @@ async function runDirectAction(opts: {
 
       const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
       const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
+      await canUseCreditFunnelPageDraftHtml();
 
       const newBlockId = (prefix = "b") => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
       const navItems: FunnelHeaderNavItem[] = [{ id: "home", label: "Home", kind: "page", pageSlug: "home" }];
@@ -5895,6 +6233,7 @@ async function runDirectAction(opts: {
 
       const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
       const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
+      const hasDraftHtml = await canUseCreditFunnelPageDraftHtml();
 
       const newBlockId = (prefix = "b") => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
       const isThankYouPage = /(^|-)thank(-|$)/i.test(normalizedSlug) || /thank/i.test(finalTitle);
@@ -5970,8 +6309,8 @@ async function runDirectAction(opts: {
 
       const page = await prisma.creditFunnelPage.update({
         where: { id: created.id },
-        data: createFunnelPageMirroredHtmlUpdate(htmlSnapshot),
-        select: {
+        data: applyDraftHtmlWriteCompat(createFunnelPageMirroredHtmlUpdate(htmlSnapshot), hasDraftHtml),
+        select: withDraftHtmlSelect({
           id: true,
           funnelId: true,
           slug: true,
@@ -5981,14 +6320,13 @@ async function runDirectAction(opts: {
           editorMode: true,
           blocksJson: true,
           customHtml: true,
-          draftHtml: true,
           customChatJson: true,
           createdAt: true,
           updatedAt: true,
-        } as any,
+        }, hasDraftHtml) as any,
       });
 
-      return { status: 200, json: { ok: true, page, creditsRemaining: charged.state.balance } };
+      return { status: 200, json: { ok: true, page: normalizeDraftHtml(page as any), creditsRemaining: charged.state.balance } };
     }
 
     case "funnel_builder.pages.update": {
@@ -6137,11 +6475,12 @@ async function runDirectAction(opts: {
       const funnelId = String(args?.funnelId || "").trim();
       const pageId = String(args?.pageId || "").trim();
       if (!funnelId || !pageId) return { status: 400, json: { ok: false, error: "Invalid id" } };
+      const hasDraftHtml = await canUseCreditFunnelPageDraftHtml();
 
       const page = await prisma.creditFunnelPage
         .findFirst({
           where: { id: pageId, funnelId, funnel: { ownerId } },
-          select: { id: true, slug: true, title: true, editorMode: true, blocksJson: true, customHtml: true, draftHtml: true, customChatJson: true, updatedAt: true } as any,
+          select: withDraftHtmlSelect({ id: true, slug: true, title: true, editorMode: true, blocksJson: true, customHtml: true, customChatJson: true, updatedAt: true }, hasDraftHtml) as any,
         })
         .catch(() => null);
 
@@ -6169,7 +6508,7 @@ async function runDirectAction(opts: {
 
       const updated = await prisma.creditFunnelPage.update({
         where: { id: page.id },
-        data: {
+        data: applyDraftHtmlWriteCompat({
           ...(blocksFromClient.length
             ? (createFunnelPageBlockSnapshotUpdate({
                 blocks: blocksFromClient,
@@ -6180,21 +6519,20 @@ async function runDirectAction(opts: {
               }) as any)
             : createFunnelPageMirroredHtmlUpdate(html)),
           ...(typeof args?.setEditorMode === "string" ? { editorMode: args.setEditorMode } : null),
-        },
-        select: {
+        }, hasDraftHtml),
+        select: withDraftHtmlSelect({
           id: true,
           slug: true,
           title: true,
           editorMode: true,
           blocksJson: true,
           customHtml: true,
-          draftHtml: true,
           customChatJson: true,
           updatedAt: true,
-        } as any,
+        }, hasDraftHtml) as any,
       });
 
-      return { status: 200, json: { ok: true, html: getFunnelPageCurrentHtml(updated), page: updated } };
+      return { status: 200, json: { ok: true, html: getFunnelPageCurrentHtml(normalizeDraftHtml(updated as any)), page: normalizeDraftHtml(updated as any) } };
     }
 
     case "funnel_builder.pages.generate_html": {
@@ -6504,6 +6842,93 @@ async function runDirectAction(opts: {
         }
       }
 
+      function buildFallbackLandingPageHtml(opts: {
+        basePath: string;
+        funnelSlug: string;
+        pageSlug: string;
+        pageTitle: string;
+        funnelName: string;
+        prompt: string;
+        formSlug?: string;
+      }): string {
+        const title = normalizeWhitespace(opts.pageTitle, 160) || normalizeWhitespace(opts.funnelName, 160) || "Landing Page";
+        const promptText = normalizeWhitespace(opts.prompt, 240);
+        const lowerPrompt = promptText.toLowerCase();
+        const isWebinar = /webinar/.test(lowerPrompt);
+        const ctaText = isWebinar ? "Reserve your spot" : "Get started";
+        const ctaHref = opts.formSlug
+          ? `${opts.basePath}/forms/${encodeURIComponent(opts.formSlug)}`
+          : `${opts.basePath}/f/${encodeURIComponent(opts.funnelSlug)}/${encodeURIComponent(opts.pageSlug)}#cta`;
+        const eyebrow = isWebinar ? "Free training" : "Featured offer";
+        const subheadline = promptText
+          || "A polished fallback layout is in place so you can keep refining the page while AI generation catches up.";
+
+        return [
+          "<!doctype html>",
+          '<html lang="en">',
+          "<head>",
+          '  <meta charset="utf-8" />',
+          '  <meta name="viewport" content="width=device-width, initial-scale=1" />',
+          `  <title>${escapeHtml(title)}</title>`,
+          "  <style>",
+          "    :root{color-scheme:light;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}",
+          "    *{box-sizing:border-box}body{margin:0;background:#0f172a;color:#e5eefb;line-height:1.6}a{text-decoration:none}main{display:block}",
+          "    .shell{max-width:1120px;margin:0 auto;padding:24px}.hero,.section{border:1px solid rgba(148,163,184,.18);background:linear-gradient(180deg,rgba(15,23,42,.92),rgba(15,23,42,.82));border-radius:28px;box-shadow:0 24px 80px rgba(2,6,23,.28)}",
+          "    .hero{padding:72px 32px 40px}.eyebrow{display:inline-flex;padding:8px 14px;border-radius:999px;background:rgba(59,130,246,.18);color:#bfdbfe;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}",
+          "    h1,h2,h3,p{margin:0}h1{font-size:clamp(2.4rem,5vw,4.4rem);line-height:1.05;margin-top:18px;max-width:12ch}h2{font-size:clamp(1.6rem,3vw,2.4rem);margin-bottom:14px}",
+          "    .lede{max-width:62ch;margin-top:18px;color:#cbd5e1;font-size:1.05rem}.actions{display:flex;flex-wrap:wrap;gap:14px;margin-top:28px}.btn{display:inline-flex;align-items:center;justify-content:center;padding:14px 20px;border-radius:999px;font-weight:700}.btn-primary{background:#38bdf8;color:#082f49}.btn-secondary{border:1px solid rgba(148,163,184,.3);color:#e2e8f0}",
+          "    .proof{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-top:32px}.proof-card,.benefit,.quote{padding:20px;border-radius:22px;background:rgba(15,23,42,.72);border:1px solid rgba(148,163,184,.14)}",
+          "    .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}.section{padding:32px;margin-top:22px}.muted{color:#94a3b8}.quote strong{display:block;margin-bottom:10px;color:#f8fafc}",
+          "    .cta{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:18px}.cta-copy{max-width:56ch}",
+          "    @media (max-width:720px){.hero,.section{padding:24px}.actions{flex-direction:column}.btn{width:100%}}",
+          "  </style>",
+          "</head>",
+          "<body>",
+          "  <main class=\"shell\">",
+          "    <section class=\"hero\">",
+          `      <span class=\"eyebrow\">${escapeHtml(eyebrow)}</span>`,
+          `      <h1>${escapeHtml(title)}</h1>`,
+          `      <p class=\"lede\">${escapeHtml(subheadline)}</p>`,
+          "      <div class=\"actions\">",
+          `        <a class=\"btn btn-primary\" href=\"${escapeHtml(ctaHref)}\">${escapeHtml(ctaText)}</a>`,
+          "        <a class=\"btn btn-secondary\" href=\"#benefits\">See what’s inside</a>",
+          "      </div>",
+          "      <div class=\"proof\">",
+          "        <div class=\"proof-card\"><strong>Clear promise</strong><p class=\"muted\">The page leads with one outcome and one next step.</p></div>",
+          "        <div class=\"proof-card\"><strong>Low-friction CTA</strong><p class=\"muted\">Visitors get a direct path to raise their hand or book.</p></div>",
+          "        <div class=\"proof-card\"><strong>Premium pacing</strong><p class=\"muted\">Spacing, hierarchy, and contrast stay clean across mobile and desktop.</p></div>",
+          "      </div>",
+          "    </section>",
+          "    <section id=\"benefits\" class=\"section\">",
+          "      <h2>Why this page converts better</h2>",
+          "      <div class=\"grid\">",
+          "        <article class=\"benefit\"><h3>Stronger first impression</h3><p class=\"muted\">The hero establishes the offer quickly so visitors understand the value without hunting for it.</p></article>",
+          "        <article class=\"benefit\"><h3>Credibility built in</h3><p class=\"muted\">The proof strip and supporting sections reinforce why the offer is worth attention.</p></article>",
+          "        <article class=\"benefit\"><h3>Cleaner conversion path</h3><p class=\"muted\">Every section points toward a single CTA instead of competing next steps.</p></article>",
+          "      </div>",
+          "    </section>",
+          "    <section class=\"section\">",
+          "      <h2>What people should feel before they click</h2>",
+          "      <div class=\"grid\">",
+          "        <article class=\"quote\"><strong>\"This feels specific and worth my time.\"</strong><p class=\"muted\">Use this section for your strongest real attendee or client quote once you have it ready.</p></article>",
+          "        <article class=\"quote\"><strong>\"The next step is obvious.\"</strong><p class=\"muted\">Keep one focused CTA and remove anything that distracts from it.</p></article>",
+          "      </div>",
+          "    </section>",
+          "    <section id=\"cta\" class=\"section\">",
+          "      <div class=\"cta\">",
+          "        <div class=\"cta-copy\">",
+          `          <h2>${escapeHtml(isWebinar ? "Save your spot and see the funnel in action" : "Take the next step")}</h2>`,
+          "          <p class=\"muted\">This fallback layout is live so you can keep moving now and do a richer AI pass later without losing momentum.</p>",
+          "        </div>",
+          `        <a class=\"btn btn-primary\" href=\"${escapeHtml(ctaHref)}\">${escapeHtml(ctaText)}</a>`,
+          "      </div>",
+          "    </section>",
+          "  </main>",
+          "</body>",
+          "</html>",
+        ].join("\n");
+      }
+
       type AiAttachment = { url: string; fileName?: string; mimeType?: string };
       type ContextMedia = { url: string; fileName?: string; mimeType?: string };
 
@@ -6628,6 +7053,7 @@ async function runDirectAction(opts: {
 
       const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
       const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
+      const hasDraftHtml = await canUseCreditFunnelPageDraftHtml();
 
       const currentHtmlFromClient = typeof args?.currentHtml === "string" ? args.currentHtml : null;
       const attachments = coerceAttachments(args?.attachments);
@@ -6648,6 +7074,7 @@ async function runDirectAction(opts: {
         },
       });
       if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
+      const normalizedPage = normalizeDraftHtml(page as any);
 
       const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
       const stripeProducts = await getStripeProductsForOwner(ownerId).catch(() => ({ ok: false as const, products: [] as any[] }));
@@ -6812,17 +7239,9 @@ async function runDirectAction(opts: {
         const assistantMsg = assistantText ? { role: "assistant", content: assistantText, at: new Date().toISOString() } : null;
         const nextChat = (assistantMsg ? [...prevChat, userMsg, assistantMsg] : [...prevChat, userMsg]).slice(-40);
 
-        const htmlSnapshot = blocksToCustomHtmlDocument({
-          blocks,
-          pageId: page.id,
-          ownerId,
-          basePath,
-          title: page.title || page.funnel.name || "Funnel page",
-        });
-
         const updated = await prisma.creditFunnelPage.update({
           where: { id: page.id },
-          data: {
+          data: applyDraftHtmlWriteCompat({
             editorMode: "BLOCKS",
             ...(createFunnelPageBlockSnapshotUpdate({
               blocks,
@@ -6832,21 +7251,20 @@ async function runDirectAction(opts: {
               title: page.title || page.funnel.name || "Funnel page",
             }) as any),
             customChatJson: nextChat,
-          },
-          select: {
+          }, hasDraftHtml),
+          select: withDraftHtmlSelect({
             id: true,
             slug: true,
             title: true,
             editorMode: true,
             blocksJson: true,
             customHtml: true,
-            draftHtml: true,
             customChatJson: true,
             updatedAt: true,
-          } as any,
+          }, hasDraftHtml) as any,
         });
 
-        return { status: 200, json: { ok: true, page: updated } };
+        return { status: 200, json: { ok: true, page: normalizeDraftHtml(updated as any) } };
       }
 
       const forms = await prisma.creditForm.findMany({
@@ -6899,9 +7317,14 @@ async function runDirectAction(opts: {
           : "";
 
       const effectiveCurrentHtml = (
-        (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : exportedCurrentHtmlFromBlocks || getFunnelPageCurrentHtml(page))
+        (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : exportedCurrentHtmlFromBlocks || getFunnelPageCurrentHtml(normalizedPage))
       ).trim();
       const hasCurrentHtml = Boolean(effectiveCurrentHtml);
+      const canUseFallbackLandingScaffold =
+        !hasCurrentHtml
+        || page.editorMode === "BLOCKS"
+        || effectiveCurrentHtml.length < 1200
+        || !/<section\b/i.test(effectiveCurrentHtml);
       const wantsDesignRedesign = /\b(hero|proof strip|credibility strip|benefits?|testimonials?|cta|call to action|layout|design|redesign|premium|modern|landing page|sales page|polish|refresh)\b/i.test(prompt);
 
       const system = [
@@ -7008,11 +7431,24 @@ async function runDirectAction(opts: {
         if (!question) {
           html = extractHtml(aiRaw);
         }
-      } catch (e) {
-        return {
-          status: 500,
-          json: { ok: false, error: (e as any)?.message ? String((e as any).message) : "AI generation failed" },
-        };
+      } catch {
+        if (canUseFallbackLandingScaffold) {
+          const activeForm = forms.find((form) => String(form?.status || "").toUpperCase() === "PUBLISHED") || forms[0] || null;
+          html = buildFallbackLandingPageHtml({
+            basePath,
+            funnelSlug: page.funnel.slug,
+            pageSlug: page.slug,
+            pageTitle: page.title,
+            funnelName: page.funnel.name,
+            prompt,
+            formSlug: activeForm?.slug ? String(activeForm.slug) : undefined,
+          });
+        } else {
+          return {
+            status: 500,
+            json: { ok: false, error: "AI generation failed" },
+          };
+        }
       }
 
       if (question) {
@@ -7021,24 +7457,23 @@ async function runDirectAction(opts: {
 
         const updated = await prisma.creditFunnelPage.update({
           where: { id: page.id },
-          data: {
+          data: applyDraftHtmlWriteCompat({
             editorMode: "CUSTOM_HTML",
             ...(effectiveCurrentHtml ? createFunnelPageDraftUpdate(normalizePortalHostedPaths(effectiveCurrentHtml)) : {}),
             customChatJson: nextChat,
-          },
-          select: {
+          }, hasDraftHtml),
+          select: withDraftHtmlSelect({
             id: true,
             slug: true,
             title: true,
             editorMode: true,
             customHtml: true,
-            draftHtml: true,
             customChatJson: true,
             updatedAt: true,
-          } as any,
+          }, hasDraftHtml) as any,
         });
 
-        return { status: 200, json: { ok: true, question, page: updated } };
+        return { status: 200, json: { ok: true, question, page: normalizeDraftHtml(updated as any) } };
       }
 
       if (!html) return { status: 502, json: { ok: false, error: "AI returned empty HTML" } };
@@ -7070,20 +7505,19 @@ async function runDirectAction(opts: {
 
       const updated = await prisma.creditFunnelPage.update({
         where: { id: page.id },
-        data: { editorMode: "CUSTOM_HTML", ...(createFunnelPageDraftUpdate(normalizePortalHostedPaths(html))), customChatJson: nextChat },
-        select: {
+        data: applyDraftHtmlWriteCompat({ editorMode: "CUSTOM_HTML", ...(createFunnelPageDraftUpdate(normalizePortalHostedPaths(html))), customChatJson: nextChat }, hasDraftHtml),
+        select: withDraftHtmlSelect({
           id: true,
           slug: true,
           title: true,
           editorMode: true,
           customHtml: true,
-          draftHtml: true,
           customChatJson: true,
           updatedAt: true,
-        } as any,
+        }, hasDraftHtml) as any,
       });
 
-      return { status: 200, json: { ok: true, html: getFunnelPageCurrentHtml(updated), page: updated } };
+      return { status: 200, json: { ok: true, html: getFunnelPageCurrentHtml(normalizeDraftHtml(updated as any)), page: normalizeDraftHtml(updated as any) } };
     }
 
     case "funnel_builder.custom_code_block.generate": {
@@ -8612,7 +9046,7 @@ async function runDirectAction(opts: {
 
       const existing = await prisma.clientBlogPost.findFirst({
         where: { id: postId, site: { ownerId } },
-        select: { id: true, siteId: true },
+        select: { id: true, siteId: true, title: true, slug: true, excerpt: true, content: true, seoKeywords: true },
       });
       if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
 
@@ -8630,17 +9064,27 @@ async function runDirectAction(opts: {
         return `${base}-${Date.now()}`;
       }
 
-      const desiredSlug = String((args as any).slug || "").trim();
+      const nextTitle = typeof (args as any).title === "string" && String((args as any).title).trim()
+        ? String((args as any).title).trim()
+        : String(existing.title || "").trim() || "Blog Post";
+      const desiredSlug = String((args as any).slug || nextTitle || existing.slug || "").trim();
       const slug = await uniqueSlugForUpdate(existing.siteId, desiredSlug, existing.id);
+      const nextExcerpt = typeof (args as any).excerpt === "string" ? String((args as any).excerpt) : String(existing.excerpt ?? "");
+      const nextContent = typeof (args as any).content === "string" ? String((args as any).content) : String(existing.content ?? "");
+      const nextSeoKeywords = Array.isArray((args as any).seoKeywords)
+        ? (args as any).seoKeywords
+        : typeof (args as any).seoKeywords === "undefined"
+          ? existing.seoKeywords
+          : Prisma.DbNull;
 
       const updated = await prisma.clientBlogPost.update({
         where: { id: existing.id },
         data: {
-          title: String((args as any).title || "").trim(),
+          title: nextTitle,
           slug,
-          excerpt: String((args as any).excerpt ?? ""),
-          content: String((args as any).content ?? ""),
-          seoKeywords: Array.isArray((args as any).seoKeywords) && (args as any).seoKeywords.length ? (args as any).seoKeywords : Prisma.DbNull,
+          excerpt: nextExcerpt,
+          content: nextContent,
+          seoKeywords: Array.isArray(nextSeoKeywords) && nextSeoKeywords.length ? nextSeoKeywords : Prisma.DbNull,
           archivedAt: (args as any).archived ? new Date() : null,
           ...(typeof (args as any).publishedAt !== "undefined"
             ? { publishedAt: (args as any).publishedAt ? new Date(String((args as any).publishedAt)) : null }
@@ -9011,6 +9455,7 @@ async function runDirectAction(opts: {
 
         return { status: 200, json: { ok: true, postId: post.id, creditsRemaining: consumed.state.balance } };
       } catch (e) {
+        await refundCreditsBestEffort(ownerId, needCredits);
         const msg = e instanceof Error ? e.message : "Unknown error";
         return { status: 500, json: { error: msg } };
       }
@@ -9123,9 +9568,26 @@ async function runDirectAction(opts: {
 
         const state = await getCreditsState(ownerId);
         return { status: 200, json: { ok: true, draft, estimatedCredits: needCredits, creditsRemaining: state.balance } };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "Unknown error";
-        return { status: 500, json: { error: msg } };
+      } catch {
+        await refundCreditsBestEffort(ownerId, needCredits);
+        const refundedState = await getCreditsState(ownerId).catch(() => consumed.state);
+        const fallbackDraft = buildBlogDraftFallback({
+          existingTitle,
+          existingExcerpt,
+          existingContent: typeof post.content === "string" ? post.content : "",
+          prompt: prompt || undefined,
+          topic: topic || undefined,
+        });
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            draft: fallbackDraft,
+            estimatedCredits: 0,
+            creditsRemaining: refundedState.balance,
+            fallbackUsed: true,
+          },
+        };
       }
     }
 
@@ -16486,7 +16948,19 @@ async function runDirectAction(opts: {
         .filter(Boolean)
         .join("\n");
 
-      const content = await generateText({ system, user });
+      let content = "";
+      try {
+        content = await generateText({ system, user });
+      } catch (error) {
+        await refundCreditsBestEffort(ownerId, needCredits);
+        return {
+          status: 502,
+          json: {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error ?? "AI draft generation failed."),
+          },
+        };
+      }
 
       if (kind === "EMAIL") {
         const fromJson = tryParseJsonDraft(content);
@@ -17011,7 +17485,30 @@ async function runDirectAction(opts: {
         .filter(Boolean)
         .join("\n");
 
-      const content = await generateText({ system, user });
+      let content = "";
+      try {
+        content = await generateText({ system, user });
+      } catch {
+        await refundCreditsBestEffort(ownerId, needCredits);
+        const refundedState = await getCreditsState(ownerId).catch(() => consumed.state);
+        const fallbackDraft = buildLeadOutboundFallback({
+          kind,
+          prompt,
+          existingSubject,
+          existingBody,
+          senderBusinessName: businessName,
+        });
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            ...(kind === "EMAIL" ? { subject: String(fallbackDraft.subject || "").slice(0, 200) } : {}),
+            body: String(fallbackDraft.body || "").trim().slice(0, 8000),
+            creditsRemaining: refundedState.balance,
+            fallbackUsed: true,
+          },
+        };
+      }
 
       if (kind === "EMAIL") {
         const fromJson = tryParseJsonDraft(content);
@@ -17052,9 +17549,18 @@ async function runDirectAction(opts: {
       const takeRaw = (args as any)?.take;
       const qRaw = (args as any)?.q;
       const kindRaw = (args as any)?.kind;
+      const leadIdsProvided = Array.isArray((args as any)?.leadIds);
+      const leadIdsRaw = leadIdsProvided ? (((args as any).leadIds as unknown[]) || []) : [];
       const take = typeof takeRaw === "number" && Number.isFinite(takeRaw) ? Math.max(1, Math.min(500, Math.floor(takeRaw))) : 200;
       const q = typeof qRaw === "string" ? qRaw.trim().slice(0, 200) : "";
       const kind = kindRaw === "B2B" || kindRaw === "B2C" ? kindRaw : undefined;
+      const leadIds = Array.from(
+        new Set(
+          leadIdsRaw
+            .map((value) => (typeof value === "string" ? value.trim().slice(0, 64) : ""))
+            .filter(Boolean),
+        ),
+      ).slice(0, 100);
 
       const isMissingColumnError = (e: unknown) => {
         const anyErr = e as any;
@@ -17068,7 +17574,13 @@ async function runDirectAction(opts: {
       await ensurePortalContactTagsReady().catch(() => null);
       const hasContactId = await hasPublicColumn("PortalLead", "contactId").catch(() => false);
 
-      const baseWhere = kind ? ({ ownerId, kind } as const) : ({ ownerId } as const);
+      const baseWhere = leadIdsProvided
+        ? kind
+          ? ({ ownerId, kind, id: { in: leadIds } } as const)
+          : ({ ownerId, id: { in: leadIds } } as const)
+        : kind
+          ? ({ ownerId, kind } as const)
+          : ({ ownerId } as const);
       const searchWhere = q
         ? {
             ...baseWhere,
@@ -17790,154 +18302,265 @@ async function runDirectAction(opts: {
         return msg.includes("does not exist") && msg.includes("column");
       };
 
-      let createdCount = 0;
+      let matchedCount = 0;
+      let newCount = 0;
+      let reusedCount = 0;
       let error: string | null = null;
       const createdLeads: Array<{ id: string; businessName: string; phone: string | null; website: string | null; email: string | null }> = [];
+      const seenPlaceIds = new Set<string>();
+      const hasLeadEmailColumn = await hasPublicColumn("PortalLead", "email").catch(() => false);
 
       const aiCalls = (args as any)?.aiOutbound?.calls;
       const aiMsgs = (args as any)?.aiOutbound?.messages;
+      const shouldAiVerifyBusinesses = Boolean((b2bRaw as any).aiVerifyBusinesses) || requireEmail || requirePhone;
 
       try {
         await ensurePortalContactsSchema().catch(() => null);
 
-        const query = `${niche} in ${location}`;
-        const searchLimit = Math.max(10, Math.min(60, requestedCount * 3));
-        const results = await placesTextSearch(query, searchLimit);
+        const queryVariants = Array.from(
+          new Set(
+            [`${niche} in ${location}`, `${niche} near ${location}`, `${niche} services in ${location}`, `${niche} company in ${location}`]
+              .map((value) => value.trim())
+              .filter(Boolean),
+          ),
+        );
 
-        for (const r of results as any[]) {
-          if (createdCount >= requestedCount) break;
-          const placeId = typeof r?.place_id === "string" ? r.place_id : "";
-          if (!placeId) continue;
+        for (const query of queryVariants) {
+          if (matchedCount >= requestedCount) break;
 
-          let details: any = {};
-          try {
-            details = await placeDetails(placeId);
-          } catch {
-            continue;
-          }
+          const searchLimit = Math.max(12, Math.min(80, requestedCount * 4));
+          const results = await placesTextSearch(query, searchLimit);
 
-          const businessName = (
-            typeof details?.name === "string" ? details.name : typeof r?.name === "string" ? r.name : ""
-          )
-            .trim()
-            .slice(0, 200);
-          if (!businessName) continue;
+          for (const r of results as any[]) {
+            if (matchedCount >= requestedCount) break;
+            const placeId = typeof r?.place_id === "string" ? r.place_id : "";
+            if (!placeId || seenPlaceIds.has(placeId)) continue;
+            seenPlaceIds.add(placeId);
 
-          const nameKey = businessName.toLowerCase();
-          if (excludeNameContains.some((s) => s && nameKey.includes(s))) continue;
-
-          const phone = normalizePhone(details?.international_phone_number || details?.formatted_phone_number || null);
-          if (phone && excludePhones.has(phone)) continue;
-
-          const website = typeof details?.website === "string" ? details.website.trim().slice(0, 500) : null;
-          const address =
-            typeof details?.formatted_address === "string"
-              ? details.formatted_address.trim().slice(0, 500)
-              : typeof r?.formatted_address === "string"
-                ? r.formatted_address.trim().slice(0, 500)
-                : null;
-
-          const domain = website ? extractDomain(website) : null;
-          if (domain && excludeDomains.has(domain)) continue;
-
-          if (requirePhone && !phone) continue;
-          if (requireWebsite && !website) continue;
-
-          let email: string | null = null;
-          if (website) {
+            let details: any = {};
             try {
-              const res = await fetch(website, {
-                method: "GET",
-                headers: { "user-agent": "purelyautomation/lead-scraping" },
-                cache: "no-store",
-              });
-              if (res.ok) {
-                const html = await res.text().catch(() => "");
-                const emails = extractAllEmailAddresses(html);
-                if (emails.length) {
-                  const host = domain;
-                  const preferred = host ? emails.find((e) => e.toLowerCase().endsWith(`@${host}`)) : null;
-                  email = (preferred || emails[0] || "").trim().slice(0, 200) || null;
+              details = await placeDetails(placeId);
+            } catch {
+              continue;
+            }
+
+            const businessName = (
+              typeof details?.name === "string" ? details.name : typeof r?.name === "string" ? r.name : ""
+            )
+              .trim()
+              .slice(0, 200);
+            if (!businessName) continue;
+
+            const nameKey = businessName.toLowerCase();
+            if (excludeNameContains.some((s) => s && nameKey.includes(s))) continue;
+
+            const rawPhone = normalizePhone(details?.international_phone_number || details?.formatted_phone_number || null);
+            if (rawPhone && excludePhones.has(rawPhone)) continue;
+
+            const website = typeof details?.website === "string" ? details.website.trim().slice(0, 500) : null;
+            const address =
+              typeof details?.formatted_address === "string"
+                ? details.formatted_address.trim().slice(0, 500)
+                : typeof r?.formatted_address === "string"
+                  ? r.formatted_address.trim().slice(0, 500)
+                  : null;
+
+            const domain = website ? extractDomain(website) : null;
+            if (domain && excludeDomains.has(domain)) continue;
+
+            if (requireWebsite && !website) continue;
+
+            let email: string | null = null;
+            if (website) {
+              try {
+                const res = await fetch(website, {
+                  method: "GET",
+                  headers: { "user-agent": "purelyautomation/lead-scraping" },
+                  cache: "no-store",
+                });
+                if (res.ok) {
+                  const html = await res.text().catch(() => "");
+                  const emails = extractAllEmailAddresses(html);
+                  if (emails.length) {
+                    const preferred = domain ? emails.find((candidate) => candidate.toLowerCase().endsWith(`@${domain}`)) : null;
+                    email = (preferred || emails[0] || "").trim().slice(0, 200) || null;
+                  }
                 }
+              } catch {
+                // ignore
               }
-            } catch {
-              // ignore
             }
-          }
 
-          if (requireEmail && !email) continue;
+            let phone = rawPhone;
+            let enrichment: Awaited<ReturnType<typeof enrichLeadScrapeBusiness>> | null = null;
+            if (shouldAiVerifyBusinesses && (website || details)) {
+              try {
+                enrichment = await enrichLeadScrapeBusiness({
+                  businessName,
+                  niche: niche || null,
+                  address: address || null,
+                  website,
+                  existingEmail: email,
+                  existingPhone: phone,
+                  placeDetails: details,
+                });
+              } catch {
+                enrichment = null;
+              }
+            }
 
-          const created = await createPortalLeadCompat({
-            ownerId,
-            kind: "B2B",
-            source: "GOOGLE_PLACES",
-            businessName,
-            phone,
-            website,
-            address: address || null,
-            niche: niche || null,
-            placeId,
-            dataJson: {
-              leadScraping: {
-                kind: "B2B",
-                query,
-                place: { placeId },
+            email = email || enrichment?.primaryEmail || null;
+            phone = phone || enrichment?.primaryPhone || null;
+
+            if (phone && excludePhones.has(phone)) continue;
+            if (requirePhone && !phone) continue;
+            if (requireEmail && !email) continue;
+
+            const created = await createPortalLeadCompat({
+              ownerId,
+              kind: "B2B",
+              source: "GOOGLE_PLACES",
+              businessName,
+              phone,
+              website,
+              address: address || null,
+              niche: niche || null,
+              placeId,
+              dataJson: {
+                googlePlaces: {
+                  placeId,
+                  details,
+                  location: details?.location ?? null,
+                },
+                leadScraping: {
+                  kind: "B2B",
+                  query,
+                  place: { placeId },
+                },
+                ...(enrichment?.enrichment ? { aiVerification: enrichment.enrichment } : null),
               },
-            },
-          });
+            });
 
-          if (!created) continue;
+            if (!created) {
+              const existingLead = await prisma.portalLead
+                .findFirst({
+                  where: {
+                    ownerId,
+                    OR: [
+                      placeId ? { placeId } : null,
+                      phone ? { phone } : null,
+                    ].filter(Boolean) as any,
+                  },
+                  select: {
+                    id: true,
+                    businessName: true,
+                    phone: true,
+                    website: true,
+                    dataJson: true,
+                    ...(hasLeadEmailColumn ? { email: true } : {}),
+                  },
+                })
+                .catch(() => null);
 
-          createdCount++;
-          createdLeads.push({ id: created.id, businessName: created.businessName, phone: created.phone || null, website: created.website || null, email });
+              if (!existingLead) continue;
 
-          if (email) {
-            try {
-              await prisma.portalLead.updateMany({ where: { id: created.id, ownerId }, data: { email } });
-            } catch (e) {
-              if (!isMissingColumnError(e)) throw e;
-            }
-          }
+              try {
+                const patch: Record<string, unknown> = {};
+                if (hasLeadEmailColumn && email && !(existingLead as any).email) patch.email = email;
+                if (enrichment?.enrichment) {
+                  const root = existingLead.dataJson && typeof existingLead.dataJson === "object" && !Array.isArray(existingLead.dataJson)
+                    ? { ...(existingLead.dataJson as Record<string, unknown>) }
+                    : {};
+                  patch.dataJson = {
+                    ...root,
+                    aiVerification: enrichment.enrichment,
+                  } as any;
+                }
+                if (Object.keys(patch).length) {
+                  await prisma.portalLead.updateMany({ where: { id: existingLead.id, ownerId }, data: patch as any });
+                }
+              } catch (e) {
+                if (!isMissingColumnError(e)) throw e;
+              }
 
-          void runOwnerAutomationsForEvent({
-            ownerId,
-            triggerKind: "lead_scraped",
-            contact: { name: created.businessName || null, phone: created.phone || null },
-            event: { leadId: created.id },
-          }).catch(() => null);
-
-          if ((aiCalls && aiCalls.enabled) || (aiMsgs && aiMsgs.enabled)) {
-            try {
-              const contactId = await findOrCreatePortalContact({
-                ownerId,
-                name: created.businessName,
-                email,
-                phone: created.phone,
+              matchedCount++;
+              reusedCount++;
+              createdLeads.push({
+                id: existingLead.id,
+                businessName: existingLead.businessName,
+                phone: phone || existingLead.phone || null,
+                website: website || existingLead.website || null,
+                email: email || ((existingLead as any).email ?? null),
               });
+              continue;
+            }
 
-              if (!contactId) continue;
+            matchedCount++;
+            newCount++;
+            createdLeads.push({ id: created.id, businessName: created.businessName, phone: phone || null, website: created.website || null, email });
 
-              if (aiCalls && aiCalls.enabled) {
-                await enqueueOutboundCallForContact({
-                  ownerId,
-                  contactId,
-                  campaignId: typeof aiCalls.campaignId === "string" ? aiCalls.campaignId : undefined,
-                }).catch(() => null);
+            if (email || enrichment?.enrichment) {
+              try {
+                const patch: Record<string, unknown> = {};
+                if (email) patch.email = email;
+                if (enrichment?.enrichment) {
+                  const existingDataJson = await prisma.portalLead.findUnique({ where: { id: created.id }, select: { dataJson: true } }).catch(() => null);
+                  const root = existingDataJson?.dataJson && typeof existingDataJson.dataJson === "object" && !Array.isArray(existingDataJson.dataJson)
+                    ? { ...(existingDataJson.dataJson as Record<string, unknown>) }
+                    : {};
+                  patch.dataJson = {
+                    ...root,
+                    aiVerification: enrichment.enrichment,
+                  } as any;
+                }
+                if (Object.keys(patch).length) {
+                  await prisma.portalLead.updateMany({ where: { id: created.id, ownerId }, data: patch as any });
+                }
+              } catch (e) {
+                if (!isMissingColumnError(e)) throw e;
               }
+            }
 
-              if (aiMsgs && aiMsgs.enabled) {
-                const channelPolicy =
-                  aiMsgs.channelPolicy === "SMS" || aiMsgs.channelPolicy === "EMAIL" || aiMsgs.channelPolicy === "BOTH" ? aiMsgs.channelPolicy : undefined;
-                await enqueueOutboundMessageForContact({
+            void runOwnerAutomationsForEvent({
+              ownerId,
+              triggerKind: "lead_scraped",
+              contact: { name: created.businessName || null, phone: phone || null },
+              event: { leadId: created.id },
+            }).catch(() => null);
+
+            if ((aiCalls && aiCalls.enabled) || (aiMsgs && aiMsgs.enabled)) {
+              try {
+                const contactId = await findOrCreatePortalContact({
                   ownerId,
-                  contactId,
-                  campaignId: typeof aiMsgs.campaignId === "string" ? aiMsgs.campaignId : undefined,
-                  channelPolicy,
-                  source: "MANUAL",
-                }).catch(() => null);
+                  name: created.businessName,
+                  email,
+                  phone,
+                });
+
+                if (!contactId) continue;
+
+                if (aiCalls && aiCalls.enabled) {
+                  await enqueueOutboundCallForContact({
+                    ownerId,
+                    contactId,
+                    campaignId: typeof aiCalls.campaignId === "string" ? aiCalls.campaignId : undefined,
+                  }).catch(() => null);
+                }
+
+                if (aiMsgs && aiMsgs.enabled) {
+                  const channelPolicy =
+                    aiMsgs.channelPolicy === "SMS" || aiMsgs.channelPolicy === "EMAIL" || aiMsgs.channelPolicy === "BOTH" ? aiMsgs.channelPolicy : undefined;
+                  await enqueueOutboundMessageForContact({
+                    ownerId,
+                    contactId,
+                    campaignId: typeof aiMsgs.campaignId === "string" ? aiMsgs.campaignId : undefined,
+                    channelPolicy,
+                    source: "MANUAL",
+                  }).catch(() => null);
+                }
+              } catch {
+                // ignore
               }
-            } catch {
-              // ignore
             }
           }
         }
@@ -17945,7 +18568,7 @@ async function runDirectAction(opts: {
         error = typeof e?.message === "string" ? e.message : "Unknown error";
       }
 
-      const refundedCredits = Math.max(0, reservedCredits - createdCount);
+      const refundedCredits = Math.max(0, reservedCredits - matchedCount);
       if (refundedCredits > 0) {
         await addCredits(ownerId, refundedCredits).catch(() => null);
       }
@@ -17967,7 +18590,7 @@ async function runDirectAction(opts: {
 
       await prisma
         .$transaction([
-          prisma.portalLeadScrapeRun.update({ where: { id: run.id }, data: { createdCount, refundedCredits, error }, select: { id: true } }),
+          prisma.portalLeadScrapeRun.update({ where: { id: run.id }, data: { createdCount: matchedCount, refundedCredits, error }, select: { id: true } }),
           prisma.portalServiceSetup.upsert({
             where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
             create: { ownerId, serviceSlug: SERVICE_SLUG, status: "IN_PROGRESS", dataJson: updatedSettings as any },
@@ -17988,7 +18611,9 @@ async function runDirectAction(opts: {
             "",
             `Kind: B2B`,
             `Requested: ${requestedCount}`,
-            `Created: ${createdCount}`,
+            `Returned: ${matchedCount}`,
+            `New: ${newCount}`,
+            `Reused: ${reusedCount}`,
             `Credits charged: ${reservedCredits}`,
             `Credits refunded: ${refundedCredits}`,
             error ? `Error: ${error}` : null,
@@ -18012,7 +18637,10 @@ async function runDirectAction(opts: {
             requestedCount,
             chargedCredits: reservedCredits,
             refundedCredits,
-            createdCount,
+            createdCount: matchedCount,
+            matchedCount,
+            newCount,
+            reusedCount,
             leads: createdLeads.slice(0, 50),
           },
         };
@@ -18022,10 +18650,14 @@ async function runDirectAction(opts: {
         status: 200,
         json: {
           ok: true,
+          runId: run.id,
           requestedCount,
           chargedCredits: reservedCredits,
           refundedCredits,
-          createdCount,
+          createdCount: matchedCount,
+          matchedCount,
+          newCount,
+          reusedCount,
           leads: createdLeads.slice(0, 50),
         },
       };
@@ -19054,6 +19686,47 @@ async function runDirectAction(opts: {
         return (tzFromArgs || clientTimeZone || String(memberTimeZone || "").trim() || String(ownerTimeZone || "").trim() || "UTC").slice(0, 80);
       })();
 
+      const existingScheduled = await (prisma as any).portalAiChatMessage.findFirst({
+        where: {
+          ownerId,
+          threadId,
+          role: "user",
+          text,
+          sendAt: finalSendAt,
+          sentAt: null,
+          repeatEveryMinutes: repeatEveryMinutes > 0 ? repeatEveryMinutes : null,
+        },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          threadId: true,
+          text: true,
+          sendAt: true,
+          repeatEveryMinutes: true,
+          createdAt: true,
+        },
+      });
+      if (existingScheduled?.id) {
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            deduped: true,
+            scheduled: {
+              id: String(existingScheduled.id),
+              threadId: String(existingScheduled.threadId),
+              text: String(existingScheduled.text || ""),
+              sendAt: existingScheduled.sendAt ? new Date(existingScheduled.sendAt).toISOString() : null,
+              repeatEveryMinutes:
+                typeof existingScheduled.repeatEveryMinutes === "number" && Number.isFinite(existingScheduled.repeatEveryMinutes)
+                  ? Math.max(0, Math.floor(existingScheduled.repeatEveryMinutes))
+                  : 0,
+              createdAt: existingScheduled.createdAt ? new Date(existingScheduled.createdAt).toISOString() : null,
+            },
+          },
+        };
+      }
+
       const msg = await (prisma as any).portalAiChatMessage.create({
         data: {
           ownerId,
@@ -19332,6 +20005,23 @@ async function runDirectAction(opts: {
             })
           : r?.attachmentsJson ?? null;
 
+        const conflicting = await (prisma as any).portalAiChatMessage.findFirst({
+          where: {
+            ownerId,
+            role: "user",
+            text: String(r?.text || "").trim().slice(0, 4000),
+            sendAt: finalSendAt,
+            sentAt: null,
+            repeatEveryMinutes: repeatEveryMinutes > 0 ? repeatEveryMinutes : null,
+            id: { not: id },
+          },
+          select: { id: true },
+        });
+        if (conflicting?.id) {
+          skipped.push({ id, reason: "Exact pending schedule already exists at target time" });
+          continue;
+        }
+
         try {
           await (prisma as any).portalAiChatMessage.update({
             where: { id },
@@ -19380,7 +20070,7 @@ async function runDirectAction(opts: {
 
       const msg = await (prisma as any).portalAiChatMessage.findFirst({
         where: { id: messageId, ownerId, role: "user" },
-        select: { id: true, sentAt: true, repeatEveryMinutes: true, attachmentsJson: true },
+        select: { id: true, threadId: true, text: true, sendAt: true, sentAt: true, repeatEveryMinutes: true, attachmentsJson: true },
       });
       if (!msg) return { status: 404, json: { ok: false, error: "Not found" } };
       if (msg.sentAt) return { status: 409, json: { ok: false, error: "Already sent" } };
@@ -19438,7 +20128,7 @@ async function runDirectAction(opts: {
       if ("sendAtIso" in (args as any)) {
         const iso = (args as any).sendAtIso;
         if (iso === null) {
-          data.sendAt = null;
+          return { status: 400, json: { ok: false, error: "sendAt cannot be cleared; delete the schedule instead" } };
         } else if (typeof iso === "string") {
           const d = new Date(iso);
           if (!Number.isFinite(d.getTime())) {
@@ -19462,25 +20152,22 @@ async function runDirectAction(opts: {
             : nextRepeatRaw === null
               ? 0
               : currentRepeat;
-
-        if (nextRepeat > 0) {
-          const prev = (msg as any)?.attachmentsJson;
-          const asObj = prev && typeof prev === "object" && !Array.isArray(prev) ? (prev as any) : {};
-          data.attachmentsJson = {
-            ...asObj,
-            recurrence: {
-              ...(asObj.recurrence && typeof asObj.recurrence === "object" && !Array.isArray(asObj.recurrence) ? asObj.recurrence : {}),
-              timeZone: computed.timeZone || "UTC",
-              mode: "wall_clock",
-            },
-          };
-        }
+        data.attachmentsJson = withScheduledRecurrenceMetadata({
+          attachmentsJson: (msg as any)?.attachmentsJson ?? null,
+          repeatEveryMinutes: nextRepeat,
+          recurrenceTimeZone: nextRepeat > 0 ? computed.timeZone || "UTC" : null,
+        });
       }
 
       if ("repeatEveryMinutes" in (args as any)) {
         const v = (args as any).repeatEveryMinutes;
         if (v === null) {
           data.repeatEveryMinutes = null;
+          data.attachmentsJson = withScheduledRecurrenceMetadata({
+            attachmentsJson: data.attachmentsJson ?? (msg as any)?.attachmentsJson ?? null,
+            repeatEveryMinutes: 0,
+            recurrenceTimeZone: null,
+          });
         } else if (typeof v === "number" && Number.isFinite(v)) {
           const next = Math.max(0, Math.floor(v));
           data.repeatEveryMinutes = next > 0 ? next : null;
@@ -19497,18 +20184,50 @@ async function runDirectAction(opts: {
               80,
             );
 
-            const prev = (msg as any)?.attachmentsJson;
-            const asObj = prev && typeof prev === "object" && !Array.isArray(prev) ? (prev as any) : {};
-            data.attachmentsJson = {
-              ...asObj,
-              recurrence: {
-                ...(asObj.recurrence && typeof asObj.recurrence === "object" && !Array.isArray(asObj.recurrence) ? asObj.recurrence : {}),
-                timeZone: recurrenceTimeZone || "UTC",
-                mode: "wall_clock",
-              },
-            };
+            data.attachmentsJson = withScheduledRecurrenceMetadata({
+              attachmentsJson: data.attachmentsJson ?? (msg as any)?.attachmentsJson ?? null,
+              repeatEveryMinutes: next,
+              recurrenceTimeZone: recurrenceTimeZone || "UTC",
+            });
+          } else {
+            data.attachmentsJson = withScheduledRecurrenceMetadata({
+              attachmentsJson: data.attachmentsJson ?? (msg as any)?.attachmentsJson ?? null,
+              repeatEveryMinutes: 0,
+              recurrenceTimeZone: null,
+            });
           }
         }
+      }
+
+      const nextText = typeof data.text === "string" ? String(data.text || "").trim().slice(0, 4000) : String((msg as any).text || "").trim().slice(0, 4000);
+      const nextSendAt = "sendAt" in data ? (data.sendAt instanceof Date ? data.sendAt : null) : ((msg as any).sendAt ? new Date((msg as any).sendAt) : null);
+      const nextRepeatEveryMinutes =
+        "repeatEveryMinutes" in data
+          ? typeof data.repeatEveryMinutes === "number" && Number.isFinite(data.repeatEveryMinutes)
+            ? Math.max(0, Math.floor(data.repeatEveryMinutes))
+            : 0
+          : typeof (msg as any).repeatEveryMinutes === "number" && Number.isFinite((msg as any).repeatEveryMinutes)
+            ? Math.max(0, Math.floor((msg as any).repeatEveryMinutes))
+            : 0;
+
+      if (!nextSendAt || !Number.isFinite(nextSendAt.getTime())) {
+        return { status: 400, json: { ok: false, error: "Scheduled messages must keep a valid send time" } };
+      }
+
+      const conflicting = await (prisma as any).portalAiChatMessage.findFirst({
+        where: {
+          ownerId,
+          role: "user",
+          text: nextText,
+          sendAt: nextSendAt,
+          sentAt: null,
+          repeatEveryMinutes: nextRepeatEveryMinutes > 0 ? nextRepeatEveryMinutes : null,
+          id: { not: messageId },
+        },
+        select: { id: true },
+      });
+      if (conflicting?.id) {
+        return { status: 409, json: { ok: false, error: "An identical pending schedule already exists." } };
       }
 
       await (prisma as any).portalAiChatMessage.update({ where: { id: messageId }, data });
@@ -22021,14 +22740,9 @@ async function runDirectAction(opts: {
 
       if (!media) return { status: 404, json: { ok: false, error: "Not found" } };
 
-      if (!media.bytes) {
-        return {
-          status: 400,
-          json: {
-            ok: false,
-            error: "This media item is stored externally and can't be attached from the media library yet.",
-          },
-        };
+      const resolved = await resolvePortalMediaItemBytes(media);
+      if (!resolved.ok) {
+        return { status: resolved.status, json: { ok: false, error: resolved.error } };
       }
 
       const publicToken = crypto.randomUUID().replace(/-/g, "");
@@ -22037,9 +22751,9 @@ async function runDirectAction(opts: {
           ownerId,
           messageId: null,
           fileName: String(media.fileName || "attachment").slice(0, 200),
-          mimeType: String(media.mimeType || "application/octet-stream").slice(0, 120),
-          fileSize: Number(media.fileSize || (media.bytes?.length ?? 0)),
-          bytes: media.bytes as Buffer,
+          mimeType: resolved.mimeType,
+          fileSize: resolved.fileSize,
+          bytes: resolved.bytes,
           publicToken,
         },
         select: { id: true, fileName: true, mimeType: true, fileSize: true, publicToken: true },
@@ -22348,10 +23062,53 @@ async function runDirectAction(opts: {
     }
 
     case "reviews.reply": {
-      const reviewId = String(args.reviewId || "").trim();
+      const reviewIdRaw = String((args as any).reviewId || "").trim();
+      const reviewName = String((args as any).reviewName || "").trim();
       const replyRaw = typeof args.reply === "string" ? args.reply : "";
       const reply = String(replyRaw).trim().slice(0, 2000);
-      if (!reviewId) return { status: 400, json: { ok: false, error: "Missing reviewId" } };
+
+      let reviewId = reviewIdRaw;
+      if (!reviewId && reviewName) {
+        const targetNameKey = normalizeContactNameKey(reviewName);
+        const targetParts = targetNameKey.split(" ").filter(Boolean);
+        const candidates = await prisma.portalReview.findMany({
+          where: { ownerId, archivedAt: null },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+          select: { id: true, name: true, businessReply: true, createdAt: true },
+        }).catch(() => [] as Array<{ id: string; name: string; businessReply: string | null; createdAt: Date }>);
+
+        const ranked = (candidates || [])
+          .map((candidate) => {
+            const candidateName = String(candidate.name || "").trim();
+            const candidateKey = normalizeContactNameKey(candidateName);
+            if (!candidateKey) return null;
+
+            let score = 0;
+            if (targetNameKey && candidateKey === targetNameKey) {
+              score = 400;
+            } else if (targetNameKey && (candidateKey.includes(targetNameKey) || targetNameKey.includes(candidateKey))) {
+              score = 300;
+            } else if (targetParts.length && targetParts.every((part) => candidateKey.includes(part))) {
+              score = 220;
+            } else if (targetParts.some((part) => candidateKey.includes(part))) {
+              score = 120;
+            }
+
+            if (!score) return null;
+            if (!String(candidate.businessReply || "").trim()) score += 25;
+
+            return { id: String(candidate.id), score };
+          })
+          .filter((candidate): candidate is { id: string; score: number } => Boolean(candidate))
+          .sort((left, right) => right.score - left.score);
+
+        reviewId = ranked[0]?.id || "";
+      }
+
+      if (!reviewId) {
+        return { status: 404, json: { ok: false, error: reviewName ? `Could not find a review for ${reviewName}.` : "Missing reviewId" } };
+      }
 
       const [hasReply, hasReplyAt] = await Promise.all([
         hasPublicColumn("PortalReview", "businessReply"),
@@ -25108,6 +25865,19 @@ async function runDirectAction(opts: {
         select: { id: true },
       });
 
+      const shouldEnsureVoiceAgent =
+        args.status === "ACTIVE" ||
+        args.voiceAgentConfig !== undefined ||
+        args.voiceId !== undefined ||
+        args.knowledgeBase !== undefined;
+
+      if (shouldEnsureVoiceAgent) {
+        const ensured = await ensureAiOutboundCallCampaignVoiceAgent({ ownerId, campaignId });
+        if (!ensured.ok) {
+          return { status: ensured.status || 400, json: { ok: false, error: ensured.error, partial: true } };
+        }
+      }
+
       return { status: 200, json: { ok: true } };
     }
 
@@ -26610,9 +27380,10 @@ async function runDirectAction(opts: {
 
       const knowledgeBase = parseKnowledgeBaseLocators((campaign as any).knowledgeBaseJson);
 
-      const [profile, ownerUser] = await Promise.all([
+      const [profile, ownerUser, twilioCfg] = await Promise.all([
         prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }).catch(() => null),
         prisma.user.findUnique({ where: { id: ownerId }, select: { name: true } }).catch(() => null),
+        getOwnerTwilioSmsConfig(ownerId).catch(() => null),
       ]);
 
       const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
@@ -26622,8 +27393,20 @@ async function runDirectAction(opts: {
         businessContext,
         config,
       });
-      const prompt = buildElevenLabsAgentPrompt(config, { businessName: profile?.businessName || null, ownerName: ownerUser?.name || null }, { outboundBrief, kind: "calls" });
-      const firstMessage = config.firstMessage.trim();
+      const firstMessage =
+        config.firstMessage.trim() ||
+        buildDefaultAiOutboundCallFirstMessage({ businessName: profile?.businessName || null, ownerName: ownerUser?.name || null, goal: config.goal || null });
+      if (!config.firstMessage.trim() && firstMessage) {
+        await prisma.portalAiOutboundCallCampaign
+          .updateMany({
+            where: { id: campaign.id, ownerId },
+            data: {
+              voiceAgentConfigJson: { ...config, firstMessage } as any,
+              updatedAt: new Date(),
+            },
+          })
+          .catch(() => null);
+      }
 
       const localConfigIsEmpty =
         !firstMessage &&
@@ -26660,6 +27443,13 @@ async function runDirectAction(opts: {
         .filter((v, i, a) => a.indexOf(v) === i)
         .slice(0, 50);
 
+      const prompt = buildElevenLabsAgentPrompt(
+        config,
+        { businessName: profile?.businessName || null, ownerName: ownerUser?.name || null, callbackNumber: twilioCfg?.fromNumberE164 || null },
+        { outboundBrief, kind: "calls" },
+        { hasEndCallTool: resolvedToolIds.length > 0 },
+      );
+
       const manualAgentId = String((campaign as any).manualVoiceAgentId || "").trim();
       const hasManualOverride = Boolean(manualAgentId);
 
@@ -26674,12 +27464,11 @@ async function runDirectAction(opts: {
         return raw || env || "";
       })().catch(() => "");
 
-      let agentId = manualAgentId || String((campaign as any).voiceAgentId || "").trim() || String(profileAgentId || "").trim();
+      const existingCampaignAgentId = String((campaign as any).voiceAgentId || "").trim();
+      const sharedProfileAgentId = String(profileAgentId || "").trim();
+      const shouldCreateDedicatedAgent = !hasManualOverride && (!existingCampaignAgentId || (sharedProfileAgentId && existingCampaignAgentId === sharedProfileAgentId));
+      let agentId = manualAgentId || (shouldCreateDedicatedAgent ? "" : existingCampaignAgentId);
       let createdAgentId: string | null = null;
-
-      if (!hasManualOverride && !(campaign as any).voiceAgentId && profileAgentId) {
-        await prisma.portalAiOutboundCallCampaign.updateMany({ where: { id: campaign.id, ownerId }, data: { voiceAgentId: profileAgentId } }).catch(() => null);
-      }
 
       if (!agentId && !hasManualOverride) {
         const create = await createElevenLabsAgent({
@@ -26944,36 +27733,8 @@ async function runDirectAction(opts: {
       const twilio = await getOwnerTwilioSmsConfig(ownerId);
       if (!twilio) return { status: 400, json: { ok: false, error: "Twilio is not configured for this account" } };
 
-      const apiKeyFromProfile = await (async () => {
-        const row = await prisma.portalServiceSetup.findUnique({
-          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
-          select: { dataJson: true },
-        });
-        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
-        const raw = typeof rec?.voiceAgentApiKey === "string" ? rec.voiceAgentApiKey.trim().slice(0, 400) : "";
-        const env = String(process.env.VOICE_AGENT_API_KEY || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || "").trim().slice(0, 400);
-        return raw || env || "";
-      })().catch(() => "");
-
-      const apiKey = String(apiKeyFromProfile || "").trim();
-      if (!apiKey) return { status: 400, json: { ok: false, error: "Missing voice API key. Set it in Profile first." } };
-
-      const profileAgentId = await (async () => {
-        const row = await prisma.portalServiceSetup.findUnique({
-          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
-          select: { dataJson: true },
-        });
-        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
-        const raw = typeof rec?.voiceAgentId === "string" ? rec.voiceAgentId.trim().slice(0, 120) : "";
-        const env = String(process.env.VOICE_AGENT_ID || process.env.ELEVENLABS_AGENT_ID || process.env.ELEVEN_LABS_AGENT_ID || "").trim().slice(0, 120);
-        return raw || env || "";
-      })().catch(() => "");
-
-      const agentId =
-        String((campaign as any).manualVoiceAgentId || "").trim() ||
-        String((campaign as any).voiceAgentId || "").trim() ||
-        String(profileAgentId || "").trim();
-      if (!agentId) return { status: 400, json: { ok: false, error: "Missing agent id. Set one on this campaign or in Profile." } };
+      const ensured = await ensureAiOutboundCallCampaignVoiceAgent({ ownerId, campaignId: campaign.id });
+      if (!ensured.ok) return { status: ensured.status || 400, json: { ok: false, error: ensured.error } };
 
       const manualCallId = crypto.randomUUID();
       const token = crypto.randomUUID();
@@ -26996,6 +27757,11 @@ async function runDirectAction(opts: {
       const voiceUrl = `${getPublicWebhookBaseUrl()}/hooks/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/voice`;
       const statusCallbackUrl = `${getPublicWebhookBaseUrl()}/hooks/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/call-status`;
       const recordingCallback = `${getPublicWebhookBaseUrl()}/hooks/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/call-recording`;
+      const manualCallTimeLimitSeconds = (() => {
+        const raw = Number(process.env.TWILIO_MANUAL_OUTBOUND_MAX_SECONDS || 45);
+        if (!Number.isFinite(raw)) return 45;
+        return Math.max(30, Math.min(180, Math.floor(raw)));
+      })();
 
       const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilio.accountSid)}/Calls.json`;
       const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
@@ -27005,6 +27771,9 @@ async function runDirectAction(opts: {
       form.set("From", twilio.fromNumberE164);
       form.set("Url", voiceUrl);
       form.set("Method", "POST");
+      form.set("MachineDetection", "DetectMessageEnd");
+      form.set("MachineDetectionTimeout", "45");
+      form.set("TimeLimit", String(manualCallTimeLimitSeconds));
       form.set("Record", "true");
       form.set("RecordingChannels", "dual");
       form.set("RecordingStatusCallback", recordingCallback);
@@ -28844,11 +29613,30 @@ async function runDirectAction(opts: {
       };
 
       if (!isAllowedBlobUrl(url)) {
+        try {
+          const parsed = new URL(url);
+          if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+            return await runDirectAction({
+              action: "media.import_remote_image",
+              ownerId,
+              actorUserId,
+              args: {
+                url,
+                ...(typeof args.fileName === "string" && String(args.fileName).trim() ? { fileName: String(args.fileName).trim() } : {}),
+                ...(typeof args.folderId === "string" && String(args.folderId).trim() ? { folderId: String(args.folderId).trim() } : {}),
+                ...(typeof (args as any).folderName === "string" && String((args as any).folderName).trim() ? { folderName: String((args as any).folderName).trim() } : {}),
+                ...(typeof (args as any).parentId === "string" && String((args as any).parentId).trim() ? { parentId: String((args as any).parentId).trim() } : {}),
+              },
+            } as any);
+          }
+        } catch {
+          // fall through to invalid blob url
+        }
         return { status: 400, json: { ok: false, error: "Invalid blob URL" } };
       }
 
-      const fileName = safeFilename(typeof args.fileName === "string" ? args.fileName : "upload.bin");
-      const mimeType = normalizeMimeType(typeof args.mimeType === "string" ? args.mimeType : "application/octet-stream", fileName);
+      const fileName = safeFilename(typeof args.fileName === "string" && args.fileName.trim() ? args.fileName : "upload.bin");
+      const mimeType = normalizeMimeType(typeof args.mimeType === "string" && args.mimeType.trim() ? args.mimeType : "application/octet-stream", fileName);
       const fileSize = typeof args.fileSize === "number" && Number.isFinite(args.fileSize) ? Math.floor(args.fileSize) : 0;
 
       const MAX_BYTES = 250 * 1024 * 1024;
@@ -29344,9 +30132,11 @@ export async function executePortalAgentActionForThread(opts: {
         "Rules:",
         "- Ask only for the one missing detail that truly blocks execution.",
         "- Do not ask for anything that can be inferred from thread context, current page context, or the provided choices.",
+        "- If the raw missing-detail prompt is already specific, tighten it instead of broadening it.",
         "- Do not ask for internal IDs unless the user must paste one.",
         "- If clickable choices are available, mention they can click one.",
         "- If the user said to create something new, allow that option.",
+        "- Never say 'I need your input', 'Pura needs your input', 'I paused', or 'to proceed'.",
         "- Be concrete, not vague. Ask for the target, value, or decision that is actually missing.",
         "- No JSON.",
       ].join("\n");
@@ -29785,14 +30575,17 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     // Track the most recently used AI outbound campaign so follow-ups like
     // “update the same campaign” can resolve without re-asking.
     if (action.startsWith("ai_outbound_calls.")) {
+      const fromManualCallArgs = action === "ai_outbound_calls.campaigns.manual_call"
+        ? (typeof (args as any).campaignId === "string" ? String((args as any).campaignId).trim() : "")
+        : "";
       const fromJson =
         typeof (json as any).campaign?.id === "string"
           ? String((json as any).campaign.id).trim()
-          : typeof (json as any).id === "string"
+          : action !== "ai_outbound_calls.campaigns.manual_call" && typeof (json as any).id === "string"
             ? String((json as any).id).trim()
             : "";
       const fromArgs = typeof (args as any).campaignId === "string" ? String((args as any).campaignId).trim() : "";
-      const id = cleanId(fromJson || fromArgs);
+      const id = cleanId(fromManualCallArgs || fromJson || fromArgs);
       if (id) {
         const nameHint = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "";
         const label = nameHint || "AI outbound campaign";
@@ -29899,6 +30692,71 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       if (id) {
         const label = String((args as any)?.title || "Newsletter").trim().slice(0, 120) || "Newsletter";
         return { lastNewsletter: { id, label } };
+      }
+    }
+
+    if (action === "lead_scraping.run" && typeof (json as any).runId === "string") {
+      const runId = cleanId((json as any).runId);
+      if (runId) {
+        const rawLeads = Array.isArray((json as any).leads) ? ((json as any).leads as unknown[]) : [];
+        const leadIds = rawLeads
+          .map((lead) => cleanId(lead && typeof lead === "object" ? (lead as any).id : ""))
+          .filter(Boolean)
+          .slice(0, 100);
+        const sampleLeads = rawLeads
+          .map((lead) => {
+            if (!lead || typeof lead !== "object") return null;
+            const id = cleanId((lead as any).id);
+            const businessName = typeof (lead as any).businessName === "string" ? String((lead as any).businessName).trim().slice(0, 160) : "";
+            const email = typeof (lead as any).email === "string" ? String((lead as any).email).trim().slice(0, 200) : "";
+            const phone = typeof (lead as any).phone === "string" ? String((lead as any).phone).trim().slice(0, 40) : "";
+            const website = typeof (lead as any).website === "string" ? String((lead as any).website).trim().slice(0, 300) : "";
+            return {
+              ...(id ? { id } : null),
+              ...(businessName ? { businessName } : null),
+              ...(email ? { email } : null),
+              ...(phone ? { phone } : null),
+              ...(website ? { website } : null),
+            };
+          })
+          .filter((lead): lead is { id?: string; businessName?: string; email?: string; phone?: string; website?: string } => Boolean(lead))
+          .slice(0, 10);
+        const missingEmailCount = rawLeads.reduce<number>((count, lead) => {
+          const email = lead && typeof lead === "object" && typeof (lead as any).email === "string" ? String((lead as any).email).trim() : "";
+          return count + (email ? 0 : 1);
+        }, 0);
+        const missingPhoneCount = rawLeads.reduce<number>((count, lead) => {
+          const phone = lead && typeof lead === "object" && typeof (lead as any).phone === "string" ? String((lead as any).phone).trim() : "";
+          return count + (phone ? 0 : 1);
+        }, 0);
+        const missingWebsiteCount = rawLeads.reduce<number>((count, lead) => {
+          const website = lead && typeof lead === "object" && typeof (lead as any).website === "string" ? String((lead as any).website).trim() : "";
+          return count + (website ? 0 : 1);
+        }, 0);
+        const niche = typeof (args as any)?.niche === "string" ? String((args as any).niche).trim().slice(0, 80) : "";
+        const location = typeof (args as any)?.location === "string" ? String((args as any).location).trim().slice(0, 80) : "";
+        const labelBase = [niche, location].filter(Boolean).join(" in ");
+        return {
+          lastLeadScrape: {
+            runId,
+            label: (labelBase || "Lead scrape").slice(0, 120),
+            leadIds,
+            createdCount: typeof (json as any).createdCount === "number" ? Number((json as any).createdCount) : leadIds.length,
+            matchedCount: typeof (json as any).matchedCount === "number" ? Number((json as any).matchedCount) : leadIds.length,
+            newCount: typeof (json as any).newCount === "number" ? Number((json as any).newCount) : null,
+            reusedCount: typeof (json as any).reusedCount === "number" ? Number((json as any).reusedCount) : null,
+            requireEmail: typeof (args as any)?.requireEmail === "boolean" ? Boolean((args as any).requireEmail) : null,
+            requirePhone: typeof (args as any)?.requirePhone === "boolean" ? Boolean((args as any).requirePhone) : null,
+            requireWebsite: typeof (args as any)?.requireWebsite === "boolean" ? Boolean((args as any).requireWebsite) : null,
+            missingEmailCount,
+            missingPhoneCount,
+            missingWebsiteCount,
+            sampleLeads: sampleLeads.map((lead) => ({
+              ...lead,
+              ...(niche ? { niche } : null),
+            })),
+          },
+        };
       }
     }
 

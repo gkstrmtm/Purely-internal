@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
@@ -24,6 +24,7 @@ import {
 } from "@/lib/salesReportingProviders";
 import { SuggestedSetupSection } from "./SuggestedSetupSection";
 import { IconChevron, IconCopy, IconEdit, IconEyeGlyph, IconEyeOffGlyph } from "@/app/portal/PortalIcons";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type Me = {
   ok?: boolean;
@@ -212,6 +213,8 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const pathname = usePathname() || "";
   const searchParams = useSearchParams();
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  const portalVariant = portalBase === "/credit" ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const fromOnboarding = (searchParams?.get("from") || "").trim().toLowerCase() === "onboarding";
   const [me, setMe] = useState<Me | null>(null);
   const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
@@ -506,7 +509,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/portal/profile", { cache: "no-store" });
+      const res = await fetch("/api/portal/profile", { cache: "no-store", headers: variantHeaders });
       if (!mounted) return;
       if (res.ok) {
         const json = (await res.json()) as Me;
@@ -524,7 +527,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     })();
 
     (async () => {
-      const res = await fetch("/api/portal/me", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/me", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!mounted) return;
       if (!res?.ok) {
         setPortalMe({ ok: false, error: "Forbidden" });
@@ -537,14 +540,14 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     let mounted = true;
     if (!portalMe || portalMe.ok !== true) return;
 
     const loadDomains = async () => {
-      const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!mounted) return;
       setFunnelDomainsLoaded(true);
       if (!res?.ok) {
@@ -560,7 +563,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
         if (mounted) setWebhooks(null);
         return;
       }
-      const res = await fetch("/api/portal/webhooks", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/webhooks", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!mounted) return;
       if (!res?.ok) return;
       setWebhooks(((await res.json().catch(() => null)) as WebhooksRes | null) ?? null);
@@ -573,7 +576,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
         }
         return;
       }
-      const res = await fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/integrations/twilio", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!mounted) return;
       if (!res?.ok) return;
       const json = ((await res.json().catch(() => null)) as TwilioApiPayload | null) ?? null;
@@ -586,7 +589,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     void loadDomains();
 
     (async () => {
-      const res = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!mounted) return;
       setSalesStatusLoaded(true);
       if (!res?.ok) return;
@@ -600,7 +603,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     (async () => {
       setMailboxLoading(true);
       setMailboxError(null);
-      const res = await fetch("/api/portal/mailbox", { cache: "no-store" }).catch(() => null as any);
+      const res = await fetch("/api/portal/mailbox", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
       if (!mounted) return;
 
       if (!res?.ok) {
@@ -622,16 +625,16 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       setMailboxLoading(false);
     })();
 
-    void loadApiKeys();
+    void loadApiKeysRef.current?.();
 
     return () => {
       mounted = false;
     };
-  }, [portalMe, canViewWebhooks, canViewTwilio]);
+  }, [portalMe, canViewWebhooks, canViewTwilio, variantHeaders]);
 
   async function reloadDomains() {
     setFunnelDomainsLoaded(false);
-    const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any);
+    const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
     setFunnelDomainsLoaded(true);
     if (!res?.ok) {
       setFunnelDomains([]);
@@ -658,7 +661,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setDomainBusy(true);
     const res = await fetch("/api/portal/funnel-builder/domains", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ domain: next }),
     }).catch(() => null as any);
     const json = (res ? ((await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null) : null) ?? null;
@@ -679,6 +682,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const res = await fetch(`/api/portal/funnel-builder/domains/${encodeURIComponent(domain.id)}/verify`, {
       method: "POST",
       cache: "no-store",
+      headers: variantHeaders,
     }).catch(() => null as any);
     const json = (res ? ((await res.json().catch(() => null)) as { ok?: boolean; verified?: boolean; error?: string } | null) : null) ?? null;
     setDomainVerifyBusy((current) => ({ ...current, [domain.id]: false }));
@@ -700,6 +704,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setDomainDeleteBusy((current) => ({ ...current, [domain.id]: true }));
     const res = await fetch(`/api/portal/funnel-builder/domains/${encodeURIComponent(domain.id)}`, {
       method: "DELETE",
+      headers: variantHeaders,
     }).catch(() => null as any);
     const json = (await res?.json?.().catch(() => null)) as { ok?: boolean; error?: string } | null;
     setDomainDeleteBusy((current) => ({ ...current, [domain.id]: false }));
@@ -717,16 +722,18 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   }
 
   async function refreshSalesStatus() {
-    const res = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any);
+    const res = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
     setSalesStatusLoaded(true);
     if (!res?.ok) return;
     const json = ((await res.json().catch(() => null)) as SalesIntegrationPayload | null) ?? null;
     if (json?.ok) setSalesStatus(json);
   }
 
-  async function loadApiKeys() {
+  const loadApiKeysRef = useRef<(() => Promise<void>) | null>(null);
+
+  const loadApiKeys = useCallback(async () => {
     setApiKeysError(null);
-    const res = await fetch("/api/portal/integrations/api-keys", { cache: "no-store" }).catch(() => null as any);
+    const res = await fetch("/api/portal/integrations/api-keys", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
     setApiKeysLoaded(true);
     if (!res?.ok) {
       const json = ((await res?.json().catch(() => null)) as PortalApiKeysResponse | null) ?? null;
@@ -741,7 +748,9 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       return;
     }
     setApiKeysState(json);
-  }
+  }, [variantHeaders]);
+
+  loadApiKeysRef.current = loadApiKeys;
 
   async function connectSelectedProvider() {
     if (!canEditProfile) {
@@ -780,7 +789,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/integrations/sales-reporting", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ action: "connect", data }),
     }).catch(() => null as any);
 
@@ -821,7 +830,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/integrations/sales-reporting", {
       method: "DELETE",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ provider: salesProvider }),
     }).catch(() => null as any);
 
@@ -869,7 +878,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       editingApiKeyId ? `/api/portal/integrations/api-keys/${encodeURIComponent(editingApiKeyId)}` : "/api/portal/integrations/api-keys",
       {
         method: editingApiKeyId ? "PATCH" : "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({
           name: newApiKeyName.trim(),
           permissions: newApiKeyPermissions,
@@ -899,6 +908,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setDeletingApiKeyId(keyId);
     const res = await fetch(`/api/portal/integrations/api-keys/${encodeURIComponent(keyId)}`, {
       method: "DELETE",
+      headers: variantHeaders,
     }).catch(() => null as any);
     const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
     setDeletingApiKeyId(null);
@@ -928,6 +938,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setRevealingApiKeyId(keyId);
     const res = await fetch(`/api/portal/integrations/api-keys/${encodeURIComponent(keyId)}/reveal`, {
       method: "POST",
+      headers: variantHeaders,
     }).catch(() => null as any);
     const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
     setRevealingApiKeyId(null);
@@ -1060,7 +1071,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/mailbox", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ localPart: mailboxLocalPart }),
     });
 
@@ -1095,7 +1106,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/integrations/twilio", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify(payload),
     });
 
@@ -1126,7 +1137,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/integrations/twilio", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ clear: true }),
     });
 
@@ -1208,7 +1219,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/profile", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify(payload),
     });
 
@@ -1265,7 +1276,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/profile/password", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({
         currentPassword: pwCurrent,
         newPassword: pwNext,

@@ -187,7 +187,7 @@ export function PortalMultiSelectDropdown(props: {
                     (isDisabled
                       ? "cursor-not-allowed text-zinc-400"
                       : isSel
-                        ? "bg-(--color-brand-blue) text-white"
+                        ? "bg-[rgba(29,78,216,0.12)] text-(--color-brand-blue)"
                         : "hover:bg-zinc-50 text-zinc-900")
                   }
                   onClick={() => {
@@ -203,7 +203,7 @@ export function PortalMultiSelectDropdown(props: {
                     <div
                       className={
                         "mt-0.5 text-xs " +
-                        (isDisabled ? "text-zinc-400" : isSel ? "text-white/80" : "text-zinc-500")
+                        (isDisabled ? "text-zinc-400" : isSel ? "text-brand-blue/70" : "text-zinc-500")
                       }
                     >
                       {o.hint}
@@ -269,8 +269,8 @@ export function PortalMultiSelectDropdown(props: {
         type="button"
         disabled={disabled}
         className={classNames(
-          "flex w-full items-center justify-between gap-2 rounded-2xl bg-white/70 px-3 py-2 text-sm text-zinc-900 hover:bg-white/80",
-          !disabled && portalGlassButtonClass,
+          "flex w-full items-center justify-between gap-2 rounded-[1.35rem] border border-white/35 bg-white/50 px-3.5 py-2.5 text-sm text-zinc-900 shadow-[0_16px_40px_rgba(255,255,255,0.14)] backdrop-blur-xl hover:bg-white/58",
+          !disabled && classNames(portalGlassButtonClass, portalGlassPanelClass),
           disabled && "cursor-not-allowed opacity-60",
         )}
         onClick={() => {
@@ -287,7 +287,7 @@ export function PortalMultiSelectDropdown(props: {
         <span
           className={classNames(
             "truncate",
-            selected.length ? "font-semibold text-(--color-brand-blue)" : "text-zinc-500",
+            selected.length ? "font-semibold text-brand-blue/90" : "text-zinc-500",
           )}
         >
           {summary}
@@ -303,12 +303,15 @@ export function PortalMultiSelectDropdown(props: {
             return (
               <span
                 key={v}
-                className="inline-flex items-center gap-1 rounded-full bg-white/65 px-2 py-1 text-xs text-zinc-700 backdrop-blur-xl"
+                className={classNames(
+                  "inline-flex items-center gap-1 rounded-full border border-transparent bg-[rgba(29,78,216,0.10)] px-2.5 py-1 text-xs text-brand-blue/90 shadow-[0_10px_24px_rgba(29,78,216,0.09)] backdrop-blur-xl",
+                  portalGlassPanelClass,
+                )}
               >
                 <span className="max-w-60 truncate font-semibold">{label}</span>
                 <button
                   type="button"
-                  className="ml-1 rounded-full px-1 text-xs text-zinc-500 hover:text-zinc-900"
+                  className="ml-1 rounded-full px-1 text-xs text-brand-blue/70 hover:text-brand-blue"
                   onClick={() => remove(v)}
                   aria-label={`Remove ${label}`}
                 >

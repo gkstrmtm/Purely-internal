@@ -89,6 +89,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
         .slice(0, 10)
     : undefined;
 
+  const requestedTopic = parsed.data?.prompt ?? parsed.data?.topic;
+
   const draft = await generateClientBlogDraft({
     businessName: profile?.businessName,
     websiteUrl: profile?.websiteUrl,
@@ -97,7 +99,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
     primaryGoals,
     targetCustomer: profile?.targetCustomer,
     brandVoice: profile?.brandVoice,
-    topic: parsed.data?.prompt ?? parsed.data?.topic,
+    topic: requestedTopic,
+    strictTopicOnly: Boolean(String(requestedTopic || "").trim()),
   });
 
   try {
@@ -108,7 +111,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
         postId: post.id,
         source: "DRAFT_GENERATE",
         chargedCredits: needCredits,
-        topic: (parsed.data?.prompt ?? parsed.data?.topic)?.trim() || undefined,
+        topic: requestedTopic?.trim() || undefined,
       },
       select: { id: true },
     });

@@ -4,45 +4,31 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
-import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { generateText } from "@/lib/ai";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
+import { ensureAiOutboundCallCampaignVoiceAgent } from "@/lib/portalAiOutboundCallVoiceAgent";
 import { placeElevenLabsTwilioOutboundCall, resolveElevenLabsAgentPhoneNumberId } from "@/lib/elevenLabsConvai";
 import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
-import { buildOutboundMessagingSystemPrompt } from "@/lib/portalAiOutboundIntelligence";
+import {
+  buildOutboundMessagingSystemPrompt,
+  tryBuildOutboundMessagingDeterministicReply,
+} from "@/lib/portalAiOutboundIntelligence";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { makeEmailThreadKey, makeSmsThreadKey, normalizeSubjectKey, upsertPortalInboxMessage } from "@/lib/portalInbox";
 import { getOrCreateOwnerMailboxAddress } from "@/lib/portalMailbox";
 import { sendEmail } from "@/lib/leadOutbound";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { refreshAiOutboundEnrollmentArtifacts } from "@/lib/portalAiOutboundEnrollmentArtifacts";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
-
-const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
-
-function envFirst(keys: string[]): string {
-  for (const key of keys) {
-    const v = (process.env[key] ?? "").trim();
-    if (v) return v;
-  }
-  return "";
-}
-
-function envVoiceAgentId(): string {
-  return envFirst(["VOICE_AGENT_ID", "ELEVENLABS_AGENT_ID", "ELEVEN_LABS_AGENT_ID"]).slice(0, 120);
-}
-
-function envVoiceAgentApiKey(): string {
-  return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
-}
 
 type TwilioCall = {
   status: string;
@@ -107,11 +93,53 @@ function normalizeIdList(raw: unknown): string[] {
   return out;
 }
 
+function normalizeOutcomeRules<T extends string>(raw: unknown, allowedOutcomes: readonly T[]) {
+  const allowed = new Set<string>(allowedOutcomes);
+  const arr = Array.isArray(raw) ? raw : [];
+  const seen = new Set<string>();
+  const out: Array<{ id: string; label: string; outcome: T; matchType: "any" | "contains"; matchText: string; tagIds: string[] }> = [];
+  for (const item of arr) {
+    const rec = safeRecord(item);
+    const id = String(rec.id || "").trim().slice(0, 120);
+    const outcome = String(rec.outcome || "").trim().toLowerCase();
+    if (!id || !allowed.has(outcome)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      label: String(rec.label || "").trim().slice(0, 80) || `${outcome} rule`,
+      outcome: outcome as T,
+      matchType: String(rec.matchType || "contains").trim().toLowerCase() === "any" ? "any" : "contains",
+      matchText: String(rec.matchText || "").trim().slice(0, 240),
+      tagIds: normalizeIdList(rec.tagIds),
+    });
+    if (out.length >= 25) break;
+  }
+  return out;
+}
+
+function outcomeRuleMatches(rule: { matchType: "any" | "contains"; matchText: string }, haystack: string) {
+  if (rule.matchType === "any") return true;
+  const query = String(rule.matchText || "").trim().toLowerCase();
+  if (!query) return false;
+  const source = haystack.toLowerCase();
+  return query
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .some((part) => source.includes(part));
+}
+
+function ruleTargetsOutcome<T extends string>(ruleOutcome: T | "any", activeOutcome: T) {
+  return ruleOutcome === "any" || ruleOutcome === activeOutcome;
+}
+
 function parseCallOutcomeTagging(raw: unknown): {
   enabled: boolean;
   onCompletedTagIds: string[];
   onFailedTagIds: string[];
   onSkippedTagIds: string[];
+  rules: Array<{ id: string; label: string; outcome: "any" | "completed" | "failed" | "skipped"; matchType: "any" | "contains"; matchText: string; tagIds: string[] }>;
 } {
   const rec = safeRecord(raw);
   return {
@@ -119,6 +147,7 @@ function parseCallOutcomeTagging(raw: unknown): {
     onCompletedTagIds: normalizeIdList(rec.onCompletedTagIds),
     onFailedTagIds: normalizeIdList(rec.onFailedTagIds),
     onSkippedTagIds: normalizeIdList(rec.onSkippedTagIds),
+    rules: normalizeOutcomeRules(rec.rules, ["any", "completed", "failed", "skipped"] as const),
   };
 }
 
@@ -127,6 +156,7 @@ function parseMessageOutcomeTagging(raw: unknown): {
   onSentTagIds: string[];
   onFailedTagIds: string[];
   onSkippedTagIds: string[];
+  rules: Array<{ id: string; label: string; outcome: "any" | "sent" | "failed" | "skipped"; matchType: "any" | "contains"; matchText: string; tagIds: string[] }>;
 } {
   const rec = safeRecord(raw);
   return {
@@ -134,6 +164,7 @@ function parseMessageOutcomeTagging(raw: unknown): {
     onSentTagIds: normalizeIdList(rec.onSentTagIds),
     onFailedTagIds: normalizeIdList(rec.onFailedTagIds),
     onSkippedTagIds: normalizeIdList(rec.onSkippedTagIds),
+    rules: normalizeOutcomeRules(rec.rules, ["any", "sent", "failed", "skipped"] as const),
   };
 }
 
@@ -174,38 +205,6 @@ async function applyContactTags(opts: {
   for (const tagId of tagIds) {
     await addContactTagAssignmentFast({ ownerId, contactId, tagId });
   }
-}
-
-async function getProfileVoiceAgentId(ownerId: string): Promise<string | null> {
-  const row = await prisma.portalServiceSetup.findUnique({
-    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
-    select: { dataJson: true },
-  });
-
-  const rec =
-    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
-      ? (row.dataJson as Record<string, unknown>)
-      : null;
-
-  const raw = rec?.voiceAgentId;
-  const id = typeof raw === "string" ? raw.trim().slice(0, 120) : "";
-  return id || envVoiceAgentId() || null;
-}
-
-async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
-  const row = await prisma.portalServiceSetup.findUnique({
-    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
-    select: { dataJson: true },
-  });
-
-  const rec =
-    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
-      ? (row.dataJson as Record<string, unknown>)
-      : null;
-
-  const raw = rec?.voiceAgentApiKey;
-  const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
-  return key || envVoiceAgentApiKey() || null;
 }
 
 function checkAuth(req: Request) {
@@ -319,6 +318,8 @@ export async function GET(req: Request) {
         select: { id: true },
       });
 
+      const refreshed = await refreshAiOutboundEnrollmentArtifacts({ ownerId: c.ownerId, enrollmentId: c.id }).catch(() => null);
+
       try {
         const baseUrl = getAppBaseUrl();
         const contactName = (c as any)?.contact?.name ? String((c as any).contact.name).trim() : "";
@@ -351,6 +352,18 @@ export async function GET(req: Request) {
       if (cfg.enabled && cfg.onCompletedTagIds.length) {
         await applyContactTags({ ownerId: c.ownerId, contactId: c.contactId, tagIds: cfg.onCompletedTagIds });
       }
+      const completedText = [
+        String(status || ""),
+        String((refreshed as any)?.enrollment?.transcriptText || ""),
+        String((c as any)?.lastError || ""),
+      ]
+        .filter(Boolean)
+        .join("\n");
+      for (const rule of cfg.rules.filter((rule) => ruleTargetsOutcome(rule.outcome, "completed") && rule.tagIds.length)) {
+        if (outcomeRuleMatches(rule, completedText)) {
+          await applyContactTags({ ownerId: c.ownerId, contactId: c.contactId, tagIds: rule.tagIds });
+        }
+      }
       continue;
     }
 
@@ -366,6 +379,8 @@ export async function GET(req: Request) {
       },
       select: { id: true },
     });
+
+    const refreshed = await refreshAiOutboundEnrollmentArtifacts({ ownerId: c.ownerId, enrollmentId: c.id }).catch(() => null);
 
     try {
       const baseUrl = getAppBaseUrl();
@@ -399,6 +414,18 @@ export async function GET(req: Request) {
       if (cfg.enabled && cfg.onFailedTagIds.length) {
         await applyContactTags({ ownerId: c.ownerId, contactId: c.contactId, tagIds: cfg.onFailedTagIds });
       }
+      const failedText = [
+        String(status || ""),
+        status ? `Twilio status: ${status}` : "Call failed.",
+        String((refreshed as any)?.enrollment?.transcriptText || ""),
+      ]
+        .filter(Boolean)
+        .join("\n");
+      for (const rule of cfg.rules.filter((rule) => ruleTargetsOutcome(rule.outcome, "failed") && rule.tagIds.length)) {
+        if (outcomeRuleMatches(rule, failedText)) {
+          await applyContactTags({ ownerId: c.ownerId, contactId: c.contactId, tagIds: rule.tagIds });
+        }
+      }
     }
   }
 
@@ -430,10 +457,7 @@ export async function GET(req: Request) {
   let repliesProcessed = 0;
   const replyErrors: Array<{ enrollmentId: string; error: string }> = [];
 
-  const receptionistCache = new Map<string, { agentId: string; apiKey: string }>();
   const phoneNumberIdCache = new Map<string, string>();
-  const profileAgentIdCache = new Map<string, string>();
-  const profileApiKeyCache = new Map<string, string>();
 
   for (const e of due) {
     if (e.campaign.status !== "ACTIVE") {
@@ -446,6 +470,11 @@ export async function GET(req: Request) {
       const cfg = parseCallOutcomeTagging((e.campaign as any)?.callOutcomeTaggingJson);
       if (cfg.enabled && cfg.onSkippedTagIds.length) {
         await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: cfg.onSkippedTagIds });
+      }
+      for (const rule of cfg.rules.filter((rule) => ruleTargetsOutcome(rule.outcome, "skipped") && rule.tagIds.length)) {
+        if (outcomeRuleMatches(rule, "Campaign is not active.")) {
+          await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: rule.tagIds });
+        }
       }
       processed += 1;
       continue;
@@ -463,6 +492,11 @@ export async function GET(req: Request) {
       if (cfg.enabled && cfg.onFailedTagIds.length) {
         await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: cfg.onFailedTagIds });
       }
+      for (const rule of cfg.rules.filter((rule) => ruleTargetsOutcome(rule.outcome, "failed") && rule.tagIds.length)) {
+        if (outcomeRuleMatches(rule, "Contact has no phone number.")) {
+          await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: rule.tagIds });
+        }
+      }
       processed += 1;
       continue;
     }
@@ -472,36 +506,10 @@ export async function GET(req: Request) {
       if (!parsedTo.ok) throw new Error("Contact phone number is invalid.");
       if (!parsedTo.e164) throw new Error("Contact has no phone number.");
 
-      let rec = receptionistCache.get(e.ownerId);
-      if (!rec) {
-        const data = await getAiReceptionistServiceData(e.ownerId);
-        const agentIdFromSettings = String(data.settings.voiceAgentId || "").trim();
-        const apiKeyFromSettings = String(data.settings.voiceAgentApiKey || "").trim();
-        rec = { agentId: agentIdFromSettings, apiKey: apiKeyFromSettings };
-        receptionistCache.set(e.ownerId, rec);
-      }
-
-      let profileAgentId = profileAgentIdCache.get(e.ownerId);
-      if (!profileAgentId) {
-        profileAgentId = (await getProfileVoiceAgentId(e.ownerId)) || "";
-        profileAgentIdCache.set(e.ownerId, profileAgentId);
-      }
-
-      let profileApiKey = profileApiKeyCache.get(e.ownerId);
-      if (!profileApiKey) {
-        profileApiKey = (await getProfileVoiceAgentApiKey(e.ownerId)) || "";
-        profileApiKeyCache.set(e.ownerId, profileApiKey);
-      }
-
-      const agentId =
-        String((e.campaign as any).manualVoiceAgentId || "").trim() ||
-        String(e.campaign.voiceAgentId || "").trim() ||
-        String(profileAgentId || "").trim() ||
-        rec.agentId; // legacy fallback
-      const apiKey = String(profileApiKey || "").trim() || rec.apiKey; // legacy fallback
-
-      if (!apiKey) throw new Error("Missing voice agent API key. Set it in Profile.");
-      if (!agentId) throw new Error("Missing voice agent ID. Set it in Profile or on the campaign.");
+      const ensured = await ensureAiOutboundCallCampaignVoiceAgent({ ownerId: e.ownerId, campaignId: e.campaignId });
+      if (!ensured.ok) throw new Error(ensured.error);
+      const agentId = ensured.agentId;
+      const apiKey = ensured.apiKey;
 
       const cacheKey = `${apiKey}:${agentId}`;
       let phoneNumberId = phoneNumberIdCache.get(cacheKey);
@@ -555,6 +563,7 @@ export async function GET(req: Request) {
         data: {
           status: "CALLING",
           callSid: call.callSid ?? null,
+          conversationId: call.conversationId ?? null,
           lastError: null,
           nextCallAt: new Date(now.getTime() + 2 * 60 * 1000),
           updatedAt: now,
@@ -590,6 +599,11 @@ export async function GET(req: Request) {
         const cfg = parseCallOutcomeTagging((e.campaign as any)?.callOutcomeTaggingJson);
         if (cfg.enabled && cfg.onFailedTagIds.length) {
           await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: cfg.onFailedTagIds });
+        }
+        for (const rule of cfg.rules.filter((rule) => ruleTargetsOutcome(rule.outcome, "failed") && rule.tagIds.length)) {
+          if (outcomeRuleMatches(rule, msg)) {
+            await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: rule.tagIds });
+          }
         }
       }
 
@@ -643,6 +657,99 @@ export async function GET(req: Request) {
   const ownerTwilioCache = new Map<string, Awaited<ReturnType<typeof getOwnerTwilioSmsConfig>> | null>();
   const ownerBusinessContextCache = new Map<string, string>();
 
+  async function sendReplyForEnrollment(opts: {
+    enrollment: {
+      id: string;
+      ownerId: string;
+    };
+    thread: {
+      threadKey: string | null;
+      peerAddress: string | null;
+      peerKey: string | null;
+      subject: string | null;
+      subjectKey: string | null;
+    };
+    inboundMessageId: string;
+    bodyText: string;
+    threadChannel: "SMS" | "EMAIL";
+  }) {
+    const bodyText = String(opts.bodyText || "").trim();
+    if (!bodyText) throw new Error("AI generated an empty reply");
+
+    const ownerCtx = ownerContextCache.has(opts.enrollment.ownerId)
+      ? ownerContextCache.get(opts.enrollment.ownerId)!
+      : await getOwnerContext(opts.enrollment.ownerId);
+    if (!ownerContextCache.has(opts.enrollment.ownerId)) ownerContextCache.set(opts.enrollment.ownerId, ownerCtx);
+
+    if (opts.threadChannel === "SMS") {
+      const twilioCfg = ownerTwilioCache.has(opts.enrollment.ownerId)
+        ? ownerTwilioCache.get(opts.enrollment.ownerId)!
+        : await getOwnerTwilioSmsConfig(opts.enrollment.ownerId).catch(() => null);
+      if (!ownerTwilioCache.has(opts.enrollment.ownerId)) ownerTwilioCache.set(opts.enrollment.ownerId, twilioCfg);
+      if (!twilioCfg?.fromNumberE164) throw new Error("Twilio is not configured");
+
+      const peerPhone = String(opts.thread.peerAddress || opts.thread.peerKey || "").trim();
+      const parsedTo = normalizePhoneStrict(peerPhone);
+      if (!parsedTo.ok || !parsedTo.e164) throw new Error("Peer phone is invalid");
+
+      const send = await sendOwnerTwilioSms({ ownerId: opts.enrollment.ownerId, to: parsedTo.e164, body: bodyText });
+      if (!send.ok) throw new Error(String(send.error || "SMS send failed"));
+
+      await upsertPortalInboxMessage({
+        ownerId: opts.enrollment.ownerId,
+        channel: "SMS",
+        direction: "OUT",
+        threadKey: String(opts.thread.threadKey || ""),
+        peerAddress: String(opts.thread.peerAddress || ""),
+        peerKey: String(opts.thread.peerKey || ""),
+        fromAddress: twilioCfg.fromNumberE164,
+        toAddress: parsedTo.e164,
+        bodyText,
+        provider: "TWILIO",
+        providerMessageId: send.messageSid ?? null,
+      });
+    } else {
+      const toEmail = String(opts.thread.peerKey || opts.thread.peerAddress || "").trim();
+      const subject = String(opts.thread.subject || "(no subject)").trim().slice(0, 200) || "(no subject)";
+
+      await sendEmail({
+        to: toEmail,
+        subject,
+        text: bodyText || " ",
+        fromEmail: ownerCtx.mailboxEmail || undefined,
+        fromName: ownerCtx.businessName,
+      });
+
+      await upsertPortalInboxMessage({
+        ownerId: opts.enrollment.ownerId,
+        channel: "EMAIL",
+        direction: "OUT",
+        threadKey: String(opts.thread.threadKey || ""),
+        peerAddress: String(opts.thread.peerAddress || ""),
+        peerKey: String(opts.thread.peerKey || ""),
+        subject,
+        subjectKey: String(opts.thread.subjectKey || normalizeSubjectKey(subject)),
+        fromAddress: ownerCtx.mailboxEmail || ownerCtx.ownerEmail || "purelyautomation@purelyautomation.com",
+        toAddress: toEmail,
+        bodyText: bodyText || " ",
+        provider: "POSTMARK",
+        providerMessageId: null,
+      });
+    }
+
+    await prisma.portalAiOutboundMessageEnrollment.update({
+      where: { id: opts.enrollment.id },
+      data: {
+        pendingReplyToMessageId: null,
+        nextReplyAt: null,
+        replyLastError: null,
+        lastAutoRepliedMessageId: opts.inboundMessageId,
+        lastAutoReplyAt: now,
+      },
+      select: { id: true },
+    });
+  }
+
   function normalizeMessageChannelPolicy(raw: unknown): "SMS" | "EMAIL" | "BOTH" {
     const v = typeof raw === "string" ? raw.trim().toUpperCase() : "";
     if (v === "SMS" || v === "EMAIL" || v === "BOTH") return v;
@@ -665,6 +772,58 @@ export async function GET(req: Request) {
     if (smsAvailable) return "SMS";
     if (emailAvailable) return "EMAIL";
     return null;
+  }
+
+  function describeMessageTarget(channel: "SMS" | "EMAIL", target: string): string {
+    const clean = String(target || "").trim();
+    if (!clean) return channel === "SMS" ? "SMS recipient" : "email recipient";
+    return channel === "SMS" ? `SMS recipient ${clean}` : `email recipient ${clean}`;
+  }
+
+  function isTerminalOutboundDeliveryError(message: string): boolean {
+    const normalized = String(message || "").toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized.includes("errorcode\":406") ||
+      normalized.includes("marked as inactive") ||
+      normalized.includes("manual suppression") ||
+      normalized.includes("hard bounce") ||
+      normalized.includes("spam complaint") ||
+      normalized.includes("destination could not be reached") ||
+      normalized.includes("invalid 'to' phone number") ||
+      normalized.includes("contact phone number is invalid") ||
+      normalized.includes("peer phone is invalid") ||
+      normalized.includes("contact email is invalid")
+    );
+  }
+
+  function buildOutboundDeliveryError(opts: { channel: "SMS" | "EMAIL"; target: string; rawMessage: string }): {
+    message: string;
+    terminal: boolean;
+  } {
+    const rawMessage = String(opts.rawMessage || "Delivery failed").trim().slice(0, 500);
+    const targetLabel = describeMessageTarget(opts.channel, opts.target);
+    const terminal = isTerminalOutboundDeliveryError(rawMessage);
+    const lower = rawMessage.toLowerCase();
+
+    if (terminal && opts.channel === "EMAIL" && (lower.includes("errorcode\":406") || lower.includes("marked as inactive"))) {
+      return {
+        message: `${targetLabel} is suppressed or inactive in Postmark.`,
+        terminal: true,
+      };
+    }
+
+    if (terminal && opts.channel === "SMS" && (lower.includes("invalid 'to' phone number") || lower.includes("destination could not be reached"))) {
+      return {
+        message: `${targetLabel} cannot receive SMS delivery.`,
+        terminal: true,
+      };
+    }
+
+    return {
+      message: `${targetLabel}: ${rawMessage}`.slice(0, 500),
+      terminal,
+    };
   }
 
   // 2) Process queued outbound messages (first message) for contacts in the Messages audience.
@@ -702,6 +861,11 @@ export async function GET(req: Request) {
       if (tagCfg.enabled && tagCfg.onSkippedTagIds.length) {
         await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: tagCfg.onSkippedTagIds });
       }
+      for (const rule of tagCfg.rules.filter((rule) => ruleTargetsOutcome(rule.outcome, "skipped") && rule.tagIds.length)) {
+        if (outcomeRuleMatches(rule, "Campaign is not active.")) {
+          await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: rule.tagIds });
+        }
+      }
       messagesProcessed += 1;
       continue;
     }
@@ -737,6 +901,11 @@ export async function GET(req: Request) {
       const tagCfg = parseMessageOutcomeTagging((e.campaign as any)?.messageOutcomeTaggingJson);
       if (tagCfg.enabled && tagCfg.onFailedTagIds.length) {
         await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: tagCfg.onFailedTagIds });
+      }
+      for (const rule of tagCfg.rules.filter((rule) => ruleTargetsOutcome(rule.outcome, "failed") && rule.tagIds.length)) {
+        if (outcomeRuleMatches(rule, msg)) {
+          await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: rule.tagIds });
+        }
       }
       messagesProcessed += 1;
       continue;
@@ -805,6 +974,11 @@ export async function GET(req: Request) {
         if (tagCfg.enabled && tagCfg.onSentTagIds.length) {
           await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: tagCfg.onSentTagIds });
         }
+        for (const rule of tagCfg.rules.filter((rule) => ruleTargetsOutcome(rule.outcome, "sent") && rule.tagIds.length)) {
+          if (outcomeRuleMatches(rule, body)) {
+            await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: rule.tagIds });
+          }
+        }
 
         messagesProcessed += 1;
         continue;
@@ -856,14 +1030,24 @@ export async function GET(req: Request) {
       if (tagCfg.enabled && tagCfg.onSentTagIds.length) {
         await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: tagCfg.onSentTagIds });
       }
+      for (const rule of tagCfg.rules.filter((rule) => ruleTargetsOutcome(rule.outcome, "sent") && rule.tagIds.length)) {
+        if (outcomeRuleMatches(rule, [subject, body].filter(Boolean).join("\n"))) {
+          await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: rule.tagIds });
+        }
+      }
 
       messagesProcessed += 1;
     } catch (err: any) {
-      const msg = String(err?.message || err || "Message send failed").slice(0, 500);
+      const deliveryFailure = buildOutboundDeliveryError({
+        channel,
+        target: channel === "SMS" ? contactPhone : contactEmail,
+        rawMessage: String(err?.message || err || "Message send failed"),
+      });
+      const msg = deliveryFailure.message;
       messageErrors.push({ enrollmentId: e.id, error: msg });
 
       const attempt = Math.max(0, Number(e.attemptCount) || 0) + 1;
-      const done = attempt >= 3;
+      const done = deliveryFailure.terminal || attempt >= 3;
       const retryAt = new Date(now.getTime() + 15 * 60 * 1000);
 
       await prisma.portalAiOutboundMessageEnrollment.update({
@@ -881,6 +1065,11 @@ export async function GET(req: Request) {
         const tagCfg = parseMessageOutcomeTagging((e.campaign as any)?.messageOutcomeTaggingJson);
         if (tagCfg.enabled && tagCfg.onFailedTagIds.length) {
           await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: tagCfg.onFailedTagIds });
+        }
+        for (const rule of tagCfg.rules.filter((rule) => ruleTargetsOutcome(rule.outcome, "failed") && rule.tagIds.length)) {
+          if (outcomeRuleMatches(rule, msg)) {
+            await applyContactTags({ ownerId: e.ownerId, contactId: e.contactId, tagIds: rule.tagIds });
+          }
         }
       }
 
@@ -914,6 +1103,8 @@ export async function GET(req: Request) {
 
   for (const e of dueReplies) {
     const replyToMessageId = String(e.pendingReplyToMessageId || "");
+    let replyChannel: "SMS" | "EMAIL" = "EMAIL";
+    let replyTarget = "";
     if (!replyToMessageId) continue;
     if (e.lastAutoRepliedMessageId && String(e.lastAutoRepliedMessageId) === replyToMessageId) {
       await prisma.portalAiOutboundMessageEnrollment.update({
@@ -954,6 +1145,8 @@ export async function GET(req: Request) {
       if (!thread?.id) throw new Error("Thread not found");
 
       const threadChannel = String(thread.channel) === "SMS" ? "SMS" : "EMAIL";
+      replyChannel = threadChannel;
+      replyTarget = String(thread.peerAddress || thread.peerKey || "");
       const policy = normalizeMessageChannelPolicy((e as any).channelPolicy || (e.campaign as any).messageChannelPolicy);
       if (!policyAllowsChannel(policy, threadChannel)) {
         await prisma.portalAiOutboundMessageEnrollment.update({
@@ -986,6 +1179,10 @@ export async function GET(req: Request) {
       });
 
       const chronological = Array.isArray(history) ? history.slice().reverse() : [];
+      const previewHistory: Array<{ role: "user" | "assistant"; content: string }> = chronological.map((m: any) => ({
+        role: String(m?.direction || "") === "IN" ? "user" : "assistant",
+        content: String(m?.bodyText || "").trim(),
+      }));
       const transcript = chronological
         .map((m: any) => {
           const dir = String(m?.direction || "");
@@ -1001,6 +1198,27 @@ export async function GET(req: Request) {
         ? ownerBusinessContextCache.get(e.ownerId)!
         : await getBusinessProfileAiContext(e.ownerId).catch(() => "");
       if (!ownerBusinessContextCache.has(e.ownerId)) ownerBusinessContextCache.set(e.ownerId, businessContext);
+
+      const deterministicReply = tryBuildOutboundMessagingDeterministicReply({
+        channel: threadChannel,
+        inbound: String(inbound.bodyText || "").trim(),
+        history: previewHistory,
+        goal: typeof (cfg as any)?.goal === "string" ? String((cfg as any).goal) : null,
+        businessContext,
+        campaignName: String((e.campaign as any)?.name || ""),
+      });
+
+      if (deterministicReply) {
+        await sendReplyForEnrollment({
+          enrollment: e,
+          thread,
+          inboundMessageId: inbound.id,
+          bodyText: deterministicReply,
+          threadChannel,
+        });
+        repliesProcessed += 1;
+        continue;
+      }
 
       const system = [
         buildOutboundMessagingSystemPrompt(cfg, {
@@ -1027,87 +1245,26 @@ export async function GET(req: Request) {
 
       const draft = await generateText({ system, user: userPrompt });
       const replyText = String(draft || "").trim();
-      if (!replyText) throw new Error("AI generated an empty reply");
-
-      const ownerCtx = ownerContextCache.has(e.ownerId)
-        ? ownerContextCache.get(e.ownerId)!
-        : await getOwnerContext(e.ownerId);
-      if (!ownerContextCache.has(e.ownerId)) ownerContextCache.set(e.ownerId, ownerCtx);
-
-      if (threadChannel === "SMS") {
-        const twilioCfg = ownerTwilioCache.has(e.ownerId)
-          ? ownerTwilioCache.get(e.ownerId)!
-          : await getOwnerTwilioSmsConfig(e.ownerId).catch(() => null);
-        if (!ownerTwilioCache.has(e.ownerId)) ownerTwilioCache.set(e.ownerId, twilioCfg);
-        if (!twilioCfg?.fromNumberE164) throw new Error("Twilio is not configured");
-
-        const peerPhone = String(thread.peerAddress || thread.peerKey || "").trim();
-        const parsedTo = normalizePhoneStrict(peerPhone);
-        if (!parsedTo.ok || !parsedTo.e164) throw new Error("Peer phone is invalid");
-
-        const send = await sendOwnerTwilioSms({ ownerId: e.ownerId, to: parsedTo.e164, body: replyText });
-        if (!send.ok) throw new Error(String(send.error || "SMS send failed"));
-
-        await upsertPortalInboxMessage({
-          ownerId: e.ownerId,
-          channel: "SMS",
-          direction: "OUT",
-          threadKey: String(thread.threadKey),
-          peerAddress: String(thread.peerAddress),
-          peerKey: String(thread.peerKey),
-          fromAddress: twilioCfg.fromNumberE164,
-          toAddress: parsedTo.e164,
-          bodyText: replyText,
-          provider: "TWILIO",
-          providerMessageId: send.messageSid ?? null,
-        });
-      } else {
-        const toEmail = String(thread.peerKey || thread.peerAddress || "").trim();
-        const subject = String(thread.subject || "(no subject)").trim().slice(0, 200) || "(no subject)";
-
-        await sendEmail({
-          to: toEmail,
-          subject,
-          text: replyText || " ",
-          fromEmail: ownerCtx.mailboxEmail || undefined,
-          fromName: ownerCtx.businessName,
-        });
-
-        await upsertPortalInboxMessage({
-          ownerId: e.ownerId,
-          channel: "EMAIL",
-          direction: "OUT",
-          threadKey: String(thread.threadKey),
-          peerAddress: String(thread.peerAddress),
-          peerKey: String(thread.peerKey),
-          subject,
-          subjectKey: String(thread.subjectKey || normalizeSubjectKey(subject)),
-          fromAddress: ownerCtx.mailboxEmail || ownerCtx.ownerEmail || "purelyautomation@purelyautomation.com",
-          toAddress: toEmail,
-          bodyText: replyText || " ",
-          provider: "POSTMARK",
-          providerMessageId: null,
-        });
-      }
-
-      await prisma.portalAiOutboundMessageEnrollment.update({
-        where: { id: e.id },
-        data: {
-          pendingReplyToMessageId: null,
-          nextReplyAt: null,
-          replyLastError: null,
-          lastAutoRepliedMessageId: replyToMessageId,
-          lastAutoReplyAt: now,
-        },
-        select: { id: true },
+      await sendReplyForEnrollment({
+        enrollment: e,
+        thread,
+        inboundMessageId: replyToMessageId,
+        bodyText: replyText,
+        threadChannel,
       });
 
       repliesProcessed += 1;
     } catch (err: any) {
-      const msg = String(err?.message || err || "Auto-reply failed").slice(0, 500);
+      const deliveryFailure = buildOutboundDeliveryError({
+        channel: replyChannel,
+        target: replyTarget,
+        rawMessage: String(err?.message || err || "Auto-reply failed"),
+      });
+      const msg = deliveryFailure.message;
       replyErrors.push({ enrollmentId: e.id, error: msg });
 
       const attempt = Math.max(0, Number(e.replyAttemptCount) || 0) + 1;
+      const done = deliveryFailure.terminal || attempt >= 5;
       const retryAt = new Date(now.getTime() + 10 * 60 * 1000);
 
       await prisma.portalAiOutboundMessageEnrollment.update({
@@ -1115,8 +1272,8 @@ export async function GET(req: Request) {
         data: {
           replyAttemptCount: attempt,
           replyLastError: msg,
-          nextReplyAt: attempt >= 5 ? null : retryAt,
-          pendingReplyToMessageId: attempt >= 5 ? null : e.pendingReplyToMessageId,
+          nextReplyAt: done ? null : retryAt,
+          pendingReplyToMessageId: done ? null : e.pendingReplyToMessageId,
         },
         select: { id: true },
       });

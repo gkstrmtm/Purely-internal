@@ -106,6 +106,47 @@ export async function findPortalContactByPhone(input: {
   }
 }
 
+export async function findPortalContactDetailsByPhone(input: {
+  ownerId: string;
+  phone: string;
+}): Promise<{ id: string; name: string; email: string | null; phone: string | null; customVariables: Record<string, string> } | null> {
+  const ownerId = String(input.ownerId || "").trim();
+  const rawPhone = String(input.phone || "").trim();
+  if (!ownerId || !rawPhone) return null;
+
+  const norm = normalizePhoneKey(rawPhone);
+  if (!norm.phoneKey) return null;
+
+  try {
+    await ensurePortalContactsSchema();
+
+    const row = await (prisma as any).portalContact.findFirst({
+      where: { ownerId, phoneKey: norm.phoneKey },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, name: true, email: true, phone: true, customVariables: true },
+    });
+
+    if (!row) return null;
+    const customVariables = row.customVariables && typeof row.customVariables === "object" && !Array.isArray(row.customVariables)
+      ? Object.fromEntries(
+          Object.entries(row.customVariables as Record<string, unknown>)
+            .map(([key, value]) => [String(key || "").trim().slice(0, 64), String(value ?? "").trim().slice(0, 240)])
+            .filter(([key, value]) => Boolean(key && value)),
+        )
+      : {};
+
+    return {
+      id: String(row.id),
+      name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : norm.phone || rawPhone,
+      email: typeof row.email === "string" && row.email.trim() ? row.email.trim() : null,
+      phone: typeof row.phone === "string" && row.phone.trim() ? row.phone.trim() : norm.phone || null,
+      customVariables,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function findOrCreatePortalContact(input: {
   ownerId: string;
   name: string;

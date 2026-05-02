@@ -3733,7 +3733,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setStripeProductsBusy(true);
     setStripeProductsError(null);
     try {
-      const res = await fetch("/api/portal/funnel-builder/sales/products", { cache: "no-store" });
+      const res = await fetch("/api/portal/funnel-builder/sales/products", {
+        cache: "no-store",
+        headers: { [PORTAL_VARIANT_HEADER]: basePath === "/credit" ? "credit" : "portal" },
+      });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) {
         throw new Error((json && typeof json.error === "string" && json.error) || "Unable to load Stripe products");
@@ -3770,7 +3773,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     } finally {
       setStripeProductsBusy(false);
     }
-  }, [stripeProductsBusy]);
+  }, [basePath, stripeProductsBusy]);
 
   const [funnel, setFunnel] = useState<Funnel | null>(null);
   const [pages, setPages] = useState<Page[] | null>(null);
@@ -3839,6 +3842,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [dialogError, setDialogError] = useState<string | null>(null);
 
   const portalVariant: PortalVariant = basePath === "/credit" ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   // hostedBasePath is the public-facing URL prefix used in generated block embed URLs
   // (formEmbed, calendarEmbed). Different from basePath which is the portal nav path.
   const hostedBasePath = portalVariant === "credit" ? "/credit" : "";
@@ -5033,16 +5037,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     const [fRes, pRes, formsRes, bookingCalendarsRes, bookingSettingsRes] = await Promise.all([
       fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
         cache: "no-store",
+        headers: variantHeaders,
       }),
       fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages`, {
         cache: "no-store",
+        headers: variantHeaders,
       }),
       fetch("/api/portal/funnel-builder/forms", {
         cache: "no-store",
-        headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+        headers: variantHeaders,
       }).catch(() => null as any),
-      fetch("/api/portal/booking/calendars", { cache: "no-store" }).catch(() => null as any),
-      fetch("/api/portal/booking/settings", { cache: "no-store" }).catch(() => null as any),
+      fetch("/api/portal/booking/calendars", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+      fetch("/api/portal/booking/settings", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
     ]);
     const fJson = (await fRes.json().catch(() => null)) as any;
     const pJson = (await pRes.json().catch(() => null)) as any;
@@ -5101,7 +5107,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     } else {
       setBookingSiteSlug(null);
     }
-  }, [funnelId, portalVariant]);
+  }, [funnelId, variantHeaders]);
 
   useEffect(() => {
     setSeoDirty(false);
@@ -5115,7 +5121,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     try {
       const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
         method: "PATCH",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ seo: funnel.seo ?? null }),
       });
       const json = (await res.json().catch(() => null)) as any;
@@ -5130,7 +5136,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     } finally {
       setSeoBusy(false);
     }
-  }, [funnel, funnelId, toast]);
+  }, [funnel, funnelId, toast, variantHeaders]);
 
   useEffect(() => {
     let cancelled = false;
@@ -5171,7 +5177,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}`,
           {
             method: "PATCH",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", ...variantHeaders },
             body: JSON.stringify(patch),
           },
         );
@@ -5186,7 +5192,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         setBusy(false);
       }
     },
-    [funnelId, load, selectedPage],
+    [funnelId, load, selectedPage, variantHeaders],
   );
 
   const setPageFaviconUrl = useCallback(
@@ -5222,7 +5228,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     try {
       const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ slug: normalizedSlug, title: trimmedTitle || undefined, contentMarkdown: "" }),
       });
       const json = (await res.json().catch(() => null)) as any;
@@ -5234,7 +5240,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(createdId)}`,
           {
             method: "PATCH",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", ...variantHeaders },
             body: JSON.stringify({ editorMode: "BLOCKS", blocksJson: [] }),
           },
         ).catch(() => null);
@@ -5266,7 +5272,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     try {
       const res = await fetch(
         `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}`,
-        { method: "DELETE" },
+        { method: "DELETE", headers: variantHeaders },
       );
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to delete");
@@ -5298,7 +5304,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}`,
         {
           method: "PATCH",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify({
             editorMode: "BLOCKS",
             blocksJson: importedBlocks,
@@ -5371,7 +5377,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/export-custom-html`,
             {
               method: "POST",
-              headers: { "content-type": "application/json" },
+              headers: { "content-type": "application/json", ...variantHeaders },
               body: JSON.stringify({ blocksJson: saveableBlocks, setEditorMode: "CUSTOM_HTML" }),
             },
           );
@@ -5471,7 +5477,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/global-header`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify({ mode: "apply", headerBlock }),
         },
       );
@@ -6195,7 +6201,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
         const res = await fetch("/api/portal/funnel-builder/custom-code-block/generate", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify({
             funnelId,
             pageId: selectedPage.id,
@@ -6680,7 +6686,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/generate-html`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify({
             prompt: promptText,
             currentHtml,
@@ -6831,7 +6837,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       }
       const res = await fetch(
         `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/publish`,
-        { method: "POST", headers: { "content-type": "application/json" } },
+        { method: "POST", headers: { "content-type": "application/json", ...variantHeaders } },
       );
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to publish");
@@ -8561,7 +8567,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       )}
                     />
                   </div>
-                  <div className="pt-0.5 text-[11px] text-zinc-500">Sections auto-generate anchor IDs — e.g. <span className="font-mono">#section-hero</span></div>
+                  <div className="pt-0.5 text-[11px] text-zinc-500">Sections auto-generate anchor IDs - e.g. <span className="font-mono">#section-hero</span></div>
                 </div>
               ) : null}
 
@@ -8732,7 +8738,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                               const res = await fetch("/api/portal/funnel-builder/custom-code-block/generate", {
                                 method: "POST",
-                                headers: { "content-type": "application/json" },
+                                headers: { "content-type": "application/json", ...variantHeaders },
                                 body: JSON.stringify({
                                   funnelId,
                                   pageId: selectedPage.id,
@@ -9403,7 +9409,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     try {
                                       const res = await fetch("/api/portal/funnel-builder/custom-code-block/generate", {
                                         method: "POST",
-                                        headers: { "content-type": "application/json" },
+                                        headers: { "content-type": "application/json", ...variantHeaders },
                                         body: JSON.stringify({
                                           funnelId,
                                           pageId: selectedPage.id,
@@ -10398,7 +10404,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/global-header`,
                                     {
                                       method: "POST",
-                                      headers: { "content-type": "application/json" },
+                                      headers: { "content-type": "application/json", ...variantHeaders },
                                       body: JSON.stringify(
                                         checked
                                           ? { mode: "apply", headerBlock: next }

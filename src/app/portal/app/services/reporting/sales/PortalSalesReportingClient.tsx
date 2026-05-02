@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { InlineSpinner } from "@/components/InlineSpinner";
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type RangeKey = "7d" | "30d";
 
@@ -66,6 +66,8 @@ export function PortalSalesReportingClient() {
   const pathname = usePathname() || "";
   const searchParams = useSearchParams();
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
+  const portalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const from = String(searchParams?.get("from") || "").toLowerCase();
   const backHref = from === "dashboard" ? `${portalBase}/app` : `${portalBase}/app/services/reporting`;
   const backLabel = from === "dashboard" ? "Back to Dashboard" : "Back to Reporting";
@@ -74,7 +76,7 @@ export function PortalSalesReportingClient() {
   const [range, setRange] = useState<RangeKey>("30d");
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const [data, setData] = useState<SalesReportPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,7 +84,7 @@ export function PortalSalesReportingClient() {
     if (error) toast.error(error);
   }, [error, toast]);
 
-  async function load(nextRange: RangeKey) {
+  const load = useCallback(async (nextRange: RangeKey) => {
     const isFirstLoad = !hasLoadedOnceRef.current;
     if (isFirstLoad) setLoading(true);
     else setRefreshing(true);
@@ -91,8 +93,8 @@ export function PortalSalesReportingClient() {
 
     try {
       const [statusRes, salesRes] = await Promise.all([
-        fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any),
-        fetch(`/api/portal/reporting/sales?range=${encodeURIComponent(nextRange)}`, { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/integrations/sales-reporting", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
+        fetch(`/api/portal/reporting/sales?range=${encodeURIComponent(nextRange)}`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
       ]);
 
       if (statusRes?.ok) {
@@ -120,12 +122,11 @@ export function PortalSalesReportingClient() {
       setLoading(false);
       setRefreshing(false);
     }
-  }
+  }, [variantHeaders]);
 
   useEffect(() => {
     void load(range);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load, range]);
 
   const rangeOptions = useMemo(
     () =>
@@ -180,12 +181,6 @@ export function PortalSalesReportingClient() {
           ) : null}
         </div>
         <div className="flex items-center gap-2">
-          {refreshing ? (
-            <div className="mr-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
-              <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
-              Refreshing…
-            </div>
-          ) : null}
           <div className="text-xs font-semibold text-zinc-500">Range</div>
           <PortalListboxDropdown
             value={range}

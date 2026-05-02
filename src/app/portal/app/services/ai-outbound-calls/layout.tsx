@@ -7,19 +7,19 @@ import { requestPortalAppBasePath } from "@/lib/portalVariant.server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type TabKey = "calls" | "messages" | "settings";
+type TabKey = "calls" | "messages" | "settings" | "testing";
 
 export default async function PortalAiOutboundCallsLayout({
   params,
 }: {
   params: Promise<{ tab?: string }>;
 }) {
-  // Keep the client shell mounted across /ai-outbound-calls/calls|messages|settings.
+  // Keep the client shell mounted across /ai-outbound-calls/calls|messages|settings|testing.
   // The leaf page only validates/redirects.
   const resolved = await params;
   const raw = String(resolved?.tab || "calls").toLowerCase();
 
-  if (raw !== "calls" && raw !== "messages" && raw !== "settings") {
+  if (raw !== "calls" && raw !== "messages" && raw !== "settings" && raw !== "testing") {
     const base = await requestPortalAppBasePath();
     redirect(`${base}/services/ai-outbound-calls/calls`);
   }

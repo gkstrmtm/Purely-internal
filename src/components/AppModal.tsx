@@ -22,6 +22,7 @@ export function AppModal({
   closeVariant = "x",
   hideHeaderDivider = true,
   hideFooterDivider = true,
+  bodyClassName,
 }: {
   open: boolean;
   title: string;
@@ -35,6 +36,7 @@ export function AppModal({
   closeVariant?: "text" | "x";
   hideHeaderDivider?: boolean;
   hideFooterDivider?: boolean;
+  bodyClassName?: string;
 }) {
   const [mounted, setMounted] = useState(false);
 
@@ -65,7 +67,7 @@ export function AppModal({
     const baseZ = Number.isFinite(zIndex as number) ? (zIndex as number) : 8000;
 
     return (
-      <div className="fixed inset-0" style={{ zIndex: baseZ }} aria-hidden>
+      <div className="fixed inset-0" style={{ zIndex: baseZ }}>
         <button
           type="button"
           className={classNames("absolute inset-0 cursor-default", portalGlassBackdropClass)}
@@ -110,7 +112,7 @@ export function AppModal({
                       "shrink-0 select-none transition-all duration-150 hover:-translate-y-0.5",
                       closeVariant === "x"
                         ? classNames(
-                            "grid h-10 w-10 place-items-center rounded-full text-lg leading-none font-semibold text-zinc-500 hover:scale-105 hover:bg-white/80 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]",
+                            "grid h-10 w-10 place-items-center rounded-full border border-white/70 bg-white/78 text-lg leading-none font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:scale-105 hover:bg-white hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]",
                             portalGlassButtonClass,
                           )
                         : classNames("rounded-2xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)
@@ -124,14 +126,14 @@ export function AppModal({
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
+            <div className={classNames("min-h-0 flex-1 overflow-y-auto p-5", bodyClassName)}>{children}</div>
 
             {footer ? <div className={classNames("shrink-0 p-4", hideFooterDivider ? "" : "border-t border-white/30")}>{footer}</div> : null}
           </div>
         </div>
       </div>
     );
-  }, [children, closeVariant, description, footer, headerActions, hideFooterDivider, hideHeaderDivider, onClose, open, title, widthClassName, zIndex]);
+  }, [bodyClassName, children, closeVariant, description, footer, headerActions, hideFooterDivider, hideHeaderDivider, onClose, open, title, widthClassName, zIndex]);
 
   if (!mounted) return null;
   if (!body) return null;

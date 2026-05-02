@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useToast } from "@/components/ToastProvider";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type BundleId = "launch-kit" | "sales-loop" | "brand-builder";
 
@@ -75,9 +76,12 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 }
 
 export function PortalBillingUpgradeClient({ embedded }: { embedded?: boolean } = {}) {
+  const pathname = usePathname() || "/portal/app/billing/upgrade";
   const router = useRouter();
   const searchParams = useSearchParams();
   const toast = useToast();
+  const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  const portalVariant = portalBase === "/credit" ? "credit" : "portal";
 
   const [busy, setBusy] = useState<BundleId | null>(null);
 
@@ -86,6 +90,7 @@ export function PortalBillingUpgradeClient({ embedded }: { embedded?: boolean } 
     if (typeof window === "undefined") return false;
     return String(window.location.hostname || "").toLowerCase().includes("purely-mobile");
   }, [searchParams]);
+  const checkoutState = useMemo(() => (searchParams?.get("checkout") || "").trim().toLowerCase(), [searchParams]);
 
   const bundles: BundleId[] = ["launch-kit", "sales-loop", "brand-builder"];
 
@@ -95,7 +100,7 @@ export function PortalBillingUpgradeClient({ embedded }: { embedded?: boolean } 
 
     const res = await fetch("/api/portal/billing/upgrade-checkout", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
       credentials: "include",
       body: JSON.stringify({ bundleId }),
     }).catch(() => null);
@@ -112,8 +117,39 @@ export function PortalBillingUpgradeClient({ embedded }: { embedded?: boolean } 
     window.location.assign(String(json.url));
   }
 
+  const [showCancelNotice, setShowCancelNotice] = useState(checkoutState === "cancel");
+
+  useEffect(() => {
+    setShowCancelNotice(checkoutState === "cancel");
+  }, [checkoutState]);
+
+  function dismissCancelNotice() {
+    setShowCancelNotice(false);
+
+    const nextParams = new URLSearchParams(searchParams?.toString() || "");
+    nextParams.delete("checkout");
+    const next = nextParams.toString() ? `${pathname}?${nextParams.toString()}` : pathname;
+    router.replace(next, { scroll: false });
+  }
+
   return (
     <div className="space-y-4">
+      {showCancelNotice ? (
+        <div className="flex flex-col gap-3 rounded-3xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="font-semibold">Checkout canceled</div>
+            <div className="mt-1 text-amber-900/80">Your monthly-plan upgrade was not completed. Pick a package whenever you&apos;re ready.</div>
+          </div>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-2xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100"
+            onClick={dismissCancelNotice}
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         {embedded ? null : (
           <button
@@ -121,8 +157,8 @@ export function PortalBillingUpgradeClient({ embedded }: { embedded?: boolean } 
             className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
             onClick={() => {
               const next = fromMobileApp
-                ? "/portal/app/billing?pa_mobileapp=1"
-                : "/portal/app/billing";
+                ? `${portalBase}/app/billing?pa_mobileapp=1`
+                : `${portalBase}/app/billing`;
               router.push(next, { scroll: false });
             }}
             disabled={busy !== null}

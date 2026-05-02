@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
@@ -12,6 +12,7 @@ import { formatUsd } from "@/lib/pricing.shared";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { BuyCreditsModal } from "@/app/portal/billing/BuyCreditsModal";
 import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 const STRIPE_PUBLISHABLE_KEY = String(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "").trim();
 const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : null;
@@ -257,8 +258,12 @@ export function PortalBillingClient({
   hideMonthlyBreakdown?: boolean;
 } = {}) {
   void embedded;
+  const pathname = usePathname() || "/portal/app/billing";
   const router = useRouter();
   const searchParams = useSearchParams();
+  const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  const portalVariant = portalBase === "/credit" ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const creditsFirstForMobileApp = (() => {
     if (searchParams?.get("pa_mobileapp") === "1") return true;
     if (typeof window === "undefined") return false;
@@ -278,6 +283,7 @@ export function PortalBillingClient({
   const [services, setServices] = useState<ServicesStatusResponse | null>(null);
   const [subscriptions, setSubscriptions] = useState<SubscriptionsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [checkoutNotice, setCheckoutNotice] = useState<null | { kind: "success" | "cancel"; message: string }>(null);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
 
@@ -362,7 +368,7 @@ export function PortalBillingClient({
   const loadReferral = useCallback(async () => {
     setReferralLoading(true);
     try {
-      const res = await fetch("/api/portal/referrals/link", { cache: "no-store" });
+      const res = await fetch("/api/portal/referrals/link", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as unknown;
       const okJson = json && typeof json === "object" && !Array.isArray(json) ? (json as any) : null;
       if (!res.ok || !okJson?.ok) {
@@ -380,12 +386,12 @@ export function PortalBillingClient({
     } finally {
       setReferralLoading(false);
     }
-  }, []);
+  }, [variantHeaders]);
 
   const rotateReferral = useCallback(async () => {
     setReferralLoading(true);
     try {
-      const res = await fetch("/api/portal/referrals/link", { method: "POST", cache: "no-store" });
+      const res = await fetch("/api/portal/referrals/link", { method: "POST", cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as unknown;
       const okJson = json && typeof json === "object" && !Array.isArray(json) ? (json as any) : null;
       if (!res.ok || !okJson?.ok || !okJson?.url) return null;
@@ -405,7 +411,7 @@ export function PortalBillingClient({
     } finally {
       setReferralLoading(false);
     }
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     void loadReferral();
@@ -440,7 +446,7 @@ export function PortalBillingClient({
   const loadBillingInfo = useCallback(async () => {
     setBillingInfoLoading(true);
     try {
-      const res = await fetch("/api/portal/billing/billing-info", { cache: "no-store" });
+      const res = await fetch("/api/portal/billing/billing-info", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as BillingInfoResponse;
       if (!res.ok) {
         const message = (json as any)?.error ? String((json as any).error) : "Unable to load billing info";
@@ -453,7 +459,7 @@ export function PortalBillingClient({
     } finally {
       setBillingInfoLoading(false);
     }
-  }, [toast]);
+  }, [toast, variantHeaders]);
 
   useEffect(() => {
     void loadBillingInfo();
@@ -475,7 +481,7 @@ export function PortalBillingClient({
 
       const res = await fetch("/api/portal/billing/billing-info", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify(payload),
       });
       const json = (await res.json().catch(() => ({}))) as any;
@@ -488,7 +494,7 @@ export function PortalBillingClient({
     } finally {
       setBillingInfoSaving(false);
     }
-  }, [billingDraft, billingInfoDirty, billingInfoSaving, loadBillingInfo, toast]);
+  }, [billingDraft, billingInfoDirty, billingInfoSaving, loadBillingInfo, toast, variantHeaders]);
 
   const openUpdateCard = useCallback(async () => {
     if (!stripePromise) {
@@ -501,7 +507,7 @@ export function PortalBillingClient({
     setUpdateCardError(null);
     setUpdateCardLoading(true);
     try {
-      const res = await fetch("/api/portal/billing/setup-intent", { method: "POST", cache: "no-store" });
+      const res = await fetch("/api/portal/billing/setup-intent", { method: "POST", cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !json?.clientSecret) {
         const msg = String(json?.error || "Unable to start card update");
@@ -517,7 +523,7 @@ export function PortalBillingClient({
     } finally {
       setUpdateCardLoading(false);
     }
-  }, [toast]);
+  }, [toast, variantHeaders]);
 
   useEffect(() => {
     if (!billingInfoStripeConfigured) return;
@@ -560,7 +566,7 @@ export function PortalBillingClient({
     async (setupIntentId: string) => {
       const res = await fetch("/api/portal/billing/setup-intent/finalize", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ setupIntentId }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
@@ -574,17 +580,17 @@ export function PortalBillingClient({
       await Promise.all([
         loadBillingInfo(),
         (async () => {
-          const res = await fetch("/api/portal/billing/summary", { cache: "no-store" });
+          const res = await fetch("/api/portal/billing/summary", { cache: "no-store", headers: variantHeaders });
           if (!res.ok) return;
           setSummary((await res.json().catch(() => null)) as BillingSummary | null);
         })(),
       ]);
     },
-    [loadBillingInfo, toast],
+    [loadBillingInfo, toast, variantHeaders],
   );
 
   const refreshCredits = useCallback(async () => {
-    const res = await fetch("/api/portal/credits", { cache: "no-store" });
+    const res = await fetch("/api/portal/credits", { cache: "no-store", headers: variantHeaders });
     if (!res.ok) return;
     const c = (await res.json().catch(() => ({}))) as {
       credits?: number;
@@ -604,7 +610,7 @@ export function PortalBillingClient({
           }
         : null,
     );
-  }, []);
+  }, [variantHeaders]);
 
 
   useEffect(() => {
@@ -612,11 +618,11 @@ export function PortalBillingClient({
     (async () => {
       const [billingRes, summaryRes, creditsRes, servicesRes, subsRes, pricingRes] = await Promise.all([
         fetch("/api/billing/status", { cache: "no-store" }),
-        fetch("/api/portal/billing/summary", { cache: "no-store" }),
-        fetch("/api/portal/credits", { cache: "no-store" }),
-        fetch("/api/portal/services/status", { cache: "no-store" }),
-        fetch("/api/portal/billing/subscriptions", { cache: "no-store" }),
-        fetch("/api/portal/pricing", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/billing/summary", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/credits", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/services/status", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/billing/subscriptions", { cache: "no-store", headers: variantHeaders }),
+        fetch("/api/portal/pricing", { cache: "no-store", headers: variantHeaders }).catch(() => null as any),
       ]);
       if (!mounted) return;
       if (!billingRes.ok) {
@@ -690,7 +696,7 @@ export function PortalBillingClient({
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     try {
@@ -703,7 +709,7 @@ export function PortalBillingClient({
       (async () => {
         const res = await fetch("/api/portal/credits/topup/confirm-checkout", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify({ sessionId }),
         });
         const body = await res.json().catch(() => ({}));
@@ -726,7 +732,7 @@ export function PortalBillingClient({
     } catch {
       // ignore
     }
-  }, [toast, refreshCredits]);
+  }, [toast, refreshCredits, variantHeaders]);
 
   useEffect(() => {
     if (loading || creditsOnly) {
@@ -833,11 +839,11 @@ export function PortalBillingClient({
     setActionBusy(`module:${module}`);
     const res = await fetch("/api/portal/billing/checkout-module", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({
         module,
-        successPath: "/portal/app/billing?checkout=success",
-        cancelPath: "/portal/app/billing?checkout=cancel",
+        successPath: `${portalBase}/app/billing?checkout=success`,
+        cancelPath: `${portalBase}/app/billing?checkout=cancel`,
       }),
     });
     const body = await res.json().catch(() => ({}));
@@ -862,31 +868,62 @@ export function PortalBillingClient({
   }
 
 
-  async function refreshSummary() {
-    const res = await fetch("/api/portal/billing/summary", { cache: "no-store" });
+  const refreshSummary = useCallback(async () => {
+    const res = await fetch("/api/portal/billing/summary", { cache: "no-store", headers: variantHeaders });
     if (!res.ok) {
       setSummary(null);
       return;
     }
     setSummary((await res.json().catch(() => null)) as BillingSummary | null);
-  }
+  }, [variantHeaders]);
 
-  async function refreshSubscriptions() {
-    const res = await fetch("/api/portal/billing/subscriptions", { cache: "no-store" });
+  const refreshSubscriptions = useCallback(async () => {
+    const res = await fetch("/api/portal/billing/subscriptions", { cache: "no-store", headers: variantHeaders });
     if (!res.ok) {
       setSubscriptions(null);
       return;
     }
     setSubscriptions((await res.json().catch(() => null)) as SubscriptionsResponse | null);
-  }
+  }, [variantHeaders]);
 
-  async function refreshServices() {
-    const res = await fetch("/api/portal/services/status", { cache: "no-store" });
+  const refreshServices = useCallback(async () => {
+    const res = await fetch("/api/portal/services/status", { cache: "no-store", headers: variantHeaders });
     if (!res.ok) {
       setServices(null);
       return;
     }
     setServices((await res.json().catch(() => null)) as ServicesStatusResponse | null);
+  }, [variantHeaders]);
+
+  useEffect(() => {
+    try {
+      const qs = new URLSearchParams(window.location.search);
+      const checkout = (qs.get("checkout") || "").trim().toLowerCase();
+      if (checkout !== "success" && checkout !== "cancel") return;
+
+      setCheckoutNotice(
+        checkout === "success"
+          ? { kind: "success", message: "Checkout complete. Your billing details are refreshing now." }
+          : { kind: "cancel", message: "Checkout canceled. No service changes were made." },
+      );
+
+      if (checkout === "success") {
+        void Promise.allSettled([refreshSummary(), refreshSubscriptions(), refreshServices()]);
+      }
+    } catch {
+      // ignore
+    }
+  }, [refreshServices, refreshSubscriptions, refreshSummary]);
+
+  function dismissCheckoutNotice() {
+    setCheckoutNotice(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("checkout");
+      window.history.replaceState(null, "", url.toString());
+    } catch {
+      // ignore
+    }
   }
 
   async function setServiceLifecycle(serviceSlug: string, action: "pause" | "cancel" | "resume") {
@@ -895,7 +932,7 @@ export function PortalBillingClient({
     setActionBusy(`service:${serviceSlug}:${action}`);
     const res = await fetch("/api/portal/services/lifecycle", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ serviceSlug, action }),
     });
     const body = await res.json().catch(() => ({}));
@@ -914,7 +951,7 @@ export function PortalBillingClient({
 
     const res = await fetch("/api/portal/billing/credits-only-cancel", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ action }),
     });
 
@@ -937,7 +974,7 @@ export function PortalBillingClient({
     setActionBusy("auto-topup");
     const res = await fetch("/api/portal/credits", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ autoTopUp: next }),
     });
     const body = await res.json().catch(() => ({}));
@@ -966,7 +1003,7 @@ export function PortalBillingClient({
 
     const res = await fetch("/api/portal/credits/topup", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ credits: requested }),
     });
     const body = await res.json().catch(() => ({}));
@@ -1000,7 +1037,7 @@ export function PortalBillingClient({
     setActionBusy(immediate ? `cancel-now:${subscriptionId}` : `cancel:${subscriptionId}`);
     const res = await fetch("/api/portal/billing/cancel-subscription", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ subscriptionId, immediate }),
     });
     const body = await res.json().catch(() => ({}));
@@ -1085,7 +1122,7 @@ export function PortalBillingClient({
       : "") ||
     (internalMonthlyBreakdown[0]?.currency || summaryCurrency || "usd");
 
-  const upgradeHref = creditsFirstForMobileApp ? "/portal/app/billing/upgrade?pa_mobileapp=1" : "/portal/app/billing/upgrade";
+  const upgradeHref = creditsFirstForMobileApp ? `${portalBase}/app/billing/upgrade?pa_mobileapp=1` : `${portalBase}/app/billing/upgrade`;
 
   const monthlyText = creditsOnly ? "Upgrade" : status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "N/A";
 
@@ -1121,20 +1158,20 @@ export function PortalBillingClient({
 
   const setupHrefForService = (slug: string, label?: string | null) => {
     const l = String(label || "").toLowerCase();
-    if (slug === "booking") return "/portal/app/services/booking/settings";
-    if (slug === "tasks") return "/portal/app/tasks";
-    if (slug === "automations") return "/portal/app/services/automations";
-    if (slug === "blogs") return "/portal/app/services/blogs";
-    if (slug === "reviews") return "/portal/app/services/reviews/setup";
-    if (slug === "ai-receptionist") return "/portal/app/services/ai-receptionist";
+    if (slug === "booking") return `${portalBase}/app/services/booking/settings`;
+    if (slug === "tasks") return `${portalBase}/app/tasks`;
+    if (slug === "automations") return `${portalBase}/app/services/automations`;
+    if (slug === "blogs") return `${portalBase}/app/services/blogs`;
+    if (slug === "reviews") return `${portalBase}/app/services/reviews/setup`;
+    if (slug === "ai-receptionist") return `${portalBase}/app/services/ai-receptionist`;
     if (slug === "ai-outbound-calls") {
-      if (l.includes("twilio")) return "/portal/app/profile";
-      return "/portal/app/services/ai-outbound-calls";
+      if (l.includes("twilio")) return `${portalBase}/app/profile`;
+      return `${portalBase}/app/services/ai-outbound-calls`;
     }
-    if (slug === "newsletter") return "/portal/app/services/newsletter";
-    if (slug === "nurture-campaigns") return "/portal/app/services/nurture-campaigns";
-    if (slug === "lead-scraping") return "/portal/app/services/lead-scraping/settings";
-    return `/portal/app/services/${encodeURIComponent(slug)}`;
+    if (slug === "newsletter") return `${portalBase}/app/services/newsletter`;
+    if (slug === "nurture-campaigns") return `${portalBase}/app/services/nurture-campaigns`;
+    if (slug === "lead-scraping") return `${portalBase}/app/services/lead-scraping/settings`;
+    return `${portalBase}/app/services/${encodeURIComponent(slug)}`;
   };
 
   const setupActionLabelForService = (slug: string, label?: string | null) => {
@@ -1159,7 +1196,7 @@ export function PortalBillingClient({
       included: boolean;
     }>;
 
-    const rows = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")))
+    const rows = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes(portalVariant)))
       .map((s) => {
         const st = serviceStatuses?.[s.slug];
         const state = st?.state ?? "active";
@@ -1225,7 +1262,7 @@ export function PortalBillingClient({
       <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
         <div className="grid gap-2">
           {(() => {
-            const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
+            const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes(portalVariant)));
             const rows = servicesList.map((s) => {
               const st = serviceStatuses?.[s.slug];
               const state = st?.state ?? "active";
@@ -1314,7 +1351,7 @@ export function PortalBillingClient({
                 type="button"
                 onClick={() => setPurchaseModal(null)}
                 className={[
-                  "inline-flex h-10 w-10 items-center justify-center rounded-full text-lg font-semibold leading-none text-zinc-700 hover:bg-white/80 focus-visible:outline-none",
+                  "inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-lg font-semibold leading-none text-zinc-700 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white focus-visible:outline-none",
                   portalGlassButtonClass,
                 ].join(" ")}
                 aria-label="Close"
@@ -1405,6 +1442,32 @@ export function PortalBillingClient({
           .filter(Boolean)
           .join(" ")}
       >
+        {checkoutNotice ? (
+          <div
+            className={classNames(
+              "mb-4 flex flex-col gap-3 rounded-3xl px-4 py-4 text-sm sm:flex-row sm:items-start sm:justify-between",
+              checkoutNotice.kind === "success"
+                ? "border border-emerald-200 bg-emerald-50 text-emerald-950"
+                : "border border-amber-200 bg-amber-50 text-amber-950",
+            )}
+          >
+            <div>
+              <div className="font-semibold">{checkoutNotice.kind === "success" ? "Checkout complete" : "Checkout canceled"}</div>
+              <div className={classNames("mt-1", checkoutNotice.kind === "success" ? "text-emerald-900/80" : "text-amber-900/80")}>{checkoutNotice.message}</div>
+            </div>
+            <button
+              type="button"
+              className={classNames(
+                "inline-flex items-center justify-center rounded-2xl bg-white px-3 py-2 text-sm font-semibold hover:bg-white/80",
+                checkoutNotice.kind === "success" ? "border border-emerald-300 text-emerald-950" : "border border-amber-300 text-amber-950",
+              )}
+              onClick={dismissCheckoutNotice}
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-zinc-900">Billing</div>
@@ -1901,7 +1964,7 @@ export function PortalBillingClient({
             <div className="mt-4 min-h-0 flex-1 overflow-auto pr-1">
               <div className="space-y-2 text-sm text-zinc-700">
                 {(() => {
-                  const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
+                  const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes(portalVariant)));
                   const rows = servicesList.map((s) => {
                     const st = serviceStatuses?.[s.slug];
                     const state = st?.state ?? "active";

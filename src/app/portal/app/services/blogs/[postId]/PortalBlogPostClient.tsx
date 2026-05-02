@@ -10,10 +10,10 @@ import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
-import { InlineSpinner } from "@/components/InlineSpinner";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import {
   buildPreviewCoverImageUrl,
   buildPreviewGeneratedDraft,
@@ -220,6 +220,8 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const pathname = usePathname();
   const uiPreview = usePortalUiPreview();
   const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
+  const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
 
   const isPaMobileApp = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -230,7 +232,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   }, []);
 
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const hasLoadedOnceRef = useRef(false);
   const [working, setWorking] = useState<"save" | "publish" | "delete" | "archive" | "generate" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -289,7 +291,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     }
 
     try {
-      const res = await fetch("/api/portal/blogs/appearance", { cache: "no-store" });
+      const res = await fetch("/api/portal/blogs/appearance", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as { ok?: boolean; appearance?: BlogAppearance };
       if (res.ok && json.ok && json.appearance) {
         setAppearance(json.appearance);
@@ -297,7 +299,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     } catch {
       // ignore
     }
-  }, [uiPreview]);
+  }, [uiPreview, variantHeaders]);
 
   const saveAppearance = useCallback(
     async (next: Partial<BlogAppearance>) => {
@@ -312,7 +314,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
         const res = await fetch("/api/portal/blogs/appearance", {
           method: "PUT",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...variantHeaders },
           body: JSON.stringify(next),
         });
         const json = (await res.json().catch(() => ({}))) as { ok?: boolean; appearance?: BlogAppearance; error?: string };
@@ -325,7 +327,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         setAppearanceSaving(false);
       }
     },
-    [appearanceSaving, toast, uiPreview],
+    [appearanceSaving, toast, uiPreview, variantHeaders],
   );
 
   useEffect(() => {
@@ -394,7 +396,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
         return;
       }
 
-      const res = await fetch(`/api/portal/blogs/posts/${postId}`, { cache: "no-store" });
+      const res = await fetch(`/api/portal/blogs/posts/${postId}`, { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as { ok?: boolean; post?: Post; error?: string };
 
       if (!res.ok || !json.ok || !json.post) {
@@ -418,7 +420,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
       if (firstLoad) setLoading(false);
       else setRefreshing(false);
     }
-  }, [postId, uiPreview]);
+  }, [postId, uiPreview, variantHeaders]);
 
   function coverImageUrlFor(titleText: string) {
     const t = (titleText || "").trim() || "Blog post";
@@ -534,7 +536,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
     const res = await fetch(`/api/portal/blogs/posts/${postId}`, {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({
         title,
         slug,
@@ -599,7 +601,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
     const res = await fetch(`/api/portal/blogs/posts/${postId}/publish`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
     });
 
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; post?: Partial<Post>; error?: string };
@@ -674,7 +676,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     try {
       res = await fetch(`/api/portal/blogs/posts/${postId}/generate`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ prompt: promptText || undefined, topic: promptText || undefined }),
         signal: abort.signal,
       });
@@ -708,12 +710,12 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
         // If the user enabled auto top-up, send them straight to the top-up flow.
         try {
-          const c = await fetch("/api/portal/credits", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null));
+          const c = await fetch("/api/portal/credits", { cache: "no-store", headers: variantHeaders }).then((r) => (r.ok ? r.json() : null));
           const auto = Boolean(c && typeof c === "object" && (c as any).autoTopUp);
           if (auto) {
             const top = await fetch("/api/portal/credits/topup", {
               method: "POST",
-              headers: { "content-type": "application/json" },
+              headers: { "content-type": "application/json", ...variantHeaders },
               body: JSON.stringify({ credits: 25 }),
             }).then((r) => (r.ok ? r.json() : null));
             if (top && typeof top === "object" && typeof (top as any).url === "string") {
@@ -794,7 +796,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
     const res = await fetch(`/api/portal/blogs/posts/${postId}`, {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({
         title: title.trim() || post.title,
         slug: slug.trim() || post.slug,
@@ -886,11 +888,100 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
   const exportUrl = `/api/portal/blogs/posts/${post.id}/export`;
   const exportFilename = `${uiSlugify(slug || title || post.slug || "blog-post") || "blog-post"}.md`;
+  const actionButtons = (
+    <>
+      <Link
+        href={`${appBase}/services/blogs`}
+        onClick={(event) => {
+          if (!isDirty) return;
+          event.preventDefault();
+          setConfirmKind("leave");
+        }}
+        className={
+          "inline-flex shrink-0 items-center justify-center border border-zinc-200 bg-white font-semibold text-zinc-700 hover:bg-zinc-50 " +
+          (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+        }
+      >
+        Back to posts
+      </Link>
+      <button
+        type="button"
+        onClick={() => {
+          void generateWithAi();
+        }}
+        disabled={working !== null}
+        className={
+          "inline-flex shrink-0 items-center justify-center gap-2 bg-linear-to-r from-[#3469dd] via-[#5d86dd] to-[#d68ba3] font-semibold text-white shadow-[0_10px_24px_rgba(78,106,183,0.16)] hover:brightness-[1.02] disabled:bg-zinc-100 disabled:text-zinc-400 disabled:opacity-60 " +
+          (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+        }
+      >
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          className={isPaMobileApp ? "h-3.5 w-3.5" : "h-4 w-4"}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+          <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+        </svg>
+        <span>
+          {working === "generate"
+            ? "Generating…"
+            : isPaMobileApp
+              ? "Generate"
+              : "Generate with AI"}
+        </span>
+      </button>
+      {working === "generate" ? (
+        <button
+          type="button"
+          onClick={() => {
+            generateAbortRef.current?.abort();
+            generateAbortRef.current = null;
+            setWorking(null);
+          }}
+          className={
+            "inline-flex shrink-0 items-center justify-center border border-zinc-200 bg-white font-semibold text-brand-ink hover:bg-zinc-50 " +
+            (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+          }
+        >
+          Stop
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={save}
+        disabled={saveDisabled}
+        className={
+          "inline-flex shrink-0 items-center justify-center bg-brand-ink font-semibold text-white hover:opacity-95 disabled:opacity-60 " +
+          (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+        }
+      >
+        {working === "save" ? "Saving…" : isDirty ? "Save" : "Saved"}
+      </button>
+      <button
+        type="button"
+        onClick={publish}
+        disabled={publishDisabled}
+        className={
+          "inline-flex shrink-0 items-center justify-center bg-(--color-brand-blue) font-semibold text-white hover:opacity-95 disabled:opacity-60 " +
+          (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+        }
+      >
+        {working === "publish" ? "Publishing…" : publishLabel}
+      </button>
+    </>
+  );
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
-        <div>
+    <div className="mx-auto w-full max-w-6xl pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:pt-[calc(var(--pa-portal-topbar-height,0px)+2rem)]">
+      <div className="flex flex-col gap-4 sm:gap-6">
+        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-start">
+          <div className="min-w-0 flex-1">
           <div className="text-xs font-semibold text-zinc-500">
             <Link href={`${appBase}/services/blogs`} className="hover:underline">
               Blogs
@@ -930,108 +1021,19 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
             )}
             {uiPreview ? <span className="rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Local preview</span> : null}
           </div>
-          {refreshing ? (
-            <div className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
-              <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
-              <span>Refreshing…</span>
-            </div>
-          ) : null}
+          </div>
+          {isPaMobileApp ? <div className="flex w-full items-center gap-2 overflow-x-auto pb-1 sm:w-auto">{actionButtons}</div> : null}
         </div>
 
-        <div
-          className={
-            isPaMobileApp
-              ? "flex w-full items-center gap-2 overflow-x-auto pb-1 sm:w-auto"
-              : "flex w-full flex-col gap-3 sm:w-auto sm:flex-row"
-          }
-        >
-          <button
-            type="button"
-            onClick={() => {
-              if (isDirty) {
-                setConfirmKind("leave");
-                return;
-              }
-              window.location.href = `${appBase}/services/blogs`;
-            }}
-            className={
-              "inline-flex shrink-0 items-center justify-center border border-zinc-200 bg-white font-semibold text-zinc-700 hover:bg-zinc-50 " +
-              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
-            }
-          >
-            Back to posts
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              void generateWithAi();
-            }}
-            disabled={working !== null}
-            className={
-              "inline-flex shrink-0 items-center justify-center gap-2 bg-linear-to-r from-[#3469dd] via-[#5d86dd] to-[#d68ba3] font-semibold text-white shadow-[0_10px_24px_rgba(78,106,183,0.16)] hover:brightness-[1.02] disabled:bg-zinc-100 disabled:text-zinc-400 disabled:opacity-60 " +
-              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
-            }
-          >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              className={isPaMobileApp ? "h-3.5 w-3.5" : "h-4 w-4"}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
-              <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
-            </svg>
-            <span>
-              {working === "generate"
-                ? "Generating…"
-                : isPaMobileApp
-                  ? "Generate"
-                  : "Generate with AI"}
-            </span>
-          </button>
-          {working === "generate" ? (
-            <button
-              type="button"
-              onClick={() => {
-                generateAbortRef.current?.abort();
-                generateAbortRef.current = null;
-                setWorking(null);
-              }}
-              className={
-                "inline-flex shrink-0 items-center justify-center border border-zinc-200 bg-white font-semibold text-brand-ink hover:bg-zinc-50 " +
-                (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
-              }
-            >
-              Stop
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={save}
-            disabled={saveDisabled}
-            className={
-              "inline-flex shrink-0 items-center justify-center bg-brand-ink font-semibold text-white hover:opacity-95 disabled:opacity-60 " +
-              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
-            }
-          >
-            {working === "save" ? "Saving…" : isDirty ? "Save" : "Saved"}
-          </button>
-          <button
-            type="button"
-            onClick={publish}
-            disabled={publishDisabled}
-            className={
-              "inline-flex shrink-0 items-center justify-center bg-(--color-brand-blue) font-semibold text-white hover:opacity-95 disabled:opacity-60 " +
-              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
-            }
-          >
-            {working === "publish" ? "Publishing…" : publishLabel}
-          </button>
-        </div>
+        {!isPaMobileApp ? (
+          <div className="hidden sm:block sm:sticky sm:top-[calc(var(--pa-portal-topbar-height,0px)+0.75rem)] sm:z-20">
+            <div className="flex justify-end">
+              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:rounded-3xl sm:bg-brand-mist/95 sm:p-2 sm:backdrop-blur">
+                {actionButtons}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {confirmKind ? (
@@ -1107,7 +1109,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                       return;
                     }
 
-                    const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE" });
+                    const res = await fetch(`/api/portal/blogs/posts/${postId}`, { method: "DELETE", headers: variantHeaders });
                     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
                     setWorking(null);
 

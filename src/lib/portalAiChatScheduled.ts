@@ -79,12 +79,25 @@ async function enqueueNextRecurringScheduledMessage(opts: {
     recurrenceTimeZone: opts.recurrenceTimeZone,
   });
   if (!nextAt) throw new Error("Unable to compute next recurring run time");
+  const normalizedText = String(opts.text || "").slice(0, 4000);
+  const existing = await (prisma as any).portalAiChatMessage.findFirst({
+    where: {
+      ownerId: opts.ownerId,
+      role: "user",
+      text: normalizedText,
+      sendAt: nextAt,
+      sentAt: null,
+      repeatEveryMinutes: opts.repeatEveryMinutes,
+    },
+    select: { id: true },
+  });
+  if (existing?.id) return;
   await (prisma as any).portalAiChatMessage.create({
     data: {
       ownerId: opts.ownerId,
       threadId: opts.threadId,
       role: "user",
-      text: String(opts.text || "").slice(0, 4000),
+      text: normalizedText,
       attachmentsJson: opts.attachmentsJson ?? null,
       createdByUserId: opts.createdByUserId ?? null,
       sendAt: nextAt,
@@ -120,7 +133,7 @@ async function maybeNotifyScheduledTaskNeedsInputBySms(opts: {
   const question = typeof opts.question === "string" && opts.question.trim() ? opts.question.trim().slice(0, 500) : "Reply with the missing detail so I can continue.";
   const workTitle = typeof opts.workTitle === "string" && opts.workTitle.trim() ? opts.workTitle.trim().slice(0, 160) : "your scheduled task";
   const smsBody = [
-    `Pura needs your reply to continue ${workTitle}.`,
+    `One detail is still missing before I can continue ${workTitle}.`,
     question,
     "Reply here and I’ll continue it in the portal.",
   ]

@@ -58,6 +58,14 @@ export type ClientBlogGenerationContext = {
   brandVoice?: string | null;
   topic?: string;
   strictTopicOnly?: boolean;
+  referenceAssets?: Array<{
+    fileName?: string;
+    mimeType?: string;
+    tag?: string;
+    url?: string;
+    extractionKind?: string;
+    extractedText?: string;
+  }>;
 };
 
 export async function generateClientBlogDraft(ctx: ClientBlogGenerationContext): Promise<ClientBlogDraft> {
@@ -90,6 +98,9 @@ export async function generateClientBlogDraft(ctx: ClientBlogGenerationContext):
     "Write content in Markdown.",
     "No code fences, no extra commentary.",
     "Keep it practical, high-signal, and good enough to publish without sounding templated.",
+    "If referenceAssets include extractedText, treat that extracted content as source material and use it directly where relevant.",
+    "Do not ignore file-derived context when it provides concrete details, terminology, pricing, offers, FAQs, or product facts.",
+    "When referenceAssets and the business profile differ, prefer the file-derived details for the specific offer or subject covered by those files.",
     "SEO: include 20-40 relevant, unique SEO keywords/phrases in seoKeywords (mix of short + long-tail).",
     "If the requested topic names a specific offer, niche, audience, or business model, keep the title, excerpt, content, and SEO keywords tightly aligned to that exact topic.",
     "Do not mix in unrelated industries, services, or customer scenarios from the business profile when the topic is more specific.",
@@ -118,6 +129,19 @@ export async function generateClientBlogDraft(ctx: ClientBlogGenerationContext):
   const prompt = {
     business,
     topic: ctx.topic ?? "A helpful educational post for our customers",
+    referenceAssets: Array.isArray(ctx.referenceAssets)
+      ? ctx.referenceAssets
+          .map((asset) => ({
+            fileName: typeof asset?.fileName === "string" ? asset.fileName.trim().slice(0, 180) : undefined,
+            mimeType: typeof asset?.mimeType === "string" ? asset.mimeType.trim().slice(0, 120) : undefined,
+            tag: typeof asset?.tag === "string" ? asset.tag.trim().slice(0, 120) : undefined,
+            url: typeof asset?.url === "string" ? asset.url.trim().slice(0, 1000) : undefined,
+            extractionKind: typeof asset?.extractionKind === "string" ? asset.extractionKind.trim().slice(0, 40) : undefined,
+            extractedText: typeof asset?.extractedText === "string" ? asset.extractedText.trim().slice(0, 6000) : undefined,
+          }))
+          .filter((asset) => asset.fileName || asset.tag || asset.url || asset.extractedText)
+          .slice(0, 12)
+      : undefined,
   };
 
   const text = await generateText({

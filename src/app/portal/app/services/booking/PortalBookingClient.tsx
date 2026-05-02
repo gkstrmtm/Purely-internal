@@ -23,9 +23,12 @@ import {
   portalSidebarSectionTitleClass,
 } from "@/app/portal/PortalServiceSidebarIcons";
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
-import { PortalBookingAvailabilityClient } from "@/app/portal/app/services/booking/availability/PortalBookingAvailabilityClient";
+import {
+  PortalBookingAvailabilityClient,
+  type PortalBookingAvailabilityHandle,
+} from "@/app/portal/app/services/booking/availability/PortalBookingAvailabilityClient";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
-import { InlineSpinner } from "@/components/InlineSpinner";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
@@ -36,11 +39,12 @@ import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEdit
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { useToast } from "@/components/ToastProvider";
-import { portalGlassButtonClass } from "@/components/portalGlass";
+import { portalGlassButtonClass, portalGlassSectionClass } from "@/components/portalGlass";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderTemplates";
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
-import { IconEdit, IconEyeGlyph, IconGlobeGlyph } from "@/app/portal/PortalIcons";
+import { IconEdit, IconEyeGlyph, IconFunnel, IconGlobeGlyph, IconSearch } from "@/app/portal/PortalIcons";
 
 type BookingFormConfig = {
   version: 1;
@@ -73,11 +77,6 @@ type Site = {
   toneDirection?: string | null;
   notificationEmails?: string[] | null;
   meetingPlatform?: string | null;
-};
-
-type Me = {
-  user: { email: string; name: string; role: string };
-  entitlements: { blog: boolean; booking: boolean; crm: boolean };
 };
 
 type Booking = {
@@ -117,6 +116,12 @@ type BookingCalendar = {
   meetingLocation?: string | null;
   meetingDetails?: string | null;
   notificationEmails?: string[] | null;
+  assignedUserId?: string | null;
+};
+
+type BookingAssigneeRow = {
+  userId: string;
+  user: { id: string; email: string; name: string; active: boolean };
 };
 
 type AvailabilityBlock = {
@@ -178,6 +183,73 @@ type AppointmentReminderEvent = {
   reason?: string;
   error?: string;
 };
+
+type JsonFetchResult = {
+  ok: boolean;
+  status: number;
+  body: any;
+  error?: string;
+};
+
+type FixedMenuStyle = { left: number; top: number; width: number; maxHeight: number };
+
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
+
+function computeFixedMenuStyle(opts: {
+  rect: DOMRect;
+  width: number;
+  estHeight: number;
+  alignX: "left" | "right";
+  minHeight?: number;
+}) {
+  const viewportPad = 12;
+  const gap = 4;
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+
+  const width = Math.max(160, Math.min(opts.width, viewportW - viewportPad * 2));
+  const estHeight = Math.max(120, opts.estHeight);
+
+  let left = opts.alignX === "right" ? opts.rect.right - width : opts.rect.left;
+  left = Math.max(viewportPad, Math.min(viewportW - viewportPad - width, left));
+
+  const spaceBelow = viewportH - opts.rect.bottom - gap - viewportPad;
+  const spaceAbove = opts.rect.top - gap - viewportPad;
+  const placeDown = spaceBelow >= Math.min(estHeight, 240) || spaceBelow >= spaceAbove;
+
+  const available = placeDown ? spaceBelow : spaceAbove;
+  const maxHeight = Math.max(opts.minHeight ?? 140, Math.min(estHeight, available));
+  const usedHeight = Math.min(estHeight, maxHeight);
+
+  const rawTop = placeDown ? opts.rect.bottom + gap : opts.rect.top - gap - usedHeight;
+  const top = Math.max(viewportPad, Math.min(viewportH - viewportPad - usedHeight, rawTop));
+
+  return { left, top, width, maxHeight } satisfies FixedMenuStyle;
+}
+
+async function fetchJsonWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = 15000): Promise<JsonFetchResult> {
+  try {
+    const response = await fetch(input, {
+      ...init,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const body = await response.json().catch(() => ({}));
+    return {
+      ok: response.ok,
+      status: response.status,
+      body,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      body: {},
+      error: error instanceof Error ? error.message : String(error ?? "Request failed"),
+    };
+  }
+}
 
 function getApiError(body: unknown): string | undefined {
   if (!body || typeof body !== "object") return undefined;
@@ -352,11 +424,93 @@ function toAvailabilityPathname(pathname: string) {
   return `${portalBasePrefixFromPathname(pathname)}${AVAILABILITY_PATH_SUFFIX}`;
 }
 
-export function PortalBookingClient() {
+type BookingPendingLink = {
+  label: string;
+  href: string;
+};
+
+function BookingPendingState({
+  title,
+  body,
+  links,
+}: {
+  title: string;
+  body: string;
+  links: BookingPendingLink[];
+}) {
+  return (
+    <div className="mx-auto w-full max-w-7xl rounded-[28px] border border-zinc-200 bg-white p-6 text-sm text-zinc-600 shadow-[0_18px_48px_rgba(15,23,42,0.08)]">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-2xl">
+          <div className="text-sm font-semibold text-brand-ink">{title}</div>
+          <p className="mt-2 text-sm leading-6 text-zinc-600">{body}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {links.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors duration-100 hover:bg-zinc-100"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+        <div className="grid min-w-55 gap-3 rounded-3xl bg-zinc-50 p-4 text-xs text-zinc-500">
+          <div>
+            <div className="font-semibold uppercase tracking-[0.18em] text-zinc-400">What loads here</div>
+            <div className="mt-2 text-sm text-zinc-600">Your booking link, availability, reminders, and upcoming appointments appear here once booking finishes loading.</div>
+          </div>
+          <div>
+            <div className="font-semibold uppercase tracking-[0.18em] text-zinc-400">Best next step</div>
+            <div className="mt-2 text-sm text-zinc-600">If you are just getting started, open availability or inbox first, then come back here to review live appointments and automation.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function PortalBookingClient({
+  initialTopTab = "appointments",
+}: {
+  initialTopTab?: "settings" | "appointments" | "bookings" | "reminders" | "follow-up";
+} = {}) {
   const pathname = usePathname();
+  const portalVariant = String(pathname || "").startsWith("/credit") ? "credit" : "portal";
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
+  const bookingBasePath = String(pathname || `${appBase}/services/booking`);
+  const dedicatedEntryHeader = useMemo(() => {
+    if (pathname === `${appBase}/services/follow-up` && initialTopTab === "follow-up") {
+      return {
+        eyebrow: "Booking automation",
+        title: "Follow-up automation",
+        description: "Review queued follow-ups and tune the messages that send automatically after appointments.",
+      };
+    }
+    if (pathname === `${appBase}/services/appointment-reminders` && initialTopTab === "reminders") {
+      return {
+        eyebrow: "Booking automation",
+        title: "Appointment reminders",
+        description: "Set the reminder sequence that keeps clients informed before each appointment.",
+      };
+    }
+    return null;
+  }, [appBase, initialTopTab, pathname]);
   const toast = useToast();
+  const bookingPendingLinks = useMemo(
+    () => [
+      { label: "Open availability", href: toAvailabilityPathname(bookingBasePath) },
+      { label: "Open dashboard", href: appBase },
+      { label: "Check inbox", href: `${appBase}/services/inbox` },
+      { label: "Review billing", href: `${appBase}/billing` },
+    ],
+    [appBase, bookingBasePath],
+  );
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
+  const [topTab, setTopTab] = useState<"settings" | "appointments" | "bookings" | "reminders" | "follow-up">(initialTopTab);
+  const [appointmentsView, setAppointmentsView] = useState<"week" | "month">("week");
 
   type BookingDeepLinkModal = "contact" | "reschedule";
 
@@ -368,10 +522,14 @@ export function PortalBookingClient() {
   }, []);
 
   useEffect(() => {
+    if (topTab !== "reminders" && topTab !== "follow-up") return;
     let canceled = false;
     (async () => {
       try {
-        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", {
+          cache: "no-store",
+          headers: variantHeaders,
+        });
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
         const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
@@ -384,29 +542,29 @@ export function PortalBookingClient() {
     return () => {
       canceled = true;
     };
-  }, []);
-  const [me, setMe] = useState<Me | null>(null);
+  }, [topTab, variantHeaders]);
   const [site, setSite] = useState<Site | null>(null);
   const [upcoming, setUpcoming] = useState<Booking[]>([]);
   const [recent, setRecent] = useState<Booking[]>([]);
 
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const [, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    if (error) toast.error(error);
+    if (error && !/signal timed out|timed out/i.test(error)) toast.error(error);
   }, [error, toast]);
 
   const [notificationEmailSuggestions, setNotificationEmailSuggestions] = useState<string[]>([]);
 
   useEffect(() => {
+    if (topTab !== "settings" && topTab !== "reminders" && topTab !== "follow-up") return;
     let cancelled = false;
     (async () => {
-      const res = await fetch("/api/portal/notifications/recipients").catch(() => null);
+      const res = await fetch("/api/portal/notifications/recipients", { headers: variantHeaders }).catch(() => null);
       if (!res || !res.ok) return;
       const json = (await res.json().catch(() => null)) as any;
       const list = Array.isArray(json?.recipients) ? json.recipients : [];
@@ -420,9 +578,10 @@ export function PortalBookingClient() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [topTab, variantHeaders]);
 
-  const [, setForm] = useState<BookingFormConfig | null>(null);
+  const [form, setForm] = useState<BookingFormConfig | null>(null);
+  const [assignees, setAssignees] = useState<BookingAssigneeRow[]>([]);
 
   const [funnelDomains, setFunnelDomains] = useState<FunnelDomain[]>([]);
   const [, setFunnelDomainsBusy] = useState(false);
@@ -437,19 +596,33 @@ export function PortalBookingClient() {
     return calendars.find((c) => c.id === selectedCalendarId) ?? null;
   }, [calendars, selectedCalendarId]);
 
+  const preferredCalendarId = useMemo(() => {
+    if (!calendars.length) return null;
+    const validIds = new Set(calendars.map((calendar) => String(calendar.id || "")).filter(Boolean));
+    const bookingLinkedId = [...upcoming, ...recent]
+      .map((booking) => String(booking.calendarId || "").trim())
+      .find((calendarId) => Boolean(calendarId) && validIds.has(calendarId));
+    if (bookingLinkedId) return bookingLinkedId;
+    return calendars.find((calendar) => calendar.enabled)?.id ?? calendars[0]?.id ?? null;
+  }, [calendars, recent, upcoming]);
+
   const [calendarDraftTitle, setCalendarDraftTitle] = useState("");
   const [calendarDraftDurationMinutes, setCalendarDraftDurationMinutes] = useState<number>(30);
   const [calendarDraftMeetingLocation, setCalendarDraftMeetingLocation] = useState("");
   const [calendarDraftMeetingDetails, setCalendarDraftMeetingDetails] = useState("");
   const [calendarDraftNotificationEmails, setCalendarDraftNotificationEmails] = useState<string[]>([]);
+  const [calendarDraftAssignedUserId, setCalendarDraftAssignedUserId] = useState<string>("");
+  const [calendarAdvancedOpen, setCalendarAdvancedOpen] = useState(false);
 
   const selectedCalendarIdRef = useRef<string | null>(null);
   useEffect(() => {
-    // Default to first calendar for convenience.
-    if (!selectedCalendarId && calendars.length) {
-      setSelectedCalendarId(calendars[0]?.id ?? null);
+    if (selectedCalendarId && calendars.some((calendar) => calendar.id === selectedCalendarId)) {
+      return;
     }
-  }, [calendars, selectedCalendarId]);
+    if (preferredCalendarId !== selectedCalendarId) {
+      setSelectedCalendarId(preferredCalendarId);
+    }
+  }, [calendars, preferredCalendarId, selectedCalendarId]);
 
   useEffect(() => {
     // Only reset drafts when switching calendars.
@@ -462,6 +635,7 @@ export function PortalBookingClient() {
       setCalendarDraftMeetingLocation("");
       setCalendarDraftMeetingDetails("");
       setCalendarDraftNotificationEmails([]);
+      setCalendarDraftAssignedUserId("");
       return;
     }
 
@@ -470,10 +644,27 @@ export function PortalBookingClient() {
     setCalendarDraftMeetingLocation(selectedCalendar.meetingLocation ?? site?.meetingLocation ?? "");
     setCalendarDraftMeetingDetails(selectedCalendar.meetingDetails ?? site?.meetingDetails ?? "");
     setCalendarDraftNotificationEmails(Array.isArray(selectedCalendar.notificationEmails) ? selectedCalendar.notificationEmails : Array.isArray(site?.notificationEmails) ? site.notificationEmails : []);
+    setCalendarDraftAssignedUserId(String(selectedCalendar.assignedUserId || ""));
   }, [selectedCalendar, selectedCalendarId, site?.durationMinutes, site?.meetingDetails, site?.meetingLocation, site?.notificationEmails]);
+
+  const assigneeOptions = useMemo(
+    () => [
+      { value: "", label: "Unassigned" },
+      ...assignees
+        .filter((row) => row?.user?.id)
+        .map((row) => ({
+          value: String(row.userId),
+          label: (row.user.name || row.user.email || row.userId).trim(),
+          disabled: !row.user.active,
+          hint: row.user.active ? undefined : "Inactive",
+        })),
+    ],
+    [assignees],
+  );
 
   const [newCalTitle, setNewCalTitle] = useState("");
   const [newCalDuration, setNewCalDuration] = useState<number>(30);
+  const [createCalendarOpen, setCreateCalendarOpen] = useState(false);
 
   const [calendarDeleteId, setCalendarDeleteId] = useState<string | null>(null);
   const [calendarEditorOpen, setCalendarEditorOpen] = useState(false);
@@ -484,12 +675,14 @@ export function PortalBookingClient() {
   const [calSelectedYmd, setCalSelectedYmd] = useState<string | null>(() => toYmd(new Date()));
   const [weekDayModalYmd, setWeekDayModalYmd] = useState<string | null>(null);
 
-  const [topTab, setTopTab] = useState<"settings" | "appointments" | "bookings" | "reminders" | "follow-up">("appointments");
-  const [appointmentsView, setAppointmentsView] = useState<"week" | "month">("week");
-
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const availabilityReturnHrefRef = useRef<string | null>(null);
   const selectedWeekDayRef = useRef<HTMLButtonElement | null>(null);
+  const selectedMonthDayPanelRef = useRef<HTMLDivElement | null>(null);
+  const dayAvailabilityEditorRef = useRef<PortalBookingAvailabilityHandle | null>(null);
+  const modalAvailabilityEditorRef = useRef<PortalBookingAvailabilityHandle | null>(null);
+  const [dayAvailabilitySaving, setDayAvailabilitySaving] = useState(false);
+  const [modalAvailabilitySaving, setModalAvailabilitySaving] = useState(false);
 
   const syncAvailabilityFromUrl = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -515,6 +708,7 @@ export function PortalBookingClient() {
   }, []);
 
   const closeAvailability = useCallback(() => {
+    modalAvailabilityEditorRef.current?.discard();
     setAvailabilityOpen(false);
     if (typeof window === "undefined") return;
     const target = availabilityReturnHrefRef.current || toBookingPathname(window.location.pathname);
@@ -524,6 +718,17 @@ export function PortalBookingClient() {
     } catch {
       // ignore
     }
+  }, []);
+
+  const closeWeekDayModal = useCallback(() => {
+    dayAvailabilityEditorRef.current?.discard();
+    setWeekDayModalYmd(null);
+    setDayAvailabilitySaving(false);
+  }, []);
+
+  const openWeekDayModal = useCallback((ymd: string) => {
+    setCalSelectedYmd(ymd);
+    setWeekDayModalYmd(ymd);
   }, []);
 
   const bookingModalReturnHrefRef = useRef<string | null>(null);
@@ -580,6 +785,11 @@ export function PortalBookingClient() {
   const [reschedBusy, setReschedBusy] = useState(false);
   const [reschedSlots, setReschedSlots] = useState<Slot[]>([]);
   const [reschedSlotsLoading, setReschedSlotsLoading] = useState(false);
+  const [bookingsSearch, setBookingsSearch] = useState("");
+  const [bookingsFiltersMenu, setBookingsFiltersMenu] = useState<FixedMenuStyle | null>(null);
+  const [bookingsScope, setBookingsScope] = useState<"all" | "upcoming" | "recent">("all");
+  const [bookingsDateFilter, setBookingsDateFilter] = useState<"any" | "7d" | "30d" | "90d">("any");
+  const [bookingsCanceledOnly, setBookingsCanceledOnly] = useState(false);
 
   const pendingBookingDeepLinkRef = useRef<null | { bookingId: string; modal: BookingDeepLinkModal | null }>(null);
   const appliedBookingDeepLinkSigRef = useRef<string | null>(null);
@@ -596,7 +806,7 @@ export function PortalBookingClient() {
       url.searchParams.set("durationMinutes", String(site.durationMinutes ?? 30));
       url.searchParams.set("limit", "25");
 
-      const res = await fetch(url.toString(), { cache: "no-store" });
+      const res = await fetch(url.toString(), { cache: "no-store", headers: variantHeaders });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(getApiError(body) ?? "Failed to load suggestions");
@@ -607,7 +817,7 @@ export function PortalBookingClient() {
     } finally {
       setReschedSlotsLoading(false);
     }
-  }, [site]);
+  }, [site, variantHeaders]);
 
   const tryApplyBookingDeepLink = useCallback(() => {
     const pending = pendingBookingDeepLinkRef.current;
@@ -808,6 +1018,7 @@ export function PortalBookingClient() {
 
   const [reminderCalendarId, setReminderCalendarId] = useState<string | null>(null);
   const reminderCalendarIdRef = useRef<string | null>(null);
+  const coreLoadRetryCountRef = useRef(0);
 
   useEffect(() => {
     reminderCalendarIdRef.current = reminderCalendarId;
@@ -831,6 +1042,7 @@ export function PortalBookingClient() {
     setTopTab(next);
     try {
       const url = new URL(window.location.href);
+      url.pathname = toBookingPathname(url.pathname);
       if (next === "appointments") url.searchParams.delete("tab");
       else url.searchParams.set("tab", next);
       window.history.replaceState({}, "", url.toString());
@@ -926,7 +1138,7 @@ export function PortalBookingClient() {
   }, []);
 
   async function loadReminders(calendarId: string | null) {
-    const remindersRes = await fetch(remindersUrl(calendarId), { cache: "no-store" });
+    const remindersRes = await fetch(remindersUrl(calendarId), { cache: "no-store", headers: variantHeaders });
     const remindersJson = await remindersRes.json().catch(() => ({}));
     if (!remindersRes.ok) {
       setError(getApiError(remindersJson) ?? "Failed to load appointment reminders");
@@ -1072,103 +1284,134 @@ export function PortalBookingClient() {
   const refreshAll = useCallback(async () => {
     setError(null);
     setFunnelDomainsBusy(true);
-    try {
-      const availabilityUrl = selectedCalendarId ? `/api/availability?calendarId=${encodeURIComponent(selectedCalendarId)}` : "/api/availability";
-      const [meRes, settingsRes, bookingsRes, formRes, calendarsRes, blocksRes, remindersRes, hostedSiteRes, funnelDomainsRes] = await Promise.all([
-        fetch("/api/customer/me", {
-          cache: "no-store",
-          headers: {
-            "x-pa-app": "portal",
-            "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
-          },
-        }),
-        fetch("/api/portal/booking/settings", { cache: "no-store" }),
-        fetch("/api/portal/booking/bookings", { cache: "no-store" }),
-        fetch("/api/portal/booking/form", { cache: "no-store" }),
-        fetch("/api/portal/booking/calendars", { cache: "no-store" }),
-        fetch(availabilityUrl, { cache: "no-store" }),
-        fetch(remindersUrl(reminderCalendarIdRef.current), { cache: "no-store" }),
-        fetch("/api/portal/booking/site", { cache: "no-store" }).catch(() => null as any),
-        fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any),
-      ]);
+    const availabilityUrl = selectedCalendarId ? `/api/availability?calendarId=${encodeURIComponent(selectedCalendarId)}` : "/api/availability";
 
-    const meJson = await meRes.json().catch(() => ({}));
-    if (meRes.ok) setMe(meJson as Me);
+    const bootstrapResult = await fetchJsonWithTimeout("/api/portal/booking/bootstrap", { cache: "no-store", headers: variantHeaders }, 12000);
+    const blocksResult = await fetchJsonWithTimeout(availabilityUrl, { cache: "no-store" }, 12000);
 
-    const settingsJson = await settingsRes.json().catch(() => ({}));
-    if (settingsRes.ok) {
-      const nextSite = (settingsJson as { site: Site }).site;
-      setSite(nextSite);
+    const nextUpcoming = bootstrapResult.ok ? ((bootstrapResult.body as { upcoming?: Booking[] }).upcoming ?? []) : [];
+    const nextRecent = bootstrapResult.ok ? ((bootstrapResult.body as { recent?: Booking[] }).recent ?? []) : [];
+    if (bootstrapResult.ok) {
+      setUpcoming(nextUpcoming);
+      setRecent(nextRecent);
     }
 
-    const bookingsJson = await bookingsRes.json().catch(() => ({}));
-    if (bookingsRes.ok) {
-      setUpcoming((bookingsJson as { upcoming?: Booking[] }).upcoming ?? []);
-      setRecent((bookingsJson as { recent?: Booking[] }).recent ?? []);
+    const nextCalendars = bootstrapResult.ok ? ((((bootstrapResult.body as any)?.config?.calendars as BookingCalendar[]) ?? [])) : [];
+    if (bootstrapResult.ok) {
+      setCalendars(nextCalendars);
     }
 
-    const formJson = await formRes.json().catch(() => ({}));
-    if (formRes.ok) {
-      setForm((formJson as { config?: BookingFormConfig }).config ?? null);
+    if (blocksResult.ok) {
+      setBlocks(((blocksResult.body as any)?.blocks as AvailabilityBlock[]) ?? []);
     }
 
-    const calendarsJson = await calendarsRes.json().catch(() => ({}));
-    if (calendarsRes.ok) {
-      setCalendars(((calendarsJson as any)?.config?.calendars as BookingCalendar[]) ?? []);
+    const primaryResults = [bootstrapResult, blocksResult];
+    const loadedPrimaryCount = primaryResults.filter((result) => result.ok).length;
+
+    if (bootstrapResult.ok) {
+      const validIds = new Set(nextCalendars.map((calendar) => String(calendar.id || "")).filter(Boolean));
+      const currentStillValid = selectedCalendarId ? validIds.has(selectedCalendarId) : false;
+      if (!currentStillValid) {
+        const bookingLinkedId = [...nextUpcoming, ...nextRecent]
+          .map((booking) => String(booking.calendarId || "").trim())
+          .find((calendarId) => Boolean(calendarId) && validIds.has(calendarId));
+        const fallbackCalendarId = bookingLinkedId ?? nextCalendars.find((calendar) => calendar.enabled)?.id ?? nextCalendars[0]?.id ?? null;
+        if (fallbackCalendarId !== selectedCalendarId) {
+          setSelectedCalendarId(fallbackCalendarId);
+        }
+      }
     }
 
-    const hostedSiteJson = hostedSiteRes ? await hostedSiteRes.json().catch(() => ({})) : null;
-    if (hostedSiteRes && hostedSiteRes.ok && (hostedSiteJson as any)?.ok) {
-      setHostedSite(((hostedSiteJson as any)?.site as HostedSite) ?? null);
+    if (loadedPrimaryCount > 0) {
+      setError(null);
     }
 
-    const funnelDomainsJson = funnelDomainsRes ? await funnelDomainsRes.json().catch(() => ({})) : null;
-    if (funnelDomainsRes && funnelDomainsRes.ok && (funnelDomainsJson as any)?.ok === true && Array.isArray((funnelDomainsJson as any)?.domains)) {
-      setFunnelDomains(
-        (funnelDomainsJson as any).domains
-          .map((d: any) => ({ domain: String(d?.domain || "").trim(), status: String(d?.status || "").trim() }))
-          .filter((d: any) => d.domain),
+    const missingCriticalData = !bootstrapResult.ok;
+    if (!missingCriticalData) {
+      coreLoadRetryCountRef.current = 0;
+    } else if (coreLoadRetryCountRef.current < 2 && typeof window !== "undefined") {
+      coreLoadRetryCountRef.current += 1;
+      window.setTimeout(() => {
+        void refreshAll();
+      }, 900 * coreLoadRetryCountRef.current);
+    }
+
+    if (loadedPrimaryCount === 0 && !hasLoadedOnceRef.current) {
+      setError(
+        getApiError(bootstrapResult.body) ??
+          getApiError(blocksResult.body) ??
+          bootstrapResult.error ??
+          blocksResult.error ??
+          "Failed to load booking automation",
       );
     }
 
-    const blocksJson = await blocksRes.json().catch(() => ({}));
-    if (blocksRes.ok) {
-      setBlocks(((blocksJson as any)?.blocks as AvailabilityBlock[]) ?? []);
-    }
-
-    const remindersJson = await remindersRes.json().catch(() => ({}));
-    if (remindersRes.ok) {
-      const settings = ((remindersJson as any)?.settings as AppointmentReminderSettings) ?? null;
-      setReminderSettings(settings);
-      setReminderDraft(settings);
-      setReminderEvents((((remindersJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
-      setReminderBuiltinVariables((((remindersJson as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
-    }
-
-      if (!meRes.ok || !settingsRes.ok || !bookingsRes.ok || !formRes.ok || !calendarsRes.ok || !blocksRes.ok || !remindersRes.ok) {
-        setError(
-          getApiError(meJson) ??
-            getApiError(settingsJson) ??
-            getApiError(bookingsJson) ??
-            getApiError(formJson) ??
-            getApiError(calendarsJson) ??
-            getApiError(blocksJson) ??
-            getApiError(remindersJson) ??
-            "Failed to load booking automation",
-        );
+    void (async () => {
+      const settingsResult = await fetchJsonWithTimeout("/api/portal/booking/settings", { cache: "no-store", headers: variantHeaders }, 12000);
+      if (settingsResult.ok) {
+        const nextSite = (settingsResult.body as { site: Site }).site;
+        setSite(nextSite);
       }
-    } finally {
-      setFunnelDomainsBusy(false);
-    }
-  }, [remindersUrl, selectedCalendarId]);
+
+      const formResult = await fetchJsonWithTimeout("/api/portal/booking/form", { cache: "no-store", headers: variantHeaders }, 12000);
+      if (formResult.ok) {
+        setForm((formResult.body as { config?: BookingFormConfig }).config ?? null);
+      }
+
+      const remindersResult = await fetchJsonWithTimeout(remindersUrl(reminderCalendarIdRef.current), { cache: "no-store" }, 12000);
+      if (remindersResult.ok) {
+        const settings = ((remindersResult.body as any)?.settings as AppointmentReminderSettings) ?? null;
+        setReminderSettings(settings);
+        setReminderDraft(settings);
+        setReminderEvents((((remindersResult.body as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
+        setReminderBuiltinVariables((((remindersResult.body as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
+      }
+    })();
+
+    void (async () => {
+      try {
+        const [hostedSiteResult, funnelDomainsResult, assigneesResult] = await Promise.allSettled([
+          fetchJsonWithTimeout("/api/portal/booking/site", { cache: "no-store", headers: variantHeaders }, 10000),
+          fetchJsonWithTimeout("/api/portal/funnel-builder/domains", { cache: "no-store", headers: variantHeaders }, 10000),
+          fetchJsonWithTimeout("/api/portal/tasks/assignees", { cache: "no-store", headers: variantHeaders }, 10000),
+        ]);
+
+        if (hostedSiteResult.status === "fulfilled") {
+          const hostedSiteJson = hostedSiteResult.value;
+          if (hostedSiteJson.ok && (hostedSiteJson.body as any)?.ok) {
+            setHostedSite(((hostedSiteJson.body as any)?.site as HostedSite) ?? null);
+          }
+        }
+
+        if (funnelDomainsResult.status === "fulfilled") {
+          const domainsJson = funnelDomainsResult.value;
+          if (domainsJson.ok && (domainsJson.body as any)?.ok === true && Array.isArray((domainsJson.body as any)?.domains)) {
+            setFunnelDomains(
+              (domainsJson.body as any).domains
+                .map((d: any) => ({ domain: String(d?.domain || "").trim(), status: String(d?.status || "").trim() }))
+                .filter((d: any) => d.domain),
+            );
+          }
+        }
+
+        if (assigneesResult.status === "fulfilled") {
+          const assigneesJson = assigneesResult.value;
+          if (assigneesJson.ok && Array.isArray((assigneesJson.body as any)?.members)) {
+            setAssignees((assigneesJson.body as any).members as BookingAssigneeRow[]);
+          }
+        }
+      } finally {
+        setFunnelDomainsBusy(false);
+      }
+    })();
+  }, [remindersUrl, selectedCalendarId, variantHeaders]);
 
   async function saveCalendars(next: BookingCalendar[]) {
     setCalSaving(true);
     setError(null);
-    setStatus(null);
     const res = await fetch("/api/portal/booking/calendars", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ calendars: next }),
     });
     const body = await res.json().catch(() => ({}));
@@ -1178,7 +1421,24 @@ export function PortalBookingClient() {
       return;
     }
     setCalendars(((body as any)?.config?.calendars as BookingCalendar[]) ?? next);
-    setStatus("Saved calendars");
+    toast.success("Calendars saved");
+  }
+
+  async function saveFormConfig(patch: Partial<BookingFormConfig>) {
+    if (!form) return;
+    setError(null);
+    const res = await fetch("/api/portal/booking/form", {
+      method: "PUT",
+      headers: { "content-type": "application/json", ...variantHeaders },
+      body: JSON.stringify(patch),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(getApiError(body) ?? "Failed to save form");
+      return;
+    }
+    setForm(((body as any)?.config as BookingFormConfig) ?? form);
+    toast.success("Booking form saved");
   }
 
   async function saveSelectedCalendarPatch(patch: Partial<BookingCalendar>) {
@@ -1191,7 +1451,25 @@ export function PortalBookingClient() {
     const nextId = calendarId ?? selectedCalendarId;
     if (!nextId) return;
     setSelectedCalendarId(nextId);
+    setCalendarAdvancedOpen(false);
     setCalendarEditorOpen(true);
+  }
+
+  async function createCalendar() {
+    const title = newCalTitle.trim();
+    if (!title) return;
+    const next: BookingCalendar = {
+      id: makeClientId("cal_"),
+      enabled: true,
+      title,
+      durationMinutes: newCalDuration,
+    };
+    await saveCalendars([...(calendars ?? []), next]);
+    setNewCalTitle("");
+    setNewCalDuration(30);
+    setSelectedCalendarId(next.id);
+    setCreateCalendarOpen(false);
+    setTimeout(() => openCalendarEditor(next.id), 0);
   }
 
   useEffect(() => {
@@ -1220,8 +1498,20 @@ export function PortalBookingClient() {
 
   useEffect(() => {
     if (topTab !== "appointments") return;
-    setCalSelectedYmd((prev) => prev ?? toYmd(new Date()));
-  }, [topTab]);
+    const today = new Date();
+    const nextSelectedYmd = calSelectedYmd ?? toYmd(today);
+    const nextSelectedDate = new Date(`${nextSelectedYmd}T00:00:00`);
+    setCalMonth(startOfMonth(Number.isNaN(nextSelectedDate.getTime()) ? today : nextSelectedDate));
+    setCalSelectedYmd(nextSelectedYmd);
+    setWeekDayModalYmd(null);
+  }, [calSelectedYmd, topTab]);
+
+  useEffect(() => {
+    if (topTab !== "appointments" || calSelectedYmd) return;
+    const today = new Date();
+    setCalSelectedYmd(toYmd(today));
+    setCalMonth(startOfMonth(today));
+  }, [calSelectedYmd, topTab]);
 
   useEffect(() => {
     if (topTab !== "appointments" || appointmentsView !== "week") return;
@@ -1231,8 +1521,39 @@ export function PortalBookingClient() {
     return () => window.cancelAnimationFrame(frame);
   }, [appointmentsView, calSelectedYmd, topTab]);
 
+  useEffect(() => {
+    if (topTab === "bookings") return;
+    setBookingsFiltersMenu(null);
+  }, [topTab]);
+
   const focusYmd = calSelectedYmd ?? toYmd(new Date());
   const focusDate = new Date(`${focusYmd}T00:00:00`);
+
+  const selectAppointmentDay = useCallback((ymd: string) => {
+    setCalSelectedYmd(ymd);
+    const nextDate = new Date(`${ymd}T00:00:00`);
+    if (!Number.isNaN(nextDate.getTime())) {
+      setCalMonth(startOfMonth(nextDate));
+    }
+  }, []);
+
+  const revealSelectedMonthDayPanel = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      selectedMonthDayPanelRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  }, []);
+
+  const handleAppointmentDayClick = useCallback((ymd: string) => {
+    if (focusYmd === ymd) {
+      openWeekDayModal(ymd);
+      return;
+    }
+    selectAppointmentDay(ymd);
+    setWeekDayModalYmd(null);
+    if (appointmentsView === "month" && typeof window !== "undefined") {
+      revealSelectedMonthDayPanel();
+    }
+  }, [appointmentsView, focusYmd, openWeekDayModal, revealSelectedMonthDayPanel, selectAppointmentDay]);
   const weekStart = startOfWeek(focusDate);
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const appointmentsUpcoming = useMemo(
@@ -1260,7 +1581,7 @@ export function PortalBookingClient() {
 
     const res = await fetch("/api/portal/booking/settings", {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify(partial),
     });
     const body = await res.json().catch(() => ({}));
@@ -1282,7 +1603,7 @@ export function PortalBookingClient() {
 
     const res = await fetch(remindersUrl(reminderCalendarId), {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ settings: next }),
     });
     const body = await res.json().catch(() => ({}));
@@ -1310,7 +1631,7 @@ export function PortalBookingClient() {
   const refreshReminderTags = useCallback(async () => {
     setReminderTagsLoading(true);
     try {
-      const res = await fetch("/api/portal/contact-tags", { cache: "no-store" });
+      const res = await fetch("/api/portal/contact-tags", { cache: "no-store", headers: variantHeaders });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json.ok || !Array.isArray(json.tags)) {
         throw new Error(typeof json?.error === "string" ? json.error : "Failed to load tags");
@@ -1329,7 +1650,7 @@ export function PortalBookingClient() {
     } finally {
       setReminderTagsLoading(false);
     }
-  }, []);
+  }, [variantHeaders]);
 
   useEffect(() => {
     if (topTab !== "reminders") return;
@@ -1347,7 +1668,7 @@ export function PortalBookingClient() {
     try {
       const res = await fetch("/api/portal/contact-tags", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...variantHeaders },
         body: JSON.stringify({ name }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
@@ -1510,7 +1831,7 @@ export function PortalBookingClient() {
   async function cancelBooking(id: string) {
     setError(null);
     setStatus(null);
-    const res = await fetch(`/api/portal/booking/bookings/${id}/cancel`, { method: "POST" });
+    const res = await fetch(`/api/portal/booking/bookings/${id}/cancel`, { method: "POST", headers: variantHeaders });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       setError(getApiError(body) ?? "Failed to cancel booking");
@@ -1544,7 +1865,7 @@ export function PortalBookingClient() {
 
     const res = await fetch(`/api/portal/booking/bookings/${contactBooking.id}/contact`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({
         subject,
         message: msg,
@@ -1589,7 +1910,7 @@ export function PortalBookingClient() {
 
     const res = await fetch(`/api/portal/booking/bookings/${reschedBooking.id}/reschedule`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ startAt: dt.toISOString(), forceAvailability: reschedForce }),
     });
     const body = await res.json().catch(() => ({}));
@@ -1611,13 +1932,15 @@ export function PortalBookingClient() {
 
   if (loading && !hasLoadedOnceRef.current) {
     return (
-      <div className="mx-auto w-full max-w-7xl rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-        Loading…
-      </div>
+      <BookingPendingState
+        title="Loading your booking workspace"
+        body="We are pulling together your calendars, availability, reminders, and booking activity. You do not need to wait on a blank loading panel to decide what to set up next."
+        links={bookingPendingLinks}
+      />
     );
   }
 
-  const unlocked = Boolean(me?.entitlements?.booking);
+  const unlocked = true;
 
   if (!unlocked) {
     return (
@@ -1666,59 +1989,143 @@ export function PortalBookingClient() {
       .slice()
       .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
   })();
+  const recentChronological = selectedRecentBookings
+    .slice()
+    .sort((a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime());
+  const bookingFilterIsActive =
+    bookingsScope !== "all" || bookingsDateFilter !== "any" || bookingsCanceledOnly || bookingsSearch.trim().length > 0;
+  const matchesBookingFilters = (booking: Booking) => {
+    const query = bookingsSearch.trim().toLowerCase();
+    if (query) {
+      const haystack = [
+        booking.contactName,
+        booking.contactEmail,
+        booking.contactPhone ?? "",
+        booking.notes ?? "",
+        booking.status,
+        booking.id,
+        new Date(booking.startAt).toLocaleString(),
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+
+    if (bookingsCanceledOnly) {
+      const status = String(booking.status || "").toLowerCase();
+      if (!status.includes("cancel")) return false;
+    }
+
+    if (bookingsDateFilter !== "any") {
+      const days = Number(bookingsDateFilter.replace("d", ""));
+      const startAt = new Date(booking.startAt).getTime();
+      if (Number.isFinite(days) && Number.isFinite(startAt)) {
+        const maxDistance = days * 24 * 60 * 60 * 1000;
+        if (Math.abs(startAt - Date.now()) > maxDistance) return false;
+      }
+    }
+
+    return true;
+  };
+  const filteredUpcomingBookings = bookingsChronological.filter((booking) => matchesBookingFilters(booking));
+  const filteredRecentBookings = recentChronological.filter((booking) => matchesBookingFilters(booking));
+  const showUpcomingBookings = bookingsScope !== "recent";
+  const showRecentBookings = bookingsScope !== "upcoming";
 
   const weekDayModalBookings: Booking[] = weekDayModalYmd
     ? appointmentsUpcoming
         .filter((b) => toYmd(new Date(b.startAt)) === weekDayModalYmd)
         .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
     : [];
+  const selectedDayBookings = appointmentsUpcoming
+    .filter((b) => toYmd(new Date(b.startAt)) === focusYmd)
+    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+  const selectedDayAvailableMinutes = availableMinutesForDay(focusDate, blocks);
+  const selectedDayIsToday = focusYmd === toYmd(new Date());
+  const weekDayModalDateLabel = weekDayModalYmd
+    ? new Date(`${weekDayModalYmd}T00:00:00`).toLocaleDateString(undefined, {
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+      })
+    : null;
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="w-full">
       <AppModal
         open={Boolean(weekDayModalYmd)}
-        onClose={() => setWeekDayModalYmd(null)}
-        title={
-          weekDayModalYmd
-            ? `Appointments - ${new Date(`${weekDayModalYmd}T00:00:00`).toLocaleDateString(undefined, {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-              })}`
-            : "Appointments"
+        onClose={closeWeekDayModal}
+        title={weekDayModalDateLabel ? `Appointments - ${weekDayModalDateLabel}` : "Appointments"}
+        description={selectedCalendar?.title ? `Bookings and availability for ${selectedCalendar.title}.` : "Bookings and availability for the selected day."}
+        widthClassName="w-[min(1120px,calc(100vw-32px))]"
+        bodyClassName="overflow-hidden"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+              onClick={async () => {
+                const ok = await (dayAvailabilityEditorRef.current?.save() ?? Promise.resolve(true));
+                if (ok) closeWeekDayModal();
+              }}
+              disabled={dayAvailabilitySaving}
+            >
+              {dayAvailabilitySaving ? "Saving…" : "Done"}
+            </button>
+          </div>
         }
-        widthClassName="max-w-lg"
       >
-        <div className="space-y-3">
-          {weekDayModalBookings.length === 0 ? (
-            <div className="text-sm text-zinc-600">No bookings for this day.</div>
-          ) : (
-            weekDayModalBookings.map((b) => (
-              <div key={b.id} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-zinc-900">
-                      {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {b.contactName}
+        <div className="grid h-[min(56dvh,540px)] min-h-105 gap-4 overflow-hidden lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+          <div className="flex h-full min-h-0 flex-col rounded-3xl border border-zinc-200 bg-white/80 p-4 shadow-[0_20px_40px_rgba(15,23,42,0.06)]">
+            <div className="text-sm font-semibold text-zinc-900">Bookings</div>
+            <div className="mt-1 text-xs text-zinc-500">{weekDayModalBookings.length} booking{weekDayModalBookings.length === 1 ? "" : "s"} scheduled for this day.</div>
+            <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+              {weekDayModalBookings.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">No bookings for this day yet.</div>
+              ) : (
+                weekDayModalBookings.map((b) => (
+                  <div key={b.id} className="rounded-2xl border border-zinc-200 bg-white px-3.5 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-zinc-900">
+                          {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {b.contactName}
+                        </div>
+                        <div className="truncate text-xs text-zinc-600">{b.contactEmail}</div>
+                        {b.notes ? <div className="mt-2 max-h-16 overflow-y-auto text-xs text-zinc-500">{b.notes}</div> : null}
+                      </div>
+                      {b.status ? (
+                        <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-700">
+                          {b.status}
+                        </span>
+                      ) : null}
                     </div>
-                    <div className="truncate text-xs text-zinc-600">{b.contactEmail}</div>
                   </div>
-                  {b.status ? (
-                    <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-700">
-                      {b.status}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-            ))
-          )}
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="flex h-full min-h-0 overflow-hidden">
+            <PortalBookingAvailabilityClient
+              ref={dayAvailabilityEditorRef}
+              variant="modal"
+              mode="day"
+              dayYmd={weekDayModalYmd}
+              calendarId={selectedCalendarId}
+              calendarTitle={selectedCalendar?.title ?? null}
+              onSaved={refreshAll}
+              onSavingChange={setDayAvailabilitySaving}
+            />
+          </div>
         </div>
       </AppModal>
 
-      <div className="flex items-start justify-between gap-3">
-        {refreshing ? (
-          <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
-            <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
-            Refreshing…
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        {dedicatedEntryHeader ? (
+          <div className="min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">{dedicatedEntryHeader.eyebrow}</div>
+            <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{dedicatedEntryHeader.title}</h1>
+            <p className="mt-2 max-w-3xl text-sm text-zinc-600">{dedicatedEntryHeader.description}</p>
           </div>
         ) : <div />}
         <div className="w-full sm:w-auto">
@@ -1727,7 +2134,7 @@ export function PortalBookingClient() {
       </div>
 
       {topTab === "appointments" ? (
-        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <div className="mt-6 grid grid-cols-1 gap-4 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] lg:grid-cols-12">
           <div className="lg:col-span-12">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="w-full max-w-64">
@@ -1761,7 +2168,12 @@ export function PortalBookingClient() {
                         ? "rounded-full bg-blue-100 px-3 py-2 text-sm font-semibold text-brand-blue"
                         : "rounded-full px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-white/70"
                     }
-                    onClick={() => setAppointmentsView("month")}
+                    onClick={() => {
+                      setAppointmentsView("month");
+                      const selectedDate = new Date(`${focusYmd}T00:00:00`);
+                      setCalMonth(startOfMonth(Number.isNaN(selectedDate.getTime()) ? new Date() : selectedDate));
+                      setWeekDayModalYmd(null);
+                    }}
                   >
                     Month
                   </button>
@@ -1804,8 +2216,9 @@ export function PortalBookingClient() {
                       type="button"
                       className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-colors duration-100 hover:bg-zinc-50"
                       onClick={() => {
-                        setCalMonth(startOfMonth(new Date()));
-                        setCalSelectedYmd(toYmd(new Date()));
+                        const today = new Date();
+                        setCalMonth(startOfMonth(today));
+                        setCalSelectedYmd(toYmd(today));
                         setWeekDayModalYmd(null);
                       }}
                     >
@@ -1823,20 +2236,21 @@ export function PortalBookingClient() {
 
                 <button
                   type="button"
-                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
+                  className="inline-flex items-center gap-2 rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2.5 text-sm font-semibold text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)]"
                   onClick={openAvailability}
                 >
+                  <IconEdit className="h-4 w-4" />
                   Edit availability
                 </button>
               </div>
             </div>
 
             {appointmentsView === "week" ? (
-                  <div data-testid="booking-week-scroll" className="mt-5 -mx-2 h-110 overflow-x-auto overflow-y-hidden px-2">
-                <div className="grid min-w-max grid-flow-col auto-cols-[minmax(210px,1fr)] gap-3">
+              <div data-testid="booking-week-scroll" className="mt-5 -mx-5 overflow-x-auto overflow-y-visible px-5 pt-2 pb-4 sm:-mx-6 sm:px-6">
+                <div className="grid min-w-full grid-flow-col auto-cols-[minmax(280px,1fr)] gap-5 pr-1">
                   {weekDays.map((day) => {
                   const ymd = toYmd(day);
-                  const selected = focusYmd === ymd;
+                  const selected = calSelectedYmd === ymd;
                   const isToday = toYmd(new Date()) === ymd;
 
                   const dayBookings = appointmentsUpcoming
@@ -1845,7 +2259,7 @@ export function PortalBookingClient() {
                   const availableMinutes = availableMinutesForDay(day, blocks);
 
                   const cardBase =
-                    "flex h-[420px] w-[240px] flex-col rounded-3xl border p-4 text-left transition-all duration-100 focus:outline-none";
+                    "flex min-h-[460px] h-[calc(100dvh-19rem)] max-h-[620px] min-w-0 flex-col rounded-3xl border p-5 text-left transition-all duration-100 focus:outline-none";
                   const cardCls = selected
                     ? `${cardBase} border-blue-400 bg-blue-50/90 ring-2 ring-blue-200 shadow-[0_18px_40px_rgba(37,99,235,0.14)]`
                     : `${cardBase} border-zinc-200 bg-white hover:bg-zinc-50`;
@@ -1857,10 +2271,7 @@ export function PortalBookingClient() {
                       data-selected={selected ? "true" : "false"}
                       type="button"
                       className={cardCls}
-                      onClick={() => {
-                        setCalSelectedYmd(ymd);
-                        setWeekDayModalYmd(dayBookings.length ? ymd : null);
-                      }}
+                      onClick={() => handleAppointmentDayClick(ymd)}
                     >
                       <div className="flex h-10 items-start justify-between gap-2">
                         <div className="min-w-0">
@@ -1874,7 +2285,7 @@ export function PortalBookingClient() {
                         </div>
 
                         {isToday ? (
-                          <div className={selected ? "shrink-0 rounded-full bg-(--color-brand-blue) px-2 py-0.5 text-[10px] font-semibold text-white" : "shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-brand-blue"}>Today</div>
+                          <div className={selected ? "shrink-0 rounded-full bg-(--color-brand-blue) px-2.5 py-1 text-[10px] font-semibold text-white shadow-[0_10px_20px_rgba(29,78,216,0.18)]" : "shrink-0 rounded-full border border-blue-200 bg-blue-100/80 px-2.5 py-1 text-[10px] font-semibold text-brand-blue"}>Today</div>
                         ) : null}
                       </div>
 
@@ -1889,7 +2300,7 @@ export function PortalBookingClient() {
 
                       <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Bookings</div>
-                        <div className="mt-2 min-h-0 flex-1 overflow-auto">
+                        <div className="mt-2 min-h-0 flex-1 overflow-auto pr-1">
                           {dayBookings.length ? (
                             <div className="space-y-1.5">
                               {dayBookings.map((b) => (
@@ -1919,7 +2330,6 @@ export function PortalBookingClient() {
               <div className="mt-5">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-semibold text-zinc-900">{monthLabel(calMonth)}</div>
-                  <div className="text-xs text-zinc-500">Tap a day to view appointments.</div>
                 </div>
 
                 <div
@@ -1941,7 +2351,7 @@ export function PortalBookingClient() {
                     const ymd = toYmd(day);
                     const inMonth = day.getMonth() === calMonth.getMonth();
                     const today = toYmd(new Date()) === ymd;
-                    const selected = focusYmd === ymd;
+                    const selected = calSelectedYmd === ymd;
 
                     const bookingCount = appointmentsUpcoming.reduce((acc, b) => (toYmd(new Date(b.startAt)) === ymd ? acc + 1 : acc), 0);
                     const availableMinutes = availableMinutesForDay(day, blocks);
@@ -1949,12 +2359,12 @@ export function PortalBookingClient() {
 
                     const baseCls = isMobileApp
                       ? "aspect-square rounded-md border p-2 text-left hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300"
-                      : "h-24 rounded-lg border px-3 py-3 text-left hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300";
+                      : "h-36 rounded-2xl border px-3 py-3 text-left shadow-[0_14px_32px_rgba(15,23,42,0.05)] transition-all duration-100 hover:-translate-y-0.5 hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300";
 
                     const borderCls = selected
                       ? "border-blue-400 bg-blue-50/90 ring-2 ring-blue-200 shadow-[0_12px_28px_rgba(37,99,235,0.14)]"
                       : today
-                        ? "border-blue-300 bg-blue-50/70"
+                        ? "border-zinc-300 bg-white"
                         : inMonth
                           ? "border-zinc-200 bg-white"
                           : "border-zinc-200 bg-zinc-50";
@@ -1965,10 +2375,7 @@ export function PortalBookingClient() {
                         data-selected={selected ? "true" : "false"}
                         type="button"
                         className={`${baseCls} ${borderCls}`}
-                        onClick={() => {
-                          setCalSelectedYmd(ymd);
-                          setWeekDayModalYmd(bookingCount ? ymd : null);
-                        }}
+                        onClick={() => handleAppointmentDayClick(ymd)}
                       >
                         <div className="flex items-center justify-between">
                           <div
@@ -1984,20 +2391,27 @@ export function PortalBookingClient() {
                           >
                             <span
                               className={
-                                selected || today
-                                  ? "inline-flex min-w-6 items-center justify-center rounded-sm bg-(--color-brand-blue) px-1.5 py-0.5 text-[11px] font-semibold text-white"
-                                  : undefined
+                                selected
+                                  ? "inline-flex min-w-6 items-center justify-center rounded-full bg-(--color-brand-blue) px-2 py-1 text-[11px] font-semibold text-white shadow-[0_10px_20px_rgba(29,78,216,0.18)]"
+                                  : "inline-flex min-w-6 items-center justify-center rounded-full px-2 py-1 text-[11px] font-semibold"
                               }
                             >
                               {day.getDate()}
                             </span>
                           </div>
 
-                          {bookingCount ? (
-                            <div className={isMobileApp ? "rounded-sm bg-brand-ink px-1.5 py-0.5 text-[10px] font-semibold text-white" : "rounded-sm bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white"}>
-                              {bookingCount}
-                            </div>
-                          ) : null}
+                          <div className="flex items-center gap-1.5">
+                            {today ? (
+                              <div className={selected ? "rounded-full bg-white/85 px-2 py-0.5 text-[10px] font-semibold text-brand-blue" : "rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-700"}>
+                                Today
+                              </div>
+                            ) : null}
+                            {bookingCount ? (
+                              <div className={isMobileApp ? "rounded-sm bg-brand-ink px-1.5 py-0.5 text-[10px] font-semibold text-white" : "rounded-sm bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white"}>
+                                {bookingCount}
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
 
                         {isMobileApp ? (
@@ -2008,18 +2422,108 @@ export function PortalBookingClient() {
                             <div className={hasCoverage ? "h-2 w-2 rounded-sm bg-emerald-500" : "h-2 w-2 rounded-sm bg-zinc-300"} aria-hidden="true" />
                           </div>
                         ) : (
-                          <div className="mt-3 flex items-center justify-between">
+                          <div className="mt-3 flex items-center justify-between gap-3">
                             <div className={hasCoverage ? "text-[11px] font-medium text-emerald-700" : "text-[11px] text-zinc-400"}>
                               {hasCoverage ? formatAvailabilityDuration(availableMinutes) : "No availability"}
                             </div>
-                            {bookingCount ? (
-                              <div className="rounded-sm bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white">{bookingCount}</div>
-                            ) : null}
+                            <div className={selected ? "text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-blue" : "text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400"}>
+                              {selected ? "Selected" : inMonth ? "Open" : ""}
+                            </div>
                           </div>
                         )}
                       </button>
                     );
                   })}
+                </div>
+
+                <div
+                  ref={selectedMonthDayPanelRef}
+                  className="mt-5 rounded-3xl border border-zinc-200 bg-white p-5 shadow-[0_20px_45px_rgba(15,23,42,0.06)]"
+                >
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Selected day</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <div className="text-lg font-semibold text-zinc-900">
+                          {focusDate.toLocaleDateString(undefined, {
+                            weekday: "long",
+                            month: "long",
+                            day: "numeric",
+                          })}
+                        </div>
+                        {selectedDayIsToday ? (
+                          <span className="rounded-full border border-zinc-200 bg-zinc-100 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">Today</span>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
+                        <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700">
+                          {selectedDayBookings.length} booking{selectedDayBookings.length === 1 ? "" : "s"}
+                        </span>
+                        <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                          {selectedDayAvailableMinutes > 0 ? formatAvailabilityDuration(selectedDayAvailableMinutes) : "No availability"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2.5 text-sm font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)]"
+                      onClick={() => openWeekDayModal(focusYmd)}
+                    >
+                      Open day editor
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.9fr)]">
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Appointments</div>
+                      <div className="mt-3 space-y-2">
+                        {selectedDayBookings.length ? (
+                          selectedDayBookings.slice(0, 4).map((booking) => (
+                            <button
+                              key={booking.id}
+                              type="button"
+                              className="flex w-full items-start justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-left transition-colors duration-100 hover:bg-zinc-50"
+                              onClick={() => openWeekDayModal(focusYmd)}
+                            >
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold text-zinc-900">
+                                  {new Date(booking.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {booking.contactName}
+                                </div>
+                                <div className="truncate text-xs text-zinc-500">{booking.contactEmail}</div>
+                              </div>
+                              <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-1 text-[11px] font-medium text-zinc-700">
+                                {booking.status}
+                              </span>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="rounded-2xl border border-dashed border-zinc-200 bg-white px-4 py-4 text-sm text-zinc-600">
+                            No bookings on this day yet.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Availability</div>
+                      <div className="mt-3 rounded-2xl bg-zinc-50 px-4 py-4">
+                        <div className="text-sm font-semibold text-zinc-900">
+                          {selectedDayAvailableMinutes > 0 ? formatAvailabilityDuration(selectedDayAvailableMinutes) : "No availability blocks yet"}
+                        </div>
+                        <div className="mt-2 text-sm text-zinc-600">
+                          Open the day editor to add, remove, or adjust time slots for this selected day.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-900 transition-colors duration-100 hover:bg-zinc-50"
+                        onClick={() => openWeekDayModal(focusYmd)}
+                      >
+                        Edit this day
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -2030,7 +2534,7 @@ export function PortalBookingClient() {
       {topTab === "bookings" ? (
         <div className="mt-6">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div className="w-full max-w-64">
                 <PortalSelectDropdown
                   value={selectedCalendarId}
@@ -2042,18 +2546,154 @@ export function PortalBookingClient() {
                 />
                 <div className="mt-1 text-sm text-zinc-600">View bookings for this calendar.</div>
               </div>
-              <div className="shrink-0 rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
-                {bookingsChronological.length} upcoming
+
+              <div className="flex w-full flex-col gap-3 xl:max-w-2xl">
+                <div className="flex w-full items-center gap-3">
+                  <div className="relative min-w-0 flex-1">
+                    <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
+                      <IconSearch size={18} />
+                    </div>
+                    <input
+                      value={bookingsSearch}
+                      onChange={(e) => setBookingsSearch(e.target.value)}
+                      placeholder="Search bookings"
+                      className="h-12 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none transition-colors focus:border-zinc-300"
+                    />
+                  </div>
+
+                  <div className="relative shrink-0">
+                    {bookingsFiltersMenu ? (
+                      <>
+                        <div className="fixed inset-0 z-30" onMouseDown={() => setBookingsFiltersMenu(null)} onTouchStart={() => setBookingsFiltersMenu(null)} aria-hidden />
+                        <LiquidGlassPopupSurface
+                          data-inline-menu-root="true"
+                          className="fixed z-40 w-80 overflow-hidden"
+                          style={{ left: bookingsFiltersMenu.left, top: bookingsFiltersMenu.top, maxHeight: bookingsFiltersMenu.maxHeight }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                        >
+                          <div className="relative border-b border-white/30 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                          <div className="relative space-y-4 overflow-y-auto px-4 py-4" style={{ maxHeight: bookingsFiltersMenu.maxHeight }}>
+                            <div>
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Show</div>
+                              <div className="mt-2 grid grid-cols-3 gap-2">
+                                {([
+                                  { key: "all" as const, label: "All" },
+                                  { key: "upcoming" as const, label: "Upcoming" },
+                                  { key: "recent" as const, label: "Recent" },
+                                ]).map((opt) => (
+                                  <button
+                                    key={opt.key}
+                                    type="button"
+                                    className={classNames(
+                                      "rounded-xl border px-3 py-2 text-left text-xs font-semibold transition",
+                                      bookingsScope === opt.key ? "border-blue-200 bg-[rgba(29,78,216,0.12)] text-brand-blue" : "border-white/45 bg-white/65 text-zinc-800 hover:bg-white/90",
+                                    )}
+                                    onClick={() => setBookingsScope(opt.key)}
+                                  >
+                                    {opt.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Date</div>
+                              <div className="mt-2 grid grid-cols-2 gap-2">
+                                {([
+                                  { key: "any" as const, label: "Any time" },
+                                  { key: "7d" as const, label: "7 days" },
+                                  { key: "30d" as const, label: "30 days" },
+                                  { key: "90d" as const, label: "90 days" },
+                                ]).map((opt) => (
+                                  <button
+                                    key={opt.key}
+                                    type="button"
+                                    className={classNames(
+                                      "rounded-xl border px-3 py-2 text-left text-xs font-semibold transition",
+                                      bookingsDateFilter === opt.key ? "border-blue-200 bg-[rgba(29,78,216,0.12)] text-brand-blue" : "border-white/45 bg-white/65 text-zinc-800 hover:bg-white/90",
+                                    )}
+                                    onClick={() => setBookingsDateFilter(opt.key)}
+                                  >
+                                    {opt.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className={classNames("flex items-center justify-between gap-3 rounded-2xl px-3 py-2", portalGlassSectionClass)}>
+                              <div>
+                                <div className="text-xs font-semibold text-zinc-900">Canceled only</div>
+                                <div className="text-[11px] text-zinc-500">Only show canceled bookings</div>
+                              </div>
+                              <button
+                                type="button"
+                                className={classNames(
+                                  "h-7 w-12 rounded-full transition",
+                                  bookingsCanceledOnly ? "bg-[rgba(29,78,216,0.18)] shadow-[inset_0_0_0_1px_rgba(29,78,216,0.18)]" : "bg-white/80 shadow-[inset_0_0_0_1px_rgba(148,163,184,0.2)]",
+                                )}
+                                onClick={() => setBookingsCanceledOnly((value) => !value)}
+                                aria-pressed={bookingsCanceledOnly}
+                                aria-label="Toggle canceled bookings filter"
+                              >
+                                <span className={classNames("block h-6 w-6 translate-x-0.5 rounded-full bg-white shadow transition", bookingsCanceledOnly && "translate-x-[1.4rem]")} />
+                              </button>
+                            </div>
+
+                            <button
+                              type="button"
+                              className={classNames("w-full rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:bg-white/90", portalGlassButtonClass)}
+                              onClick={() => {
+                                setBookingsScope("all");
+                                setBookingsDateFilter("any");
+                                setBookingsCanceledOnly(false);
+                                setBookingsSearch("");
+                              }}
+                            >
+                              Clear filters
+                            </button>
+                          </div>
+                        </LiquidGlassPopupSurface>
+                      </>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      className={classNames(
+                        "inline-flex h-12 w-12 items-center justify-center rounded-full text-zinc-800 transition-colors duration-100 hover:bg-white/90",
+                        portalGlassButtonClass,
+                        bookingFilterIsActive && "text-brand-blue",
+                      )}
+                      onClick={(e) => {
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setBookingsFiltersMenu((prev) =>
+                          prev ? null : computeFixedMenuStyle({ rect, width: 320, estHeight: 360, alignX: "right", minHeight: 220 }),
+                        );
+                      }}
+                      aria-label="Booking filters"
+                    >
+                      <IconFunnel size={18} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-sm text-zinc-600">Search by name, email, phone, notes, or booking status.</div>
+                  <div className="shrink-0 rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
+                    {filteredUpcomingBookings.length} upcoming · {filteredRecentBookings.length} recent
+                  </div>
+                </div>
               </div>
             </div>
 
             <div className="mt-4 space-y-3">
-              {bookingsChronological.length === 0 ? (
+              {showUpcomingBookings && filteredUpcomingBookings.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  No upcoming bookings.
+                  {bookingFilterIsActive ? "No upcoming bookings match your search." : "No upcoming bookings."}
                 </div>
-              ) : (
-                bookingsChronological.map((b) => {
+              ) : null}
+              {showUpcomingBookings ? (
+                filteredUpcomingBookings.map((b) => {
                   const joinUrl = getPurelyConnectJoinUrl(b.notes);
                   return (
                     <div key={b.id} className="rounded-2xl border border-zinc-200 p-4">
@@ -2087,6 +2727,7 @@ export function PortalBookingClient() {
                         <div className="mt-2">
                           <ContactTagsEditor
                             compact
+                            borderlessChips
                             contactId={b.contactId}
                             tags={Array.isArray(b.contactTags) ? b.contactTags : []}
                             onChange={(next) => updateBookingTags(b.id, next)}
@@ -2111,7 +2752,14 @@ export function PortalBookingClient() {
                         </button>
                         <button
                           type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          onClick={() => setBookingsSearch((b.contactName || b.contactEmail || b.id).trim())}
+                        >
+                          Open booking
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-sm font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)]"
                           onClick={() => {
                             setContactBooking(b);
                             setContactSubject(`Follow-up: ${site?.title ?? "Booking"}`);
@@ -2126,32 +2774,49 @@ export function PortalBookingClient() {
                         </button>
                         <button
                           type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                          className="inline-flex items-center justify-center rounded-xl bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition-colors duration-100 hover:bg-red-100"
                           onClick={() => cancelBooking(b.id)}
+                          aria-label="Cancel booking"
+                          title="Cancel booking"
                         >
-                          Cancel
+                          Cancel appointment
                         </button>
                       </div>
                     </div>
                   );
                 })
-              )}
+              ) : null}
             </div>
 
-            {selectedRecentBookings.length ? (
+            {showRecentBookings && filteredRecentBookings.length ? (
               <>
                 <div className="mt-6 text-sm font-semibold text-zinc-900">Recent</div>
                 <div className="mt-3 space-y-2">
-                  {selectedRecentBookings.slice(0, 10).map((b) => (
+                  {filteredRecentBookings.slice(0, 10).map((b) => (
                     <div key={b.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                      <div className="font-medium text-zinc-800">
-                        {new Date(b.startAt).toLocaleString()} · {b.status.toLowerCase()}
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="font-medium text-zinc-800">
+                            {new Date(b.startAt).toLocaleString()} · {b.status.toLowerCase()}
+                          </div>
+                          <div className="mt-1 text-zinc-600">{b.contactName}</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-xl bg-[rgba(29,78,216,0.12)] px-3 py-2 text-xs font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)]"
+                          onClick={() => setBookingsSearch((b.contactName || b.contactEmail || b.id).trim())}
+                        >
+                          Open booking
+                        </button>
                       </div>
-                      <div className="mt-1 text-zinc-600">{b.contactName}</div>
                     </div>
                   ))}
                 </div>
               </>
+            ) : showRecentBookings && bookingFilterIsActive ? (
+              <div className="mt-6 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                No recent bookings match your search.
+              </div>
             ) : null}
           </div>
         </div>
@@ -2257,7 +2922,7 @@ export function PortalBookingClient() {
                         <button
                           type="button"
                           aria-label="Close template picker"
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-colors duration-100 hover:bg-zinc-50 hover:text-zinc-800"
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-base font-semibold text-zinc-500 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-100 hover:bg-white hover:text-zinc-800"
                           onClick={() => setReminderTemplateOpen(false)}
                           disabled={reminderSaving}
                         >
@@ -2779,7 +3444,7 @@ export function PortalBookingClient() {
                 try {
                   const res = await fetch("/api/portal/booking/reminders/ai/generate-step", {
                     method: "POST",
-                    headers: { "content-type": "application/json" },
+                    headers: { "content-type": "application/json", ...variantHeaders },
                     body: JSON.stringify({
                       kind: reminderAiDraftModal.kind,
                       prompt: reminderAiDraftInstruction.trim() || undefined,
@@ -2930,44 +3595,15 @@ export function PortalBookingClient() {
             dotClassName="hidden"
             variant="plain"
           >
-            <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
-              <div className="text-xs font-semibold text-zinc-600">New calendar</div>
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_140px_auto]">
-                <input
-                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  placeholder="e.g. Intro call"
-                  value={newCalTitle}
-                  onChange={(e) => setNewCalTitle(e.target.value)}
-                  disabled={calSaving}
-                />
-                <PortalSelectDropdown
-                  value={newCalDuration}
-                  onChange={(v) => setNewCalDuration(v)}
-                  disabled={calSaving}
-                  options={[15, 30, 45, 60].map((m) => ({ value: m, label: `${m} min` }))}
-                  className="w-full"
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                />
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                  disabled={calSaving || !newCalTitle.trim()}
-                  onClick={() => {
-                    const title = newCalTitle.trim();
-                    if (!title) return;
-                    const next: BookingCalendar = {
-                      id: makeClientId("cal_"),
-                      enabled: true,
-                      title,
-                      durationMinutes: newCalDuration,
-                    };
-                    setNewCalTitle("");
-                    void saveCalendars([...(calendars ?? []), next]);
-                  }}
-                >
-                  {calSaving ? "Saving…" : "Add calendar"}
-                </button>
-              </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]"
+                onClick={() => setCreateCalendarOpen(true)}
+              >
+                <span className="text-base leading-none">+</span>
+                <span>Add calendar</span>
+              </button>
             </div>
 
             <div className="mt-4 space-y-3">
@@ -3028,14 +3664,15 @@ export function PortalBookingClient() {
                         <div className="flex shrink-0 flex-wrap gap-2">
                           <button
                             type="button"
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[rgba(29,78,216,0.12)] text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedCalendarId(c.id);
                               openCalendarEditor(c.id);
                             }}
+                            aria-label={`Edit ${c.title}`}
                           >
-                            Edit
+                            <IconEdit className="h-4 w-4" />
                           </button>
                           <button
                             type="button"
@@ -3184,6 +3821,22 @@ export function PortalBookingClient() {
               </label>
 
               <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                <div className="font-medium text-zinc-800">Assigned user</div>
+                <div className="mt-2">
+                  <PortalListboxDropdown
+                    value={calendarDraftAssignedUserId}
+                    options={assigneeOptions}
+                    onChange={(value) => {
+                      const nextValue = String(value || "");
+                      setCalendarDraftAssignedUserId(nextValue);
+                      void saveSelectedCalendarPatch({ assignedUserId: nextValue || undefined });
+                    }}
+                  />
+                </div>
+                <div className="mt-2 text-[11px] text-zinc-500">New bookings create a task for this user when one is selected here.</div>
+              </label>
+
+              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <div className="font-medium text-zinc-800">Appointment purpose</div>
                 <textarea
                   className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
@@ -3209,7 +3862,7 @@ export function PortalBookingClient() {
                 />
               </label>
 
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
+              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                 <div className="font-medium text-zinc-800">Notification emails</div>
                 <div className="mt-2 space-y-2">
                   {calendarDraftNotificationEmails.length === 0 ? (
@@ -3263,12 +3916,181 @@ export function PortalBookingClient() {
                   </button>
                 </div>
               </label>
+
+              <div className="sm:col-span-2">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between rounded-2xl bg-[rgba(29,78,216,0.08)] px-4 py-3 text-left text-sm font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.12)]"
+                  onClick={() => setCalendarAdvancedOpen((prev) => !prev)}
+                >
+                  <span>{calendarAdvancedOpen ? "Hide advanced" : "Show advanced"}</span>
+                  <span className="text-base leading-none">{calendarAdvancedOpen ? "↑" : "↓"}</span>
+                </button>
+              </div>
+
+              {calendarAdvancedOpen ? (
+                <div className="space-y-4 sm:col-span-2">
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm">
+                    <div className="font-medium text-zinc-800">Required booking fields</div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="font-medium text-zinc-800">Phone</div>
+                            <div className="text-xs text-zinc-500">Ask for a callback number.</div>
+                          </div>
+                          <ToggleSwitch
+                            checked={Boolean(form?.phone.enabled)}
+                            onChange={(checked) => void saveFormConfig({ phone: { enabled: checked, required: checked ? Boolean(form?.phone.required) : false } })}
+                          />
+                        </div>
+                        {form?.phone.enabled ? (
+                          <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-zinc-700">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(form?.phone.required)}
+                              onChange={(e) => void saveFormConfig({ phone: { enabled: true, required: e.target.checked } })}
+                              className="h-4 w-4 accent-(--color-brand-blue)"
+                            />
+                            <span>Required</span>
+                          </label>
+                        ) : null}
+                      </div>
+
+                      <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="font-medium text-zinc-800">Notes</div>
+                            <div className="text-xs text-zinc-500">Capture context before the booking.</div>
+                          </div>
+                          <ToggleSwitch
+                            checked={Boolean(form?.notes.enabled)}
+                            onChange={(checked) => void saveFormConfig({ notes: { enabled: checked, required: checked ? Boolean(form?.notes.required) : false } })}
+                          />
+                        </div>
+                        {form?.notes.enabled ? (
+                          <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-zinc-700">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(form?.notes.required)}
+                              onChange={(e) => void saveFormConfig({ notes: { enabled: true, required: e.target.checked } })}
+                              className="h-4 w-4 accent-(--color-brand-blue)"
+                            />
+                            <span>Required</span>
+                          </label>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-medium text-zinc-800">Custom questions</div>
+                        <div className="text-xs text-zinc-500">These appear on the booking form and are also required context for outbound booking handoff.</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]"
+                        onClick={() =>
+                          void saveFormConfig({
+                            questions: [
+                              ...(form?.questions ?? []),
+                              { id: makeClientId("q_"), label: "New question", required: false, kind: "short", options: [] },
+                            ],
+                          })
+                        }
+                      >
+                        Add question
+                      </button>
+                    </div>
+
+                    <div className="mt-3 space-y-3">
+                      {form?.questions?.length ? (
+                        form.questions.map((question, index) => (
+                          <div key={question.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px_auto]">
+                              <input
+                                value={question.label}
+                                onChange={(e) => {
+                                  const label = e.target.value;
+                                  setForm((prev) =>
+                                    prev
+                                      ? { ...prev, questions: prev.questions.map((item) => (item.id === question.id ? { ...item, label } : item)) }
+                                      : prev,
+                                  );
+                                }}
+                                onBlur={() => void saveFormConfig({ questions: form.questions.map((item) => (item.id === question.id ? { ...item, label: item.label.trim() || `Question ${index + 1}` } : item)) })}
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+                              <PortalSelectDropdown
+                                value={question.kind}
+                                onChange={(value) => void saveFormConfig({ questions: form.questions.map((item) => (item.id === question.id ? { ...item, kind: value as BookingFormConfig["questions"][number]["kind"] } : item)) })}
+                                options={[
+                                  { value: "short", label: "Short answer" },
+                                  { value: "long", label: "Long answer" },
+                                  { value: "single_choice", label: "Single choice" },
+                                  { value: "multiple_choice", label: "Multiple choice" },
+                                ]}
+                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                              />
+                              <button
+                                type="button"
+                                className="rounded-2xl bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-100"
+                                onClick={() => void saveFormConfig({ questions: form.questions.filter((item) => item.id !== question.id) })}
+                              >
+                                Remove
+                              </button>
+                            </div>
+
+                            <div className="mt-3 flex flex-wrap items-center gap-4">
+                              <label className="flex items-center gap-2 text-xs font-semibold text-zinc-700">
+                                <input
+                                  type="checkbox"
+                                  checked={question.required}
+                                  onChange={(e) => void saveFormConfig({ questions: form.questions.map((item) => (item.id === question.id ? { ...item, required: e.target.checked } : item)) })}
+                                  className="h-4 w-4 accent-(--color-brand-blue)"
+                                />
+                                <span>Required</span>
+                              </label>
+                            </div>
+
+                            {(question.kind === "single_choice" || question.kind === "multiple_choice") ? (
+                              <textarea
+                                value={Array.isArray(question.options) ? question.options.join("\n") : ""}
+                                onChange={(e) => {
+                                  const options = e.target.value
+                                    .split(/\r?\n/)
+                                    .map((item) => item.trim())
+                                    .filter(Boolean)
+                                    .slice(0, 12);
+                                  setForm((prev) =>
+                                    prev
+                                      ? { ...prev, questions: prev.questions.map((item) => (item.id === question.id ? { ...item, options } : item)) }
+                                      : prev,
+                                  );
+                                }}
+                                onBlur={() => void saveFormConfig({ questions: form.questions.map((item) => (item.id === question.id ? { ...item, options: Array.isArray(item.options) ? item.options.filter(Boolean).slice(0, 12) : [] } : item)) })}
+                                rows={3}
+                                placeholder="One option per line"
+                                className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+                            ) : null}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">No custom questions yet.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex justify-end">
               <button
                 type="button"
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)]"
                 onClick={() => setCalendarEditorOpen(false)}
                 disabled={calSaving}
               >
@@ -3277,6 +4099,55 @@ export function PortalBookingClient() {
             </div>
           </div>
         )}
+      </AppModal>
+
+      <AppModal
+        open={createCalendarOpen}
+        onClose={() => {
+          if (calSaving) return;
+          setCreateCalendarOpen(false);
+        }}
+        title="Add calendar"
+        widthClassName="max-w-xl"
+      >
+        <div className="space-y-4">
+          <label className="block rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+            <div className="font-medium text-zinc-800">Title</div>
+            <input
+              className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              placeholder="e.g. Intro call"
+              value={newCalTitle}
+              onChange={(e) => setNewCalTitle(e.target.value)}
+              disabled={calSaving}
+              autoFocus
+            />
+          </label>
+
+          <label className="block rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+            <div className="font-medium text-zinc-800">Duration</div>
+            <div className="mt-2">
+              <PortalSelectDropdown
+                value={newCalDuration}
+                onChange={(v) => setNewCalDuration(v)}
+                disabled={calSaving}
+                options={[15, 30, 45, 60].map((m) => ({ value: m, label: `${m} min` }))}
+                className="w-full"
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+              />
+            </div>
+          </label>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-(--color-brand-blue) hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+              disabled={calSaving || !newCalTitle.trim()}
+              onClick={() => void createCalendar()}
+            >
+              {calSaving ? "Saving…" : "Done"}
+            </button>
+          </div>
+        </div>
       </AppModal>
 
         </>
@@ -3376,11 +4247,40 @@ export function PortalBookingClient() {
       ) : null}
 
       {reschedOpen && reschedBooking ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
-          <div className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
-            <div className="text-sm font-semibold text-zinc-900">Reschedule booking</div>
-            <div className="mt-1 text-sm text-zinc-600">
-              {reschedBooking.contactName} · {new Date(reschedBooking.startAt).toLocaleString()}
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center"
+          onMouseDown={() => {
+            setReschedOpen(false);
+            setReschedBooking(null);
+            clearBookingModalUrl();
+          }}
+        >
+          <div
+            className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Reschedule booking</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  {reschedBooking.contactName} · {new Date(reschedBooking.startAt).toLocaleString()}
+                </div>
+              </div>
+              <button
+                type="button"
+                className={classNames(
+                  "inline-flex h-10 w-10 items-center justify-center rounded-full text-lg font-semibold text-zinc-500 transition hover:text-zinc-800",
+                  portalGlassButtonClass,
+                )}
+                onClick={() => {
+                  setReschedOpen(false);
+                  setReschedBooking(null);
+                  clearBookingModalUrl();
+                }}
+                aria-label="Close reschedule modal"
+              >
+                ×
+              </button>
             </div>
 
             <div className="mt-4">
@@ -3441,7 +4341,7 @@ export function PortalBookingClient() {
               </button>
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-2xl bg-[rgba(29,78,216,0.12)] px-5 py-3 text-sm font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
                 disabled={reschedBusy}
                 onClick={() => void rescheduleBooking()}
               >
@@ -3462,19 +4362,25 @@ export function PortalBookingClient() {
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-colors duration-100 hover:bg-zinc-50"
-              onClick={closeAvailability}
+              className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-brand-blue transition-colors duration-100 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60"
+              onClick={async () => {
+                const ok = await (modalAvailabilityEditorRef.current?.save() ?? Promise.resolve(true));
+                if (ok) closeAvailability();
+              }}
+              disabled={modalAvailabilitySaving}
             >
-              Done
+              {modalAvailabilitySaving ? "Saving…" : "Done"}
             </button>
           </div>
         }
       >
         <PortalBookingAvailabilityClient
+          ref={modalAvailabilityEditorRef}
           variant="modal"
           calendarId={selectedCalendarId}
           calendarTitle={selectedCalendar?.title ?? null}
           onSaved={refreshAll}
+          onSavingChange={setModalAvailabilitySaving}
         />
       </AppModal>
 

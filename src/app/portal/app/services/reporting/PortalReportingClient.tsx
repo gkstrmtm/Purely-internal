@@ -4,11 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { InlineSpinner } from "@/components/InlineSpinner";
 import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
-import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { IconFunnel, IconSearch } from "@/app/portal/PortalIcons";
 import { useToast } from "@/components/ToastProvider";
 import { portalGlassButtonClass } from "@/components/portalGlass";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
+import { portalWidgetUsesFilledSurface, toneForPortalWidget, type PortalWidgetTone } from "@/lib/portalWidgetTones";
 
 type RangeKey = "today" | "7d" | "30d" | "90d" | "all";
 
@@ -18,6 +19,7 @@ type ReportingPayload = {
   startIso: string;
   endIso: string;
   creditsRemaining: number;
+  warnings?: string[];
   kpis: {
     automationsRun: number;
     aiCalls: number;
@@ -279,6 +281,53 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+type ReportingPendingLink = {
+  label: string;
+  href: string;
+};
+
+function ReportingPendingState({
+  title,
+  body,
+  links,
+}: {
+  title: string;
+  body: string;
+  links: ReportingPendingLink[];
+}) {
+  return (
+    <div className="mt-4 rounded-[28px] border border-zinc-200 bg-white p-6 text-sm text-zinc-600 shadow-[0_18px_48px_rgba(15,23,42,0.08)]">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-2xl">
+          <div className="text-sm font-semibold text-brand-ink">{title}</div>
+          <p className="mt-2 text-sm leading-6 text-zinc-600">{body}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {links.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors duration-100 hover:bg-zinc-100"
+              >
+                {link.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+        <div className="grid min-w-55 gap-3 rounded-3xl bg-zinc-50 p-4 text-xs text-zinc-500">
+          <div>
+            <div className="font-semibold uppercase tracking-[0.18em] text-zinc-400">What you should expect</div>
+            <div className="mt-2 text-sm text-zinc-600">Credits, activity, and sales widgets appear here once reporting data finishes loading.</div>
+          </div>
+          <div>
+            <div className="font-semibold uppercase tracking-[0.18em] text-zinc-400">Best next step</div>
+            <div className="mt-2 text-sm text-zinc-600">If you are brand new, start with billing or the sales dashboard, then come back here for the full summary.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function formatMoneyFromCents(cents: number, currency: string) {
   const amount = (typeof cents === "number" && Number.isFinite(cents) ? cents : 0) / 100;
   try {
@@ -289,66 +338,95 @@ function formatMoneyFromCents(cents: number, currency: string) {
   }
 }
 
-type StatTone = "blue" | "pink" | "ink" | "emerald" | "slate" | "violet" | "amber";
+type StatTone = PortalWidgetTone;
 
 function toneClasses(tone: StatTone) {
+  const filled = portalWidgetUsesFilledSurface(tone);
   switch (tone) {
     case "blue":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(29,78,216,0.92),rgba(29,78,216,0.22))]",
         ring: "ring-1 ring-[color:rgba(29,78,216,0.16)]",
+        surface: filled ? "bg-[linear-gradient(180deg,rgba(239,246,255,0.98),rgba(219,234,254,0.94))]" : "bg-white",
         pill: "bg-[color:rgba(29,78,216,0.10)] text-[color:var(--color-brand-blue)]",
         icon: "bg-[color:rgba(29,78,216,0.10)] text-[color:rgba(29,78,216,0.95)]",
-        softBg: "bg-[color:rgba(29,78,216,0.04)]",
+        softPanel: "bg-[rgba(219,234,254,0.72)]",
+        label: filled ? "text-[rgba(29,78,216,0.9)]" : "text-zinc-500",
+        sub: filled ? "text-[rgba(30,64,175,0.8)]" : "text-zinc-500",
+        filled,
       };
     case "pink":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(251,113,133,0.92),rgba(251,113,133,0.18))]",
         ring: "ring-1 ring-[color:rgba(251,113,133,0.16)]",
+        surface: "bg-white",
         pill: "bg-[color:rgba(251,113,133,0.14)] text-[color:var(--color-brand-pink)]",
         icon: "bg-[color:rgba(251,113,133,0.14)] text-[color:rgba(251,113,133,0.95)]",
-        softBg: "bg-[color:rgba(251,113,133,0.05)]",
+        softPanel: "bg-[rgba(255,228,230,0.66)]",
+        label: "text-zinc-500",
+        sub: "text-zinc-500",
+        filled,
       };
     case "emerald":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(16,185,129,0.88),rgba(16,185,129,0.18))]",
         ring: "ring-1 ring-[color:rgba(16,185,129,0.14)]",
+        surface: filled ? "bg-[linear-gradient(180deg,rgba(240,253,244,0.98),rgba(220,252,231,0.94))]" : "bg-white",
         pill: "bg-emerald-50 text-emerald-700",
         icon: "bg-emerald-50 text-emerald-700",
-        softBg: "bg-[color:rgba(16,185,129,0.05)]",
+        softPanel: "bg-[rgba(220,252,231,0.78)]",
+        label: filled ? "text-[rgba(5,150,105,0.94)]" : "text-zinc-500",
+        sub: filled ? "text-[rgba(6,95,70,0.78)]" : "text-zinc-500",
+        filled,
       };
     case "violet":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(124,58,237,0.92),rgba(124,58,237,0.18))]",
         ring: "ring-1 ring-[color:rgba(124,58,237,0.16)]",
+        surface: filled ? "bg-[linear-gradient(180deg,rgba(250,245,255,0.98),rgba(243,232,255,0.94))]" : "bg-white",
         pill: "bg-[color:rgba(124,58,237,0.10)] text-[color:rgba(124,58,237,0.95)]",
         icon: "bg-[color:rgba(124,58,237,0.10)] text-[color:rgba(124,58,237,0.95)]",
-        softBg: "bg-[color:rgba(124,58,237,0.05)]",
+        softPanel: "bg-[rgba(243,232,255,0.8)]",
+        label: filled ? "text-[rgba(109,40,217,0.92)]" : "text-zinc-500",
+        sub: filled ? "text-[rgba(91,33,182,0.8)]" : "text-zinc-500",
+        filled,
       };
     case "amber":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(245,158,11,0.92),rgba(245,158,11,0.18))]",
         ring: "ring-1 ring-[color:rgba(245,158,11,0.18)]",
+        surface: filled ? "bg-[linear-gradient(180deg,rgba(255,251,235,0.98),rgba(254,243,199,0.94))]" : "bg-white",
         pill: "bg-[color:rgba(245,158,11,0.12)] text-[color:rgba(180,83,9,0.95)]",
         icon: "bg-[color:rgba(245,158,11,0.12)] text-[color:rgba(180,83,9,0.95)]",
-        softBg: "bg-[color:rgba(245,158,11,0.06)]",
+        softPanel: "bg-[rgba(254,243,199,0.82)]",
+        label: filled ? "text-[rgba(180,83,9,0.94)]" : "text-zinc-500",
+        sub: filled ? "text-[rgba(146,64,14,0.78)]" : "text-zinc-500",
+        filled,
       };
     case "slate":
       return {
         bar: "bg-[linear-gradient(90deg,rgba(100,116,139,0.92),rgba(100,116,139,0.22))]",
         ring: "ring-1 ring-[color:rgba(100,116,139,0.14)]",
+        surface: "bg-white",
         pill: "bg-slate-50 text-slate-700",
         icon: "bg-slate-50 text-slate-700",
-        softBg: "bg-slate-50",
+        softPanel: "bg-[rgba(241,245,249,0.94)]",
+        label: "text-zinc-500",
+        sub: "text-zinc-500",
+        filled,
       };
     case "ink":
     default:
       return {
         bar: "bg-[linear-gradient(90deg,rgba(51,65,85,0.92),rgba(51,65,85,0.22))]",
         ring: "ring-1 ring-[color:rgba(51,65,85,0.14)]",
+        surface: "bg-white",
         pill: "bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
         icon: "bg-[color:rgba(51,65,85,0.10)] text-brand-ink",
-        softBg: "bg-zinc-50",
+        softPanel: "bg-[rgba(248,250,252,0.96)]",
+        label: "text-zinc-500",
+        sub: "text-zinc-500",
+        filled,
       };
   }
 }
@@ -398,10 +476,10 @@ function StatCard({
 }) {
   const t = toneClasses(tone);
   return (
-    <div className={classNames("rounded-3xl border border-zinc-200 bg-white p-6", t.ring)}>
-      <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} />
+    <div className={classNames("rounded-3xl border border-zinc-200 p-6", t.surface, t.ring)}>
+      {!t.filled ? <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} /> : null}
       <div className="flex items-center justify-between gap-3">
-        <div className="text-xs font-semibold text-zinc-500">{label}</div>
+        <div className={classNames("text-xs font-semibold", t.label)}>{label}</div>
         {icon ? (
           <div className={classNames("inline-flex items-center justify-center rounded-xl p-2", t.icon)} aria-hidden="true">
             {icon}
@@ -411,7 +489,7 @@ function StatCard({
         )}
       </div>
       <div className="mt-2 text-3xl font-bold text-brand-ink">{value}</div>
-      {sub ? <div className="mt-1 text-xs text-zinc-500">{sub}</div> : null}
+      {sub ? <div className={classNames("mt-1 text-xs", t.sub)}>{sub}</div> : null}
     </div>
   );
 }
@@ -420,16 +498,22 @@ function MiniCard({
   label,
   value,
   sub,
+  tone,
+  filled,
 }: {
   label: string;
   value: string;
   sub?: string;
+  tone?: StatTone;
+  filled?: boolean;
 }) {
+  const t = tone ? toneClasses(tone) : null;
+  const surfaceClass = filled && t ? t.softPanel : t?.surface ?? "bg-white";
   return (
-    <div className="rounded-3xl border border-zinc-200 bg-white p-5">
-      <div className="text-xs font-semibold text-zinc-500">{label}</div>
+    <div className={classNames("rounded-3xl border border-zinc-200 p-5", surfaceClass, t?.ring)}>
+      <div className={classNames("text-xs font-semibold", t?.label ?? "text-zinc-500")}>{label}</div>
       <div className="mt-2 text-2xl font-bold text-brand-ink">{value}</div>
-      {sub ? <div className="mt-1 text-xs text-zinc-500">{sub}</div> : null}
+      {sub ? <div className={classNames("mt-1 text-xs", t?.sub ?? "text-zinc-500")}>{sub}</div> : null}
     </div>
   );
 }
@@ -450,7 +534,6 @@ function ServicePerfCard({
   const t = toneClasses(tone ?? "slate");
   return (
     <div className={classNames("rounded-3xl border border-zinc-200 bg-white p-6", t.ring)}>
-      <div className={classNames("mb-4 h-1.5 w-14 rounded-full", t.bar)} />
       <div className="flex items-start justify-between gap-3">
         <div className="text-sm font-semibold text-zinc-900">{title}</div>
         <div className="flex items-center gap-2">
@@ -464,7 +547,7 @@ function ServicePerfCard({
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
         {stats.slice(0, 6).map((s) => (
-          <div key={s.label} className={classNames("rounded-2xl border border-zinc-200 p-3", t.softBg)}>
+          <div key={s.label} className={classNames("rounded-2xl p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]", t.softPanel)}>
             <div className="flex items-center justify-between gap-2">
               <div className="text-[11px] font-semibold text-zinc-600">{s.label}</div>
               <div className={classNames("h-2.5 w-2.5 rounded-full", t.pill)} aria-hidden="true" />
@@ -477,23 +560,30 @@ function ServicePerfCard({
   );
 }
 
-function computeReportingMenuStyle(anchor: HTMLButtonElement): CSSProperties {
+function computeReportingMenuStyle(
+  anchor: HTMLButtonElement,
+  options?: { width?: number; estHeight?: number; minHeight?: number; alignX?: "left" | "right" },
+): CSSProperties {
   const rect = anchor.getBoundingClientRect();
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
   const padding = 12;
   const gap = 4;
-  const width = Math.min(224, vw - padding * 2);
-  const left = Math.min(Math.max(rect.left, padding), vw - padding - width);
+  const width = Math.min(options?.width ?? 224, vw - padding * 2);
+  const alignX = options?.alignX ?? "left";
+  const rawLeft = alignX === "right" ? rect.right - width : rect.left;
+  const left = Math.min(Math.max(rawLeft, padding), vw - padding - width);
 
   const spaceBelow = vh - rect.bottom - padding - gap;
   const spaceAbove = rect.top - padding - gap;
-  const preferDown = spaceBelow >= 220 || spaceBelow >= spaceAbove;
+  const estHeight = options?.estHeight ?? 220;
+  const minHeight = options?.minHeight ?? 160;
+  const preferDown = spaceBelow >= estHeight || spaceBelow >= spaceAbove;
 
   return preferDown
-    ? { left, top: rect.bottom + gap, width, maxHeight: Math.max(160, spaceBelow) }
-    : { left, bottom: vh - rect.top + gap, width, maxHeight: Math.max(160, spaceAbove) };
+    ? { left, top: rect.bottom + gap, width, maxHeight: Math.max(minHeight, spaceBelow) }
+    : { left, bottom: vh - rect.top + gap, width, maxHeight: Math.max(minHeight, spaceAbove) };
 }
 
 function MenuButton({
@@ -516,6 +606,8 @@ function MenuButton({
   goToLabel?: string | null;
 }) {
   const open = openId === id;
+  const pathname = usePathname() || "";
+  const resolvedGoToHref = toCurrentPortalHref(goToHref ?? null, pathname);
 
   const anchorRef = useRef<HTMLButtonElement | null>(null);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
@@ -595,13 +687,13 @@ function MenuButton({
           >
             {addLabel ?? "Add to dashboard"}
           </button>
-          {isPlainNonEmptyString(goToHref) && isPlainNonEmptyString(goToLabel) ? (
+          {isPlainNonEmptyString(resolvedGoToHref) && isPlainNonEmptyString(goToLabel) ? (
             <button
               type="button"
               className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-zinc-700 transition-colors hover:bg-[rgba(219,234,254,0.42)]"
               onClick={() => {
                 setOpenId(null);
-                window.location.href = goToHref;
+                window.location.href = resolvedGoToHref;
               }}
             >
               Go to {goToLabel}
@@ -616,6 +708,8 @@ function MenuButton({
 export function PortalReportingClient() {
   const pathname = usePathname() || "";
   const toast = useToast();
+  const portalVariant = useMemo(() => (pathname.startsWith("/credit") ? "credit" : "portal"), [pathname]);
+  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const [range, setRange] = useState<RangeKey>("30d");
   const [data, setData] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
@@ -624,7 +718,9 @@ export function PortalReportingClient() {
   const [salesReport, setSalesReport] = useState<SalesReportPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const hasLoadedOnceRef = useRef(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const initialLoadStartedRef = useRef(false);
+  const latestLoadRequestRef = useRef(0);
+  const [, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -637,6 +733,18 @@ export function PortalReportingClient() {
   const [serviceFilter, setServiceFilter] = useState<ServiceKey>("all");
   const [activeOnly, setActiveOnly] = useState(true);
   const [dashboardWidgetIds, setDashboardWidgetIds] = useState<Set<string>>(() => new Set());
+  const filterButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filtersMenuStyle, setFiltersMenuStyle] = useState<CSSProperties | null>(null);
+  const reportingPendingLinks = useMemo(
+    () => [
+      { label: "Open Sales dashboard", href: toCurrentPortalHref("/portal/app/services/reporting/sales", pathname) ?? "/portal/app/services/reporting/sales" },
+      { label: "Review billing", href: toCurrentPortalHref("/portal/app/billing", pathname) ?? "/portal/app/billing" },
+      { label: "Check inbox", href: toCurrentPortalHref("/portal/app/services/inbox", pathname) ?? "/portal/app/services/inbox" },
+      { label: "Open booking", href: toCurrentPortalHref("/portal/app/services/booking", pathname) ?? "/portal/app/services/booking" },
+    ],
+    [pathname],
+  );
 
   const dashboardScope = (() => {
     if (typeof window === "undefined") return "default" as const;
@@ -658,7 +766,7 @@ export function PortalReportingClient() {
     setNote(null);
     const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, {
       method: "PUT",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...variantHeaders },
       body: JSON.stringify({ action: "add", widgetId }),
     });
     const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; data?: DashboardData };
@@ -676,7 +784,7 @@ export function PortalReportingClient() {
   }
 
   async function loadDashboardWidgetIds() {
-    const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, { cache: "no-store" }).catch(() => null as any);
+    const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
     if (!res?.ok) return;
     const body = (await res.json().catch(() => ({}))) as { ok?: boolean; data?: DashboardData };
     const ids = new Set<string>(Array.isArray(body?.data?.widgets) ? body!.data!.widgets.map((w) => w.id).filter(Boolean) : []);
@@ -684,6 +792,8 @@ export function PortalReportingClient() {
   }
 
   async function load(nextRange: RangeKey) {
+    const requestId = latestLoadRequestRef.current + 1;
+    latestLoadRequestRef.current = requestId;
     const isFirstLoad = !hasLoadedOnceRef.current;
     if (isFirstLoad) setLoading(true);
     else setRefreshing(true);
@@ -692,12 +802,17 @@ export function PortalReportingClient() {
 
     try {
       const requiredController = new AbortController();
-      const requiredTimeout = window.setTimeout(() => requiredController.abort(), 60000);
+      const requiredTimeout = window.setTimeout(() => requiredController.abort(), 75000);
       const repRes = await fetch(`/api/portal/reporting?range=${encodeURIComponent(nextRange)}`, {
         cache: "no-store",
+        headers: variantHeaders,
         signal: requiredController.signal,
       }).catch(() => null as any);
       window.clearTimeout(requiredTimeout);
+
+      if (requestId !== latestLoadRequestRef.current) {
+        return;
+      }
 
       if (!repRes?.ok) {
         const body = (await repRes?.json?.().catch(() => ({}))) as { error?: string };
@@ -718,9 +833,9 @@ export function PortalReportingClient() {
 
       void (async () => {
         const [stats, twilioBody, salesStatusBody] = await Promise.all([
-          fetchJsonWithTimeout<MediaStatsPayload>("/api/portal/media/stats", { cache: "no-store" }, 15000),
-          fetchJsonWithTimeout<{ ok?: boolean; twilio?: TwilioMasked }>("/api/portal/integrations/twilio", { cache: "no-store" }, 15000),
-          fetchJsonWithTimeout<SalesIntegrationStatusPayload>("/api/portal/integrations/sales-reporting", { cache: "no-store" }, 15000),
+          fetchJsonWithTimeout<MediaStatsPayload>("/api/portal/media/stats", { cache: "no-store", headers: variantHeaders }, 15000),
+          fetchJsonWithTimeout<{ ok?: boolean; twilio?: TwilioMasked }>("/api/portal/integrations/twilio", { cache: "no-store", headers: variantHeaders }, 15000),
+          fetchJsonWithTimeout<SalesIntegrationStatusPayload>("/api/portal/integrations/sales-reporting", { cache: "no-store", headers: variantHeaders }, 15000),
         ]);
 
         if (stats) {
@@ -739,7 +854,7 @@ export function PortalReportingClient() {
           setSalesStatus(salesStatusBody);
           const anyConnected = Boolean(salesStatusBody.providers && Object.values(salesStatusBody.providers).some((provider) => Boolean(provider?.configured)));
           if (anyConnected) {
-            const sales = await fetchJsonWithTimeout<SalesReportPayload>("/api/portal/reporting/sales?range=30d", { cache: "no-store" }, 15000);
+            const sales = await fetchJsonWithTimeout<SalesReportPayload>("/api/portal/reporting/sales?range=30d", { cache: "no-store", headers: variantHeaders }, 15000);
             setSalesReport(sales);
           } else {
             setSalesReport(null);
@@ -756,6 +871,8 @@ export function PortalReportingClient() {
   }
 
   useEffect(() => {
+    if (initialLoadStartedRef.current) return;
+    initialLoadStartedRef.current = true;
     void load(range);
     void loadDashboardWidgetIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -776,6 +893,48 @@ export function PortalReportingClient() {
       document.removeEventListener("keydown", onKey);
     };
   }, [openMenuId]);
+
+  useLayoutEffect(() => {
+    if (!filtersOpen) {
+      setFiltersMenuStyle(null);
+      return;
+    }
+
+    const recompute = () => {
+      const anchor = filterButtonRef.current;
+      if (!anchor) return;
+      setFiltersMenuStyle(computeReportingMenuStyle(anchor, { width: 320, estHeight: 460, minHeight: 320, alignX: "right" }));
+    };
+
+    let raf = 0;
+    const schedule = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        recompute();
+      });
+    };
+
+    recompute();
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+    };
+  }, [filtersOpen]);
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFiltersOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [filtersOpen]);
 
   const activeServiceKeys = useMemo(() => {
     const keys = new Set<ServiceKey>();
@@ -871,6 +1030,8 @@ export function PortalReportingClient() {
     };
   }, [data]);
 
+  const activeFilterCount = (serviceFilter !== "all" ? 1 : 0) + (activeOnly ? 1 : 0) + (range !== "30d" ? 1 : 0);
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
       <div className="flex items-start justify-between gap-4">
@@ -883,95 +1044,185 @@ export function PortalReportingClient() {
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href={toCurrentPortalHref("/portal/app/services/reporting/sales", pathname) || "/portal/app/services/reporting/sales"}
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            className="inline-flex items-center justify-center rounded-2xl bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 shadow-[0_10px_28px_rgba(16,185,129,0.12)] transition-colors duration-150 hover:bg-emerald-100"
           >
-            Sales
+            Sales dashboard
           </Link>
-          <Link
-            href={toCurrentPortalHref("/portal/app/services", pathname) || "/portal/app/services"}
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-          >
-            All services
-          </Link>
-        </div>
-      </div>
-
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm font-semibold text-zinc-900">{rangeLabel}</div>
-        <div className="flex flex-wrap gap-2">
-          {([
-            ["today", "Today"],
-            ["7d", "7d"],
-            ["30d", "30d"],
-            ["90d", "90d"],
-            ["all", "All"],
-          ] as Array<[RangeKey, string]>).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => {
-                setRange(key);
-                void load(key);
-              }}
-              className={
-                range === key
-                  ? "rounded-full bg-brand-ink px-4 py-2 text-sm font-semibold text-white"
-                  : "rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              }
-            >
-              {label}
-            </button>
-          ))}
         </div>
       </div>
 
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-1 items-center gap-2">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search metrics or services…"
-            className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="mr-2 inline-flex items-center gap-3">
-            <span className="text-xs font-semibold text-zinc-500">Active only</span>
-            <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
-              <input
-                type="checkbox"
-                className="peer sr-only"
-                checked={activeOnly}
-                onChange={(e) => setActiveOnly(e.target.checked)}
-                aria-label="Active only"
-              />
-              <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white" />
-              <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
-            </span>
-          </label>
-          <div className="text-xs font-semibold text-zinc-500">Service</div>
-          <PortalListboxDropdown
-            value={serviceFilter}
-            onChange={(v) => setServiceFilter(v as ServiceKey)}
-            options={SERVICE_INFOS.map((s) => ({ value: s.key as any, label: s.name }))}
-            className="min-w-50"
-            buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-          />
+          <div className="relative min-w-0 flex-1">
+            <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
+              <IconSearch size={18} />
+            </div>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search metrics or services…"
+              className="w-full rounded-full border border-zinc-200 bg-white py-2.5 pl-11 pr-4 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+            />
+          </div>
+          <div className="relative shrink-0">
+            {filtersOpen && filtersMenuStyle ? (
+              <>
+                <div className="fixed inset-0 z-30" onMouseDown={() => setFiltersOpen(false)} onTouchStart={() => setFiltersOpen(false)} aria-hidden />
+                <LiquidGlassPopupSurface
+                  className="fixed z-140000 w-80 overflow-hidden border border-[rgba(96,165,250,0.24)] p-1.5 shadow-[0_22px_54px_rgba(37,99,235,0.16),0_14px_36px_rgba(15,23,42,0.16)]"
+                  contentClassName="rounded-[26px] bg-[linear-gradient(180deg,rgba(239,246,255,0.28),rgba(255,255,255,0.14))]"
+                  style={filtersMenuStyle}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                >
+                  <div className="flex flex-col" style={{ maxHeight: filtersMenuStyle.maxHeight }}>
+                    <div className="space-y-5 overflow-y-auto px-4 pb-3 pt-4">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Range</div>
+                        <div className="mt-2 space-y-1">
+                        {([
+                          ["today", "Today"],
+                          ["7d", "Last 7 days"],
+                          ["30d", "Last 30 days"],
+                          ["90d", "Last 90 days"],
+                          ["all", "All time"],
+                        ] as Array<[RangeKey, string]>).map(([key, label]) => (
+                          <button
+                            key={key}
+                            type="button"
+                            className={classNames(
+                              "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-colors",
+                              range === key
+                                ? "bg-[rgba(96,165,250,0.16)] font-semibold text-[rgb(29,78,216)]"
+                                : "text-zinc-700 hover:bg-[rgba(255,255,255,0.42)]",
+                            )}
+                            onClick={() => {
+                              setRange(key);
+                              void load(key);
+                            }}
+                          >
+                            <span>{label}</span>
+                            {range === key ? <span className="text-xs text-[rgba(29,78,216,0.78)]">Selected</span> : null}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-[rgba(148,163,184,0.22)] bg-[rgba(255,255,255,0.20)] px-3 py-2.5 backdrop-blur-[6px]">
+                      <div className="pr-2">
+                        <div className="text-xs font-semibold text-zinc-900">Active only</div>
+                        <div className="text-[11px] text-zinc-500">Keep the list focused on services already showing activity.</div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={activeOnly}
+                        aria-label="Active only"
+                        className={classNames(
+                          "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition",
+                          activeOnly
+                            ? "border-[rgba(96,165,250,0.42)] bg-[rgba(96,165,250,0.38)]"
+                            : "border-[rgba(148,163,184,0.35)] bg-[rgba(148,163,184,0.22)]",
+                        )}
+                        onClick={() => setActiveOnly((value) => !value)}
+                      >
+                        <span
+                          className={classNames(
+                            "pointer-events-none absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-[0_2px_8px_rgba(15,23,42,0.16)] transition",
+                            activeOnly ? "left-[calc(100%-1.375rem)] bg-[rgba(239,246,255,0.98)]" : "left-0.5",
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Service</div>
+                      <div className="mt-2 space-y-1">
+                        {SERVICE_INFOS.map((service) => (
+                          <button
+                            key={service.key}
+                            type="button"
+                            className={classNames(
+                              "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-colors",
+                              serviceFilter === service.key
+                                ? "bg-[rgba(96,165,250,0.16)] font-semibold text-[rgb(29,78,216)]"
+                                : "text-zinc-700 hover:bg-[rgba(255,255,255,0.42)]",
+                            )}
+                            onClick={() => setServiceFilter(service.key)}
+                          >
+                            <span>{service.name}</span>
+                            {serviceFilter === service.key ? <span className="text-xs text-[rgba(29,78,216,0.78)]">Selected</span> : null}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    </div>
+
+                    <div className="border-t border-white/35 px-4 pb-4 pt-3">
+                    <button
+                      type="button"
+                      className="w-full rounded-xl border border-[rgba(148,163,184,0.26)] bg-[rgba(255,255,255,0.26)] px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:bg-[rgba(255,255,255,0.42)]"
+                      onClick={() => {
+                        setRange("30d");
+                        void load("30d");
+                        setActiveOnly(true);
+                        setServiceFilter("all");
+                      }}
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                  </div>
+                </LiquidGlassPopupSurface>
+              </>
+            ) : null}
+
+            <button
+              ref={filterButtonRef}
+              type="button"
+              className={classNames(
+                "inline-flex h-12 w-12 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-colors duration-100 hover:bg-zinc-50",
+                activeFilterCount > 0 && "text-brand-blue",
+              )}
+              onClick={(e) => {
+                e.stopPropagation();
+                const anchor = e.currentTarget;
+                if (filtersOpen) {
+                  setFiltersOpen(false);
+                  return;
+                }
+                setFiltersMenuStyle(computeReportingMenuStyle(anchor, { width: 320, estHeight: 460, minHeight: 320, alignX: "right" }));
+                setFiltersOpen(true);
+              }}
+              aria-label="Reporting filters"
+              title="Reporting filters"
+            >
+              <IconFunnel size={18} />
+            </button>
+          </div>
         </div>
       </div>
 
       {note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
 
-      {refreshing ? (
-        <div className="mt-4 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm text-zinc-600">
-          <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
-          Refreshing…
-        </div>
-      ) : null}
-
       {loading && !hasLoadedOnceRef.current ? (
-        <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
-      ) : !data ? null : (
+        <ReportingPendingState
+          title="Loading your reporting workspace"
+          body="We are collecting credits, activity, and sales data for this account. You can still jump into the most useful follow-up areas right now instead of waiting on a blank panel."
+          links={reportingPendingLinks}
+        />
+      ) : !data ? (
+        <ReportingPendingState
+          title={error ? "Reporting is not ready yet" : "Loading your reporting workspace"}
+          body={
+            error
+              ? `${error} You can still use the sales dashboard, billing, inbox, or booking while reporting catches up.`
+              : "We are still collecting reporting data for this account. If you are setting things up for the first time, the shortcuts below are the best next places to work."
+          }
+          links={reportingPendingLinks}
+        />
+      ) : (
         <>
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {visible("stripeSales", "reporting", ["Sales", "Revenue", "Payments", "Stripe", "Paystack", "Razorpay", "Mollie", "Braintree", "Authorize.Net", "Mercado Pago", "Flutterwave"]) ? (
@@ -1459,7 +1710,7 @@ export function PortalReportingClient() {
                       goToLabel={serviceForWidget("successRate").name}
                     />
                   </div>
-                  <MiniCard label="Success rate" value={formatPct(derived.overallSuccessRate)} sub="AI + text-back" />
+                  <MiniCard label="Success rate" value={formatPct(derived.overallSuccessRate)} sub="AI + text-back" tone={toneForPortalWidget("successRate")} />
                 </div>
 
                 <div className="relative">
@@ -1475,7 +1726,7 @@ export function PortalReportingClient() {
                       goToLabel={serviceForWidget("failures").name}
                     />
                   </div>
-                  <MiniCard label="Failures" value={derived.totalFailures.toLocaleString()} sub="AI failed + texts failed" />
+                  <MiniCard label="Failures" value={derived.totalFailures.toLocaleString()} sub="AI failed + texts failed" tone="pink" filled />
                 </div>
 
                 <div className="relative">
@@ -1503,6 +1754,7 @@ export function PortalReportingClient() {
                         ? `~${Math.max(0, derived.creditsPerDay).toFixed(1)} credits/day (${rangeLabel.toLowerCase()})`
                         : undefined
                     }
+                    tone={toneForPortalWidget("creditsRunway")}
                   />
                 </div>
 
@@ -1650,7 +1902,7 @@ export function PortalReportingClient() {
               ) : null}
 
               {visible("integrationStatus", "billing", ["Integration status", "Twilio", "SMS", "connected", "not connected"]) ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="mt-4 rounded-2xl bg-[rgba(248,250,252,0.82)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
                 <div className="text-xs font-semibold text-zinc-600">Integration status</div>
                 <div className="mt-2 text-sm text-zinc-700">
                   {twilio?.configured ? (
@@ -1675,7 +1927,7 @@ export function PortalReportingClient() {
                 if (!show) return null;
                 return (
                   <div className="mt-4 grid grid-cols-1 gap-3">
-                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="rounded-2xl bg-[rgba(248,250,252,0.84)] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
                       <div className="flex items-start justify-between gap-3">
                         <div className="text-xs font-semibold text-zinc-600">Reliability</div>
                         <MenuButton
@@ -1690,19 +1942,19 @@ export function PortalReportingClient() {
                         />
                       </div>
                       <div className="mt-2 grid grid-cols-2 gap-3">
-                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="rounded-2xl bg-[rgba(219,234,254,0.86)] p-3">
                           <div className="text-[11px] font-semibold text-zinc-600">AI success rate</div>
                           <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.aiSuccessRate)}</div>
                         </div>
-                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="rounded-2xl bg-[rgba(243,232,255,0.88)] p-3">
                           <div className="text-[11px] font-semibold text-zinc-600">Text success rate</div>
                           <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.textSuccessRate)}</div>
                         </div>
-                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="rounded-2xl bg-[rgba(254,240,138,0.48)] p-3">
                           <div className="text-[11px] font-semibold text-zinc-600">Missed call capture</div>
                           <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.missedCaptureRate)}</div>
                         </div>
-                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="rounded-2xl bg-[rgba(220,252,231,0.9)] p-3">
                           <div className="text-[11px] font-semibold text-zinc-600">Appointments booked</div>
                           <div className="mt-1 text-sm font-bold text-brand-ink">{data.kpis.bookingsCreated.toLocaleString()}</div>
                         </div>

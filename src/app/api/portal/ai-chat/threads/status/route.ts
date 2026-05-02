@@ -1,10 +1,47 @@
 import { requireClientSession } from "@/lib/apiAuth";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+function isTransientPortalAiChatDbError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P1017" || error.code === "P2024") return true;
+  }
+
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const normalized = String(message || "").toLowerCase();
+  if (!normalized) return false;
+
+  return (
+    (normalized.includes("connection pool") && normalized.includes("timed out")) ||
+    normalized.includes("server has closed the connection") ||
+    normalized.includes("connection terminated unexpectedly") ||
+    normalized.includes("connection reset") ||
+    normalized.includes("connection refused")
+  );
+}
+
+async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempts?: number; delayMs?: number }): Promise<T> {
+  const attempts = Math.max(1, Math.min(4, Math.floor(opts?.attempts ?? 3)));
+  const delayMs = Math.max(50, Math.min(2_000, Math.floor(opts?.delayMs ?? 200)));
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientPortalAiChatDbError(error) || attempt >= attempts) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+    }
+  }
+
+  throw lastError;
+}
 
 function normalizeThreadLiveStatus(raw: unknown) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -55,23 +92,25 @@ function normalizeThreadNextStepContext(raw: unknown) {
 }
 
 async function loadLatestRunStatusByThread(ownerId: string, threadIds: string[]) {
-  const ids = Array.from(new Set((threadIds || []).map((id) => String(id || "").trim()).filter(Boolean))).slice(0, 200);
+  const ids = Array.from(new Set((threadIds || []).map((id) => String(id || "").trim()).filter(Boolean)));
   if (!ids.length) return new Map<string, { status: string; runId: string | null; updatedAt: string | null }>();
 
-  const rows = await (prisma as any).portalAiChatRun.findMany({
-    where: { ownerId, threadId: { in: ids } },
-    orderBy: [{ threadId: "asc" }, { createdAt: "desc" }],
-    distinct: ["threadId"],
-    select: {
-      threadId: true,
-      runId: true,
-      status: true,
-      createdAt: true,
-      updatedAt: true,
-      completedAt: true,
-      interruptedAt: true,
-    },
-  }).catch(() => []);
+  const rows = (await withPortalAiChatDbRetry(() =>
+    (prisma as any).portalAiChatRun.findMany({
+      where: { ownerId, threadId: { in: ids } },
+      orderBy: [{ threadId: "asc" }, { createdAt: "desc" }],
+      distinct: ["threadId"],
+      select: {
+        threadId: true,
+        runId: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        completedAt: true,
+        interruptedAt: true,
+      },
+    }),
+  ).catch(() => [])) as any[];
 
   const next = new Map<string, { status: string; runId: string | null; updatedAt: string | null }>();
   for (const row of rows || []) {
@@ -85,28 +124,29 @@ async function loadLatestRunStatusByThread(ownerId: string, threadIds: string[])
 }
 
 async function loadVisibleThreads(ownerId: string, memberId: string) {
-  const threads = await (prisma as any).portalAiChatThread.findMany({
-    where: { ownerId, messages: { some: {} } },
-    orderBy: [
-      { isPinned: "desc" },
-      { pinnedAt: "desc" },
-      { lastMessageAt: "desc" },
-      { updatedAt: "desc" },
-    ],
-    take: 200,
-    select: {
-      id: true,
-      title: true,
-      lastMessageAt: true,
-      isPinned: true,
-      pinnedAt: true,
-      createdAt: true,
-      updatedAt: true,
-      ownerId: true,
-      createdByUserId: true,
-      contextJson: true,
-    },
-  });
+  const threads = await withPortalAiChatDbRetry(() =>
+    (prisma as any).portalAiChatThread.findMany({
+      where: { ownerId, messages: { some: {} } },
+      orderBy: [
+        { isPinned: "desc" },
+        { pinnedAt: "desc" },
+        { lastMessageAt: "desc" },
+        { updatedAt: "desc" },
+      ],
+      select: {
+        id: true,
+        title: true,
+        lastMessageAt: true,
+        isPinned: true,
+        pinnedAt: true,
+        createdAt: true,
+        updatedAt: true,
+        ownerId: true,
+        createdByUserId: true,
+        contextJson: true,
+      },
+    }),
+  );
 
   const visible = (Array.isArray(threads) ? threads : [])
     .filter((thread: any) => canAccessPortalAiChatThread({ thread, memberId }))
@@ -141,7 +181,17 @@ export async function GET(req: Request) {
     });
   }
 
-  await ensurePortalAiChatSchema();
+  try {
+    await withPortalAiChatDbRetry(() => ensurePortalAiChatSchema());
+  } catch (error) {
+    if (isTransientPortalAiChatDbError(error)) {
+      return new Response(JSON.stringify({ ok: false, error: "Chat is temporarily unavailable. Please try again." }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    throw error;
+  }
 
   const ownerId = auth.session.user.id;
   const memberId = (auth.session.user as any).memberId || ownerId;
@@ -184,9 +234,13 @@ export async function GET(req: Request) {
         push("threads", { ok: true, threads });
       };
 
-      void sendSnapshot().catch(() => close());
+      void sendSnapshot().catch((error) => {
+        if (!isTransientPortalAiChatDbError(error)) close();
+      });
       snapshotInterval = setInterval(() => {
-        void sendSnapshot().catch(() => close());
+        void sendSnapshot().catch((error) => {
+          if (!isTransientPortalAiChatDbError(error)) close();
+        });
       }, 2000);
       heartbeatInterval = setInterval(() => {
         pushComment("keepalive");

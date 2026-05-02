@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
+import { resolvePortalMediaItemBytes } from "@/lib/portalInboxAttachmentMedia";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -15,6 +17,8 @@ const postSchema = z.object({
 export async function POST(req: Request) {
   const auth = await requireClientSessionForService("inbox");
   if (!auth.ok) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: auth.status });
+
+  await ensurePortalInboxSchema();
 
   const ownerId = auth.session.user.id;
   const body = (await req.json().catch(() => null)) as unknown;
@@ -30,14 +34,9 @@ export async function POST(req: Request) {
 
   if (!media) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  if (!media.bytes) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "This media item is stored externally and can't be attached from the media library yet.",
-      },
-      { status: 400 },
-    );
+  const resolved = await resolvePortalMediaItemBytes(media, { baseUrl: req.url });
+  if (!resolved.ok) {
+    return NextResponse.json({ ok: false, error: resolved.error }, { status: resolved.status });
   }
 
   const publicToken = crypto.randomUUID().replace(/-/g, "");
@@ -46,9 +45,9 @@ export async function POST(req: Request) {
       ownerId,
       messageId: null,
       fileName: String(media.fileName || "attachment").slice(0, 200),
-      mimeType: String(media.mimeType || "application/octet-stream").slice(0, 120),
-      fileSize: Number(media.fileSize || (media.bytes?.length ?? 0)),
-      bytes: media.bytes as Buffer,
+      mimeType: resolved.mimeType,
+      fileSize: resolved.fileSize,
+      bytes: resolved.bytes,
       publicToken,
     },
     select: { id: true, fileName: true, mimeType: true, fileSize: true, publicToken: true },

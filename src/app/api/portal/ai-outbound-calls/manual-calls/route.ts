@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
 import { requireClientSessionForService } from "@/lib/portalAccess";
-import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
+import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,10 +55,16 @@ export async function GET(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+  await ensurePortalAiOutboundCallsSchema().catch(() => null);
   const url = new URL(req.url);
   const campaignId = (url.searchParams.get("campaignId") || "").trim();
 
-  await ensurePortalAiOutboundCallsSchema();
+  const [hasConversationId, hasRecordingSid, hasRecordingDurationSec, hasTranscriptText] = await Promise.all([
+    dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallManualCall", "portalaioutboundcallmanualcall"], columnName: "conversationId" }).catch(() => false),
+    dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallManualCall", "portalaioutboundcallmanualcall"], columnName: "recordingSid" }).catch(() => false),
+    dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallManualCall", "portalaioutboundcallmanualcall"], columnName: "recordingDurationSec" }).catch(() => false),
+    dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallManualCall", "portalaioutboundcallmanualcall"], columnName: "transcriptText" }).catch(() => false),
+  ]);
 
   const rows = await prisma.portalAiOutboundCallManualCall.findMany({
     where: {
@@ -70,10 +77,10 @@ export async function GET(req: Request) {
       toNumberE164: true,
       status: true,
       callSid: true,
-      conversationId: true,
-      recordingSid: true,
-      recordingDurationSec: true,
-      transcriptText: true,
+      ...(hasConversationId ? { conversationId: true } : {}),
+      ...(hasRecordingSid ? { recordingSid: true } : {}),
+      ...(hasRecordingDurationSec ? { recordingDurationSec: true } : {}),
+      ...(hasTranscriptText ? { transcriptText: true } : {}),
       lastError: true,
       createdAt: true,
       updatedAt: true,

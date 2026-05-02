@@ -78,6 +78,7 @@ export async function POST(req: Request) {
     // If they're basically scheduling for "now", just send immediately.
     if (when.getTime() > Date.now() + 10_000) {
       const scheduledIds: string[] = [];
+      let lastScheduledThreadId: string | null = null;
       for (const to of toList) {
         const scheduled = await schedulePortalInboxMessage({
           ownerId,
@@ -97,6 +98,7 @@ export async function POST(req: Request) {
           );
         }
         scheduledIds.push(scheduled.scheduledId);
+        if (scheduled.threadId) lastScheduledThreadId = scheduled.threadId;
       }
 
       return NextResponse.json({
@@ -105,7 +107,7 @@ export async function POST(req: Request) {
         scheduledId: scheduledIds[0] ?? null,
         scheduledIds,
         scheduledCount: scheduledIds.length,
-        threadId: threadId ?? null,
+        threadId: toList.length === 1 ? (lastScheduledThreadId ?? threadId ?? null) : null,
       });
     }
   }

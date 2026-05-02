@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { appendAiOutboundManualCallWebhookLog } from "@/lib/aiOutboundCallDebug";
 import { prisma } from "@/lib/db";
 import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
@@ -71,6 +72,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
   const recordingSid = typeof recordingSidRaw === "string" ? recordingSidRaw.trim() : "";
   const durationSec = typeof durationRaw === "string" ? Number(durationRaw) : typeof durationRaw === "number" ? durationRaw : NaN;
+
+  await appendAiOutboundManualCallWebhookLog({
+    route: "manual-call:call-recording",
+    token: t,
+    manualCallId: manual.id,
+    details: {
+      recordingSid,
+      recordingDuration: durationRaw,
+    },
+  });
 
   if (recordingSid) {
     await prisma.portalAiOutboundCallManualCall.update({

@@ -3,14 +3,16 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { IconCalendar } from "@/app/portal/PortalIcons";
+import { portalBasePath, portalVariantFromPathname } from "@/lib/portalVariant";
 
 export function PortalHeaderCta({ canOpenPortalApp, glass = false }: { canOpenPortalApp: boolean; glass?: boolean }) {
   const pathname = usePathname();
 
   if (!canOpenPortalApp) return null;
 
-  // Always open the main portal app. Credit pages should not route users to a non-existent /credit/app.
-  const appHref = "/portal/app";
+  const variant = typeof pathname === "string" ? portalVariantFromPathname(pathname) : "portal";
+  const appHref = `${portalBasePath(variant)}/app`;
+  const ctaLabel = variant === "credit" ? "Open credit app" : "Open portal";
   const inPortalApp = typeof pathname === "string" && (pathname.startsWith("/portal/app") || pathname.startsWith("/credit/app"));
 
   if (inPortalApp) {
@@ -33,7 +35,7 @@ export function PortalHeaderCta({ canOpenPortalApp, glass = false }: { canOpenPo
 
   return (
     <Link href={appHref} className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95">
-      Open portal
+      {ctaLabel}
     </Link>
   );
 }
