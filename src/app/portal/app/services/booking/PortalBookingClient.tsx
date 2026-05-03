@@ -28,9 +28,10 @@ import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
+import { PortalBookingCalendarEditorModal } from "@/components/PortalBookingCalendarEditorModal";
+import { PortalMeetingPlatformConfigurator } from "@/components/PortalMeetingPlatformConfigurator";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
-import { PortalTypeaheadInput } from "@/components/PortalTypeaheadInput";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
@@ -40,6 +41,7 @@ import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderT
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 import { IconEyeGlyph, IconGlobeGlyph } from "@/app/portal/PortalIcons";
+import type { BookingMeetingIntegrationStatus } from "@/lib/bookingMeetingIntegrations.shared";
 
 type BookingFormConfig = {
   version: 1;
@@ -72,6 +74,7 @@ type Site = {
   toneDirection?: string | null;
   notificationEmails?: string[] | null;
   meetingPlatform?: string | null;
+  meetingIntegrations?: BookingMeetingIntegrationStatus | null;
 };
 
 type Me = {
@@ -2237,7 +2240,7 @@ export function PortalBookingClient() {
                 </div>
 
                 {reminderTemplateOpen ? (
-                  <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+                  <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-4 pa-modal-safe-pad sm:items-center">
                     <div className="flex w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] flex-col overflow-hidden overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -3062,7 +3065,7 @@ export function PortalBookingClient() {
             </div>
           </PortalSettingsSection>
 
-      <AppModal
+      <PortalBookingCalendarEditorModal
         open={calendarEditorOpen}
         onClose={() => {
           if (calSaving) return;
@@ -3070,204 +3073,81 @@ export function PortalBookingClient() {
         }}
         title={selectedCalendar ? `Editing ${selectedCalendar.title}` : "Edit calendar"}
         widthClassName="max-w-3xl"
-      >
-        {!selectedCalendarId || !selectedCalendar ? (
-          <div className="text-sm text-zinc-600">Choose a calendar to edit.</div>
-        ) : (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
-                <div className="font-medium text-zinc-800">Title</div>
-                <input
-                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={calendarDraftTitle}
-                  onChange={(e) => setCalendarDraftTitle(e.target.value)}
-                  onBlur={() => {
-                    const nextTitle = calendarDraftTitle.trim().slice(0, 80);
-                    if (!selectedCalendarId) return;
-                    if (!nextTitle) {
-                      setCalendarDraftTitle(selectedCalendar?.title ?? "");
-                      return;
-                    }
-                    void saveSelectedCalendarPatch({ title: nextTitle });
-                  }}
-                  placeholder="e.g. Intro call"
-                  disabled={calSaving}
-                />
-              </label>
-
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                <div className="font-medium text-zinc-800">Duration</div>
-                <PortalSelectDropdown
-                  value={calendarDraftDurationMinutes}
-                  onChange={(v) => {
-                    setCalendarDraftDurationMinutes(v);
-                    void saveSelectedCalendarPatch({ durationMinutes: v });
-                  }}
-                  options={[15, 20, 30, 45, 60, 90].map((m) => ({ value: m, label: `${m} minutes` }))}
-                  className="mt-2 w-full"
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                />
-              </label>
-
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                <div className="font-medium text-zinc-800">Meeting location</div>
-                <div className="mt-2 flex flex-col gap-2">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="meetingPlatformModal"
-                      className="accent-brand-ink"
-                      checked={site?.meetingPlatform === "PURELY_CONNECT"}
-                      onChange={() => {
-                        setSite((prev) => (prev ? { ...prev, meetingPlatform: "PURELY_CONNECT" } : prev));
-                        save({ meetingPlatform: "PURELY_CONNECT" });
-                      }}
-                    />
-                    <span>Purely Connect Video</span>
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="meetingPlatformModal"
-                      className="accent-brand-ink"
-                      checked={site?.meetingPlatform !== "PURELY_CONNECT"}
-                      onChange={() => {
-                        setSite((prev) => (prev ? { ...prev, meetingPlatform: "OTHER" } : prev));
-                        save({ meetingPlatform: "OTHER" });
-                      }}
-                    />
-                    <span>Other</span>
-                  </label>
-                </div>
-
-                {site?.meetingPlatform === "PURELY_CONNECT" ? (
-                  <div className="mt-3 text-xs text-zinc-600">Guests get a secure video meeting link automatically.</div>
-                ) : (
-                  <textarea
-                    className="mt-2 min-h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    placeholder="Phone call, Zoom link, in-person address…"
-                    value={calendarDraftMeetingLocation}
-                    onChange={(e) => setCalendarDraftMeetingLocation(e.target.value)}
-                    onBlur={() => {
-                      const next = calendarDraftMeetingLocation.trim().slice(0, 400);
-                      void saveSelectedCalendarPatch({ meetingLocation: next ? next : undefined });
-                    }}
-                    disabled={calSaving}
-                  />
-                )}
-              </div>
-
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
-                <div className="font-medium text-zinc-800">Meeting details</div>
-                <textarea
-                  className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  placeholder="Anything they should know before the call."
-                  value={calendarDraftMeetingDetails}
-                  onChange={(e) => setCalendarDraftMeetingDetails(e.target.value)}
-                  onBlur={() => {
-                    const next = calendarDraftMeetingDetails.trim().slice(0, 600);
-                    void saveSelectedCalendarPatch({ meetingDetails: next ? next : undefined });
-                  }}
-                  disabled={calSaving}
-                />
-              </label>
-
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                <div className="font-medium text-zinc-800">Appointment purpose</div>
-                <textarea
-                  className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  placeholder="What is this appointment for?"
-                  value={site?.appointmentPurpose ?? ""}
-                  onChange={(e) => setSite((prev) => (prev ? { ...prev, appointmentPurpose: e.target.value } : prev))}
-                  onBlur={() =>
-                    save({
-                      appointmentPurpose: site?.appointmentPurpose?.trim() ? site.appointmentPurpose.trim() : null,
-                    })
-                  }
-                />
-              </label>
-
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                <div className="font-medium text-zinc-800">Tone direction</div>
-                <textarea
-                  className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  placeholder="Friendly, direct, professional…"
-                  value={site?.toneDirection ?? ""}
-                  onChange={(e) => setSite((prev) => (prev ? { ...prev, toneDirection: e.target.value } : prev))}
-                  onBlur={() => save({ toneDirection: site?.toneDirection?.trim() ? site.toneDirection.trim() : null })}
-                />
-              </label>
-
-              <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
-                <div className="font-medium text-zinc-800">Notification emails</div>
-                <div className="mt-2 space-y-2">
-                  {calendarDraftNotificationEmails.length === 0 ? (
-                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
-                      Add one or more emails to notify when someone books.
-                    </div>
-                  ) : null}
-
-                  {calendarDraftNotificationEmails.map((email, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <PortalTypeaheadInput
-                        value={email}
-                        suggestions={notificationEmailSuggestions}
-                        disabled={calSaving}
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        placeholder={idx === 0 ? "you@company.com" : "another@company.com"}
-                        onChange={(nextEmail) => {
-                          const next = [...calendarDraftNotificationEmails];
-                          next[idx] = nextEmail;
-                          setCalendarDraftNotificationEmails(next);
-                        }}
-                        onBlur={() => {
-                          const normalized = sanitizeNotificationEmails(calendarDraftNotificationEmails);
-                          void saveSelectedCalendarPatch({ notificationEmails: normalized.length ? normalized : undefined });
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                        onClick={() => {
-                          const next = calendarDraftNotificationEmails.filter((_, i) => i !== idx);
-                          setCalendarDraftNotificationEmails(next);
-                          const normalized = sanitizeNotificationEmails(next);
-                          void saveSelectedCalendarPatch({ notificationEmails: normalized.length ? normalized : undefined });
-                        }}
-                        aria-label="Remove email"
-                        disabled={calSaving}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-
-                  <button
-                    type="button"
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                    onClick={() => setCalendarDraftNotificationEmails((prev) => [...prev, ""])}
-                    disabled={calSaving}
-                  >
-                    + Add email
-                  </button>
-                </div>
-              </label>
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                type="button"
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                onClick={() => setCalendarEditorOpen(false)}
-                disabled={calSaving}
-              >
-                Done
-              </button>
-            </div>
-          </div>
+        busy={calSaving}
+        calendar={selectedCalendar ? {
+          id: selectedCalendar.id,
+          title: selectedCalendar.title,
+          durationMinutes: selectedCalendar.durationMinutes,
+          meetingLocation: selectedCalendar.meetingLocation,
+          meetingDetails: selectedCalendar.meetingDetails,
+          notificationEmails: selectedCalendar.notificationEmails,
+        } : null}
+        titleLabel="Title"
+        titlePlaceholder="e.g. Intro call"
+        meetingLocationField={(
+          <PortalMeetingPlatformConfigurator
+            platform={site?.meetingPlatform}
+            meetingLocation={calendarDraftMeetingLocation}
+            integrationStatus={site?.meetingIntegrations ?? null}
+            busy={calSaving}
+            title="Meeting platform"
+            description="Pick the platform your team actually uses, then only configure the one thing that platform needs."
+            onPlatformChange={(meetingPlatform) => {
+              setSite((prev) => (prev ? { ...prev, meetingPlatform } : prev));
+              return save({ meetingPlatform });
+            }}
+            onMeetingLocationChange={setCalendarDraftMeetingLocation}
+            onMeetingLocationCommit={(meetingLocation) => saveSelectedCalendarPatch({ meetingLocation })}
+          />
         )}
-      </AppModal>
+        meetingDetailsLabel="Meeting details"
+        meetingDetailsPlaceholder="Anything they should know before the call."
+        extraFields={(
+          <>
+            <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <div className="font-medium text-zinc-800">Appointment purpose</div>
+              <textarea
+                className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                placeholder="What is this appointment for?"
+                value={site?.appointmentPurpose ?? ""}
+                onChange={(event) => setSite((prev) => (prev ? { ...prev, appointmentPurpose: event.target.value } : prev))}
+                onBlur={() =>
+                  save({
+                    appointmentPurpose: site?.appointmentPurpose?.trim() ? site.appointmentPurpose.trim() : null,
+                  })
+                }
+              />
+            </label>
+
+            <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+              <div className="font-medium text-zinc-800">Tone direction</div>
+              <textarea
+                className="mt-2 min-h-22.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                placeholder="Friendly, direct, professional..."
+                value={site?.toneDirection ?? ""}
+                onChange={(event) => setSite((prev) => (prev ? { ...prev, toneDirection: event.target.value } : prev))}
+                onBlur={() => save({ toneDirection: site?.toneDirection?.trim() ? site.toneDirection.trim() : null })}
+              />
+            </label>
+          </>
+        )}
+        notificationEmailSuggestions={notificationEmailSuggestions}
+        notificationEmailsEmptyText="Add one or more emails to notify when someone books."
+        draftTitle={calendarDraftTitle}
+        onDraftTitleChange={setCalendarDraftTitle}
+        draftDurationMinutes={calendarDraftDurationMinutes}
+        onDraftDurationMinutesChange={setCalendarDraftDurationMinutes}
+        draftMeetingLocation={calendarDraftMeetingLocation}
+        onDraftMeetingLocationChange={setCalendarDraftMeetingLocation}
+        draftMeetingDetails={calendarDraftMeetingDetails}
+        onDraftMeetingDetailsChange={setCalendarDraftMeetingDetails}
+        draftNotificationEmails={calendarDraftNotificationEmails}
+        onDraftNotificationEmailsChange={setCalendarDraftNotificationEmails}
+        normalizeNotificationEmails={sanitizeNotificationEmails}
+        onSavePatch={(patch) => {
+          void saveSelectedCalendarPatch(patch);
+        }}
+      />
 
         </>
       ) : null}
@@ -3277,7 +3157,7 @@ export function PortalBookingClient() {
       ) : null}
 
       {contactOpen && contactBooking ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 pa-modal-safe-pad sm:items-center">
           <div className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="text-sm font-semibold text-zinc-900">Send follow-up</div>
             <div className="mt-1 text-sm text-zinc-600">
@@ -3366,7 +3246,7 @@ export function PortalBookingClient() {
       ) : null}
 
       {reschedOpen && reschedBooking ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 pa-modal-safe-pad sm:items-center">
           <div className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="text-sm font-semibold text-zinc-900">Reschedule booking</div>
             <div className="mt-1 text-sm text-zinc-600">

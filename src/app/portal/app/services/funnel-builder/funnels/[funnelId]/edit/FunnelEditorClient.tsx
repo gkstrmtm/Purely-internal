@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
+
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import type { PutBlobResult } from "@vercel/blob";
 import { upload as uploadToVercelBlob } from "@vercel/blob/client";
@@ -14,10 +17,21 @@ import {
   sanitizeRichTextHtml,
   type BlockStyle,
   type CreditFunnelBlock,
+  type PricingGridItem,
+  type TestimonialGridItem,
 } from "@/lib/creditFunnelBlocks";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { LinkUrlModal } from "@/components/LinkUrlModal";
+import { PortalBookingCalendarEditorModal } from "@/components/PortalBookingCalendarEditorModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import {
+  getPortalMeetingLocationSummary,
+  PortalMeetingPlatformConfigurator,
+} from "@/components/PortalMeetingPlatformConfigurator";
+import {
+  normalizeBookingMeetingIntegrationStatus,
+  type BookingMeetingIntegrationStatus,
+} from "@/lib/bookingMeetingIntegrations.shared";
 import PortalImageCropModal from "@/components/PortalImageCropModal";
 import {
   PortalMediaPickerModal,
@@ -32,12 +46,32 @@ import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle, googleFon
 import { CreditFormTemplatePreview } from "@/components/CreditFormTemplatePreview";
 import { CREDIT_FORM_TEMPLATES, coerceCreditFormTemplateKey, getCreditFormTemplate, type CreditFormTemplateKey } from "@/lib/creditFormTemplates";
 import { CREDIT_FORM_THEMES, coerceCreditFormThemeKey, getCreditFormTheme, type CreditFormThemeKey } from "@/lib/creditFormThemes";
+import type { BookingCalendar } from "@/lib/bookingCalendars";
 import {
   getFunnelPageCurrentHtml,
   getFunnelPageDraftHtml,
   getFunnelPagePublishedHtml,
 } from "@/lib/funnelPageState";
 import { buildFunnelPageGraph, getFunnelPageLensUiModel } from "@/lib/funnelPageGraph";
+import {
+  buildDefaultFunnelThreadTitle,
+  normalizeFunnelThreadMessages,
+  readFunnelThreadLastMessageAt,
+  type FunnelThreadRecord,
+} from "@/lib/funnelThreads";
+import {
+  FUNNEL_BOOKING_AVAILABILITY_TEMPLATE_OPTIONS,
+  FUNNEL_BOOKING_PRESET_OPTIONS,
+  getFunnelBookingPresetDefinition,
+  resolveFunnelBookingDefaults,
+  type FunnelBookingDefaults,
+} from "@/lib/funnelBookingDefaults";
+import { applyFunnelPageMutations } from "@/lib/funnelPageMutationApplier";
+import {
+  hasFunnelDesignContext,
+  sanitizeFunnelDesignContext,
+  type FunnelDesignContext,
+} from "@/lib/funnelDesignContext";
 import {
   buildSuggestedPageNaming,
   buildResolvedFunnelFoundation,
@@ -56,6 +90,9 @@ import {
   type FunnelPageMediaMode,
   type FunnelPageMediaPlan,
 } from "@/lib/funnelPageIntent";
+import { normalizePuraAiProfile, type PuraAiProfile } from "@/lib/puraAiProfile";
+import { readLatestSourceActionPlan, sanitizeSourceActionPlan, type SourceActionPlan } from "@/lib/funnelSourceActionPlan";
+import { deriveFunnelPageMutationsFromSourceActionPlan } from "@/lib/funnelSourceActionMutationDeriver";
 import { assessFunnelSceneQuality } from "@/lib/funnelSceneQuality";
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
 import { getFunnelShellFrame, listFunnelShellFrames } from "@/lib/funnelShellFrames";
@@ -67,8 +104,106 @@ import {
   saveCurrentFunnelEditorPage,
 } from "./funnelEditorPageWorkflow";
 
+type AiContextMediaItem = {
+  url: string;
+  fileName?: string;
+  mimeType?: string;
+};
+
+type AiDesignContextDraft = Required<Omit<FunnelDesignContext, "vibeKeywords">> & {
+  vibeKeywords: string[];
+};
+
+const AI_CONTEXT_MEDIA_LIMIT = 12;
+
+const EMPTY_AI_DESIGN_CONTEXT: AiDesignContextDraft = {
+  designBrief: "",
+  fontDirection: "",
+  vibeKeywords: [],
+  colorDirection: "",
+  designConcepts: "",
+  avoid: "",
+};
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function sanitizeAiContextMediaItems(raw: unknown): AiContextMediaItem[] {
+  if (!Array.isArray(raw)) return [];
+
+  const next: AiContextMediaItem[] = [];
+  const seen = new Set<string>();
+
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    const url = typeof record.url === "string" ? record.url.trim() : "";
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    next.push({
+      url,
+      fileName: typeof record.fileName === "string" ? record.fileName.trim() || undefined : undefined,
+      mimeType: typeof record.mimeType === "string" ? record.mimeType.trim() || undefined : undefined,
+    });
+    if (next.length >= AI_CONTEXT_MEDIA_LIMIT) break;
+  }
+
+  return next;
+}
+
+function buildAiContextMediaStorageKey(funnelId: string, pageId: string) {
+  return `funnel-builder:ai-context-media:${funnelId}:${pageId}`;
+}
+
+function buildAiDesignContextStorageKey(funnelId: string, pageId: string) {
+  return `funnel-builder:ai-design-context:${funnelId}:${pageId}`;
+}
+
+function readAiDesignContextDraft(raw: unknown): AiDesignContextDraft {
+  const sanitized = sanitizeFunnelDesignContext(raw);
+  return {
+    ...EMPTY_AI_DESIGN_CONTEXT,
+    ...(sanitized || {}),
+    vibeKeywords: sanitized?.vibeKeywords ? [...sanitized.vibeKeywords] : [],
+  };
+}
+
+function formatAiDesignContextKeywords(values: string[]) {
+  return (Array.isArray(values) ? values : []).map((value) => String(value || "").trim()).filter(Boolean).join(", ");
+}
+
+function parseAiDesignContextKeywords(value: string) {
+  return sanitizeFunnelDesignContext({ vibeKeywords: value })?.vibeKeywords || [];
+}
+
+function isAiContextImage(item: AiContextMediaItem) {
+  const mimeType = String(item.mimeType || "").toLowerCase();
+  if (mimeType.startsWith("image/")) return true;
+  return /\.(png|jpe?g|gif|webp|svg|avif)(\?|#|$)/i.test(String(item.url || ""));
+}
+
+function getAiContextMediaLabel(item: AiContextMediaItem) {
+  const fileName = String(item.fileName || "").trim();
+  if (fileName) return fileName;
+  try {
+    const pathname = new URL(String(item.url || "")).pathname;
+    const lastSegment = decodeURIComponent(pathname.split("/").filter(Boolean).pop() || "").trim();
+    if (lastSegment) return lastSegment;
+  } catch {
+    // ignore malformed URLs and fall back to a generic label
+  }
+  return isAiContextImage(item) ? "Image reference" : "Reference asset";
+}
+
+function getAiContextMediaMeta(item: AiContextMediaItem) {
+  const mimeType = String(item.mimeType || "").trim();
+  if (mimeType) return mimeType;
+  try {
+    return new URL(String(item.url || "")).hostname || "Attached reference";
+  } catch {
+    return "Attached reference";
+  }
 }
 
 function SpinnerIcon({ className = "h-4 w-4" }: { className?: string }) {
@@ -127,19 +262,19 @@ function BuilderRailNavButton({
           <span
             className={classNames(
               "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
-              active
-                ? "bg-zinc-950 text-white"
-                : "bg-transparent text-zinc-500",
+              active ? "bg-zinc-950 text-white" : "bg-transparent text-zinc-500",
             )}
           >
             <span className="inline-flex h-4 w-4 items-center justify-center">{icon}</span>
           </span>
         </div>
         {badge ? (
-          <span className={classNames(
-            "absolute right-0 top-0 inline-flex shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold",
-            active ? "border-zinc-200 bg-zinc-50 text-zinc-600" : "border-zinc-200 bg-white text-zinc-500",
-          )}>
+          <span
+            className={classNames(
+              "absolute right-0 top-0 inline-flex shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold",
+              active ? "border-zinc-200 bg-zinc-50 text-zinc-600" : "border-zinc-200 bg-white text-zinc-500",
+            )}
+          >
             {badge}
           </span>
         ) : null}
@@ -147,6 +282,7 @@ function BuilderRailNavButton({
     </button>
   );
 }
+
 function BuilderStageToggleButton({
   label,
   active,
@@ -287,6 +423,25 @@ type CodeToken = {
   content: string;
   tone: CodeTokenTone;
 };
+
+const CODE_SURFACE_LINE_HEIGHT = 24;
+const CODE_SURFACE_VERTICAL_PADDING = 24;
+const CODE_SURFACE_FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+
+function countMeaningfulCodeLines(value: string) {
+  return splitCodeLines(value).filter((line) => line.trim()).length;
+}
+
+function stripDiffMarkers(value: string) {
+  return splitCodeLines(value)
+    .filter((line) => !/^(---|\+\+\+|@@)/.test(line))
+    .map((line) => (/^[+-]/.test(line) ? line.slice(1) : line))
+    .join("\n");
+}
+
+function formatHtmlSourceForDisplay(value: string) {
+  return splitCodeLines(value).join("\n").replace(/\s+$/, "");
+}
 
 const CODE_TONE_STYLES: Record<CodeTokenTone, { color: string; fontStyle?: "italic" }> = {
   plain: { color: "rgb(244 244 245)" },
@@ -993,18 +1148,7 @@ function readPersistedBuilderDiffSummary(raw: unknown): BuilderDiffSummary | nul
     removedPreview.length > 0 ||
     updatedPreview.length > 0 ||
     movedPreview.length > 0;
-
-  return {
-    addedBlocks,
-    removedBlocks,
-    updatedBlocks,
-    movedBlocks,
-    addedPreview,
-    removedPreview,
-    updatedPreview,
-    movedPreview,
-    changed,
-  };
+  return { addedBlocks, removedBlocks, updatedBlocks, movedBlocks, addedPreview, removedPreview, updatedPreview, movedPreview, changed };
 }
 
 function readPersistedCustomCodeDiffSummary(raw: unknown): CustomCodeDiffSummary | null {
@@ -1016,40 +1160,24 @@ function readPersistedCustomCodeDiffSummary(raw: unknown): CustomCodeDiffSummary
   const cssChanged = entry.cssChanged === true || css.changed;
   const totalAddedLines = parseStoredCount(entry.totalAddedLines, 4000) || html.addedLines + css.addedLines;
   const totalRemovedLines = parseStoredCount(entry.totalRemovedLines, 4000) || html.removedLines + css.removedLines;
-
-  return {
-    html,
-    css,
-    htmlChanged,
-    cssChanged,
-    totalAddedLines,
-    totalRemovedLines,
-  };
+  return { html, css, htmlChanged, cssChanged, totalAddedLines, totalRemovedLines };
 }
 
 function readPersistedCustomCodeAuditTrail(raw: unknown): CustomCodeAuditEntry[] {
   if (!Array.isArray(raw)) return [];
-
   const entries: CustomCodeAuditEntry[] = [];
-
   raw.forEach((entry, index) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
-
     const item = entry as Record<string, unknown>;
     const prompt = compactActivityText(typeof item.prompt === "string" ? item.prompt : "", 220);
     const summary = compactActivityText(typeof item.summary === "string" ? item.summary : "", 220);
     const at = typeof item.at === "string" ? item.at : "";
     const kindRaw = typeof item.kind === "string" ? item.kind : "ai-update";
-    const kind: CustomCodeAuditKind =
-      kindRaw === "no-change" || kindRaw === "question" || kindRaw === "restore" ? kindRaw : "ai-update";
+    const kind: CustomCodeAuditKind = kindRaw === "no-change" || kindRaw === "question" || kindRaw === "restore" ? kindRaw : "ai-update";
     const customCodeDiff = readPersistedCustomCodeDiffSummary(item.customCodeDiff);
     const builderDiff = readPersistedBuilderDiffSummary(item.builderDiff);
-    const previewChanged =
-      item.previewChanged === true ||
-      Boolean(customCodeDiff?.htmlChanged || customCodeDiff?.cssChanged || builderDiff?.changed);
-
+    const previewChanged = item.previewChanged === true || Boolean(customCodeDiff?.htmlChanged || customCodeDiff?.cssChanged || builderDiff?.changed);
     if (!prompt && !summary && !customCodeDiff && !builderDiff) return;
-
     entries.push({
       id: typeof item.id === "string" && item.id.trim() ? item.id : `persisted-custom-code-audit-${index + 1}`,
       at,
@@ -1059,222 +1187,68 @@ function readPersistedCustomCodeAuditTrail(raw: unknown): CustomCodeAuditEntry[]
       previewChanged,
       builderDiff,
       customCodeDiff,
-      source: "persisted" as const,
+      source: "persisted",
     });
   });
-
   return entries;
 }
 
-function isGenericAssistantLine(line: string): boolean {
-  return /^(page updated|the page (has been|is now)|your custom code block has been successfully generated|feel free to preview it now|preview it|here'?s the updated|i'?ve updated|i'?ve made|done\.|updated\.|great news|looks great|all set|the changes)/i.test(
-    line.trim(),
-  );
+function buildBuilderResultSummary({
+  scopeLabel,
+  summary,
+  diff,
+  customCodeDiff,
+}: {
+  scopeLabel?: string | null;
+  summary?: string | null;
+  prompt?: string | null;
+  diff?: BuilderDiffSummary | null;
+  customCodeDiff?: CustomCodeDiffSummary | null;
+}) {
+  const summaryText = compactActivityText(summary || "", 220);
+  if (summaryText) return summaryText;
+
+  const scope = (scopeLabel || "Builder").trim();
+  if (customCodeDiff?.htmlChanged && customCodeDiff?.cssChanged) return `${scope} updated markup and styles.`;
+  if (customCodeDiff?.htmlChanged) return `${scope} updated markup.`;
+  if (customCodeDiff?.cssChanged) return `${scope} refined styles.`;
+  if (diff?.addedBlocks) return `${scope} added ${diff.addedBlocks} block${diff.addedBlocks === 1 ? "" : "s"}.`;
+  if (diff?.updatedBlocks) return `${scope} updated ${diff.updatedBlocks} block${diff.updatedBlocks === 1 ? "" : "s"}.`;
+  if (diff?.movedBlocks) return `${scope} reordered ${diff.movedBlocks} block${diff.movedBlocks === 1 ? "" : "s"}.`;
+  if (diff?.removedBlocks) return `${scope} removed ${diff.removedBlocks} block${diff.removedBlocks === 1 ? "" : "s"}.`;
+  return `${scope} updated.`;
 }
 
-function buildHtmlActivityTone(item: Pick<HtmlChangeActivityItem, "kind" | "diff">): SavedChangeFeedTone {
-  if (item.kind === "restore") return "violet";
-  if (item.kind === "no-change" || !item.diff.changed) return "zinc";
-  return "emerald";
+function buildBuilderThreadSummary(args: {
+  scopeLabel?: string | null;
+  summary?: string | null;
+  prompt?: string | null;
+  diff?: BuilderDiffSummary | null;
+  customCodeDiff?: CustomCodeDiffSummary | null;
+}) {
+  return buildBuilderResultSummary(args);
 }
 
-function buildHtmlActivityLabel(item: Pick<HtmlChangeActivityItem, "scopeLabel" | "kind" | "prompt" | "summary" | "diff">) {
-  if (item.kind === "restore") return "Restored an earlier saved source version.";
-  const savedSummary = pickMeaningfulSavedSummary(item.summary || "", item.prompt || "");
-  if (savedSummary) return savedSummary;
-  const focus = extractActivityFocus(item.summary || "", item.prompt || "");
-  if (focus) return `Updated ${focus}.`;
-  if (item.scopeLabel && !/whole page/i.test(item.scopeLabel)) {
-    return `Saved changes to ${item.scopeLabel.toLowerCase()}.`;
+function appendPageThreadTurn(
+  existingRaw: unknown,
+  entry: { prompt: string; assistantText: string; at?: string | null; sourceActionPlan?: SourceActionPlan | null },
+) {
+  const next = Array.isArray(existingRaw) ? [...existingRaw] : [];
+  const at = entry.at || new Date().toISOString();
+  if (entry.prompt.trim()) next.push({ role: "user", content: entry.prompt.trim(), at });
+  if (entry.assistantText.trim()) {
+    next.push({
+      role: "assistant",
+      content: entry.assistantText.trim(),
+      at,
+      ...(entry.sourceActionPlan ? { sourceActionPlan: entry.sourceActionPlan } : {}),
+    });
   }
-  return "Updated page source.";
-}
-
-function buildHtmlActivityCountLabel(item: Pick<HtmlChangeActivityItem, "kind" | "diff">) {
-  if (item.kind === "restore") {
-    const touched = item.diff.addedLines + item.diff.removedLines;
-    return touched > 0 ? `${touched} lines` : "Restore";
-  }
-  const parts: string[] = [];
-  if (item.diff.addedLines > 0) parts.push(`+${item.diff.addedLines}`);
-  if (item.diff.removedLines > 0) parts.push(`-${item.diff.removedLines}`);
-  if (!parts.length) return "0 lines";
-  return `${parts.join(" ")} lines`;
-}
-
-function buildBuilderActivityTone(item: Pick<BuilderChangeActivityItem, "kind" | "previewChanged">): SavedChangeFeedTone {
-  if (item.kind === "restore") return "violet";
-  if (item.kind === "no-change" || !item.previewChanged) return "zinc";
-  return "sky";
-}
-
-function buildBuilderActivityHeadline(item: Pick<BuilderChangeActivityItem, "scopeLabel" | "kind" | "prompt" | "summary" | "previewChanged" | "diff" | "customCodeDiff">) {
-  if (item.kind === "restore") {
-    return item.scopeLabel === "Custom code block"
-      ? "Restored an earlier saved version of this area."
-      : "Restored an earlier saved page version.";
-  }
-
-  const savedSummary = pickMeaningfulSavedSummary(item.summary || "", item.prompt || "");
-  if (savedSummary) return savedSummary;
-
-  const focus = extractActivityFocus(item.summary || "", item.prompt || "");
-  const previewFocus = buildActivityPreviewLabel([
-    ...item.diff.updatedPreview,
-    ...item.diff.addedPreview,
-    ...item.diff.removedPreview,
-    ...item.diff.movedPreview,
-  ]);
-  const subject = previewFocus || focus;
-
-  if (item.customCodeDiff?.htmlChanged && item.customCodeDiff?.cssChanged) {
-    return subject ? `Reworked ${subject}.` : "Reworked markup and styles.";
-  }
-  if (item.customCodeDiff?.htmlChanged) return subject ? `Updated ${subject}.` : "Updated markup.";
-  if (item.customCodeDiff?.cssChanged) return subject ? `Refined ${subject}.` : "Refined styles.";
-  if (item.diff.addedBlocks > 0 && item.scopeLabel === "Structure + insert") {
-    return previewFocus ? `Added ${previewFocus}.` : `Added ${item.diff.addedBlocks} page element${item.diff.addedBlocks === 1 ? "" : "s"}.`;
-  }
-  if (item.diff.updatedBlocks > 0 && previewFocus) return `Updated ${previewFocus}.`;
-  if (item.diff.movedBlocks > 0 && previewFocus) return `Reordered ${previewFocus}.`;
-  if (item.diff.removedBlocks > 0 && previewFocus) return `Removed ${previewFocus}.`;
-  if (subject) return `Updated ${subject}.`;
-  if (item.scopeLabel === "Custom code block") return "Updated custom code.";
-  return "Updated page structure.";
-}
-
-function buildBuilderActivityCountLabel(item: Pick<BuilderChangeActivityItem, "kind" | "diff" | "customCodeDiff">) {
-  if (item.customCodeDiff && (item.customCodeDiff.htmlChanged || item.customCodeDiff.cssChanged)) {
-    const parts: string[] = [];
-    if (item.customCodeDiff.totalAddedLines > 0) parts.push(`+${item.customCodeDiff.totalAddedLines}`);
-    if (item.customCodeDiff.totalRemovedLines > 0) parts.push(`-${item.customCodeDiff.totalRemovedLines}`);
-    if (parts.length) return `${parts.join(" ")} lines`;
-  }
-
-  const touchedBlocks = item.diff.addedBlocks + item.diff.updatedBlocks + item.diff.movedBlocks + item.diff.removedBlocks;
-  if (touchedBlocks > 0) return `${touchedBlocks} block${touchedBlocks === 1 ? "" : "s"}`;
-  if (item.kind === "restore") return "Restore";
-  return "0 blocks";
-}
-
-function getSavedChangeToneClasses(tone: SavedChangeFeedTone) {
-  if (tone === "amber") {
-    return {
-      dot: "bg-amber-400",
-      shell: "border-zinc-200 bg-white",
-      eyebrow: "text-zinc-500",
-      timestamp: "text-zinc-400",
-    };
-  }
-  if (tone === "violet") {
-    return {
-      dot: "bg-violet-400",
-      shell: "border-zinc-200 bg-white",
-      eyebrow: "text-zinc-500",
-      timestamp: "text-zinc-400",
-    };
-  }
-  if (tone === "emerald") {
-    return {
-      dot: "bg-emerald-400",
-      shell: "border-zinc-200 bg-white",
-      eyebrow: "text-zinc-500",
-      timestamp: "text-zinc-400",
-    };
-  }
-  if (tone === "sky") {
-    return {
-      dot: "bg-sky-400",
-      shell: "border-zinc-200 bg-white",
-      eyebrow: "text-zinc-500",
-      timestamp: "text-zinc-400",
-    };
-  }
-  return {
-    dot: tone === "slate" ? "bg-zinc-400" : "bg-zinc-300",
-    shell: "border-zinc-200 bg-white",
-    eyebrow: "text-zinc-500",
-    timestamp: "text-zinc-400",
-  };
-}
-
-function isSavedHtmlActivityItem(item: HtmlChangeActivityItem) {
-  return item.kind === "restore" || item.diff.changed;
-}
-
-function isSavedBuilderActivityItem(item: BuilderChangeActivityItem) {
-  return item.kind === "restore" || item.previewChanged;
+  return next.slice(-24);
 }
 
 function isSavedCustomCodeAuditEntry(entry: CustomCodeAuditEntry) {
   return entry.kind === "restore" || entry.previewChanged;
-}
-
-function getCustomCodeAuditTone(entry: CustomCodeAuditEntry) {
-  if (entry.kind === "question") return "amber" as const;
-  if (entry.kind === "restore") return "violet" as const;
-  if (entry.kind === "no-change" || !entry.previewChanged) return "slate" as const;
-  return "sky" as const;
-}
-
-function getCustomCodeAuditHeadline(entry: CustomCodeAuditEntry) {
-  if (entry.kind === "question") return entry.summary || "AI needs one more detail before it can save this area.";
-  if (entry.kind === "restore") return "Restored an earlier saved version of this area.";
-
-  if (entry.kind === "no-change" || !entry.previewChanged) return "Latest pass did not save a change in this area.";
-
-  const savedSummary = pickMeaningfulSavedSummary(entry.summary || "", entry.prompt || "");
-  if (savedSummary) return savedSummary;
-
-  const focus = extractActivityFocus(entry.summary || "", entry.prompt || "");
-  const previewFocus = buildActivityPreviewLabel([
-    ...(entry.builderDiff?.updatedPreview || []),
-    ...(entry.builderDiff?.addedPreview || []),
-    ...(entry.builderDiff?.removedPreview || []),
-    ...(entry.builderDiff?.movedPreview || []),
-  ]);
-  const subject = previewFocus || focus;
-
-  if (entry.customCodeDiff?.htmlChanged && entry.customCodeDiff?.cssChanged) return subject ? `Reworked ${subject}.` : "Reworked markup and styles.";
-  if (entry.customCodeDiff?.htmlChanged) return subject ? `Updated ${subject}.` : "Updated markup.";
-  if (entry.customCodeDiff?.cssChanged) return subject ? `Refined ${subject}.` : "Refined styles.";
-
-  if (entry.builderDiff?.changed) {
-    if (entry.builderDiff.addedBlocks > 0 && previewFocus) return `Added ${previewFocus}.`;
-    if (entry.builderDiff.updatedBlocks > 0 && previewFocus) return `Updated ${previewFocus}.`;
-    if (entry.builderDiff.movedBlocks > 0 && previewFocus) return `Reordered ${previewFocus}.`;
-    if (entry.builderDiff.removedBlocks > 0 && previewFocus) return `Removed ${previewFocus}.`;
-  }
-
-  if (subject) return `Updated ${subject}.`;
-  return "Updated custom code.";
-}
-
-function getCustomCodeAuditCountLabel(entry: CustomCodeAuditEntry) {
-  if (entry.customCodeDiff && (entry.customCodeDiff.htmlChanged || entry.customCodeDiff.cssChanged)) {
-    const parts: string[] = [];
-    if (entry.customCodeDiff.totalAddedLines > 0) parts.push(`+${entry.customCodeDiff.totalAddedLines}`);
-    if (entry.customCodeDiff.totalRemovedLines > 0) parts.push(`-${entry.customCodeDiff.totalRemovedLines}`);
-    if (parts.length) return `${parts.join(" ")} lines`;
-  }
-
-  const touchedBlocks =
-    (entry.builderDiff?.addedBlocks || 0) +
-    (entry.builderDiff?.updatedBlocks || 0) +
-    (entry.builderDiff?.movedBlocks || 0) +
-    (entry.builderDiff?.removedBlocks || 0);
-  if (touchedBlocks > 0) return `${touchedBlocks} block${touchedBlocks === 1 ? "" : "s"}`;
-  if (entry.kind === "restore") return "Restore";
-  return "Saved";
-}
-
-function synthesizeThreadLabel(_prompt: string, response: string): string {
-  // Prefer the changelog summary line if it's substantive (comes from buildChangelogAssistantMessage)
-  const firstLine = response.split("\n")[0].trim();
-  if (firstLine && firstLine.length >= 8 && firstLine.length <= 100 && !isGenericAssistantLine(firstLine)) {
-    return firstLine;
-  }
-  return response.trim() ? "Continued thread" : "New thread turn";
 }
 
 function readPersistedHtmlChangeActivity(raw: unknown): HtmlChangeActivityItem[] {
@@ -1288,8 +1262,7 @@ function readPersistedHtmlChangeActivity(raw: unknown): HtmlChangeActivityItem[]
     if (!diff) return;
 
     const kindRaw = typeof entry.kind === "string" ? entry.kind : "ai-update";
-    const kind: HtmlChangeActivityItem["kind"] =
-      kindRaw === "no-change" || kindRaw === "restore" ? kindRaw : "ai-update";
+    const kind: HtmlChangeActivityItem["kind"] = kindRaw === "no-change" || kindRaw === "restore" ? kindRaw : "ai-update";
 
     entries.push({
       id: typeof entry.id === "string" && entry.id.trim() ? entry.id : `html-activity-${index + 1}`,
@@ -1325,12 +1298,33 @@ function parseCustomChatThread(raw: unknown): ChatThreadRound[] {
     rounds.push({
       id: `thread-${i}-${userAt}`,
       at: assistantAt || userAt,
-      label: synthesizeThreadLabel(userContent, assistantContent),
+      label: assistantContent ? compactActivityText(assistantContent.split("\n")[0] || assistantContent, 100) : compactActivityText(userContent, 100),
       diffSummary: null,
     });
-    if (hasNext) i++;
+    if (hasNext) i += 1;
   }
   return rounds.reverse();
+}
+
+function parseDirectionThreadMessages(raw: unknown): BlockChatMessage[] {
+  const cleanRaw = stripFunnelPageIntentMessages(raw);
+  if (!Array.isArray(cleanRaw)) return [];
+  const parsed: BlockChatMessage[] = [];
+  cleanRaw.forEach((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return;
+    const entry = item as Record<string, unknown>;
+    const role = entry.role === "assistant" ? "assistant" : entry.role === "user" ? "user" : null;
+    const content = typeof entry.content === "string" ? entry.content.trim() : "";
+    const sourceActionPlan = sanitizeSourceActionPlan(entry.sourceActionPlan);
+    if (!role || !content) return;
+    parsed.push({
+      role,
+      content,
+      ...(typeof entry.at === "string" && entry.at ? { at: entry.at } : {}),
+      ...(sourceActionPlan ? { sourceActionPlan } : {}),
+    });
+  });
+  return parsed;
 }
 
 function parseBlockChatRounds(messages: BlockChatMessage[]): BlockChatRound[] {
@@ -1347,23 +1341,9 @@ function parseBlockChatRounds(messages: BlockChatMessage[]): BlockChatRound[] {
 }
 
 function buildCustomCodeThreadAssistantLine(prompt: string, response: string) {
-  const compactPrompt = compactActivityText(prompt, 220);
   const compactResponse = compactActivityText(response, 220);
   if (!compactResponse) return "";
-  if (/[?]$/.test(compactResponse)) return compactResponse;
-
-  const savedSummary = pickMeaningfulSavedSummary(compactResponse, compactPrompt);
-  if (savedSummary) return savedSummary;
-  if (
-    isLegacyBoilerplateSavedSummary(compactResponse) ||
-    isGenericSavedActivityText(compactResponse) ||
-    isPromptEchoSavedSummary(compactResponse, compactPrompt) ||
-    isCorrectiveComplaintSavedSummary(compactResponse, compactPrompt)
-  ) {
-    return "";
-  }
-
-  return sentenceFromActivityFragment(compactResponse);
+  return compactResponse;
 }
 
 function isBriefCorrectiveFollowUpPrompt(value: string) {
@@ -1373,11 +1353,7 @@ function isBriefCorrectiveFollowUpPrompt(value: string) {
   return /\b(still|fix|wrong|off|overlap|overlapping|button|header|padding|spacing|align|misaligned|broken|issue|problem)\b/.test(compact);
 }
 
-function buildCustomCodeActiveThreadMessages(
-  messages: BlockChatMessage[],
-  nextPrompt: string,
-  maxRounds = CUSTOM_CODE_THREAD_WINDOW_LIMIT,
-) {
+function buildCustomCodeActiveThreadMessages(messages: BlockChatMessage[], nextPrompt: string, maxRounds = CUSTOM_CODE_THREAD_WINDOW_LIMIT) {
   const rounds = parseBlockChatRounds(messages);
   if (!rounds.length) return [] as BlockChatMessage[];
 
@@ -1434,8 +1410,24 @@ function prependPersistedCustomCodeAuditEntry(existingRaw: unknown, entry: Omit<
   }));
 }
 
-function countMeaningfulCodeLines(value: string) {
-  return splitCodeLines(value).filter((line) => line.trim()).length;
+function blockTreeHasAnyType(blocks: CreditFunnelBlock[], types: Set<CreditFunnelBlock["type"]>) {
+  for (const block of blocks) {
+    if (!block || typeof block !== "object") continue;
+    if (types.has(block.type)) return true;
+    const props: any = block.props || {};
+    if (block.type === "section") {
+      if (blockTreeHasAnyType(Array.isArray(props.children) ? props.children : [], types)) return true;
+      if (blockTreeHasAnyType(Array.isArray(props.leftChildren) ? props.leftChildren : [], types)) return true;
+      if (blockTreeHasAnyType(Array.isArray(props.rightChildren) ? props.rightChildren : [], types)) return true;
+    }
+    if (block.type === "columns") {
+      const columns = Array.isArray(props.columns) ? props.columns : [];
+      for (const column of columns) {
+        if (blockTreeHasAnyType(Array.isArray(column?.children) ? column.children : [], types)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 type AiCheckpointChangelogEntry = {
@@ -1449,6 +1441,10 @@ type AiCheckpointChangelog = {
   changes: AiCheckpointChangelogEntry[];
   preserved: string[];
   conversionNotes: string[];
+};
+
+type AiCheckpointRun = {
+  stopReason: string;
 };
 
 function coerceAiCheckpointChangelog(raw: unknown): AiCheckpointChangelog | null {
@@ -1483,6 +1479,23 @@ function coerceAiCheckpointChangelog(raw: unknown): AiCheckpointChangelog | null
   };
 }
 
+function coerceAiCheckpointRun(raw: unknown): AiCheckpointRun | null {
+  if (!raw || typeof raw !== "object") return null;
+  const parsed = raw as Record<string, unknown>;
+  const stopReason = typeof parsed.stopReason === "string" ? parsed.stopReason.trim() : "";
+  if (!stopReason) return null;
+  return { stopReason };
+}
+
+function labelAiRunStopReason(raw: string | null | undefined) {
+  const value = String(raw || "").trim().toLowerCase();
+  if (!value) return "Run finished";
+  if (value === "question") return "Needs detail";
+  if (value === "complete" || value === "completed") return "Completed";
+  if (value === "no_change" || value === "no-change") return "No change";
+  return value.replace(/[-_]+/g, " ");
+}
+
 type AiCheckpoint = {
   pageId: string;
   surface: "structure" | "source";
@@ -1494,774 +1507,304 @@ type AiCheckpoint = {
   backgroundReviewSummary?: string | null;
   backgroundReviewMode?: "visual" | "structural" | null;
   changelog?: AiCheckpointChangelog | null;
+  run?: AiCheckpointRun | null;
   previousPage: Pick<Page, "editorMode" | "blocksJson" | "customHtml" | "draftHtml" | "customChatJson">;
 };
 
-function PageContinuityPanel({
-  thread,
-  latestCheckpoint,
-  onRestoreLatest,
-  restoreDisabled,
-  heading = "Direction thread",
-  description,
-  emptyState = "Prompt and assistant turns will appear here. Saved results stay above.",
-}: {
-  thread: ChatThreadRound[];
-  latestCheckpoint: AiCheckpoint | null;
-  onRestoreLatest: () => void;
-  restoreDisabled: boolean;
-  heading?: string;
-  description?: string;
-  emptyState?: string;
-}) {
-  const entries: ChatThreadRound[] =
-    thread.length === 0 && latestCheckpoint
-      ? [
-          {
-            id: "checkpoint-fallback",
-            at: latestCheckpoint.at,
-            label: latestCheckpoint.surface === "source" ? "Saved source checkpoint" : "Saved structure checkpoint",
-            diffSummary: null,
-          },
-        ]
-      : thread;
-
-  return (
-    <div className="rounded-2xl border border-zinc-200 bg-white px-3.5 py-3.5">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400">{heading}</div>
-          <div className="mt-1 text-xs leading-5 text-zinc-500">
-            {description || (entries.length > 0 ? `${entries.length} recent thread turn${entries.length === 1 ? "" : "s"}. Saved results stay in the change list above.` : "Recent prompt and assistant continuity will appear here.")}
-          </div>
-        </div>
-        <div className="shrink-0 text-[11px] font-semibold text-zinc-400">
-          {entries.length > 0 ? `${entries.length} turns` : "Thread"}
-        </div>
-        {latestCheckpoint ? (
-          <button
-            type="button"
-            onClick={onRestoreLatest}
-            disabled={restoreDisabled}
-            className="text-[11px] font-medium text-zinc-400 transition-colors hover:text-zinc-700 disabled:opacity-40"
-          >
-            Restore prior
-          </button>
-        ) : null}
-      </div>
-
-      {latestCheckpoint && (latestCheckpoint.backgroundReviewStatus === "pending" || latestCheckpoint.warnings.length || latestCheckpoint.backgroundReviewSummary) ? (
-        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2.5">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">
-            {latestCheckpoint.backgroundReviewStatus === "pending"
-              ? "Visual Review Running"
-              : latestCheckpoint.backgroundReviewMode === "visual"
-                ? "Visual Review"
-                : "Fallback Review"}
-          </div>
-          {latestCheckpoint.backgroundReviewStatus === "pending" ? (
-            <div className="mt-1 text-[12px] leading-5 text-amber-800">
-              A second pass is checking hierarchy, proof placement, and the conversion path in the background.
-            </div>
-          ) : null}
-          {latestCheckpoint.backgroundReviewStatus === "complete" && latestCheckpoint.backgroundReviewSummary ? (
-            <div className="mt-1 text-[12px] leading-5 text-amber-900">{latestCheckpoint.backgroundReviewSummary}</div>
-          ) : null}
-          {latestCheckpoint.backgroundReviewStatus === "complete" && latestCheckpoint.backgroundReviewMode === "structural" ? (
-            <div className="mt-1 text-[11px] leading-5 text-amber-800">
-              Screenshot review did not resolve cleanly for this pass, so the fallback structural review was kept instead.
-            </div>
-          ) : null}
-          {latestCheckpoint.warnings.length ? (
-            <div className="mt-1.5 space-y-1 text-[12px] leading-5 text-amber-900">
-              {latestCheckpoint.warnings.map((warning, index) => (
-                <div key={`${latestCheckpoint.at}-warning-${index}`}>{warning}</div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {entries.length ? (
-        <div className="relative mt-3 max-h-72 overflow-y-auto pl-4.5 pr-1">
-          <div className="absolute bottom-1 left-1.25 top-1 w-px" style={{ background: "rgb(228 228 231)" }} />
-          <div className="space-y-4">
-            {entries.map((round) => (
-              <div key={round.id} className="relative">
-                <div className="absolute -left-3.25 top-1 h-1.75 w-1.75 rounded-full border border-zinc-300 bg-white" />
-                <div className="min-w-0 text-[13px] font-medium leading-4.5 text-zinc-800 line-clamp-2">{round.label}</div>
-                <div className="mt-0.5 text-[11px] text-zinc-400">{formatActivityTimestamp(round.at)}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="mt-3 text-[12px] leading-5 text-zinc-500">
-          {emptyState}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SavedChangeFeed({
-  entries,
-  emptyState,
-  onSelect,
-}: {
-  entries: SavedChangeFeedItem[];
-  emptyState: string;
-  onSelect?: (entry: SavedChangeFeedItem) => void;
-}) {
-  if (!entries.length) {
-    return <div className="rounded-xl border border-dashed border-zinc-300 bg-white px-3 py-4 text-sm text-zinc-600">{emptyState}</div>;
-  }
-
-  return (
-    <div className="space-y-1.5">
-      {entries.map((entry) => {
-        const toneClasses = getSavedChangeToneClasses(entry.tone);
-        const content = (
-          <div className={classNames("rounded-xl border px-3 py-2.5", toneClasses.shell, onSelect ? "hover:border-zinc-300" : "") }>
-            <div className="flex items-start gap-2">
-              <span className={classNames("mt-1 h-1.5 w-1.5 shrink-0 rounded-full", toneClasses.dot)} />
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium leading-5 text-zinc-900">{entry.headline}</div>
-                <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-400">
-                  <span>{entry.countLabel}</span>
-                  <span aria-hidden="true">/</span>
-                  <span>{formatActivityTimestamp(entry.at)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-        if (!onSelect) return <div key={entry.id}>{content}</div>;
-
-        return (
-          <button key={entry.id} type="button" onClick={() => onSelect(entry)} className="block w-full text-left">
-            {content}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+type DirectionWorkbenchPanelProps = {
+  routeLabel: string;
+  pageTypeLabel?: string;
+  assumption?: string | null;
+  pageConversionFocus?: { headline?: string; summary?: string } | null;
+  shellFrame?: { label?: string; summary?: string; sectionPlan?: string; visualTone?: string; proofModel?: string; ctaRhythm?: string; designDirectives?: string[] } | null;
+  sectionPlanItems?: string[];
+  pageGoalUsesDefault?: boolean;
+  pageAnatomy?: { sections?: number; totalBlocks?: number } | null;
+  thread?: ChatThreadRound[];
+  messages?: BlockChatMessage[];
+  latestCheckpoint?: { at?: string | null } | null;
+  onRestoreLatest?: () => void;
+  restoreDisabled?: boolean;
+  busy?: boolean;
+  activityLabel?: string | null;
+  activityDetail?: string | null;
+  embedded?: boolean;
+  onOpenBrief?: () => void;
+  onAsk: (prompt: string) => void;
+  onPrepareDraft: (promptHint: string, displayPrompt?: string) => void;
+  onAttach?: () => void;
+  onPaste?: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
+  attachCount?: number;
+};
 
 function DirectionWorkbenchPanel({
   routeLabel,
   pageTypeLabel,
-  scopeLabel,
-  foundationStatusLabel,
-  foundationStatusClassName,
-  foundationSummary,
-  foundationNarrative,
-  assumption,
-  pageConversionFocus,
-  shellFrame,
-  sectionPlanItems,
   pageGoalUsesDefault,
   pageAnatomy,
-  thread,
-  latestCheckpoint,
-  onRestoreLatest,
-  restoreDisabled,
+  messages = [],
+  busy = false,
+  activityLabel,
+  activityDetail,
+  embedded = false,
   onOpenBrief,
-  onPrepareClarify,
+  onAsk,
   onPrepareDraft,
-}: {
-  routeLabel: string;
-  pageTypeLabel: string;
-  scopeLabel: string;
-  foundationStatusLabel: string;
-  foundationStatusClassName: string;
-  foundationSummary: string;
-  foundationNarrative: string;
-  assumption: string | null;
-  pageConversionFocus: {
-    headline: string;
-    summary: string;
-    metricLabel: string;
-    metricValue: string;
-    mechanismLabel: string;
-    mechanismValue: string;
-    ctaLabel: string;
-    ctaValue: string;
-  };
-  shellFrame: null | {
-    label: string;
-    summary: string;
-    sectionPlan?: string;
-    visualTone: string;
-    proofModel: string;
-    ctaRhythm: string;
-    designDirectives?: string[];
-  };
-  sectionPlanItems: string[];
-  pageGoalUsesDefault: boolean;
-  pageAnatomy: {
-    rootBlocks: number;
-    totalBlocks: number;
-    sections: number;
-    layoutBlocks: number;
-    textNodes: number;
-    actions: number;
-    forms: number;
-    media: number;
-    codeIslands: number;
-    headers: number;
-    onlyCodeIsland: boolean;
-  };
-  thread: ChatThreadRound[];
-  latestCheckpoint: AiCheckpoint | null;
-  onRestoreLatest: () => void;
-  restoreDisabled: boolean;
-  onOpenBrief: () => void;
-  onPrepareClarify: (promptHint: string) => void;
-  onPrepareDraft: (promptHint: string) => void;
-}) {
+  onAttach,
+  onPaste,
+  attachCount = 0,
+}: DirectionWorkbenchPanelProps) {
+  const [chatMode, setChatMode] = useState<"plan" | "work">("plan");
+  const [directionNote, setDirectionNote] = useState("");
   const directionScrollRef = useRef<HTMLDivElement | null>(null);
-  const proofResolved = Boolean(shellFrame?.proofModel && shellFrame.proofModel !== "Not resolved yet.");
-  const ctaResolved = Boolean(pageConversionFocus.ctaValue && !/not resolved|tbd|unknown/i.test(pageConversionFocus.ctaValue));
-  const designIntentLoose = Boolean(assumption) || pageGoalUsesDefault;
-  const sceneQuality = assessFunnelSceneQuality({
-    pageAnatomy,
-    proofResolved,
-    ctaResolved,
-    sectionPlanItems,
-    proofModel: shellFrame?.proofModel,
-    designIntentLoose,
-  });
-  const {
-    importedSlab,
-    openingFrameResolved,
-    hierarchyResolved,
-    rhythmResolved,
-    proofStagingResolved,
-    actionPlacementResolved,
-    compositionResolved,
-    textHeavy,
-    pageQualityChecks,
-  } = sceneQuality;
 
-  const goodPageEssentials = [
-    {
-      title: "A real first screen",
-      description: "The top of the page needs an intentional opening frame: clear visual anchor, real spacing, and an immediate action path. Not loose text dropped into a blank canvas.",
-    },
-    {
-      title: "Hierarchy you can feel",
-      description: "Strong pages separate headline, support, proof, and action with scale, contrast, containment, and spacing. Design has to direct the eye before copy does.",
-    },
-    {
-      title: "Section rhythm",
-      description: "A page should expand and contract as you move down it. Alternating density, background shifts, media, and grouped content keep it from reading as one long slab.",
-    },
-    {
-      title: "Staged proof",
-      description: "Proof needs its own designed moments: logos, outcomes, testimonial clusters, examples, screenshots, or trust bands. It should not be buried in paragraphs.",
-    },
-    {
-      title: "CTA anchors",
-      description: "The ask needs visible placement and repetition. One button floating inside a generic hero is not enough if the page keeps going.",
-    },
-    {
-      title: "Composable structure",
-      description: "The page has to be built from real sections and layout primitives. If it stays one imported slab, the system cannot shape hierarchy, rhythm, or proof placement reliably.",
-    },
-  ];
-
-  const failedChecks = pageQualityChecks.filter((item) => item.tone === "bad");
-  const weakChecks = pageQualityChecks.filter((item) => item.tone === "warn");
-  const healthyChecks = pageQualityChecks.filter((item) => item.tone === "good");
-  const supportedSignalCount = healthyChecks.length;
-  const totalSignalCount = pageQualityChecks.length;
-  const idealSkeletonBeats = (shellFrame?.sectionPlan ? parseSectionPlanItems(shellFrame.sectionPlan) : sectionPlanItems)
+  const recentMessages = messages.slice(-8);
+  const liveStatusLabel = busy
+    ? chatMode === "work"
+      ? "Applying the next pass and preparing a summary"
+      : "Diagnosing the page and planning the next move"
+    : null;
+  const inlineActivityLabel = activityLabel || liveStatusLabel || (chatMode === "work" ? "Applying changes" : "Reviewing the page");
+  const inlineActivityDetail = activityDetail && activityDetail !== inlineActivityLabel
+    ? activityDetail
+    : chatMode === "work"
+      ? "Working through the current pass before writing the result back into the thread."
+      : "Reviewing the current page state before replying in the thread.";
+  const chatFooterClassName = embedded
+    ? "shrink-0 border-t border-zinc-200/80 bg-white px-4 pb-4 pt-3 sm:px-5"
+    : "shrink-0 border-t border-zinc-200/80 bg-white px-4 py-3 sm:px-5";
+  const lensMeta = [pageTypeLabel, pageGoalUsesDefault ? "using default goal" : null, pageAnatomy?.sections ? `${pageAnatomy.sections} sections` : null]
     .filter(Boolean)
-    .slice(0, 6);
-  const shellGuardrails = (shellFrame?.designDirectives || []).slice(0, 2);
-  const observedSignals = [
-    importedSlab ? "One imported custom-code block" : `${pageAnatomy.sections} sections, ${pageAnatomy.layoutBlocks} layout blocks, ${pageAnatomy.totalBlocks} editable blocks`,
-    `CTA path: ${ctaResolved ? pageConversionFocus.ctaValue : "still loose"}`,
-    `Proof model: ${proofResolved ? (shellFrame?.proofModel || "defined") : "not resolved"}`,
-    `Shell posture: ${shellFrame?.label || "still open"}`,
-    `Section plan: ${(idealSkeletonBeats.length ? idealSkeletonBeats : sectionPlanItems).slice(0, 3).join(" -> ") || "not resolved"}`,
-  ];
-
-  const structuralPriorities = [
-    importedSlab
-      ? {
-          title: "Decompose the page into real sections",
-          detail: "Break the imported markup into editable hero, proof, detail, and CTA sections before judging polish.",
-        }
-      : null,
-    !openingFrameResolved
-      ? {
-          title: "Rebuild the first screen",
-          detail: "Give the page a stronger opening frame with clearer containment, spacing, and an immediate action path.",
-        }
-      : null,
-    !hierarchyResolved
-      ? {
-          title: "Strengthen hierarchy",
-          detail: "Use stronger containers, contrast shifts, grouped modules, and fewer uninterrupted text runs.",
-        }
-      : null,
-    !rhythmResolved
-      ? {
-          title: "Create section cadence",
-          detail: "Alternate dense and light sections so the page has real scroll rhythm instead of one continuous slab.",
-        }
-      : null,
-    !proofStagingResolved
-      ? {
-          title: "Stage proof visually",
-          detail: "Give credibility its own designed surfaces near the first serious ask and before the close.",
-        }
-      : null,
-    !actionPlacementResolved
-      ? {
-          title: "Re-anchor the CTA",
-          detail: "Place the ask at the right structural beats instead of relying on one isolated action point.",
-        }
-      : null,
-    !compositionResolved && !importedSlab
-      ? {
-          title: "Add composable structure",
-          detail: "Increase the number of real layout blocks so hierarchy and pacing can be tuned intentionally.",
-        }
-      : null,
-  ].filter(Boolean) as Array<{ title: string; detail: string }>;
-
-  while (structuralPriorities.length < 3) {
-    structuralPriorities.push(
-      structuralPriorities.length === 0
-        ? {
-            title: "Refine the strongest section",
-            detail: "Tighten the section carrying the most weight instead of restyling the whole page at once.",
-          }
-        : structuralPriorities.length === 1
-          ? {
-              title: "Preserve what is already working",
-              detail: "Keep the current structural strengths stable while you improve the weaker beats.",
-            }
-          : {
-              title: "Save polish for later",
-              detail: "Finish the structural pass before typography and copy refinements take over the iteration.",
-            },
-    );
-  }
-
-  const structuralPassPlan = structuralPriorities.slice(0, 3);
-
-  const skeletonStatusForBeat = (item: string) => {
-    const normalized = item.toLowerCase();
-    if (importedSlab) return { label: "Blocked", tone: "bad" as const };
-    if (/hero|promise|confirmation|order summary/.test(normalized)) {
-      return { label: openingFrameResolved ? "Covered" : "Missing", tone: openingFrameResolved ? ("good" as const) : ("warn" as const) };
-    }
-    if (/proof|credibility|testimonial|case stud|speaker|trust|guarantee/.test(normalized)) {
-      return { label: proofStagingResolved ? "Covered" : "Missing", tone: proofStagingResolved ? ("good" as const) : ("warn" as const) };
-    }
-    if (/faq|objection|reassurance|qualification|who this is for|expectation/.test(normalized)) {
-      const resolved = pageAnatomy.sections >= 4 || pageAnatomy.layoutBlocks >= 3;
-      return { label: resolved ? "Present" : "Compressed", tone: resolved ? ("good" as const) : ("warn" as const) };
-    }
-    if (/cta|form|booking|checkout|register|apply|submit/.test(normalized)) {
-      return { label: actionPlacementResolved ? "Anchored" : "Weak", tone: actionPlacementResolved ? ("good" as const) : ("warn" as const) };
-    }
-    if (/problem|stakes|solution|outcomes|benefits|agenda|next steps/.test(normalized)) {
-      return { label: rhythmResolved ? "Sequenced" : "Compressed", tone: rhythmResolved ? ("good" as const) : ("warn" as const) };
-    }
-    return { label: compositionResolved ? "Supported" : "Thin", tone: compositionResolved ? ("good" as const) : ("warn" as const) };
-  };
-
-  const dominantIssue = importedSlab
-    ? {
-        title: "This page is not structurally legible yet",
-        detail: "The editor is still looking at one imported code slab. That means users cannot confidently iterate on hierarchy, pacing, proof, or CTA placement because the page is not composed as real sections.",
-      }
-    : !hierarchyResolved && textHeavy
-      ? {
-          title: "This page feels flat because it is carrying too much text without enough structure",
-          detail: "The visual system is weak. There are not enough layout breaks, contrast shifts, grouped modules, or proof moments to create a readable top-to-bottom experience.",
-        }
-      : !rhythmResolved
-        ? {
-            title: "This page feels monotonous because the section rhythm is weak",
-            detail: "The scroll experience is not expanding and contracting with intent. Visitors are moving through one continuous content run instead of distinct designed beats.",
-          }
-        : !actionPlacementResolved
-          ? {
-              title: "This page asks without enough structural support",
-              detail: "The action path is present, but it is not anchored at enough moments in the layout to feel earned and usable as the visitor moves down the page.",
-            }
-          : !proofStagingResolved
-            ? {
-                title: "This page has claims, but not enough designed proof",
-                detail: "Trust is not being staged visually. Proof needs dedicated surfaces so the page feels credible before it asks for action.",
-              }
-            : {
-                title: "This page is structurally viable for refinement",
-                detail: "The page has enough layout logic to support focused design iteration, so the next passes can tighten hierarchy, proof moments, and copy instead of rebuilding from scratch.",
-              };
-
-  const readinessTone = importedSlab || failedChecks.length > 0 ? "bad" : weakChecks.length >= 3 ? "warn" : "good";
-  const readinessLabel = importedSlab
-    ? "Not ready for confident iteration"
-    : failedChecks.length > 0
-      ? "Needs structural redesign"
-      : weakChecks.length >= 3
-        ? "Ready for a focused structure pass"
-        : "Ready for polish and refinement";
-  const readinessConfidenceLabel = importedSlab
-    ? "Early read"
-    : readinessTone === "bad"
-      ? "Clear issue"
-      : readinessTone === "warn"
-        ? "Useful next pass"
-        : "Ready to refine";
-  const readinessSummary = importedSlab
-    ? "Break the imported slab into real sections before judging style decisions too confidently."
-    : readinessTone === "bad"
-      ? "The page still has structural design problems that will make styling passes feel cosmetic."
-      : readinessTone === "warn"
-        ? "The page has a usable backbone, but one major structural pass should happen before polish work."
-        : "The page has a credible design spine, so the next iterations can focus on refinement instead of reconstruction.";
-  const inferenceTone = importedSlab ? "bad" : pageAnatomy.sections < 2 || pageAnatomy.totalBlocks < 6 ? "warn" : "good";
-  const inferenceLabel = importedSlab
-    ? "Low inference confidence"
-    : inferenceTone === "warn"
-      ? "Partial inference confidence"
-      : "Stronger inference confidence";
-  const inferenceSummary = importedSlab
-    ? "Direction is mostly inferring from intent, shell, CTA path, and the fact that the page is one imported slab. It cannot inspect real editable hierarchy yet."
-    : inferenceTone === "warn"
-      ? "Direction has some usable structure signals, but the page anatomy is still thin enough that the read should be treated as directional, not final."
-      : "Direction has enough editable structure to make a more credible structural read, but it is still not pixel-accurate visual critique.";
-  const iterationCount = Math.max(1, thread.length + 1);
-  const supportedWeakSignals = pageQualityChecks.filter((item) => item.tone !== "good").slice(0, 3);
-  const preservedStrengths = pageQualityChecks.filter((item) => item.tone === "good").slice(0, 2);
-  const recentDirectionHistory = thread.slice(0, 3).map((item, index) => {
-    const diff = item.diffSummary ? ` (${item.diffSummary})` : "";
-    return `${index + 1}. ${item.label}${diff}`;
-  });
-
-  const primaryStructuralMove = importedSlab
-    ? "Turn the imported markup into real sections first. Until the page is decomposed, every design judgment is partially blind."
-    : !openingFrameResolved
-      ? "Rebuild the first screen so it has a stronger anchor, clearer containment, and an immediate action path."
-      : !hierarchyResolved
-        ? "Create clearer hierarchy with stronger section containers, contrast shifts, and grouped modules instead of one continuous text run."
-        : !rhythmResolved
-          ? "Introduce section cadence by alternating density, proof bands, and content grouping so the page has real scroll rhythm."
-          : !proofStagingResolved
-            ? "Design dedicated proof moments before touching polish. Trust needs its own visual surfaces."
-            : !actionPlacementResolved
-              ? "Re-anchor the CTA in the layout so the ask appears at the right structural beats, not just once."
-              : "Tighten the strongest existing sections instead of redesigning the entire page again.";
-
-  const primaryActionLabel = importedSlab ? "Build the first editable pass" : "Build the recommended next pass";
-  const primaryActionDetail = importedSlab
-    ? "Break this page into real sections so future edits can improve it intentionally."
-    : primaryStructuralMove;
-  const secondaryActionLabel = "Ask one question before changing the page";
-  const secondaryActionDetail = "Use this when one missing answer would materially change the next pass.";
-  const briefActionLabel = "Review the page brief and goals";
-  const briefActionDetail = "Check the promise, audience, CTA, and structure settings feeding this guidance.";
-  const pageIntentSummary = `${pageConversionFocus.metricLabel}: ${pageConversionFocus.metricValue}. ${pageConversionFocus.ctaLabel}: ${pageConversionFocus.ctaValue}.`;
-
-  const avoidThisPass = importedSlab
-    ? "Avoid debating typography or copy polish while the page is still one imported slab."
-    : textHeavy
-      ? "Avoid adding more copy to solve a layout problem. The page needs structure, not more text."
-      : "Avoid broad restyling before the next structural move is resolved.";
-  const buildDirectionPassPrompt = (mode: "draft" | "clarify") => {
-    const idealStructure = (idealSkeletonBeats.length ? idealSkeletonBeats : sectionPlanItems).slice(0, 6).join(" -> ");
-    const weakSignalSummary = supportedWeakSignals.length
-      ? supportedWeakSignals.map((item, index) => `${index + 1}. ${item.title}: ${item.detail}`).join(" ")
-      : "No failing structural checks are currently detected. Tighten the strongest sections without broad redesign.";
-    const preservedStrengthSummary = preservedStrengths.length
-      ? preservedStrengths.map((item) => `${item.title}: ${item.detail}`).join(" ")
-      : "No strong structural elements are locked yet; preserve only what clearly supports the page goal.";
-    const historySummary = recentDirectionHistory.length
-      ? `Recent direction history: ${recentDirectionHistory.join(" ")}`
-      : "Recent direction history: no earlier structural pass is attached to this draft yet.";
-
-    if (mode === "clarify") {
-      return [
-        `Direction structural pass ${iterationCount} for ${routeLabel} (${pageTypeLabel} page).`,
-        `Ask only one short question if the answer would materially change this pass.`,
-        `Primary diagnosis: ${dominantIssue.title}. ${dominantIssue.detail}`,
-        `Current move: ${primaryStructuralMove}`,
-        `Weak structural signals: ${weakSignalSummary}`,
-        `Signals used for this read: ${observedSignals.join(" | ")}`,
-        `Confidence: ${inferenceLabel}. ${inferenceSummary}`,
-        `This workflow expects multiple passes. Do not ask about copy polish or visual garnish.`,
-      ].join("\n");
-    }
-
-    return [
-      `Direction structural pass ${iterationCount} for ${routeLabel} (${pageTypeLabel} page).`,
-      `This is one pass in a multi-pass workflow. Do not try to perfect the whole page in one response.`,
-      `Primary diagnosis: ${dominantIssue.title}. ${dominantIssue.detail}`,
-      `Best next move: ${primaryStructuralMove}`,
-      `Do not spend this pass on: ${avoidThisPass}`,
-      `Confidence: ${inferenceLabel}. ${inferenceSummary}`,
-      `Signals used for this read: ${observedSignals.join(" | ")}`,
-      `Weak structural signals to address now: ${weakSignalSummary}`,
-      `Structural strengths to preserve: ${preservedStrengthSummary}`,
-      `Ideal structure: ${idealStructure}`,
-      `Execute only these moves in order: ${structuralPassPlan.map((item, index) => `${index + 1}. ${item.title} - ${item.detail}`).join(" ")}`,
-      ...(shellGuardrails.length ? [`Guardrails: ${shellGuardrails.join(" ")}`] : []),
-      historySummary,
-      `Return a stronger shell that is intentionally more precise than the previous pass, while preserving any working structure.`
-    ].join("\n");
-  };
-
-  const qualityToneClassNames = {
-    good: "border-emerald-200 bg-emerald-50 text-emerald-950",
-    warn: "border-amber-200 bg-amber-50 text-amber-950",
-    bad: "border-rose-200 bg-rose-50 text-rose-950",
-  } as const;
+    .join(" - ");
+  const modeRailClassName = "inline-flex items-center gap-1.5 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-1";
+  const modeButtonClassName = "rounded-xl px-3 py-1.5 text-xs font-medium transition-colors duration-150";
+  const activeModeButtonClassName = "bg-white text-zinc-950 shadow-[0_6px_16px_rgba(15,23,42,0.08)]";
+  const inactiveModeButtonClassName = "text-zinc-500 hover:bg-white/80 hover:text-zinc-950";
+  const briefButtonClassName = "rounded-xl px-2.5 py-1.5 text-xs font-medium text-zinc-500 transition-colors duration-150 hover:bg-zinc-100 hover:text-zinc-950";
 
   useEffect(() => {
-    directionScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
-  }, [routeLabel]);
+    if (!directionScrollRef.current) return;
+    directionScrollRef.current.scrollTo({ top: directionScrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [recentMessages.length]);
+
+  const submitDirection = () => {
+    const prompt = directionNote.trim();
+    if (!prompt || busy) return;
+    if (chatMode === "work") {
+      onPrepareDraft(prompt, prompt);
+    } else {
+      onAsk(prompt);
+    }
+    setDirectionNote("");
+  };
+
+  const startPlanWork = (plan: SourceActionPlan) => {
+    if (!plan?.moves?.length || busy) return;
+    const prompt = [
+      plan.summary,
+      ...plan.moves.map((move, index) => `${index + 1}. ${move.target}: ${move.change}`),
+      ...plan.watchouts.slice(0, 2).map((item) => `Watchout: ${item}`),
+    ]
+      .filter(Boolean)
+      .join("\n");
+    setChatMode("work");
+    onPrepareDraft(prompt, prompt);
+  };
 
   return (
-    <div className="flex min-h-[50vh] flex-1 flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-[linear-gradient(180deg,#fbfcfe_0%,#f5f7fb_100%)]">
-      <div className="border-b border-zinc-200/80 px-4 py-4 sm:px-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 max-w-3xl">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Direction</div>
-            <div className="mt-1 text-base font-semibold text-zinc-950">Running read for {routeLabel}</div>
-            <div className="mt-1 text-sm leading-6 text-zinc-600">
-              Direction reads the current draft, explains the main conversion problem, and lines up the next useful pass.
+    <div className={classNames("flex min-h-0 flex-1 flex-col overflow-hidden", embedded ? "bg-transparent" : "rounded-3xl border border-zinc-200 bg-[linear-gradient(180deg,#fbfcfe_0%,#f5f7fb_100%)]") }>
+      {!embedded ? (
+        <div className="shrink-0 border-b border-zinc-200/80 bg-white/70 px-4 py-2.5 sm:px-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold text-zinc-950">{routeLabel}</div>
+              {lensMeta ? <div className="mt-1 truncate text-xs text-zinc-500">{lensMeta}</div> : null}
             </div>
-            <div className="mt-2 text-xs leading-5 text-zinc-500">
-              Grounded in the current draft, shell, CTA path, section plan, and recent history instead of a fixed pass/fail checklist.
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={classNames("rounded-full border px-3 py-1 text-[11px] font-semibold", foundationStatusClassName)}>{foundationStatusLabel}</span>
-            <span className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold text-zinc-700">Scope {scopeLabel}</span>
-          </div>
-        </div>
-      </div>
-
-      <div ref={directionScrollRef} className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-        <div className="mx-auto w-full max-w-4xl space-y-4">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">What this page is trying to do</div>
-            <div className="mt-2 text-lg font-semibold leading-7 text-zinc-950">{pageConversionFocus.headline}</div>
-            <div className="mt-2 text-sm leading-6 text-zinc-600">{pageConversionFocus.summary}</div>
-            <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm leading-6 text-zinc-600">{pageIntentSummary}</div>
-          </div>
-
-          <div className={classNames("rounded-3xl border p-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]", qualityToneClassNames[readinessTone])}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 max-w-3xl">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] opacity-70">Current read</div>
-                  <div className="mt-2 text-xl font-semibold leading-8">{readinessLabel}</div>
-                  <div className="mt-2 text-sm leading-6 opacity-90">{readinessSummary}</div>
-                </div>
-                <span className="rounded-full border border-current/15 bg-white/55 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]">
-                  {readinessConfidenceLabel}
-                </span>
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
-                <div className="rounded-2xl border border-current/15 bg-white/55 px-4 py-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">Main thing holding it back</div>
-                  <div className="mt-2 text-sm font-semibold">{dominantIssue.title}</div>
-                  <div className="mt-2 text-sm leading-6 opacity-90">{dominantIssue.detail}</div>
-                </div>
-                <div className="rounded-2xl border border-current/15 bg-white/55 px-4 py-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">Best next step</div>
-                  <div className="mt-2 text-sm leading-6 opacity-90">{primaryStructuralMove}</div>
-                </div>
-                <div className="rounded-2xl border border-current/15 bg-white/55 px-4 py-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">Skip for now</div>
-                  <div className="mt-2 text-sm leading-6 opacity-90">{avoidThisPass}</div>
-                </div>
-              </div>
-
-              <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">
-                <span className="rounded-full border border-current/15 bg-white/55 px-3 py-1">One main issue</span>
-                <span className="rounded-full border border-current/15 bg-white/55 px-3 py-1">One best next step</span>
-                <span className="rounded-full border border-current/15 bg-white/55 px-3 py-1">One thing to skip</span>
-              </div>
-            </div>
-
-          <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Recommended next step</div>
-              <div className="mt-2 text-lg font-semibold leading-7 text-zinc-950">{primaryStructuralMove}</div>
-              <div className="mt-2 text-sm leading-6 text-zinc-600">
-                If this read feels right, make one focused pass now. If one missing answer would change the pass in a meaningful way, ask that one question first.
-              </div>
-              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm leading-6 text-zinc-600">
-                Pass {iterationCount}: fix the highest-value page problem, save the result, then reopen Direction for the next read. This works best as a sequence of focused passes, not one giant rewrite.
-              </div>
-              <div className="mt-4 flex flex-col gap-2 sm:max-w-xl">
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              <div className={modeRailClassName}>
                 <button
                   type="button"
-                  onClick={() => onPrepareDraft(buildDirectionPassPrompt("draft"))}
-                  className="rounded-xl border border-zinc-200 bg-zinc-950 px-3 py-3 text-left text-white transition-colors hover:bg-zinc-800"
+                  onClick={() => setChatMode("plan")}
+                  className={classNames(
+                    modeButtonClassName,
+                    chatMode === "plan" ? activeModeButtonClassName : inactiveModeButtonClassName,
+                  )}
                 >
-                  <div className="text-sm font-semibold">{primaryActionLabel}</div>
-                  <div className="mt-1 text-xs leading-5 text-white/75">{primaryActionDetail}</div>
+                  Discuss
                 </button>
                 <button
                   type="button"
-                  onClick={() => onPrepareClarify(buildDirectionPassPrompt("clarify"))}
-                  className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-left text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-white"
+                  onClick={() => setChatMode("work")}
+                  className={classNames(
+                    modeButtonClassName,
+                    chatMode === "work" ? activeModeButtonClassName : inactiveModeButtonClassName,
+                  )}
                 >
-                  <div className="text-sm font-semibold">{secondaryActionLabel}</div>
-                  <div className="mt-1 text-xs leading-5 text-zinc-500">{secondaryActionDetail}</div>
+                  Work
                 </button>
+              </div>
+              {onOpenBrief ? (
                 <button
                   type="button"
                   onClick={onOpenBrief}
-                  className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-left text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-white"
+                  className={briefButtonClassName}
                 >
-                  <div className="text-sm font-semibold">{briefActionLabel}</div>
-                  <div className="mt-1 text-xs leading-5 text-zinc-500">{briefActionDetail}</div>
+                  Brief
                 </button>
-              </div>
+              ) : null}
             </div>
+          </div>
+        </div>
+      ) : null}
 
-          <details className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
-            <summary className="cursor-pointer list-none text-sm font-semibold text-zinc-900">Why these suggestions show up</summary>
-            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">How to use Direction</div>
-                <div className="mt-2 space-y-2 text-sm leading-6 text-zinc-600">
-                  <div>Direction does not change the page by itself.</div>
-                  <div>It reads the live draft, the shell, the CTA path, and the recent history to decide what the next useful pass should be.</div>
-                  <div>Use it when you want a grounded recommendation instead of guessing what to ask AI next.</div>
-                  <div>After you make that pass, reopen Direction to see the next read.</div>
+      <div className={classNames("shrink-0 px-4 pt-3 pb-2 sm:px-5 sm:pb-3", embedded ? "bg-white" : "bg-transparent") }>
+        <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center justify-between gap-3">
+          {embedded ? (
+            <>
+              <div className="min-w-0 flex flex-1 flex-wrap items-center gap-2">
+                <div className={modeRailClassName}>
+                  <button
+                    type="button"
+                    onClick={() => setChatMode("plan")}
+                    className={classNames(
+                      modeButtonClassName,
+                      chatMode === "plan" ? activeModeButtonClassName : inactiveModeButtonClassName,
+                    )}
+                  >
+                    Discuss
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChatMode("work")}
+                    className={classNames(
+                      modeButtonClassName,
+                      chatMode === "work" ? activeModeButtonClassName : inactiveModeButtonClassName,
+                    )}
+                  >
+                    Work
+                  </button>
                 </div>
-              </div>
-
-              <div className={classNames("rounded-2xl border p-4", qualityToneClassNames[inferenceTone])}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-sm font-semibold">Read confidence</div>
-                  <span className="rounded-full border border-current/15 bg-white/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]">
-                    {supportedSignalCount}/{totalSignalCount} signals in place
-                  </span>
-                </div>
-                <div className="mt-2 text-sm leading-6 opacity-90">{inferenceSummary}</div>
-                <div className="mt-4 space-y-2">
-                  {observedSignals.map((item) => (
-                    <div key={item} className="rounded-2xl border border-current/15 bg-white/55 px-3 py-2.5 text-sm leading-6 opacity-90">
-                      {item}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </details>
-
-          <details className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-[0_14px_34px_rgba(15,23,42,0.04)]">
-            <summary className="cursor-pointer list-none text-sm font-semibold text-zinc-900">Open structural audit</summary>
-            <div className="mt-4 space-y-4">
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Current design read</div>
-                <div className="mt-2 text-base font-semibold text-zinc-950">{foundationSummary}</div>
-                <div className="mt-2 text-sm leading-6 text-zinc-700">{foundationNarrative}</div>
-                {assumption ? (
-                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-xs leading-6 text-zinc-600">
-                    Working assumption: {assumption}
-                  </div>
+                {onOpenBrief ? (
+                  <button
+                    type="button"
+                    onClick={onOpenBrief}
+                    className={briefButtonClassName}
+                  >
+                    Brief
+                  </button>
                 ) : null}
               </div>
+            </>
+          ) : null}
+        </div>
+      </div>
 
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Ideal {pageTypeLabel.toLowerCase()} skeleton</div>
-                  <div className="mt-4 space-y-2.5">
-                    {(idealSkeletonBeats.length ? idealSkeletonBeats : goodPageEssentials.map((item) => item.title)).slice(0, 6).map((item, index) => {
-                      const status = skeletonStatusForBeat(item);
-                      return (
-                        <div key={`${item}-${index}`} className="flex items-start gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-[10px] font-semibold text-zinc-700">
-                            {index + 1}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div className="text-sm font-semibold text-zinc-900">{item}</div>
-                              <span className={classNames("rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]", qualityToneClassNames[status.tone])}>
-                                {status.label}
-                              </span>
-                            </div>
+      <div ref={directionScrollRef} className={classNames("min-h-0 flex-1 overflow-y-auto px-4 sm:px-5", embedded ? "pb-20 pt-3 sm:pb-24" : "pb-22 pt-4 sm:pb-26") }>
+        <div className="mx-auto w-full max-w-4xl space-y-6">
+          {recentMessages.length ? (
+            recentMessages.map((message, index) => (
+              <div
+                key={`direction-message-${message.role}-${message.at || index}-${index}`}
+                className={classNames("flex", message.role === "user" ? "justify-end" : "justify-start")}
+              >
+                {message.role === "user" ? (
+                  <div className="ml-10 max-w-[min(42rem,100%)] rounded-[24px] bg-[linear-gradient(180deg,#2b67f6_0%,#1d4ed8_100%)] px-4 py-3.5 text-sm leading-relaxed text-white shadow-[0_16px_36px_rgba(37,99,235,0.18)]">
+                    <div className="whitespace-pre-wrap">{message.content}</div>
+                  </div>
+                ) : (
+                  <div className="mr-10 max-w-[min(44rem,100%)] space-y-3">
+                    <div className="whitespace-pre-wrap text-sm leading-6 text-zinc-700">{message.content}</div>
+                    {message.sourceActionPlan ? (
+                      <div className="space-y-3">
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700">Actionable instructions</div>
+                          <div className="mt-2 space-y-2 border-l-2 border-blue-200 pl-3 text-sm leading-6 text-zinc-700">
+                            {message.sourceActionPlan.moves.slice(0, 3).map((move) => (
+                              <div key={`${message.at || index}-${move.key}`}>
+                                <span className="font-semibold text-zinc-950">{move.target}:</span>{" "}
+                                <span>{move.change}</span>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">This pass plan</div>
-                  <div className="mt-4 space-y-3">
-                    {structuralPassPlan.map((item, index) => (
-                      <div key={item.title} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                        <div className="flex items-start gap-3">
-                          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-zinc-200 bg-white text-[10px] font-semibold text-zinc-700">
-                            {index + 1}
-                          </span>
-                          <div>
-                            <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
-                            <div className="mt-1 text-sm leading-6 text-zinc-600">{item.detail}</div>
+                        {message.sourceActionPlan.watchouts.length ? (
+                          <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-900">
+                            <div className="font-semibold uppercase tracking-[0.16em] text-amber-800">Warnings</div>
+                            <div className="mt-1">{message.sourceActionPlan.watchouts.slice(0, 2).join(" - ")}</div>
                           </div>
-                        </div>
+                        ) : null}
                       </div>
-                    ))}
+                    ) : null}
+                    {message.sourceActionPlan ? (
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => startPlanWork(message.sourceActionPlan!)}
+                          disabled={busy}
+                          className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Work this plan
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
-                  {shellGuardrails.length ? (
-                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">Guardrails</div>
-                      <div className="mt-2 space-y-1.5 text-sm leading-6 text-zinc-600">
-                        {shellGuardrails.map((item) => (
-                          <div key={item}>{item}</div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
+                )}
               </div>
+            ))
+          ) : !busy ? (
+            <div className="flex flex-col items-start gap-2 pt-2">
+              {[
+                "What's the main problem with this page?",
+                "What should I fix next?",
+                "Review the headline and primary CTA",
+                "What's missing from the conversion path?",
+              ].map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => { onAsk(chip); }}
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-left text-sm text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-950"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Structural checks</div>
-                <div className="mt-3 space-y-2.5">
-                  {pageQualityChecks.map((item) => (
-                    <div key={item.title} className={classNames("rounded-2xl border px-4 py-3", qualityToneClassNames[item.tone])}>
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="text-sm font-semibold">{item.title}</div>
-                        <div className="rounded-full border border-current/15 bg-white/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]">
-                          {item.state}
-                        </div>
-                      </div>
-                      <div className="mt-2 text-sm leading-6 opacity-90">{item.detail}</div>
-                    </div>
-                  ))}
+          {busy ? (
+            <div className="flex justify-start">
+              <div className="mr-10 max-w-[min(44rem,100%)] rounded-[22px] border border-zinc-200/80 bg-zinc-50/65 px-4 py-3">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                  <SpinnerIcon className="h-3.5 w-3.5" />
+                  <span>{chatMode === "work" ? "Working" : "Reviewing"}</span>
                 </div>
+                <div className="mt-2 text-sm font-semibold text-zinc-900">{inlineActivityLabel}</div>
+                <div className="mt-1 text-xs leading-5 text-zinc-600">{inlineActivityDetail}</div>
               </div>
             </div>
-          </details>
-
-          <PageContinuityPanel
-            heading="Direction thread"
-            description="Keep the latest page reads, clarifications, and applied moves attached to this draft."
-            emptyState="Direction notes and applied page moves will appear here."
-            thread={thread}
-            latestCheckpoint={latestCheckpoint}
-            onRestoreLatest={onRestoreLatest}
-            restoreDisabled={restoreDisabled}
-          />
+          ) : null}
         </div>
+      </div>
+
+      <div className={chatFooterClassName}>
+        <PageAssistantComposerRow>
+          <AiPromptComposer
+            value={directionNote}
+            onChange={setDirectionNote}
+            onSubmit={submitDirection}
+            onAttach={onAttach || (() => {})}
+            onPaste={onPaste}
+            placeholder={
+              chatMode === "work"
+                ? "Tell Pura what to change next. Work applies it and writes back a summary."
+                : "Ask what is weak, what is missing, or what Pura should change next."
+            }
+            busy={busy}
+            busyLabel={inlineActivityLabel || "Thinking..."}
+            attachCount={attachCount}
+            tone="light"
+          />
+        </PageAssistantComposerRow>
       </div>
     </div>
   );
@@ -2275,6 +1818,9 @@ function CodeSurface({
   lineHighlightRange,
   seamless = false,
   tone = "dark",
+  statusLabel,
+  editorSelectAllSignal = 0,
+  onActivate,
 }: {
   value: string;
   onChange?: (next: string) => void;
@@ -2283,75 +1829,141 @@ function CodeSurface({
   lineHighlightRange?: { startLine: number; endLine: number } | null;
   seamless?: boolean;
   tone?: "dark" | "light";
+  statusLabel?: string;
+  editorSelectAllSignal?: number;
+  onActivate?: () => void;
 }) {
   const code = String(value || "");
-  const lines = splitCodeLines(code || placeholder || "");
-  const renderedLines = splitCodeLines(readOnly ? code || placeholder || "" : code);
-  const contentHeightPx = Math.max(lines.length + 2, 30) * 24;
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const lines = splitCodeLines(code || "");
+  const renderedLines = splitCodeLines(code || placeholder || "");
+  const readOnlyViewportRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const editLineNumbersRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!lineHighlightRange?.startLine || !scrollRef.current) return;
-    const targetTop = Math.max((lineHighlightRange.startLine - 4) * 24, 0);
-    scrollRef.current.scrollTo({ top: targetTop, behavior: "smooth" });
-  }, [lineHighlightRange?.endLine, lineHighlightRange?.startLine]);
+    if (!lineHighlightRange?.startLine) return;
+    if (readOnly) {
+      const targetLine = readOnlyViewportRef.current?.querySelector(`[data-code-line="${lineHighlightRange.startLine}"]`) as HTMLElement | null;
+      targetLine?.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
+
+    const editor = textareaRef.current;
+    if (!editor) return;
+    const targetTop = Math.max((lineHighlightRange.startLine - 2) * CODE_SURFACE_LINE_HEIGHT + CODE_SURFACE_VERTICAL_PADDING, 0);
+    editor.scrollTo({ top: targetTop, behavior: "smooth" });
+  }, [lineHighlightRange?.endLine, lineHighlightRange?.startLine, readOnly]);
+
+  useEffect(() => {
+    if (readOnly || !textareaRef.current || editorSelectAllSignal <= 0) return;
+    textareaRef.current.focus();
+    textareaRef.current.select();
+  }, [editorSelectAllSignal, readOnly]);
+
+  const wasReadOnly = useRef(readOnly);
+  useEffect(() => {
+    if (!readOnly && wasReadOnly.current && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+    wasReadOnly.current = readOnly;
+  }, [readOnly]);
+
+  const syncEditGutterScroll = useCallback(() => {
+    const editor = textareaRef.current;
+    const gutter = editLineNumbersRef.current;
+    if (!editor || !gutter) return;
+    gutter.scrollTop = editor.scrollTop;
+  }, []);
 
   const isLight = tone === "light";
+  const lineCount = Math.max(lines.length, 1);
+  const showStatusBar = !seamless;
 
   return (
     <div className={classNames(
-      "flex h-full min-h-0 flex-col overflow-hidden",
-      isLight ? "text-[#1e1e1e]" : "text-zinc-100",
-      seamless ? "bg-transparent" : isLight ? "rounded-[20px] bg-white" : "rounded-[20px] bg-zinc-950",
+      "flex min-h-0 flex-col overflow-hidden",
+      "h-full flex-1",
+      isLight ? "text-slate-700" : "text-zinc-100",
+      seamless
+        ? isLight
+          ? "bg-transparent"
+          : "bg-zinc-950"
+        : isLight
+          ? "rounded-[18px] border border-zinc-200/80 bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+          : "rounded-[20px] border border-zinc-900 bg-zinc-950",
     )}>
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
-        <div className="grid min-w-full grid-cols-[auto_minmax(0,1fr)] font-mono text-[12px] leading-6" style={{ minHeight: contentHeightPx }}>
-          <div className={classNames(
-            "select-none px-3 py-3 text-right",
-            isLight
-              ? "border-r border-zinc-200 bg-[#f3f3f3] text-zinc-400"
-              : "border-r border-zinc-900 bg-zinc-950 text-zinc-500",
-            seamless ? "bg-transparent" : "",
-          )}>
-            {lines.map((_, index) => (
-              <div
-                key={index}
-                className={classNames(
-                  "rounded-md px-2 transition-colors",
-                  lineHighlightRange && index + 1 >= lineHighlightRange.startLine && index + 1 <= lineHighlightRange.endLine
-                    ? isLight ? "bg-sky-100 text-sky-700" : "bg-cyan-400/18 text-cyan-200"
-                    : "",
-                )}
-              >
-                {index + 1}
-              </div>
-            ))}
-          </div>
+      {showStatusBar ? (
+        <div className={classNames(
+          "shrink-0 border-b px-6 py-3 text-[11px] font-medium",
+          isLight
+            ? readOnly
+              ? "border-zinc-200 bg-zinc-50/70 text-zinc-500"
+              : "border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f4f4f5_100%)] text-zinc-700"
+            : "border-zinc-900 bg-zinc-950/80 text-zinc-400",
+        )}>
+          {statusLabel || (readOnly ? "Viewing source" : "Editing staged source")} - {`${lineCount} ${lineCount === 1 ? "line" : "lines"}`}
+        </div>
+      ) : null}
 
-          {readOnly ? (
-            <div className="min-w-0 overflow-x-auto">
+      <div className={classNames("min-h-0 flex-1 overflow-hidden", seamless && isLight ? "bg-transparent" : isLight ? "bg-white" : "bg-zinc-950")}>
+        {readOnly ? (
+          <div
+            className={classNames("relative h-full", onActivate ? "group/csr" : "")}
+            onClick={onActivate || undefined}
+          >
+            {onActivate ? (
+              <>
+                <div className="pointer-events-none absolute inset-0 z-10 opacity-0 ring-2 ring-inset ring-zinc-400/40 transition-opacity duration-100 group-hover/csr:opacity-100" />
+                <div className="pointer-events-none absolute right-3 top-3 z-20 opacity-0 transition-opacity duration-100 group-hover/csr:opacity-100">
+                  <span className="rounded-full bg-zinc-900 px-2.5 py-1 text-[10px] font-medium text-white shadow-sm">Click to edit</span>
+                </div>
+              </>
+            ) : null}
+            <div
+              ref={readOnlyViewportRef}
+              className={classNames(
+                "h-full max-h-[calc(100dvh-240px)] overflow-x-auto overflow-y-auto overscroll-contain [scrollbar-gutter:stable] lg:max-h-none",
+                onActivate ? "cursor-text" : "",
+                seamless && isLight ? "bg-[linear-gradient(180deg,#fcfcfd_0%,#f8fafc_100%)]" : "",
+              )}
+            >
               <CodeSurfaceRenderedLines lines={renderedLines} lineHighlightRange={lineHighlightRange} tone={tone} />
             </div>
-          ) : (
-            <div className="relative min-w-0 overflow-x-auto">
-              <div aria-hidden="true" className="pointer-events-none absolute inset-0">
-                <CodeSurfaceRenderedLines lines={renderedLines} lineHighlightRange={lineHighlightRange} tone={tone} />
-              </div>
-              <textarea
-                value={code}
-                onChange={(e) => onChange?.(e.target.value)}
-                wrap="off"
-                spellCheck={false}
-                style={{ height: contentHeightPx }}
-                className={classNames(
-                  "relative z-10 w-max min-w-full resize-none overflow-hidden bg-transparent px-4 py-3 text-transparent outline-none",
-                  isLight ? "caret-sky-600 placeholder:text-zinc-400 selection:bg-sky-200/60" : "caret-cyan-300 placeholder:text-zinc-500 selection:bg-white/15",
-                )}
-                placeholder={placeholder}
-              />
+          </div>
+        ) : (
+          <div className={classNames("flex h-full min-h-0", isLight ? "bg-white" : "bg-zinc-950")}>
+            <div
+              ref={editLineNumbersRef}
+              aria-hidden="true"
+              className={classNames(
+                "shrink-0 overflow-hidden border-r px-2 py-3 pb-6 text-right text-[11px] leading-6 tabular-nums select-none",
+                isLight ? "border-zinc-200 bg-zinc-50 text-zinc-400" : "border-zinc-900 bg-zinc-950 text-zinc-500",
+              )}
+            >
+              {renderedLines.map((_, index) => (
+                <div key={`edit-line-${index}`} className="h-6 pr-1">
+                  {index + 1}
+                </div>
+              ))}
             </div>
-          )}
-        </div>
+            <textarea
+              ref={textareaRef}
+              value={code}
+              onChange={(e) => onChange?.(e.target.value)}
+              onScroll={syncEditGutterScroll}
+              wrap="off"
+              spellCheck={false}
+              className={classNames(
+                "block h-full max-h-[calc(100dvh-240px)] min-h-0 w-full resize-none overflow-x-auto overflow-y-auto bg-transparent px-4 py-3 pb-6 text-[13.5px] leading-6 tracking-[0] antialiased outline-none [scrollbar-gutter:stable] lg:max-h-none",
+                isLight
+                  ? "text-zinc-800 caret-zinc-700 placeholder:text-zinc-400 selection:bg-zinc-300/35"
+                  : "text-zinc-100 caret-cyan-300 placeholder:text-zinc-500 selection:bg-white/15",
+              )}
+              style={{ tabSize: 2, fontFamily: CODE_SURFACE_FONT_FAMILY }}
+              placeholder={placeholder}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2364,6 +1976,7 @@ function CustomHtmlPreviewFrame({
   heightClassName,
   selectedRegionKey,
   selectionState,
+  minimalChrome = false,
 }: {
   html: string;
   title: string;
@@ -2371,8 +1984,159 @@ function CustomHtmlPreviewFrame({
   heightClassName: string;
   selectedRegionKey?: string | null;
   selectionState?: "idle" | "pending" | "settled";
+  minimalChrome?: boolean;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const frameViewportRef = useRef<HTMLDivElement | null>(null);
+  const lastHtmlRef = useRef(html);
+  const pendingHistoryActionRef = useRef<null | "back" | "forward">(null);
+  const frameSizingCleanupRef = useRef<null | (() => void)>(null);
+  const [frameKey, setFrameKey] = useState(0);
+  const [frameContentHeight, setFrameContentHeight] = useState<number | null>(null);
+  const [frameNav, setFrameNav] = useState<{
+    entries: Array<{ href: string | null; label: string }>;
+    index: number;
+  }>({
+    entries: [{ href: null, label: "Editor draft preview" }],
+    index: 0,
+  });
+
+  const readFrameLocation = useCallback(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return { href: null, label: "Editor draft preview" };
+
+    try {
+      const href = String(iframe.contentWindow?.location?.href || "").trim();
+      if (!href || href === "about:srcdoc") return { href: null, label: "Editor draft preview" };
+      const url = new URL(href, window.location.href);
+      const path = `${url.pathname || "/"}${url.search || ""}${url.hash || ""}`;
+      return { href, label: path || url.href };
+    } catch {
+      return { href: "external", label: "External preview page" };
+    }
+  }, []);
+
+  const syncFrameNavigation = useCallback(() => {
+    const nextLocation = readFrameLocation();
+    setFrameNav((prev) => {
+      const pendingAction = pendingHistoryActionRef.current;
+      pendingHistoryActionRef.current = null;
+
+      if (pendingAction === "back") {
+        return { ...prev, index: Math.max(0, prev.index - 1) };
+      }
+      if (pendingAction === "forward") {
+        return { ...prev, index: Math.min(prev.entries.length - 1, prev.index + 1) };
+      }
+
+      const current = prev.entries[prev.index] || null;
+      if (current && current.href === nextLocation.href && current.label === nextLocation.label) return prev;
+
+      const truncated = prev.entries.slice(0, prev.index + 1);
+      const nextEntries = [...truncated, nextLocation].slice(-12);
+      return { entries: nextEntries, index: nextEntries.length - 1 };
+    });
+  }, [readFrameLocation]);
+
+  const teardownFrameSizing = useCallback(() => {
+    frameSizingCleanupRef.current?.();
+    frameSizingCleanupRef.current = null;
+  }, []);
+
+  const setFrameViewportHeight = useCallback((nextHeight: number | null) => {
+    const viewport = frameViewportRef.current;
+    if (!viewport) return;
+    if (previewDevice === "desktop" && nextHeight && Number.isFinite(nextHeight)) {
+      viewport.style.height = `${nextHeight}px`;
+      return;
+    }
+    viewport.style.height = "";
+  }, [previewDevice]);
+
+  const measureFrameHeight = useCallback(() => {
+    if (previewDevice !== "desktop") {
+      setFrameContentHeight(null);
+      setFrameViewportHeight(null);
+      return;
+    }
+
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    try {
+      const doc = iframe.contentDocument;
+      const root = doc?.documentElement;
+      const body = doc?.body;
+      if (!doc || !root || !body) {
+        setFrameContentHeight(null);
+        setFrameViewportHeight(null);
+        return;
+      }
+
+      const nextHeight = Math.max(
+        root.scrollHeight,
+        root.offsetHeight,
+        root.clientHeight,
+        body.scrollHeight,
+        body.offsetHeight,
+        body.clientHeight,
+      );
+      const resolvedHeight = Math.max(nextHeight, 720);
+      setFrameContentHeight(resolvedHeight);
+      setFrameViewportHeight(resolvedHeight);
+    } catch {
+      setFrameContentHeight(null);
+      setFrameViewportHeight(null);
+    }
+  }, [previewDevice, setFrameViewportHeight]);
+
+  const installFrameSizing = useCallback(() => {
+    teardownFrameSizing();
+    if (previewDevice !== "desktop") {
+      setFrameContentHeight(null);
+      setFrameViewportHeight(null);
+      return;
+    }
+
+    const iframe = iframeRef.current;
+    const doc = iframe?.contentDocument;
+    const win = iframe?.contentWindow;
+    const root = doc?.documentElement;
+    const body = doc?.body;
+    if (!iframe || !doc || !win || !root || !body) {
+      setFrameContentHeight(null);
+      setFrameViewportHeight(null);
+      return;
+    }
+
+    measureFrameHeight();
+
+    const timeouts = [0, 120, 360, 800].map((delay) => window.setTimeout(() => measureFrameHeight(), delay));
+    const handleResize = () => measureFrameHeight();
+
+    win.addEventListener("resize", handleResize);
+
+    let resizeObserver: ResizeObserver | null = null;
+    let mutationObserver: MutationObserver | null = null;
+
+    try {
+      resizeObserver = new ResizeObserver(() => measureFrameHeight());
+      resizeObserver.observe(root);
+      resizeObserver.observe(body);
+    } catch {}
+
+    try {
+      mutationObserver = new MutationObserver(() => measureFrameHeight());
+      mutationObserver.observe(doc, { subtree: true, childList: true, characterData: true, attributes: true });
+    } catch {}
+
+    frameSizingCleanupRef.current = () => {
+      win.removeEventListener("resize", handleResize);
+      timeouts.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+    };
+  }, [measureFrameHeight, previewDevice, setFrameViewportHeight, teardownFrameSizing]);
 
   const applyRegionSelection = useCallback(
     (scrollBehavior: ScrollBehavior) => {
@@ -2387,7 +2151,9 @@ function CustomHtmlPreviewFrame({
     const iframe = iframeRef.current;
     if (!iframe) return;
     const handleLoad = () => {
+      syncFrameNavigation();
       applyRegionSelection("auto");
+      installFrameSizing();
     };
 
     iframe.addEventListener("load", handleLoad);
@@ -2395,8 +2161,9 @@ function CustomHtmlPreviewFrame({
 
     return () => {
       iframe.removeEventListener("load", handleLoad);
+      teardownFrameSizing();
     };
-  }, [applyRegionSelection]);
+  }, [applyRegionSelection, installFrameSizing, syncFrameNavigation, teardownFrameSizing]);
 
   useEffect(() => {
     const iframe = iframeRef.current;
@@ -2404,17 +2171,253 @@ function CustomHtmlPreviewFrame({
     applyRegionSelection("smooth");
   }, [applyRegionSelection]);
 
+  useEffect(() => {
+    if (lastHtmlRef.current === html) return;
+    lastHtmlRef.current = html;
+    pendingHistoryActionRef.current = null;
+    setFrameContentHeight(null);
+    setFrameViewportHeight(null);
+    setFrameNav({ entries: [{ href: null, label: "Editor draft preview" }], index: 0 });
+    setFrameKey((prev) => prev + 1);
+  }, [html, setFrameViewportHeight]);
+
+  useEffect(() => {
+    if (previewDevice !== "desktop") return;
+    const timeoutIds = [80, 220, 480, 900].map((delay) => window.setTimeout(() => measureFrameHeight(), delay));
+    return () => {
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    };
+  }, [frameKey, measureFrameHeight, previewDevice]);
+
+  useEffect(() => () => {
+    teardownFrameSizing();
+    setFrameViewportHeight(null);
+  }, [setFrameViewportHeight, teardownFrameSizing]);
+
+  const canGoBack = frameNav.index > 0;
+  const canGoForward = frameNav.index < frameNav.entries.length - 1;
+  const atDraftPreview = frameNav.index === 0 && frameNav.entries[0]?.href === null;
+  const currentLocationLabel = frameNav.entries[frameNav.index]?.label || "Editor draft preview";
+  const showToolbar = !minimalChrome;
+  const useDocumentHeight = previewDevice === "desktop" && atDraftPreview && Boolean(frameContentHeight);
+  const frameViewportClassName = previewDevice === "desktop"
+    ? useDocumentHeight
+      ? "min-h-[720px]"
+      : atDraftPreview
+        ? "min-h-[720px]"
+      : heightClassName && heightClassName !== "h-full"
+        ? heightClassName
+        : "h-[min(82vh,1200px)] min-h-[720px]"
+    : heightClassName;
+
   return (
-    <div className={classNames("mx-auto w-full", previewDevice === "mobile" ? "h-full max-w-98" : "max-w-5xl")}>
-      <div className={classNames(previewDevice === "mobile" ? "h-full overflow-hidden rounded-[28px] bg-white" : "h-[82vh] overflow-hidden bg-white")}>
+    <div className={classNames("mx-auto w-full", previewDevice === "mobile" ? "max-w-98" : "max-w-5xl")}>
+      <div
+        className={classNames(
+          previewDevice === "mobile"
+            ? "flex flex-col overflow-hidden rounded-[28px] bg-white"
+            : minimalChrome
+              ? "flex flex-col bg-transparent"
+              : "flex flex-col bg-white",
+        )}
+      >
+        {showToolbar ? (
+        <div className="flex items-center gap-2 border-b border-zinc-200 bg-zinc-50/85 px-3 py-2 text-xs text-zinc-600">
+          <button
+            type="button"
+            disabled={!canGoBack}
+            onClick={() => {
+              const frameWindow = iframeRef.current?.contentWindow;
+              if (!frameWindow || !canGoBack) return;
+              pendingHistoryActionRef.current = "back";
+              frameWindow.history.back();
+            }}
+            className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1 font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            disabled={!canGoForward}
+            onClick={() => {
+              const frameWindow = iframeRef.current?.contentWindow;
+              if (!frameWindow || !canGoForward) return;
+              pendingHistoryActionRef.current = "forward";
+              frameWindow.history.forward();
+            }}
+            className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1 font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Forward
+          </button>
+          <button
+            type="button"
+            disabled={atDraftPreview}
+            onClick={() => {
+              pendingHistoryActionRef.current = null;
+              setFrameNav({ entries: [{ href: null, label: "Editor draft preview" }], index: 0 });
+              setFrameKey((prev) => prev + 1);
+            }}
+            className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1 font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Return to editor draft
+          </button>
+          <div className="min-w-0 flex-1 truncate text-[11px] text-zinc-500">{currentLocationLabel}</div>
+        </div>
+        ) : null}
+        <div
+          ref={frameViewportRef}
+          className={classNames("overflow-hidden bg-white", frameViewportClassName)}
+          style={useDocumentHeight && frameContentHeight ? { height: frameContentHeight } : undefined}
+        >
           <iframe
+            key={frameKey}
             ref={iframeRef}
             title={title}
             sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
             allow="microphone"
             srcDoc={html}
-            className={classNames("block w-full bg-white", previewDevice === "mobile" ? heightClassName : "h-full")}
+            className="block h-full w-full border-0 bg-white"
           />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PageAssistantComposerRow({
+  leading,
+  children,
+}: {
+  leading?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mx-auto w-full max-w-4xl">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+        {leading ? <div className="shrink-0">{leading}</div> : null}
+        <div className="min-w-0 flex-1">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+const WHOLE_PAGE_LENS_WINDOW_CLASS_NAME = "flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-zinc-200/80 bg-[linear-gradient(180deg,#fbfcfe_0%,#f5f7fb_100%)] shadow-[0_20px_50px_rgba(15,23,42,0.06)]";
+const WHOLE_PAGE_LENS_WINDOW_SUBTLE_CLASS_NAME = "flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-zinc-200/70 bg-[linear-gradient(180deg,#fcfdfd_0%,#f8fafc_100%)] shadow-[0_12px_30px_rgba(15,23,42,0.04)]";
+const WHOLE_PAGE_LENS_HEADER_CLASS_NAME = "shrink-0 border-b border-zinc-200/80 bg-white px-4 py-3 sm:px-5";
+const WHOLE_PAGE_LENS_HEADER_SUBTLE_CLASS_NAME = "shrink-0 border-b border-zinc-200/70 bg-zinc-50/60 px-4 py-2.5 sm:px-5";
+const WHOLE_PAGE_LENS_FOOTER_CLASS_NAME = "shrink-0 border-t border-zinc-200/80 bg-white px-4 py-3 sm:px-5";
+
+function shouldOpenQuickCalendarForAiQuestion(question: string) {
+  const text = String(question || "").toLowerCase();
+  return /\b(calendar|booking calendar|schedule|book a call|book a meeting|appointment)\b/.test(text)
+    && /\b(name|create|link|enable)\b/.test(text);
+}
+
+function WholePageLensWindow({
+  label,
+  title,
+  meta,
+  actions,
+  children,
+  footer,
+  bodyClassName,
+  headerHidden = false,
+  compactHeader = false,
+  tone = "default",
+}: {
+  label: string;
+  title: string;
+  meta?: string | null;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  bodyClassName?: string;
+  headerHidden?: boolean;
+  compactHeader?: boolean;
+  tone?: "default" | "subtle";
+}) {
+  return (
+    <div className={tone === "subtle" ? WHOLE_PAGE_LENS_WINDOW_SUBTLE_CLASS_NAME : WHOLE_PAGE_LENS_WINDOW_CLASS_NAME}>
+      {!headerHidden ? (
+        <div
+          className={classNames(
+            tone === "subtle" ? WHOLE_PAGE_LENS_HEADER_SUBTLE_CLASS_NAME : WHOLE_PAGE_LENS_HEADER_CLASS_NAME,
+            "overflow-hidden transition-[max-height,opacity,padding,border-color] duration-200 ease-out max-h-32 opacity-100",
+          )}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              {compactHeader ? (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <div className="text-sm font-semibold text-zinc-900">{title}</div>
+                  {meta ? <div className="text-xs text-zinc-500">{meta}</div> : null}
+                </div>
+              ) : (
+                <>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">{label}</div>
+                  <div className="mt-1 text-sm font-semibold text-zinc-900">{title}</div>
+                  {meta ? <div className="mt-1 text-xs text-zinc-500">{meta}</div> : null}
+                </>
+              )}
+            </div>
+            {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+          </div>
+        </div>
+      ) : null}
+
+      <div className={classNames("min-h-0 flex-1", bodyClassName)}>{children}</div>
+
+      {footer ? <div className={WHOLE_PAGE_LENS_FOOTER_CLASS_NAME}>{footer}</div> : null}
+    </div>
+  );
+}
+
+function describeSectionPlanItem(item: string, index: number, total: number) {
+  const normalized = item.trim().toLowerCase();
+
+  if (normalized.includes("hero")) {
+    return "Top of page. Set the promise, orient the visitor, and make the next step visible immediately.";
+  }
+  if (/(proof|trust|testimonial|logo|social proof)/.test(normalized)) {
+    return "Credibility beat. Show evidence early so the main claim feels believable fast.";
+  }
+  if (/(offer|deliverable|includes|breakdown)/.test(normalized)) {
+    return "Explain what the visitor gets and why it is worth taking the next step.";
+  }
+  if (/(reassurance|expectation|expectations|faq|objection)/.test(normalized)) {
+    return "Remove resistance. Clarify objections, process, or what happens after the click.";
+  }
+  if (/(who it is for|\bfit\b|audience)/.test(normalized)) {
+    return "Qualify fit. Help the right visitor lean in and let the wrong one self-sort.";
+  }
+  if (/(cta|capture|book|apply|schedule|next step)/.test(normalized)) {
+    return "Conversion moment. Make the action obvious, specific, and low friction.";
+  }
+  if (index === 0) {
+    return "Opening beat. The first screen should clarify the promise and the action path quickly.";
+  }
+  if (index === total - 1) {
+    return "Closing beat. End with reassurance and a clear push into the next step.";
+  }
+  return "Distinct section beat. Give this part a clear job instead of letting the page flatten into one continuous slab.";
+}
+
+function SectionPlanHintRow({ item, index, total }: { item: string; index: number; total: number }) {
+  const hint = describeSectionPlanItem(item, index, total);
+
+  return (
+    <div className="group relative flex items-start gap-3 rounded-xl border border-zinc-200/80 bg-white/90 px-3 py-2">
+      <div className="flex w-8 shrink-0 flex-col items-center pt-0.5">
+        <div className="text-[11px] font-semibold tabular-nums text-zinc-500">
+          {(index + 1).toString().padStart(2, "0")}
+        </div>
+        {index < total - 1 ? <div aria-hidden="true" className="mt-1 h-5 w-px rounded-full bg-zinc-200" /> : null}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold leading-6 text-zinc-900">{item}</div>
+      </div>
+      <div className="pointer-events-none absolute left-9 right-3 top-[calc(100%+6px)] z-20 rounded-2xl border border-zinc-200 bg-white/98 px-3 py-2 text-xs leading-5 text-zinc-600 opacity-0 shadow-[0_16px_30px_rgba(15,23,42,0.08)] transition-[opacity,transform] duration-150 ease-out translate-y-1 group-hover:translate-y-0 group-hover:opacity-100">
+        {hint}
       </div>
     </div>
   );
@@ -2425,6 +2428,7 @@ function AiPromptComposer({
   onChange,
   onSubmit,
   onAttach,
+  onPaste,
   placeholder,
   busy,
   busyLabel,
@@ -2436,6 +2440,7 @@ function AiPromptComposer({
   onChange: (next: string) => void;
   onSubmit: () => void;
   onAttach: () => void;
+  onPaste?: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   placeholder: string;
   busy: boolean;
   busyLabel: string;
@@ -2446,6 +2451,7 @@ function AiPromptComposer({
   const canSubmit = !busy && value.trim().length > 0;
   const darkTone = tone === "dark";
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerStatusLabel = attachCount ? `${attachCount} reference${attachCount === 1 ? "" : "s"} attached` : null;
 
   useEffect(() => {
     const node = textareaRef.current;
@@ -2457,80 +2463,86 @@ function AiPromptComposer({
   return (
     <div
       className={classNames(
-        "flex items-end gap-2 border-b px-1 py-1 transition-colors",
+        "relative flex flex-col gap-1 border-b px-1 py-1 transition-colors",
         darkTone ? "border-zinc-700 text-zinc-100 focus-within:border-zinc-500" : "border-zinc-300/75 text-zinc-900 focus-within:border-zinc-500",
         className,
       )}
+      aria-busy={busy}
     >
-      <AiSparkIcon className={classNames("mb-2 h-3.5 w-3.5 shrink-0", darkTone ? "text-zinc-500" : "text-zinc-400")} />
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && canSubmit) {
-            e.preventDefault();
-            onSubmit();
-          }
-        }}
-        className={classNames(
-          "min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-2 text-[14px] leading-5 tracking-[-0.01em] outline-none",
-          darkTone ? "text-zinc-50 placeholder:text-zinc-500" : "text-zinc-900 placeholder:text-zinc-400",
-        )}
-        style={{ minHeight: 40, maxHeight: 220 }}
-        rows={1}
-        placeholder={placeholder}
-      />
+      <div className="flex items-end gap-2">
+        <AiSparkIcon className={classNames("mb-2 h-3.5 w-3.5 shrink-0", busy ? (darkTone ? "text-zinc-600" : "text-zinc-300") : darkTone ? "text-zinc-500" : "text-zinc-400")} />
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onPaste={onPaste}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && canSubmit) {
+              onSubmit();
+            }
+          }}
+          className={classNames(
+            "min-w-0 flex-1 resize-none overflow-y-auto rounded-2xl px-3 py-2.5 text-[14px] leading-5 tracking-[-0.01em] outline-none transition-colors",
+            darkTone ? "text-zinc-50 placeholder:text-zinc-500" : "text-zinc-900 placeholder:text-zinc-400",
+            "bg-transparent",
+          )}
+          style={{ minHeight: 40, maxHeight: 220 }}
+          rows={1}
+          placeholder={placeholder}
+        />
 
-      {busy ? <span className={classNames("mb-2 hidden shrink-0 text-[11px] font-medium tracking-[0.01em] sm:inline", darkTone ? "text-zinc-500" : "text-zinc-500")}>{busyLabel}</span> : null}
-
-      <button
-        type="button"
-        disabled={busy}
-        onClick={onAttach}
-        className={classNames(
-          "relative mb-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-60",
-          darkTone ? "text-zinc-500 hover:text-zinc-100" : "text-zinc-400 hover:text-zinc-700",
-          attachCount ? "text-brand-blue" : "",
-        )}
-        title={attachCount ? `${attachCount} image${attachCount === 1 ? "" : "s"} attached` : "Attach images to AI"}
-        aria-label={attachCount ? `${attachCount} image${attachCount === 1 ? "" : "s"} attached` : "Attach images to AI"}
-      >
-        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-        </svg>
-        {attachCount ? (
-          <span className="absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-brand-blue px-1 text-[10px] font-semibold leading-4 text-white">
-            {attachCount > 9 ? "9+" : attachCount}
-          </span>
-        ) : null}
-      </button>
-
-      <button
-        type="button"
-        disabled={!canSubmit}
-        onClick={onSubmit}
-        className={classNames(
-          "group mb-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-100 hover:scale-105 disabled:opacity-50",
-          darkTone ? "text-zinc-400 hover:text-zinc-100" : "text-zinc-500 hover:text-zinc-900",
-          canSubmit ? "" : darkTone ? "pointer-events-none text-zinc-700" : "pointer-events-none text-zinc-300",
-        )}
-        title={busy ? busyLabel : "Send prompt to AI"}
-        aria-label={busy ? busyLabel : "Send prompt to AI"}
-      >
-        {busy ? (
-          <SpinnerIcon className="h-4 w-4" />
-        ) : (
-          <>
-            <span className="group-hover:hidden">
-              <IconSend size={16} />
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onAttach}
+          className={classNames(
+            "relative mb-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-60",
+            darkTone ? "text-zinc-500 hover:text-zinc-100" : "text-zinc-400 hover:text-zinc-700",
+            attachCount ? "text-brand-blue" : "",
+          )}
+          title={attachCount ? `${attachCount} reference${attachCount === 1 ? "" : "s"} attached` : "Attach references to AI"}
+          aria-label={attachCount ? `${attachCount} reference${attachCount === 1 ? "" : "s"} attached` : "Attach references to AI"}
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+          </svg>
+          {attachCount ? (
+            <span className="absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-brand-blue px-1 text-[10px] font-semibold leading-4 text-white">
+              {attachCount > 9 ? "9+" : attachCount}
             </span>
-            <span className="hidden group-hover:inline">
-              <IconSendHover size={16} />
-            </span>
-          </>
-        )}
-      </button>
+          ) : null}
+        </button>
+
+        <button
+          type="button"
+          disabled={!canSubmit}
+          onClick={onSubmit}
+          className={classNames(
+            "group mb-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-100 hover:scale-105 disabled:opacity-50",
+            darkTone ? "text-zinc-400 hover:text-zinc-100" : "text-zinc-500 hover:text-zinc-900",
+            canSubmit ? "" : darkTone ? "pointer-events-none text-zinc-700" : "pointer-events-none text-zinc-300",
+          )}
+          title={busy ? busyLabel : "Send prompt to AI"}
+          aria-label={busy ? busyLabel : "Send prompt to AI"}
+        >
+          {busy ? (
+            <SpinnerIcon className="h-4 w-4" />
+          ) : (
+            <>
+              <span className="group-hover:hidden">
+                <IconSend size={16} />
+              </span>
+              <span className="hidden group-hover:inline">
+                <IconSendHover size={16} />
+              </span>
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className={classNames("flex min-h-[18px] items-center gap-2 px-7 pb-1 text-[11px] tracking-[0.01em]", busy ? (darkTone ? "text-zinc-600" : "text-zinc-400") : darkTone ? "text-zinc-500" : "text-zinc-500")}>
+        {composerStatusLabel ? <span className="min-w-0 truncate">{composerStatusLabel}</span> : null}
+      </div>
     </div>
   );
 }
@@ -2541,6 +2553,28 @@ function escapeEditorPreviewText(value: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/\"/g, "&quot;");
+}
+
+function extractClipboardImageFiles(data: DataTransfer | null | undefined) {
+  const deduped = new Map<string, File>();
+
+  for (const file of Array.from(data?.files || [])) {
+    if (!(file instanceof File)) continue;
+    if (!String(file.type || "").toLowerCase().startsWith("image/")) continue;
+    const key = `${file.name}:${file.size}:${file.type}`;
+    deduped.set(key, file);
+  }
+
+  for (const item of Array.from(data?.items || [])) {
+    if (!item || item.kind !== "file") continue;
+    if (!String(item.type || "").toLowerCase().startsWith("image/")) continue;
+    const file = item.getAsFile();
+    if (!(file instanceof File)) continue;
+    const key = `${file.name}:${file.size}:${file.type}`;
+    deduped.set(key, file);
+  }
+
+  return Array.from(deduped.values());
 }
 
 function readEditorPreviewAttr(attrs: string, name: string) {
@@ -2589,6 +2623,34 @@ function buildEditorPreviewHtml(html: string) {
     const heightPx = getEditorPreviewEmbedHeight(attrs);
     return buildEditorEmbedPlaceholder(title, src, heightPx);
   });
+}
+
+function humanizeBuilderSectionLabel(value: string) {
+  return String(value || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function collectBuilderSectionPlanItems(rawBlocks: unknown) {
+  const blocks = Array.isArray(rawBlocks) ? rawBlocks : [];
+  const labels: string[] = [];
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index] as Record<string, any> | null;
+    if (!block || typeof block !== "object" || block.type !== "section") continue;
+    const props = block.props && typeof block.props === "object" ? block.props : {};
+    const children = Array.isArray((props as any).children) ? ((props as any).children as Array<Record<string, any>>) : [];
+    const heading = children.find((child) => child && child.type === "heading" && typeof child.props?.text === "string");
+    const headingText = typeof heading?.props?.text === "string" ? heading.props.text.trim() : "";
+    const anchorLabel = typeof (props as any).anchorId === "string" ? humanizeBuilderSectionLabel((props as any).anchorId) : "";
+    const label = headingText || anchorLabel || `Section ${index + 1}`;
+    if (!label || labels.includes(label)) continue;
+    labels.push(label);
+  }
+
+  return labels.slice(0, 8);
 }
 
 async function convertPreviewImageDataUrlToPngDataUrl(
@@ -2758,42 +2820,23 @@ type HtmlRegionScope = {
 };
 
 function normalizeInlineText(value: string) {
-  return String(value || "").replace(/\s+/g, " ").trim();
-}
-
-function getHtmlRegionElements(doc: Document): Element[] {
-  const isIgnoredTag = (tagName: string) => ["script", "style", "meta", "link", "noscript"].includes(tagName.toLowerCase());
-
-  let container: Element = doc.body;
-  const bodyChildren = Array.from(doc.body.children).filter((el) => !isIgnoredTag(el.tagName));
-  if (bodyChildren.length === 1) {
-    const only = bodyChildren[0];
-    const grandchildren = Array.from(only.children).filter((el) => !isIgnoredTag(el.tagName));
-    if (grandchildren.length >= 2) container = only;
-  }
-
-  return Array.from(container.children)
-    .filter((el) => !isIgnoredTag(el.tagName))
-    .filter((el) => normalizeInlineText(el.textContent || "") || el.querySelector("img, form, iframe, video, section, article, footer, header, nav"));
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildHtmlRegionScope(el: Element, sourceIndex: number): HtmlRegionScope {
-  const meta = normalizeInlineText(
-    [
-      el.tagName,
-      el.getAttribute("id") || "",
-      el.getAttribute("class") || "",
-      el.getAttribute("aria-label") || "",
-      el.getAttribute("role") || "",
-    ].join(" "),
-  ).toLowerCase();
-  const heading = normalizeInlineText(el.querySelector("h1, h2, h3")?.textContent || "");
   const text = normalizeInlineText(el.textContent || "").toLowerCase();
+  const meta = normalizeInlineText([
+    el.getAttribute("id") || "",
+    el.getAttribute("class") || "",
+    el.getAttribute("data-section") || "",
+    el.getAttribute("aria-label") || "",
+  ].join(" ")).toLowerCase();
+  const heading = normalizeInlineText(el.querySelector("h1, h2, h3, h4, h5, h6")?.textContent || "");
 
   let label = "";
-  if (/^(header|nav)$/i.test(el.tagName) || /\b(nav|menu|header)\b/.test(meta)) {
-    label = "Header";
-  } else if (/^footer$/i.test(el.tagName) || /\bfooter\b/.test(meta)) {
+  if (/\bfooter\b/.test(`${text} ${meta}`)) {
     label = "Footer";
   } else if (sourceIndex === 0 && (el.querySelector("h1") || /\bhero\b/.test(meta))) {
     label = "Hero";
@@ -2823,6 +2866,16 @@ function buildHtmlRegionScope(el: Element, sourceIndex: number): HtmlRegionScope
     html: el.outerHTML.slice(0, 24000),
     sourceIndex,
   };
+}
+
+function getHtmlRegionElements(doc: Document): Element[] {
+  const preferredSelectors = ":scope > main > section, :scope > section, :scope > main > div, :scope > div";
+  const preferred = Array.from(doc.body?.querySelectorAll(preferredSelectors) || []).filter(
+    (el) => normalizeInlineText(el.textContent || "").length > 0,
+  );
+  if (preferred.length > 0) return preferred;
+
+  return Array.from(doc.body?.children || []).filter((el) => normalizeInlineText(el.textContent || "").length > 0);
 }
 
 const HTML_PREVIEW_REGION_STYLE_ID = "pa-html-preview-region-style";
@@ -3006,8 +3059,10 @@ type Funnel = {
   updatedAt: string;
   assignedDomain?: string | null;
   bookingCalendarId?: string | null;
+  bookingDefaults?: FunnelBookingDefaults | null;
   seo?: FunnelSeo | null;
   brief?: FunnelBriefProfile | null;
+  trackingSettings?: PixelTrackingSettings | null;
 };
 
 type FunnelSeo = {
@@ -3021,6 +3076,7 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   at?: string;
+  sourceActionPlan?: SourceActionPlan;
 };
 
 type BlockChatMessage = ChatMessage;
@@ -3067,7 +3123,7 @@ const PAGE_FORM_STRATEGY_LABELS: Record<FunnelPageFormStrategy, string> = {
 
 function parseSectionPlanItems(raw: string) {
   return String(raw || "")
-    .split(/->|\n|•|\u2022/g)
+    .split(/->|\n|\u2022/g)
     .map((item) => item.replace(/^[-\s]+/, "").trim())
     .filter(Boolean)
     .slice(0, 10);
@@ -3306,23 +3362,24 @@ function estimateImportedLayoutHeightPx(html: string) {
 function coerceImportedLayoutChatJson(raw: unknown): BlockChatMessage[] | undefined {
   if (!Array.isArray(raw)) return undefined;
 
-  const chat = raw
-    .map((entry) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
-      const role = (entry as { role?: unknown }).role;
-      const content = (entry as { content?: unknown }).content;
-      const at = (entry as { at?: unknown }).at;
-      if ((role !== "user" && role !== "assistant") || typeof content !== "string") return null;
-      return {
-        role,
-        content,
-        ...(typeof at === "string" && at.trim() ? { at } : {}),
-      } satisfies BlockChatMessage;
-    })
-    .filter((entry): entry is BlockChatMessage => Boolean(entry))
-    .slice(-40);
+  const chat: BlockChatMessage[] = [];
+  raw.forEach((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
+    const record = entry as Record<string, unknown>;
+    const role = record.role;
+    const content = record.content;
+    const at = record.at;
+    const sourceActionPlan = sanitizeSourceActionPlan(record.sourceActionPlan);
+    if ((role !== "user" && role !== "assistant") || typeof content !== "string") return;
+    chat.push({
+      role,
+      content,
+      ...(typeof at === "string" && at.trim() ? { at } : {}),
+      ...(sourceActionPlan ? { sourceActionPlan } : {}),
+    });
+  });
 
-  return chat.length ? chat : undefined;
+  return chat.length ? chat.slice(-40) : undefined;
 }
 
 function buildLayoutBlocksFromCustomHtml(rawHtml: string, chatJsonRaw?: unknown) {
@@ -3577,9 +3634,7 @@ function maybeHexFromCssColor(raw: string | undefined | null): string | null {
   }
 
   if (lower.startsWith("rgba(")) {
-    const rgba = v.match(
-      /^rgba\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|0?\.\d+|1|1\.0)\)\s*$/i,
-    );
+    const rgba = v.match(/^rgba\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|0?\.\d+|1|1\.0)\)\s*$/i);
     if (!rgba) return null;
     const parsed = parseCssColor(v);
     return isHexColor(parsed.hex) ? parsed.hex : null;
@@ -3604,17 +3659,17 @@ function collectHexSwatchesFromUnknown(value: unknown, out: string[], depth = 0)
   }
 
   if (typeof value === "object") {
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (typeof v === "string") {
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof entry === "string") {
         const looksLikeColor =
-          k.toLowerCase().includes("color") || v.trim().startsWith("#") || v.trim().toLowerCase().startsWith("rgb");
+          key.toLowerCase().includes("color") || entry.trim().startsWith("#") || entry.trim().toLowerCase().startsWith("rgb");
         if (looksLikeColor) {
-          const hex = maybeHexFromCssColor(v);
+          const hex = maybeHexFromCssColor(entry);
           if (hex) out.push(hex);
           continue;
         }
       }
-      collectHexSwatchesFromUnknown(v, out, depth + 1);
+      collectHexSwatchesFromUnknown(entry, out, depth + 1);
     }
   }
 }
@@ -3660,8 +3715,8 @@ function ColorPickerField({
             }
             const normalized = isHexColor(normalizeHexInput(raw)) ? normalizeHexInput(raw) : raw;
             if (allowAlpha) {
-              const p = parseCssColor(normalized);
-              onChange(formatColorWithAlpha(p.hex, p.alpha));
+              const nextColor = parseCssColor(normalized);
+              onChange(formatColorWithAlpha(nextColor.hex, nextColor.alpha));
               return;
             }
             onChange(normalized);
@@ -3688,8 +3743,7 @@ function ColorPickerField({
             value={Math.round(currentAlpha * 100)}
             onChange={(e) => {
               const pct = clamp(Number(e.target.value) || 0, 0, 100);
-              const next = formatColorWithAlpha(currentHex, pct / 100);
-              onChange(next);
+              onChange(formatColorWithAlpha(currentHex, pct / 100));
             }}
             className="flex-1"
           />
@@ -3699,17 +3753,17 @@ function ColorPickerField({
 
       {swatches.length ? (
         <div className="mt-2 flex flex-wrap gap-2">
-          {swatches.map((c) => (
+          {swatches.map((swatch) => (
             <button
-              key={c}
+              key={swatch}
               type="button"
               onClick={() => {
-                const next = allowAlpha ? formatColorWithAlpha(c, currentAlpha) : c;
+                const next = allowAlpha ? formatColorWithAlpha(swatch, currentAlpha) : swatch;
                 onChange(next);
               }}
               className="h-8 w-8 rounded-full border border-zinc-200"
-              style={{ backgroundColor: c }}
-              title={c}
+              style={{ backgroundColor: swatch }}
+              title={swatch}
             />
           ))}
         </div>
@@ -3729,9 +3783,7 @@ function CollapsibleGroup({
 }) {
   return (
     <details open={defaultOpen ?? true} className="rounded-2xl border border-zinc-200 bg-white">
-      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-zinc-900">
-        {title}
-      </summary>
+      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-zinc-900">{title}</summary>
       <div className="border-t border-zinc-200 p-4">{children}</div>
     </details>
   );
@@ -3748,8 +3800,9 @@ function PaddingPicker({
   onChange: (next: number | undefined) => void;
   max?: number;
 }) {
-  const v = typeof value === "number" ? value : 0;
-  const maxV = max ?? 120;
+  const currentValue = typeof value === "number" ? value : 0;
+  const maxValue = max ?? 120;
+
   return (
     <div>
       <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
@@ -3758,15 +3811,15 @@ function PaddingPicker({
           <div
             className="absolute rounded-lg bg-zinc-100"
             style={{
-              inset: `${Math.min(14, Math.round((v / Math.max(1, maxV)) * 14))}px`,
+              inset: `${Math.min(14, Math.round((currentValue / Math.max(1, maxValue)) * 14))}px`,
             }}
           />
         </div>
         <input
           type="range"
           min={0}
-          max={maxV}
-          value={Math.round(v)}
+          max={maxValue}
+          value={Math.round(currentValue)}
           onChange={(e) => onChange(Number(e.target.value) || 0)}
           className="min-w-40 flex-1"
         />
@@ -3994,13 +4047,20 @@ type FunnelEditorDialog =
       audience: string;
       offer: string;
     }
+  | {
+      type: "booking-routing";
+      blockId: string | null;
+      mode: "funnel" | "block";
+      surface: "manage" | "route" | "details";
+      newCalendarTitle: string;
+    }
   | { type: "create-form"; slug: string; name: string; templateKey: CreditFormTemplateKey; themeKey: CreditFormThemeKey }
   | { type: "leave-page"; nextPageId: string | null }
   | { type: "delete-page" }
   | { type: "delete-block"; blockId: string; label: string }
   | null;
 
-type SidebarPanelMode = "structure" | "activity" | "settings" | "selected";
+type SidebarPanelMode = "structure" | "settings";
 
 /* DISABLED: broken intermediate refactor (kept temporarily for reference)
 export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; funnelId: string }) {
@@ -4186,18 +4246,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
           return (
             <div className="flex min-h-screen flex-col lg:h-dvh lg:overflow-hidden">
-              <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/85 backdrop-blur">
+              <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white">
                 <div className="flex flex-col gap-2 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex flex-wrap items-center gap-3">
                     <Link
                       href={pathname.startsWith("/credit") ? "/credit/app/services/funnel-builder" : "/portal/app/services/funnel-builder"}
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                     >
-                      ← Back
+                      Back
                     </Link>
 
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-brand-ink">{funnel?.name || "…"}</div>
+                      <div className="truncate text-sm font-semibold text-brand-ink">{funnel?.name || "..."}</div>
                     </div>
 
                     <button
@@ -4251,7 +4311,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         setSelectedBlockId(null);
                       }}
                       options={[
-                        { value: "", label: "Select a page…", disabled: true },
+                        { value: "", label: "Select a page...", disabled: true },
                         ...(pages || []).map((p) => ({ value: p.id, label: p.title })),
                       ]}
                       className="min-w-55"
@@ -4312,7 +4372,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         busy ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
                       )}
                     >
-                      {busy ? "Saving…" : selectedPageDirty ? "Save" : "Saved"}
+                      {busy ? "Saving..." : selectedPageDirty ? "Save" : "Saved"}
                     </button>
 
                     <button
@@ -4390,6 +4450,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           [
                             { type: "heading", label: "Heading" },
                             { type: "paragraph", label: "Text" },
+                            { type: "syncedReviews", label: "Synced reviews" },
+                            { type: "testimonialGrid", label: "Testimonials" },
+                            { type: "pricingGrid", label: "Pricing" },
                             { type: "button", label: "Button" },
                             { type: "salesCheckoutButton", label: "Checkout" },
                             { type: "formLink", label: "Form link" },
@@ -4562,7 +4625,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       },
                                     });
                                   }}
-                                  placeholder={stripeProductsBusy ? "Loading Stripe products…" : "Select a Stripe product"}
+                                  placeholder={stripeProductsBusy ? "Loading Stripe products..." : "Select a Stripe product"}
                                   options={(
                                     [
                                       {
@@ -4575,7 +4638,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                         .map((p) => ({
                                           value: p.defaultPrice!.id,
                                           label: p.name,
-                                          hint: `${formatMoney(p.defaultPrice!.unitAmount, p.defaultPrice!.currency)} • ${p.defaultPrice!.id}`,
+                                          hint: `${formatMoney(p.defaultPrice!.unitAmount, p.defaultPrice!.currency)} - ${p.defaultPrice!.id}`,
                                         })),
                                     ]
                                   )}
@@ -4665,6 +4728,51 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               </div>
                             ) : null}
 
+                            {selectedBlock.type === "calendarEmbed" ? (
+                              <div className="space-y-3">
+                                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-600">
+                                  {selectedBlock.props.calendarId
+                                    ? `This step is linked directly to ${enabledBookingCalendars.find((calendar) => calendar.id === selectedBlock.props.calendarId)?.title || selectedBlock.props.calendarId}.`
+                                    : funnel?.bookingCalendarId
+                                      ? `This step will use the funnel calendar ${enabledBookingCalendars.find((calendar) => calendar.id === funnel.bookingCalendarId)?.title || funnel.bookingCalendarId}. Change that route in booking setup if this step needs its own calendar.`
+                                      : "This step is still a booking placeholder. Link a funnel calendar or pin one to this step before you publish."}
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => openBookingRoutingDialog(selectedBlock.id)}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                                  >
+                                    Open booking setup
+                                  </button>
+
+                                  {selectedBlock.props.calendarId ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, calendarId: "" } })}
+                                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                                    >
+                                      Clear to placeholder
+                                    </button>
+                                  ) : null}
+
+                                  {enabledBookingCalendars.length === 0 ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openBookingRoutingDialog(selectedBlock.id)}
+                                      className={classNames(
+                                        "rounded-xl border px-3 py-2 text-sm font-semibold transition-colors",
+                                        "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                                      )}
+                                    >
+                                      Open create flow
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : null}
+
                             {selectedBlock.type === "image" ? (
                               <div className="space-y-2">
                                 <div className="flex flex-wrap gap-2">
@@ -4685,7 +4793,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
                                     )}
                                   >
-                                    {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload image"}
+                                    {uploadingImageBlockId === selectedBlock.id ? "Uploading..." : "Upload image"}
                                     <input
                                       type="file"
                                       accept="image/*"
@@ -4797,7 +4905,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
                                     )}
                                   >
-                                    {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload video"}
+                                    {uploadingImageBlockId === selectedBlock.id ? "Uploading..." : "Upload video"}
                                     <input
                                       type="file"
                                       accept="video/*"
@@ -5027,7 +5135,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
                                           )}
                                         >
-                                          {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload poster"}
+                                          {uploadingImageBlockId === selectedBlock.id ? "Uploading..." : "Upload poster"}
                                           <input
                                             type="file"
                                             accept="image/*"
@@ -5103,6 +5211,264 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               />
                             ) : null}
 
+                            {selectedBlock.type === "syncedReviews" ? (
+                              <div className="space-y-2">
+                                <input
+                                  value={selectedBlock.props.eyebrow ?? ""}
+                                  onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, eyebrow: e.target.value } })}
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  placeholder="Eyebrow (optional)"
+                                />
+                                <input
+                                  value={selectedBlock.props.heading ?? ""}
+                                  onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, heading: e.target.value } })}
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  placeholder="Section heading"
+                                />
+                                <div className="grid grid-cols-2 gap-2">
+                                  <label className="block">
+                                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Max reviews</div>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={12}
+                                      value={String(selectedBlock.props.limit ?? 6)}
+                                      onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, limit: Math.max(1, Math.min(12, Number(e.target.value) || 6)) } })}
+                                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    />
+                                  </label>
+                                  <label className="block">
+                                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Min rating</div>
+                                    <PortalListboxDropdown
+                                      value={selectedBlock.props.minRating ?? 4}
+                                      onChange={(v) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, minRating: Number(v) } })}
+                                      options={[
+                                        { value: 1, label: "1+" },
+                                        { value: 2, label: "2+" },
+                                        { value: 3, label: "3+" },
+                                        { value: 4, label: "4+" },
+                                        { value: 5, label: "5 only" },
+                                      ]}
+                                      className="w-full"
+                                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                    />
+                                  </label>
+                                </div>
+                                <label className="block">
+                                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Columns</div>
+                                  <PortalListboxDropdown
+                                    value={selectedBlock.props.columns ?? 3}
+                                    onChange={(v) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, columns: Number(v) as 1 | 2 | 3 } })}
+                                    options={[
+                                      { value: 1, label: "1 column" },
+                                      { value: 2, label: "2 columns" },
+                                      { value: 3, label: "3 columns" },
+                                    ]}
+                                    className="w-full"
+                                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                  />
+                                </label>
+                                <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                  <span className="font-semibold text-zinc-900">Show business reply</span>
+                                  <ToggleSwitch
+                                    checked={selectedBlock.props.showBusinessReply === true}
+                                    disabled={busy}
+                                    onChange={(checked) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, showBusinessReply: checked } })}
+                                  />
+                                </label>
+                                <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                  <span className="font-semibold text-zinc-900">Include photos</span>
+                                  <ToggleSwitch
+                                    checked={selectedBlock.props.includePhotos === true}
+                                    disabled={busy}
+                                    onChange={(checked) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, includePhotos: checked } })}
+                                  />
+                                </label>
+                              </div>
+                            ) : null}
+
+                            {selectedBlock.type === "testimonialGrid" ? (
+                              <div className="space-y-3">
+                                <input
+                                  value={selectedBlock.props.eyebrow ?? ""}
+                                  onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, eyebrow: e.target.value } })}
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  placeholder="Eyebrow (optional)"
+                                />
+                                <input
+                                  value={selectedBlock.props.heading ?? ""}
+                                  onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, heading: e.target.value } })}
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  placeholder="Section heading"
+                                />
+                                <label className="block">
+                                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Columns</div>
+                                  <PortalListboxDropdown
+                                    value={selectedBlock.props.columns ?? 2}
+                                    onChange={(v) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, columns: Number(v) as 1 | 2 | 3 } })}
+                                    options={[
+                                      { value: 1, label: "1 column" },
+                                      { value: 2, label: "2 columns" },
+                                      { value: 3, label: "3 columns" },
+                                    ]}
+                                    className="w-full"
+                                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                  />
+                                </label>
+                                <div className="space-y-2">
+                                  <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Testimonials ({(selectedBlock.props.items || []).length})</div>
+                                  {(selectedBlock.props.items || []).map((item, idx) => (
+                                    <div key={idx} className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Card {idx + 1}</div>
+                                        <button
+                                          type="button"
+                                          disabled={busy || (selectedBlock.props.items || []).length <= 1}
+                                          onClick={() => removeSelectedTestimonialGridItem(idx)}
+                                          className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40"
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                      <textarea
+                                        value={item.quote}
+                                        onChange={(e) => updateSelectedTestimonialGridItem(idx, { quote: e.target.value })}
+                                        className="min-h-16 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="Customer quote"
+                                      />
+                                      <input
+                                        value={item.name}
+                                        onChange={(e) => updateSelectedTestimonialGridItem(idx, { name: e.target.value })}
+                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="Customer name"
+                                      />
+                                      <input
+                                        value={item.role ?? ""}
+                                        onChange={(e) => updateSelectedTestimonialGridItem(idx, { role: e.target.value })}
+                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="Role or title (optional)"
+                                      />
+                                      <input
+                                        value={item.outcome ?? ""}
+                                        onChange={(e) => updateSelectedTestimonialGridItem(idx, { outcome: e.target.value })}
+                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="Outcome label (optional)"
+                                      />
+                                    </div>
+                                  ))}
+                                  <button
+                                    type="button"
+                                    disabled={busy || (selectedBlock.props.items || []).length >= 6}
+                                    onClick={() => addSelectedTestimonialGridItem()}
+                                    className="w-full rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-40"
+                                  >
+                                    + Add testimonial
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {selectedBlock.type === "pricingGrid" ? (
+                              <div className="space-y-3">
+                                <input
+                                  value={selectedBlock.props.eyebrow ?? ""}
+                                  onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, eyebrow: e.target.value } })}
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  placeholder="Eyebrow (optional)"
+                                />
+                                <input
+                                  value={selectedBlock.props.heading ?? ""}
+                                  onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, heading: e.target.value } })}
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  placeholder="Section heading"
+                                />
+                                <label className="block">
+                                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Columns</div>
+                                  <PortalListboxDropdown
+                                    value={selectedBlock.props.columns ?? 3}
+                                    onChange={(v) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, columns: Number(v) as 1 | 2 | 3 } })}
+                                    options={[
+                                      { value: 1, label: "1 column" },
+                                      { value: 2, label: "2 columns" },
+                                      { value: 3, label: "3 columns" },
+                                    ]}
+                                    className="w-full"
+                                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                  />
+                                </label>
+                                <div className="space-y-2">
+                                  <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Pricing cards ({(selectedBlock.props.items || []).length})</div>
+                                  {(selectedBlock.props.items || []).map((item, idx) => (
+                                    <div key={idx} className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Card {idx + 1}</div>
+                                        <button
+                                          type="button"
+                                          disabled={busy || (selectedBlock.props.items || []).length <= 1}
+                                          onClick={() => removeSelectedPricingGridItem(idx)}
+                                          className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40"
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                      <input
+                                        value={item.name}
+                                        onChange={(e) => updateSelectedPricingGridItem(idx, { name: e.target.value })}
+                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="Plan name"
+                                      />
+                                      <input
+                                        value={item.price}
+                                        onChange={(e) => updateSelectedPricingGridItem(idx, { price: e.target.value })}
+                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="Price (e.g. $97/mo)"
+                                      />
+                                      <input
+                                        value={item.description ?? ""}
+                                        onChange={(e) => updateSelectedPricingGridItem(idx, { description: e.target.value })}
+                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="Short description (optional)"
+                                      />
+                                      <input
+                                        value={item.badge ?? ""}
+                                        onChange={(e) => updateSelectedPricingGridItem(idx, { badge: e.target.value || undefined })}
+                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="Badge (e.g. Most popular)"
+                                      />
+                                      <input
+                                        value={item.ctaText ?? ""}
+                                        onChange={(e) => updateSelectedPricingGridItem(idx, { ctaText: e.target.value })}
+                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="CTA text"
+                                      />
+                                      <input
+                                        value={item.ctaHref ?? ""}
+                                        onChange={(e) => updateSelectedPricingGridItem(idx, { ctaHref: e.target.value })}
+                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="CTA link"
+                                      />
+                                      <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                        <span className="font-semibold text-zinc-900">Featured card</span>
+                                        <ToggleSwitch
+                                          checked={item.featured === true}
+                                          disabled={busy}
+                                          onChange={(checked) => updateSelectedPricingGridItem(idx, { featured: checked || undefined })}
+                                        />
+                                      </label>
+                                    </div>
+                                  ))}
+                                  <button
+                                    type="button"
+                                    disabled={busy || (selectedBlock.props.items || []).length >= 4}
+                                    onClick={() => addSelectedPricingGridItem()}
+                                    className="w-full rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-40"
+                                  >
+                                    + Add pricing card
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+
                           </div>
                         )}
                       </div>
@@ -5114,7 +5480,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       <div className="text-sm font-semibold text-zinc-900">Custom code (AI)</div>
                       <div className="mt-3 max-h-[40vh] space-y-2 overflow-auto rounded-2xl border border-zinc-200 bg-white p-3">
                         {selectedChat.length === 0 ? (
-                          <div className="text-sm text-zinc-600">Ask for a page structure and CTA flow. Then follow up with edits like “tighten the headline hierarchy”.</div>
+                          <div className="text-sm text-zinc-600">Ask for a page structure and CTA flow. Then follow up with edits like "tighten the headline hierarchy".</div>
                         ) : (
                           selectedChat.map((m, idx) => (
                             <div
@@ -5135,7 +5501,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         value={chatInput}
                         onChange={(e) => setChatInput(e.target.value)}
                         className="mt-3 min-h-[110px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        placeholder="Describe what to build or change…"
+                        placeholder="Describe what to build or change..."
                       />
 
                       <div className="mt-3 flex gap-2">
@@ -5182,7 +5548,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           value={getFunnelPageCurrentHtml(selectedPage)}
                           onChange={(e) => setSelectedPageLocal({ draftHtml: e.target.value })}
                           className="mt-2 min-h-[240px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
-                          placeholder="<!doctype html>…"
+                          placeholder="<!doctype html>..."
                         />
                         <div className="mt-2 text-xs text-zinc-500">Use Save in the top bar to persist changes.</div>
                       </div>
@@ -5212,7 +5578,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               previewMode === "edit" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
                             )}
                           >
-                            Edit
+                            Soft edit
                           </button>
                           <button
                             type="button"
@@ -5298,6 +5664,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             previewDevice === "mobile" ? "max-w-[420px] rounded-3xl" : "max-w-5xl rounded-none",
                           )}
                         >
+                            {selectedPagePreviewBookingState ? (
+                              <div className="border-b border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-950">
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Live booking preview</div>
+                                <div className="mt-1 font-semibold">{selectedPagePreviewBookingState.title}</div>
+                                <div className="mt-1 leading-6 opacity-80">
+                                  {selectedPagePreviewBookingState.sourceKind === "funnel-default"
+                                    ? "This direct-source preview is showing the funnel default booking calendar."
+                                    : "This direct-source preview is showing a calendar pinned directly in the page source."}
+                                </div>
+                              </div>
+                            ) : null}
                           <iframe
                             title={selectedPage.title}
                             sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
@@ -5321,11 +5698,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 context: {
                                   bookingSiteSlug: bookingSiteSlug || undefined,
                                   defaultBookingCalendarId: funnel?.bookingCalendarId || undefined,
+                                    defaultBookingCalendarTitle: funnel?.bookingCalendarId ? bookingCalendarTitleById[funnel.bookingCalendarId] || funnel.bookingCalendarId : undefined,
+                                    bookingCalendarTitleById,
                                   funnelId: funnel?.id || undefined,
                                   funnelPageId: selectedPage?.id || "",
                                   funnelSlug: funnel?.slug || undefined,
                                   funnelPageSlug: selectedPage?.slug || undefined,
                                   previewDevice,
+                                    showBookingState: true,
                                 },
                               })}
                             </div>
@@ -5383,6 +5763,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             onSelectBlockId: (id) => setSelectedBlockId(id),
                                             onHoverBlockId: (id) => setHoveredBlockId(id),
                                             onUpsertBlock: (next) => upsertBlock(next),
+                                            onRequestBookingRouting: (id) => {
+                                              openBookingRoutingDialog(id);
+                                            },
                                           },
                                         })}
                                       </div>
@@ -5412,7 +5795,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         value={chatInput}
                         onChange={(e) => setChatInput(e.target.value)}
                         className="mt-3 min-h-[110px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        placeholder="Describe what to build or change…"
+                        placeholder="Describe what to build or change..."
                       />
 
                       <div className="mt-3 flex gap-2">
@@ -5446,7 +5829,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           value={getFunnelPageCurrentHtml(selectedPage)}
                           onChange={(e) => setSelectedPageLocal({ draftHtml: e.target.value })}
                           className="mt-2 min-h-[240px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
-                          placeholder="<!doctype html>…"
+                          placeholder="<!doctype html>..."
                         />
                         <div className="mt-2 text-xs text-zinc-500">Use Save in the top bar to persist changes.</div>
                       </div>
@@ -5602,6 +5985,13 @@ type PageExecutionSummary = {
   metrics: PageExecutionMetrics;
 };
 
+type PixelTrackingSettings = {
+  globalPixelId: string | null;
+  funnelPixelId: string | null;
+  pagePixelId: string | null;
+  resolvedPixelId: string | null;
+};
+
 type Page = {
   id: string;
   funnelId: string;
@@ -5616,10 +6006,154 @@ type Page = {
   customChatJson: unknown;
   seo: PageSeo | null;
   brief?: FunnelPageIntentProfile | null;
+  trackingSettings?: PixelTrackingSettings | null;
   executionSummary?: PageExecutionSummary | null;
   createdAt: string;
   updatedAt: string;
 };
+
+type FunnelThread = FunnelThreadRecord;
+
+function formatThreadLastActive(raw: string | null | undefined) {
+  const value = String(raw || "").trim();
+  if (!value) return "No activity yet";
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return "Recently updated";
+
+  const deltaMs = Date.now() - time;
+  if (deltaMs < 60_000) return "Active now";
+
+  const deltaMinutes = Math.round(deltaMs / 60_000);
+  if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
+
+  const deltaHours = Math.round(deltaMinutes / 60);
+  if (deltaHours < 24) return `${deltaHours}h ago`;
+
+  const deltaDays = Math.round(deltaHours / 24);
+  if (deltaDays < 8) return `${deltaDays}d ago`;
+
+  try {
+    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(time));
+  } catch {
+    return "Recently updated";
+  }
+}
+
+function buildThreadPreview(messages: Array<{ role: string; content: string }>) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    const content = compactActivityText(message?.content || "", 110);
+    if (!content) continue;
+    return message.role === "assistant" ? content : `You: ${content}`;
+  }
+  return "No saved reasoning in this thread yet.";
+}
+
+function getThreadScopeLabel(thread: FunnelThreadRecord, activePageId: string | null, pageTitle: string) {
+  if (!thread.pageId) return "Funnel";
+  if (thread.pageId === activePageId) return "This page";
+  return pageTitle || "Other page";
+}
+
+function getThreadDisplayTitle(thread: FunnelThreadRecord, activePageId: string | null, pageTitle: string) {
+  const rawTitle = String(thread.title || "").trim();
+
+  if (thread.kind === "main") return "Main";
+  if (thread.kind === "alternate") {
+    if (thread.pageId === activePageId) return "Chat";
+    return pageTitle ? `${pageTitle} chat` : "Chat";
+  }
+  if (thread.kind === "page") {
+    if (thread.pageId === activePageId) return "This page";
+    return pageTitle || rawTitle || "Page";
+  }
+  if (!rawTitle) return "Thread";
+  if (rawTitle.toLowerCase() === "main funnel discussion") return "Main";
+  return rawTitle;
+}
+
+function ThreadTransitionCard({
+  title,
+  scopeLabel,
+  meta,
+  preview,
+  active,
+  onClick,
+}: {
+  title: string;
+  scopeLabel: string;
+  meta: string;
+  preview: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={classNames(
+        "w-full rounded-xl px-3 py-2.5 text-left transition",
+        active
+          ? "bg-zinc-100"
+          : "bg-white hover:bg-zinc-50",
+      )}
+    >
+      <div className="flex items-start gap-2.5">
+        <span
+          className={classNames(
+            "mt-[6px] h-1.5 w-1.5 shrink-0 rounded-full",
+            active ? "bg-(--color-brand-blue)" : "bg-zinc-300",
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium text-zinc-950">{title}</div>
+          <div className="mt-0.5 truncate text-[11px] text-zinc-500">{scopeLabel} · {meta}</div>
+        </div>
+      </div>
+      <div className="mt-1.5 line-clamp-1 pl-4 text-[11px] leading-5 text-zinc-500">{preview}</div>
+    </button>
+  );
+}
+
+function ThreadRailSurface({
+  heading,
+  subheading,
+  actions,
+  items,
+}: {
+  heading: string;
+  subheading?: string;
+  actions?: ReactNode;
+  items: ReactNode;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
+      <div className="shrink-0 border-b border-zinc-200 px-4 py-2.5 sm:px-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-zinc-950">{heading}</div>
+            {subheading ? <div className="mt-0.5 text-[11px] leading-5 text-zinc-500">{subheading}</div> : null}
+          </div>
+          {actions ? <div className="shrink-0">{actions}</div> : null}
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5">
+        <div className="space-y-3">{items}</div>
+      </div>
+    </div>
+  );
+}
+
+function normalizeEditorMetaPixelId(raw: unknown) {
+  return String(typeof raw === "string" ? raw : "")
+    .trim()
+    .replace(/[^0-9]/g, "")
+    .slice(0, 32) || null;
+}
+
+function serializeFunnelSeoDraft(seo: FunnelSeo | null | undefined) {
+  return JSON.stringify({ noIndex: Boolean(seo?.noIndex) });
+}
 
 const FUNNEL_EDITOR_DRAFT_CACHE_PREFIX = "pa:funnel-editor-draft:v1:";
 
@@ -5641,6 +6175,10 @@ function clonePageDraftForCache(page: Page): Page {
     ...page,
     seo: page.seo ? { ...page.seo } : null,
     brief: page.brief ? { ...page.brief } : null,
+    trackingSettings: page.trackingSettings ? { ...page.trackingSettings } : null,
+    executionSummary: page.executionSummary
+      ? { ...page.executionSummary, metrics: { ...page.executionSummary.metrics } }
+      : null,
   };
 }
 
@@ -5675,16 +6213,117 @@ type CreditForm = {
   name: string;
 };
 
-type BookingCalendarLite = {
-  id: string;
-  title?: string;
-  enabled?: boolean;
+type FunnelBookingSettingsSite = {
+  slug?: string | null;
+  meetingPlatform?: string | null;
+  notificationEmails?: string[] | null;
+  meetingIntegrations?: BookingMeetingIntegrationStatus | null;
 };
 
-type BuilderSurfaceMode = "blocks" | "whole-page";
-type WholePageViewMode = "preview" | "source" | "direction";
+function normalizeBookingCalendarList(raw: unknown): BookingCalendar[] {
+  return Array.isArray(raw)
+    ? (raw
+        .map((calendar: any) => ({
+          id: typeof calendar?.id === "string" ? calendar.id : "",
+          title: typeof calendar?.title === "string" ? calendar.title : "Calendar",
+          enabled: typeof calendar?.enabled === "boolean" ? calendar.enabled : true,
+          description: typeof calendar?.description === "string" ? calendar.description : undefined,
+          durationMinutes:
+            typeof calendar?.durationMinutes === "number" && Number.isFinite(calendar.durationMinutes)
+              ? calendar.durationMinutes
+              : undefined,
+          minimumNoticeMinutes:
+            typeof calendar?.minimumNoticeMinutes === "number" && Number.isFinite(calendar.minimumNoticeMinutes)
+              ? calendar.minimumNoticeMinutes
+              : undefined,
+          meetingLocation: typeof calendar?.meetingLocation === "string" ? calendar.meetingLocation : undefined,
+          meetingDetails: typeof calendar?.meetingDetails === "string" ? calendar.meetingDetails : undefined,
+          notificationEmails: Array.isArray(calendar?.notificationEmails)
+            ? calendar.notificationEmails.filter((item: unknown): item is string => typeof item === "string")
+            : undefined,
+        }))
+        .filter((calendar: BookingCalendar) => Boolean(calendar.id)) as BookingCalendar[])
+    : [];
+}
 
-const WHOLE_PAGE_VIEW_META: Record<WholePageViewMode, { label: string; summary: string }> = {
+function sanitizeNotificationEmails(items: string[]): string[] {
+  const xs = (Array.isArray(items) ? items : []).map((x) => String(x || "").trim()).filter(Boolean);
+  const emailLike = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const x of xs) {
+    const lower = x.toLowerCase();
+    if (!emailLike.test(lower)) continue;
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    unique.push(lower);
+    if (unique.length >= 20) break;
+  }
+  return unique;
+}
+
+function normalizeFunnelBookingSettingsSite(raw: unknown): FunnelBookingSettingsSite | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const site = raw as Record<string, unknown>;
+  return {
+    slug: typeof site.slug === "string" ? site.slug : null,
+    meetingPlatform: typeof site.meetingPlatform === "string" ? site.meetingPlatform : "OTHER",
+    notificationEmails: Array.isArray(site.notificationEmails)
+      ? site.notificationEmails.filter((item: unknown): item is string => typeof item === "string")
+      : null,
+    meetingIntegrations: normalizeBookingMeetingIntegrationStatus(site.meetingIntegrations),
+  };
+}
+
+const BOOKING_DURATION_OPTIONS = [20, 30, 45, 60, 90].map((minutes) => ({
+  value: String(minutes),
+  label: `${minutes} minutes`,
+}));
+
+const BOOKING_NOTICE_OPTIONS = [0, 60, 4 * 60, 12 * 60, 24 * 60].map((minutes) => ({
+  value: String(minutes),
+  label:
+    minutes === 0
+      ? "No minimum notice"
+      : minutes % 60 === 0
+        ? `${minutes / 60} hour${minutes === 60 ? "" : "s"}`
+        : `${minutes} minutes`,
+}));
+
+const BOOKING_TIME_ZONE_OPTIONS = [
+  { value: "America/New_York", label: "New York", hint: "Eastern Time" },
+  { value: "America/Chicago", label: "Chicago", hint: "Central Time" },
+  { value: "America/Denver", label: "Denver", hint: "Mountain Time" },
+  { value: "America/Los_Angeles", label: "Los Angeles", hint: "Pacific Time" },
+  { value: "Europe/London", label: "London", hint: "UK time" },
+  { value: "UTC", label: "UTC", hint: "Coordinated Universal Time" },
+];
+
+function formatBookingNoticeWindow(minutes: number) {
+  if (minutes <= 0) return "no minimum notice";
+  if (minutes % 60 === 0) return `${minutes / 60} hour${minutes === 60 ? "" : "s"} notice`;
+  return `${minutes} minutes notice`;
+}
+
+type BuilderSurfaceMode = "blocks" | "whole-page";
+type PageChatMode = "plan" | "work";
+type PageLensStage = "page" | "chat";
+type PageCanvasView = "preview" | "source";
+
+const FUNNEL_PAGE_CHAT_MODE_STORAGE_KEY = "funnel-builder:page-chat:mode";
+const FUNNEL_PAGE_CHAT_PROFILE_STORAGE_KEY = "funnel-builder:page-chat:profile";
+
+function readStoredPageChatMode(): PageChatMode {
+  if (typeof window === "undefined") return "work";
+  return window.localStorage.getItem(FUNNEL_PAGE_CHAT_MODE_STORAGE_KEY) === "plan" ? "plan" : "work";
+}
+
+function readStoredPageChatProfile(): PuraAiProfile {
+  if (typeof window === "undefined") return "balanced";
+  return normalizePuraAiProfile(window.localStorage.getItem(FUNNEL_PAGE_CHAT_PROFILE_STORAGE_KEY));
+}
+
+const PAGE_CANVAS_VIEW_META: Record<PageCanvasView, { label: string; summary: string }> = {
   preview: {
     label: "Preview",
     summary: "See the current draft as the visitor would.",
@@ -5693,9 +6332,16 @@ const WHOLE_PAGE_VIEW_META: Record<WholePageViewMode, { label: string; summary: 
     label: "Source",
     summary: "Inspect source and prepare scoped edits.",
   },
-  direction: {
-    label: "Direction",
-    summary: "Review the page-design thread before you change the draft.",
+};
+
+const PAGE_LENS_STAGE_META: Record<PageLensStage, { label: string; summary: string }> = {
+  page: {
+    label: "Page",
+    summary: "Switch the live page view between preview and source.",
+  },
+  chat: {
+    label: "Chat",
+    summary: "Use the page-design chat before you change the draft.",
   },
 };
 
@@ -5769,15 +6415,20 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [funnel, setFunnel] = useState<Funnel | null>(null);
   const [pages, setPages] = useState<Page[] | null>(null);
+  const [threads, setThreads] = useState<FunnelThread[]>([]);
+  const [threadsLoaded, setThreadsLoaded] = useState(false);
   const [dirtyPageIds, setDirtyPageIds] = useState<Record<string, boolean>>({});
   const [forms, setForms] = useState<CreditForm[] | null>(null);
 
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [selectedHeaderNavItemId, setSelectedHeaderNavItemId] = useState<string | null>(null);
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [pageIntentProfile, setPageIntentProfile] = useState<FunnelPageIntentProfile>(() => inferFunnelPageIntentProfile());
+  const [setupPageSlugDraft, setSetupPageSlugDraft] = useState("");
+  const [setupPageSlugError, setSetupPageSlugError] = useState<string | null>(null);
   const [briefPanelOpen, setBriefPanelOpen] = useState(false);
   const [foundationWizardStep, setFoundationWizardStep] = useState(0);
   const [aiSidebarCustomCodeBlockId, setAiSidebarCustomCodeBlockId] = useState<string | null>(null);
@@ -5799,19 +6450,31 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [aiContextOpen, setAiContextOpen] = useState(false);
   const [aiContextKeys, setAiContextKeys] = useState<string[]>([]);
   void setAiContextKeys; // kept for API compatibility
-  const [aiContextMedia, setAiContextMedia] = useState<Array<{ url: string; fileName?: string; mimeType?: string }>>([]);
+  const [aiContextMedia, setAiContextMedia] = useState<AiContextMediaItem[]>([]);
+  const [aiDesignContext, setAiDesignContext] = useState<AiDesignContextDraft>(() => ({ ...EMPTY_AI_DESIGN_CONTEXT }));
   const [aiContextUploadBusy, setAiContextUploadBusy] = useState(false);
   const [lastAiRun, setLastAiRun] = useState<AiCheckpoint | null>(null);
+  const [activeAiQuestion, setActiveAiQuestion] = useState<null | { pageId: string; surface: "structure" | "source"; question: string; at: string; prompt: string }>(null);
+  const [pendingSourceActionPlan, setPendingSourceActionPlan] = useState<SourceActionPlan | null>(null);
   const aiContextUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const aiContextMediaHydratingRef = useRef(false);
+  const aiDesignContextHydratingRef = useRef(false);
+  const savedFunnelSeoKeyRef = useRef(serializeFunnelSeoDraft(null));
 
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
-  const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
+  const [previewMode, setPreviewMode] = useState<"edit" | "preview">("preview");
   const [builderSurfaceMode, setBuilderSurfaceMode] = useState<BuilderSurfaceMode>("blocks");
-  const [wholePageViewMode, setWholePageViewMode] = useState<WholePageViewMode>("source");
+  const [pageLensStage, setPageLensStage] = useState<PageLensStage>("page");
+  const [pageCanvasView, setPageCanvasView] = useState<PageCanvasView>("preview");
+  const [sourceEditMode, setSourceEditMode] = useState(false);
+  const [sourceEditDraft, setSourceEditDraft] = useState("");
+  const [sourceEditBaseline, setSourceEditBaseline] = useState("");
+  const [sourcePreviewActive, setSourcePreviewActive] = useState(false);
+  const [sourceSelectAllSignal, setSourceSelectAllSignal] = useState(0);
+  const [chatRailOpen, setChatRailOpen] = useState(false);
   const [, setCustomCodeContextOpen] = useState(false);
   const [wholePageSyncNotice, setWholePageSyncNotice] = useState<string | null>(null);
   const [selectedHtmlRegionKey, setSelectedHtmlRegionKey] = useState<string | null>(null);
-  const [htmlScopePickerOpen, setHtmlScopePickerOpen] = useState(false);
   const [busyPhaseIdx, setBusyPhaseIdx] = useState(0);
   const [aiResultBanner, setAiResultBanner] = useState<{ summary: string; at: string; tone: "success" | "warning" } | null>(null);
   const [aiWorkFocus, setAiWorkFocus] = useState<null | {
@@ -5824,6 +6487,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [htmlChangeActivity, setHtmlChangeActivity] = useState<HtmlChangeActivityItem[]>([]);
   const [builderChangeActivity, setBuilderChangeActivity] = useState<BuilderChangeActivityItem[]>([]);
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanelMode>("structure");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const [dialog, setDialog] = useState<FunnelEditorDialog>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -5856,20 +6520,29 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return lines.length ? lines.join("\n") : null;
   }, []);
 
+  const selectedPublicPageSlug = useMemo(() => {
+    const page = (pages || []).find((entry) => entry.id === selectedPageId) || null;
+    const slug = typeof page?.slug === "string" ? page.slug.trim() : "";
+    if (!slug) return null;
+    return slug.toLowerCase() === "home" ? null : slug;
+  }, [pages, selectedPageId]);
+
   const funnelLiveHref = useMemo(() => {
     const assignedDomain = String(funnel?.assignedDomain || "").trim().toLowerCase();
     const slug = String(funnel?.slug || "").trim();
     const funnelId = String(funnel?.id || "").trim();
     if (!slug) return null;
 
+    const pageSlugSuffix = selectedPublicPageSlug ? `/${encodeURIComponent(selectedPublicPageSlug)}` : "";
+
     if (assignedDomain) {
-      if (isLocalPreview) return `/domain-router/${encodeURIComponent(assignedDomain)}/${encodeURIComponent(slug)}`;
-      return `https://${assignedDomain}/${encodeURIComponent(slug)}`;
+      if (isLocalPreview) return `/domain-router/${encodeURIComponent(assignedDomain)}/${encodeURIComponent(slug)}${pageSlugSuffix}`;
+      return `https://${assignedDomain}/${encodeURIComponent(slug)}${pageSlugSuffix}`;
     }
 
     const hostedPath = hostedFunnelPath(slug, funnelId);
-    return hostedPath ? toPurelyHostedUrl(hostedPath) : null;
-  }, [funnel?.assignedDomain, funnel?.slug, funnel?.id, isLocalPreview]);
+    return hostedPath ? toPurelyHostedUrl(`${hostedPath}${pageSlugSuffix}`) : null;
+  }, [funnel?.assignedDomain, funnel?.slug, funnel?.id, isLocalPreview, selectedPublicPageSlug]);
 
   const [brandPalette, setBrandPalette] = useState<null | { primary?: string; accent?: string; text?: string }>(null);
   const [businessProfileSummary, setBusinessProfileSummary] = useState<BusinessProfileSummary | null>(null);
@@ -5880,8 +6553,19 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [aiReceptionistChatAgentId, setAiReceptionistChatAgentId] = useState<string | null>(null);
   const [availableAgentOptions, setAvailableAgentOptions] = useState<Array<{ id: string; name?: string }>>([]);
 
-  const [bookingCalendars, setBookingCalendars] = useState<BookingCalendarLite[]>([]);
+  const [bookingCalendars, setBookingCalendars] = useState<BookingCalendar[]>([]);
   const [bookingSiteSlug, setBookingSiteSlug] = useState<string | null>(null);
+  const [bookingSettingsSite, setBookingSettingsSite] = useState<FunnelBookingSettingsSite | null>(null);
+  const [quickCalendarBusy, setQuickCalendarBusy] = useState(false);
+  const [quickCalendarError, setQuickCalendarError] = useState<string | null>(null);
+  const [bookingCalendarEditorId, setBookingCalendarEditorId] = useState<string | null>(null);
+  const [bookingCalendarSaveBusy, setBookingCalendarSaveBusy] = useState(false);
+  const [bookingSettingsSaveBusy, setBookingSettingsSaveBusy] = useState(false);
+  const [bookingCalendarDraftTitle, setBookingCalendarDraftTitle] = useState("");
+  const [bookingCalendarDraftDurationMinutes, setBookingCalendarDraftDurationMinutes] = useState<number>(30);
+  const [bookingCalendarDraftMeetingLocation, setBookingCalendarDraftMeetingLocation] = useState("");
+  const [bookingCalendarDraftMeetingDetails, setBookingCalendarDraftMeetingDetails] = useState("");
+  const [bookingCalendarDraftNotificationEmails, setBookingCalendarDraftNotificationEmails] = useState<string[]>([]);
 
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [mediaPickerTarget, setMediaPickerTarget] = useState<
@@ -5899,13 +6583,196 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [imageCropTarget, setImageCropTarget] = useState<null | { blockId: string; src: string }>(null);
 
   const [videoSettingsBlockId, setVideoSettingsBlockId] = useState<string | null>(null);
+  const [chatRailMode, setChatRailMode] = useState<"chat" | "threads">("chat");
 
   const [pageFaviconPickerOpen, setPageFaviconPickerOpen] = useState(false);
+  const [pageFaviconUploadBusy, setPageFaviconUploadBusy] = useState(false);
 
   const selectedPage = useMemo(
     () => (pages || []).find((p) => p.id === selectedPageId) || null,
     [pages, selectedPageId],
   );
+  const selectedThread = useMemo(
+    () => threads.find((thread) => thread.id === selectedThreadId) || null,
+    [selectedThreadId, threads],
+  );
+  const selectedThreadMessages = useMemo<ChatMessage[]>(() => {
+    if (selectedThread) return selectedThread.messages as ChatMessage[];
+    if (!selectedPage) return [];
+    return Array.isArray(selectedPage.customChatJson)
+      ? (stripFunnelPageIntentMessages<ChatMessage>(selectedPage.customChatJson) as ChatMessage[])
+      : [];
+  }, [selectedPage, selectedThread]);
+  const pageTitleById = useMemo(() => {
+    const entries = (pages || []).map((page) => [page.id, String(page.title || "").trim()] as const);
+    return new Map<string, string>(entries);
+  }, [pages]);
+  const selectedThreadPageTitle = selectedThread?.pageId
+    ? (pageTitleById.get(selectedThread.pageId) || String((selectedThread.context as Record<string, unknown> | null)?.pageTitle || "").trim())
+    : "";
+  const selectedThreadDisplayTitle = selectedThread
+    ? getThreadDisplayTitle(selectedThread, selectedPageId, selectedThreadPageTitle)
+    : "Main";
+  const selectedThreadMeta = selectedThread
+    ? `${getThreadScopeLabel(selectedThread, selectedPageId, selectedThreadPageTitle)} · ${formatThreadLastActive(selectedThread.lastMessageAt)}`
+    : "Funnel · No activity yet";
+  const currentPageThreads = useMemo(
+    () => threads.filter((thread) => Boolean(selectedPageId) && thread.pageId === selectedPageId),
+    [selectedPageId, threads],
+  );
+  const funnelWideThreads = useMemo(
+    () => threads.filter((thread) => !thread.pageId),
+    [threads],
+  );
+  const otherPageThreads = useMemo(
+    () => threads.filter((thread) => Boolean(thread.pageId) && thread.pageId !== selectedPageId),
+    [selectedPageId, threads],
+  );
+  const selectedBookingCalendar = useMemo(
+    () => bookingCalendars.find((calendar) => calendar.id === bookingCalendarEditorId) ?? null,
+    [bookingCalendarEditorId, bookingCalendars],
+  );
+
+  useEffect(() => {
+    if (!threads.length) {
+      setSelectedThreadId(null);
+      return;
+    }
+
+    setSelectedThreadId((prev) => {
+      const current = prev ? threads.find((thread) => thread.id === prev) || null : null;
+      if (current && (!current.pageId || current.pageId === selectedPageId)) return current.id;
+
+      const pageThread = selectedPageId ? threads.find((thread) => thread.pageId === selectedPageId) || null : null;
+      const mainThread = threads.find((thread) => thread.kind === "main" && !thread.pageId) || null;
+      return pageThread?.id || mainThread?.id || threads[0]?.id || null;
+    });
+  }, [selectedPageId, threads]);
+
+  useEffect(() => {
+    if (!selectedThread?.pageId) return;
+    if (selectedThread.pageId === selectedPageId) return;
+    if (!(pages || []).some((page) => page.id === selectedThread.pageId)) return;
+    setSelectedPageId(selectedThread.pageId);
+  }, [pages, selectedPageId, selectedThread?.pageId]);
+
+  const bookingCalendarEditorIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (bookingCalendarEditorIdRef.current === bookingCalendarEditorId) return;
+    bookingCalendarEditorIdRef.current = bookingCalendarEditorId;
+
+    if (!selectedBookingCalendar) {
+      setBookingCalendarDraftTitle("");
+      setBookingCalendarDraftDurationMinutes(30);
+      setBookingCalendarDraftMeetingLocation("");
+      setBookingCalendarDraftMeetingDetails("");
+      setBookingCalendarDraftNotificationEmails([]);
+      return;
+    }
+
+    setBookingCalendarDraftTitle(selectedBookingCalendar.title || "");
+    setBookingCalendarDraftDurationMinutes(selectedBookingCalendar.durationMinutes ?? 30);
+    setBookingCalendarDraftMeetingLocation(selectedBookingCalendar.meetingLocation ?? "");
+    setBookingCalendarDraftMeetingDetails(selectedBookingCalendar.meetingDetails ?? "");
+    setBookingCalendarDraftNotificationEmails(Array.isArray(selectedBookingCalendar.notificationEmails) ? selectedBookingCalendar.notificationEmails : []);
+  }, [bookingCalendarEditorId, selectedBookingCalendar]);
+  const aiContextMediaStorageKey = useMemo(() => {
+    if (!funnelId || !selectedPage?.id) return null;
+    return buildAiContextMediaStorageKey(funnelId, selectedPage.id);
+  }, [funnelId, selectedPage?.id]);
+  const aiDesignContextStorageKey = useMemo(() => {
+    if (!funnelId || !selectedPage?.id) return null;
+    return buildAiDesignContextStorageKey(funnelId, selectedPage.id);
+  }, [funnelId, selectedPage?.id]);
+  const sanitizedAiDesignContext = useMemo(() => sanitizeFunnelDesignContext(aiDesignContext), [aiDesignContext]);
+  const aiReferenceCount = aiContextMedia.length + (hasFunnelDesignContext(sanitizedAiDesignContext) ? 1 : 0);
+
+  useEffect(() => {
+    aiContextMediaHydratingRef.current = true;
+
+    if (typeof window === "undefined" || !aiContextMediaStorageKey) {
+      setAiContextMedia([]);
+      const resetHandle = window.setTimeout(() => {
+        aiContextMediaHydratingRef.current = false;
+      }, 0);
+      return () => window.clearTimeout(resetHandle);
+    }
+
+    try {
+      const stored = window.sessionStorage.getItem(aiContextMediaStorageKey);
+      const parsed = stored ? JSON.parse(stored) : null;
+      setAiContextMedia(sanitizeAiContextMediaItems(parsed));
+    } catch {
+      setAiContextMedia([]);
+    }
+
+    const resetHandle = window.setTimeout(() => {
+      aiContextMediaHydratingRef.current = false;
+    }, 0);
+    return () => window.clearTimeout(resetHandle);
+  }, [aiContextMediaStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !aiContextMediaStorageKey) return;
+    if (aiContextMediaHydratingRef.current) return;
+
+    try {
+      const normalized = sanitizeAiContextMediaItems(aiContextMedia);
+      if (normalized.length) {
+        window.sessionStorage.setItem(aiContextMediaStorageKey, JSON.stringify(normalized));
+      } else {
+        window.sessionStorage.removeItem(aiContextMediaStorageKey);
+      }
+    } catch {
+      // Ignore storage write failures and keep the current session usable.
+    }
+  }, [aiContextMedia, aiContextMediaStorageKey]);
+
+  useEffect(() => {
+    aiDesignContextHydratingRef.current = true;
+
+    if (typeof window === "undefined" || !aiDesignContextStorageKey) {
+      setAiDesignContext({ ...EMPTY_AI_DESIGN_CONTEXT });
+      const resetHandle = window.setTimeout(() => {
+        aiDesignContextHydratingRef.current = false;
+      }, 0);
+      return () => window.clearTimeout(resetHandle);
+    }
+
+    try {
+      const stored = window.sessionStorage.getItem(aiDesignContextStorageKey);
+      const parsed = stored ? JSON.parse(stored) : null;
+      setAiDesignContext(readAiDesignContextDraft(parsed));
+    } catch {
+      setAiDesignContext({ ...EMPTY_AI_DESIGN_CONTEXT });
+    }
+
+    const resetHandle = window.setTimeout(() => {
+      aiDesignContextHydratingRef.current = false;
+    }, 0);
+    return () => window.clearTimeout(resetHandle);
+  }, [aiDesignContextStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !aiDesignContextStorageKey) return;
+    if (aiDesignContextHydratingRef.current) return;
+
+    try {
+      if (sanitizedAiDesignContext) {
+        window.sessionStorage.setItem(aiDesignContextStorageKey, JSON.stringify(sanitizedAiDesignContext));
+      } else {
+        window.sessionStorage.removeItem(aiDesignContextStorageKey);
+      }
+    } catch {
+      // Ignore storage write failures and keep the current session usable.
+    }
+  }, [aiDesignContextStorageKey, sanitizedAiDesignContext]);
+
+  useEffect(() => {
+    setPendingSourceActionPlan(readLatestSourceActionPlan(selectedThreadMessages));
+  }, [selectedPage?.id, selectedThreadMessages]);
+
   const pagesRef = useRef<Page[] | null>(null);
   const dirtyPageIdsRef = useRef<Record<string, boolean>>({});
   const selectedPageIdRef = useRef<string | null>(null);
@@ -5939,14 +6806,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   }, [funnelBriefDirty]);
   const routeScopedIntentProfile = useMemo(
     () => inferFunnelPageIntentProfile({
-      existing: selectedPage?.brief || extractFunnelPageIntentProfile(selectedPage?.customChatJson),
+      existing: selectedPage?.brief || extractFunnelPageIntentProfile(selectedThreadMessages),
       funnelBrief: funnel?.brief ?? null,
       funnelName: funnel?.name,
       funnelSlug: funnel?.slug,
       pageTitle: selectedPage?.title,
       pageSlug: selectedPage?.slug,
     }),
-    [funnel?.brief, funnel?.name, funnel?.slug, selectedPage?.brief, selectedPage?.customChatJson, selectedPage?.slug, selectedPage?.title],
+    [funnel?.brief, funnel?.name, funnel?.slug, selectedPage?.brief, selectedPage?.slug, selectedPage?.title, selectedThreadMessages],
   );
   const selectedPageGraph = useMemo(() => buildFunnelPageGraph(selectedPage), [selectedPage]);
   const selectedPageLensUi = useMemo(() => getFunnelPageLensUiModel(selectedPage), [selectedPage]);
@@ -5960,7 +6827,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (!selectedPageId || !selectedPageEditorMode) {
       stageAutoStateRef.current = { pageId: null, editorMode: null, sourceMode: null, onlyCodeIsland: false };
       setBuilderSurfaceMode("blocks");
-      setWholePageViewMode("source");
+      setPageLensStage("page");
+      setPageCanvasView("preview");
       setSelectedHtmlRegionKey(null);
       setWholePageSyncNotice(null);
     }
@@ -6006,13 +6874,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (!selectedPage?.id) return [] as BuilderChangeActivityItem[];
     return builderChangeActivity.filter((item) => item.pageId === selectedPage.id).slice(0, 8);
   }, [builderChangeActivity, selectedPage?.id]);
-  const selectedPageThreadRounds = useMemo(() => parseCustomChatThread(selectedPage?.customChatJson), [selectedPage?.customChatJson]);
+  const selectedPageThreadRounds = useMemo(() => parseCustomChatThread(selectedThreadMessages), [selectedThreadMessages]);
   const selectedPageChatThread = useMemo<ChatThreadRound[]>(() => selectedPageThreadRounds, [selectedPageThreadRounds]);
+  const selectedPageDirectionMessages = useMemo(() => parseDirectionThreadMessages(selectedThreadMessages), [selectedThreadMessages]);
 
   const selectedPageLatestAiCheckpoint = useMemo(() => {
     if (!selectedPage?.id || !lastAiRun || lastAiRun.pageId !== selectedPage.id) return null;
     return lastAiRun;
   }, [lastAiRun, selectedPage?.id]);
+  const selectedPageActiveAiQuestion = useMemo(() => {
+    if (!selectedPage?.id || !activeAiQuestion || activeAiQuestion.pageId !== selectedPage.id) return null;
+    return activeAiQuestion;
+  }, [activeAiQuestion, selectedPage?.id]);
   const requestBackgroundVisualReview = useCallback(
     async (input: {
       funnelId: string;
@@ -6148,49 +7021,38 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   }, [writeDraftCache]);
 
   const latestSelectedPageHtmlChange = selectedPageHtmlChangeActivity[0] || null;
-  const pageActivityCount =
-    selectedPageBuilderChangeActivity.length +
-    selectedPageHtmlChangeActivity.length +
-    selectedPageThreadRounds.length;
-  const selectedPageRecentActivity = useMemo<SavedChangeFeedItem[]>(() => {
-    const builderEntries = selectedPageBuilderChangeActivity.filter(isSavedBuilderActivityItem).map((item) => ({
-      id: `builder-${item.id}`,
-      at: item.at,
-      headline: buildBuilderActivityHeadline(item),
-      countLabel: buildBuilderActivityCountLabel(item),
-      tone: buildBuilderActivityTone(item),
-    }));
-    const htmlEntries = selectedPageHtmlChangeActivity.filter(isSavedHtmlActivityItem).map((item) => ({
-      id: `html-${item.id}`,
-      at: item.at,
-      headline: buildHtmlActivityLabel(item),
-      countLabel: buildHtmlActivityCountLabel(item),
-      tone: buildHtmlActivityTone(item),
-    }));
-
-    return [...builderEntries, ...htmlEntries]
-      .sort((left, right) => new Date(right.at).getTime() - new Date(left.at).getTime())
-      .slice(0, RECENT_SAVED_CHANGE_LIMIT);
-  }, [selectedPageBuilderChangeActivity, selectedPageHtmlChangeActivity]);
-  const directionFoundationStatusLabel =
-    foundationArtifactBusy ? "Refreshing read" : foundationArtifact?.source === "ai" ? "AI synthesized" : "Structured fallback";
-  const directionFoundationStatusClassName = foundationArtifactBusy
-    ? "border-blue-200 bg-blue-50 text-blue-800"
-    : foundationArtifact?.source === "ai"
-      ? "border-violet-200 bg-violet-50 text-violet-800"
-      : "border-zinc-200 bg-zinc-100 text-zinc-700";
   const enabledBookingCalendars = useMemo(
     () => bookingCalendars.filter((calendar) => calendar.enabled !== false),
     [bookingCalendars],
   );
+  const bookingCalendarTitleById = useMemo(
+    () => Object.fromEntries(enabledBookingCalendars.map((calendar) => [calendar.id, calendar.title || calendar.id])),
+    [enabledBookingCalendars],
+  );
+  const selectedPagePreviewBookingState = useMemo(() => {
+    if (!selectedPage) return null;
+    const html = getFunnelPageCurrentHtml(selectedPage);
+    if (!html) return null;
 
-  const latestSourceHighlightRange = useMemo(() => {
-    if (!latestSelectedPageHtmlChange?.diff.changed) return null;
-    const startLine = latestSelectedPageHtmlChange.diff.currentStartLine;
-    const endLine = latestSelectedPageHtmlChange.diff.currentEndLine;
-    if (!startLine || !endLine) return null;
-    return { startLine, endLine };
-  }, [latestSelectedPageHtmlChange]);
+    const match =
+      html.match(/\/book\/[^\"'\s/]+\/c\/([^\"'?&#/]+)/i) ||
+      html.match(/\/book\/u\/[^\"'\s/]+\/([^\"'?&#/]+)/i);
+    if (!match) return null;
+
+    const rawCalendarId = String(match[1] || "").trim();
+    if (!rawCalendarId) return null;
+
+    let calendarId = rawCalendarId;
+    try {
+      calendarId = decodeURIComponent(rawCalendarId);
+    } catch {
+      calendarId = rawCalendarId;
+    }
+
+    const title = bookingCalendarTitleById[calendarId] || calendarId;
+    const sourceKind = funnel?.bookingCalendarId && funnel.bookingCalendarId === calendarId ? "funnel-default" : "page-specific";
+    return { calendarId, title, sourceKind } as const;
+  }, [bookingCalendarTitleById, funnel?.bookingCalendarId, selectedPage]);
 
   const appendHtmlChangeActivity = useCallback((item: HtmlChangeActivityItem) => {
     setHtmlChangeActivity((prev) => [item, ...prev].slice(0, 24));
@@ -6200,6 +7062,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   }, []);
 
   type PageHistorySnapshot = Pick<Page, "editorMode" | "blocksJson" | "customHtml" | "draftHtml" | "customChatJson"> & {
+    title: string;
+    slug: string;
+    seo: PageSeo | null;
+    brief?: FunnelPageIntentProfile | null;
+    trackingSettings?: PixelTrackingSettings | null;
+    executionSummary?: PageExecutionSummary | null;
     selectedBlockId: string | null;
   };
 
@@ -6219,6 +7087,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     onlyCodeIsland: boolean;
   }>({ pageId: null, editorMode: null, sourceMode: null, onlyCodeIsland: false });
   const pendingBlankPagePreviewRef = useRef<string | null>(null);
+  const [dismissedBlankPageOnboarding, setDismissedBlankPageOnboarding] = useState<Record<string, true>>({});
 
   const getPageHistory = useCallback((pageId: string): PageHistoryState => {
     const existing = historyRef.current.get(pageId);
@@ -6230,11 +7099,19 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const captureSnapshot = useCallback(
     (p: Page): PageHistorySnapshot => ({
+      title: p.title,
+      slug: p.slug,
       editorMode: p.editorMode,
       blocksJson: p.blocksJson,
       customHtml: p.customHtml,
       draftHtml: p.draftHtml,
       customChatJson: p.customChatJson,
+      seo: p.seo ? { ...p.seo } : null,
+      brief: p.brief ? { ...p.brief } : null,
+      trackingSettings: p.trackingSettings ? { ...p.trackingSettings } : null,
+      executionSummary: p.executionSummary
+        ? { ...p.executionSummary, metrics: { ...p.executionSummary.metrics } }
+        : null,
       selectedBlockId,
     }),
     [selectedBlockId],
@@ -6274,11 +7151,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           p.id === pageId
             ? ({
                 ...p,
-                editorMode: snap.editorMode,
-                blocksJson: snap.blocksJson,
+                title: snap.title,
+                slug: snap.slug,
+              editorMode: snap.editorMode,
                 customHtml: snap.customHtml,
                 draftHtml: snap.draftHtml ?? "",
                 customChatJson: snap.customChatJson,
+                seo: snap.seo ? { ...snap.seo } : null,
+                brief: snap.brief ? { ...snap.brief } : null,
+                trackingSettings: snap.trackingSettings ? { ...snap.trackingSettings } : null,
+                executionSummary: snap.executionSummary
+                  ? { ...snap.executionSummary, metrics: { ...snap.executionSummary.metrics } }
+                  : null,
               } as Page)
             : p,
         ),
@@ -6438,51 +7322,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return [brandPalette.primary, brandPalette.accent, brandPalette.text].filter((x): x is string => !!x && isHexColor(x));
   }, [brandPalette]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const res = await fetch("/api/portal/ai-receptionist/settings", {
-          cache: "no-store",
-          headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
-        });
-        const json = (await res.json().catch(() => null)) as any;
-        const chatId = typeof json?.settings?.chatAgentId === "string" ? json.settings.chatAgentId.trim() : "";
-        if (!cancelled) {
-          setAiReceptionistChatAgentId(chatId || null);
-        }
-      } catch {
-        // ignore
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [portalVariant]);
-
-  const BUSY_PHASES = ["Planning structure", "Drafting page", "Repairing weak spots", "Preparing preview"];
+  const BUSY_PHASES = [
+    "Reading the current page",
+    "Linking page context",
+    "Drafting the next update",
+    "Checking the updated result",
+  ];
   const busyPhasesLen = BUSY_PHASES.length;
   useEffect(() => {
     if (!busy) { setBusyPhaseIdx(0); return; }
     const id = setInterval(() => setBusyPhaseIdx((prev) => Math.min(prev + 1, busyPhasesLen - 1)), 2600);
     return () => clearInterval(id);
   }, [busy, busyPhasesLen]);
-
-  useEffect(() => {
-    if (!aiResultBanner) return;
-    const id = setTimeout(() => setAiResultBanner(null), 7000);
-    return () => clearTimeout(id);
-  }, [aiResultBanner]);
-
-  useEffect(() => {
-    if (aiWorkFocus?.phase !== "settled") return;
-    const id = setTimeout(() => {
-      setAiWorkFocus((prev) => (prev?.phase === "settled" ? null : prev));
-    }, 1600);
-    return () => clearTimeout(id);
-  }, [aiWorkFocus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -6520,7 +7371,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const MAX_MEDIA_LIBRARY_BYTES = 4 * 1024 * 1024; // ~4MB per file (direct-to-API)
   const MAX_UPLOADS_BYTES = 250 * 1024 * 1024; // 250MB per file (disk-backed)
 
-  const uploadToMediaLibrary = async (files: FileList | File[], opts?: { maxFiles?: number }) => {
+  const uploadToMediaLibrary = useCallback(async (files: FileList | File[], opts?: { maxFiles?: number }) => {
     const maxFiles = Math.max(1, Math.min(20, Math.floor(opts?.maxFiles ?? 20)));
     const list = Array.from(files || []).filter(Boolean).slice(0, maxFiles);
     if (!list.length) return [] as PortalMediaPickItem[];
@@ -6552,9 +7403,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
     if (!json || json.ok !== true) throw new Error("Failed to upload media");
     return Array.isArray(json.items) ? (json.items as PortalMediaPickItem[]) : [];
-  };
+  }, [portalVariant]);
 
-  const uploadToUploads = async (file: File): Promise<{ url: string; mediaItem?: PortalMediaPickItem | null }> => {
+  const uploadToUploads = useCallback(async (file: File): Promise<{ url: string; mediaItem?: PortalMediaPickItem | null }> => {
     if (!file) throw new Error("Missing file");
     if (file.size > MAX_UPLOADS_BYTES) {
       throw new Error(`"${file.name}" is too large (max ${Math.floor(MAX_UPLOADS_BYTES / (1024 * 1024))}MB)`);
@@ -6611,9 +7462,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     const nextUrl = String(mediaItem.shareUrl || blob.url || "").trim();
     if (!nextUrl) throw new Error("Upload did not return a URL");
     return { url: nextUrl, mediaItem };
-  };
+  }, [portalVariant, uploadToMediaLibrary]);
 
-  const uploadAiContextFiles = async (files: FileList | File[]) => {
+  const uploadAiContextFiles = useCallback(async (files: FileList | File[]) => {
     const list = Array.from(files || [])
       .filter(Boolean)
       .slice(0, 10);
@@ -6657,7 +7508,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     } finally {
       setAiContextUploadBusy(false);
     }
-  };
+  }, [toast, uploadToUploads]);
+
+  const handleAiContextPaste = useCallback(
+    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      const imageFiles = extractClipboardImageFiles(event.clipboardData);
+      if (!imageFiles.length) return;
+      event.preventDefault();
+      void uploadAiContextFiles(imageFiles);
+    },
+    [uploadAiContextFiles],
+  );
 
   const closeDialog = () => {
     setDialog(null);
@@ -6812,11 +7673,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   }, [brandSwatches, documentSwatches]);
 
   const selectedChat = useMemo(() => {
-    if (!selectedPage) return [];
-    return Array.isArray(selectedPage.customChatJson)
-      ? (stripFunnelPageIntentMessages<ChatMessage>(selectedPage.customChatJson) as ChatMessage[])
-      : [];
-  }, [selectedPage]);
+    return selectedThreadMessages;
+  }, [selectedThreadMessages]);
 
   type BlockContainerKey = "root" | "children" | "leftChildren" | "rightChildren";
   type BlockContainerPath =
@@ -6980,6 +7838,122 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (!selectedBlockId) return null;
     return findBlockInTree(editableBlocks, selectedBlockId)?.block || null;
   }, [editableBlocks, selectedBlockId, findBlockInTree]);
+  const selectedCalendarBlock = useMemo(
+    () => (selectedBlock?.type === "calendarEmbed" ? selectedBlock : null),
+    [selectedBlock],
+  );
+  const selectedCalendarBlockPinnedCalendarId = useMemo(
+    () => String((selectedCalendarBlock?.props as any)?.calendarId || "").trim(),
+    [selectedCalendarBlock],
+  );
+  const selectedCalendarBlockResolvedCalendarId = useMemo(
+    () => selectedCalendarBlockPinnedCalendarId || String(funnel?.bookingCalendarId || "").trim(),
+    [funnel?.bookingCalendarId, selectedCalendarBlockPinnedCalendarId],
+  );
+  const selectedCalendarBlockResolvedCalendarTitle = useMemo(
+    () =>
+      selectedCalendarBlockResolvedCalendarId
+        ? bookingCalendarTitleById[selectedCalendarBlockResolvedCalendarId] || selectedCalendarBlockResolvedCalendarId
+        : "",
+    [bookingCalendarTitleById, selectedCalendarBlockResolvedCalendarId],
+  );
+  const selectedCalendarBlockRouteKind = useMemo<"block" | "funnel" | "placeholder">(() => {
+    if (selectedCalendarBlockPinnedCalendarId) return "block";
+    if (funnel?.bookingCalendarId) return "funnel";
+    return "placeholder";
+  }, [funnel?.bookingCalendarId, selectedCalendarBlockPinnedCalendarId]);
+
+  const openBookingRoutingDialog = useCallback(
+    (blockId?: string | null) => {
+      const resolvedBlockId = typeof blockId === "string" && blockId.trim()
+        ? blockId.trim()
+        : selectedCalendarBlock?.id || null;
+      const targetBlock = resolvedBlockId ? findBlockInTree(editableBlocks, resolvedBlockId)?.block || null : null;
+      const pinnedCalendarId = targetBlock?.type === "calendarEmbed" ? String((targetBlock.props as any)?.calendarId || "").trim() : "";
+      const hasExistingRoute = Boolean(pinnedCalendarId || String(funnel?.bookingCalendarId || "").trim());
+
+      if (resolvedBlockId) setSelectedBlockId(resolvedBlockId);
+      setDialog({
+        type: "booking-routing",
+        blockId: resolvedBlockId,
+        mode: pinnedCalendarId ? "block" : "funnel",
+        surface: hasExistingRoute ? "manage" : "route",
+        newCalendarTitle: "",
+      });
+      setDialogError(null);
+    },
+    [editableBlocks, findBlockInTree, funnel?.bookingCalendarId, selectedCalendarBlock],
+  );
+
+  const pageHasChatbotBlock = useMemo(
+    () => blockTreeHasAnyType(editableBlocks, new Set<CreditFunnelBlock["type"]>(["chatbot"])),
+    [editableBlocks],
+  );
+  const pageHasCalendarBlock = useMemo(
+    () => blockTreeHasAnyType(editableBlocks, new Set<CreditFunnelBlock["type"]>(["calendarEmbed"])),
+    [editableBlocks],
+  );
+  const pageHasCalendarPlaceholder = useMemo(() => {
+    const walk = (blocks: CreditFunnelBlock[]): boolean => {
+      for (const block of blocks) {
+        if (!block || typeof block !== "object") continue;
+        if (block.type === "calendarEmbed" && !String((block.props as any)?.calendarId || "").trim()) return true;
+
+        if (block.type === "section") {
+          const props = (block.props || {}) as Record<string, unknown>;
+          for (const key of ["children", "leftChildren", "rightChildren"] as const) {
+            const nested = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : [];
+            if (walk(nested)) return true;
+          }
+        }
+
+        if (block.type === "columns") {
+          const columns = Array.isArray((block.props as any)?.columns) ? ((block.props as any).columns as any[]) : [];
+          for (const column of columns) {
+            const nested = Array.isArray(column?.children) ? (column.children as CreditFunnelBlock[]) : [];
+            if (walk(nested)) return true;
+          }
+        }
+      }
+
+      return false;
+    };
+
+    return walk(editableBlocks);
+  }, [editableBlocks]);
+  const shouldLoadAiReceptionistDefaults = Boolean(selectedBlock?.type === "chatbot" || pageHasChatbotBlock);
+  const shouldLoadBookingResources = Boolean(
+    builderTopLevelPanel === "settings" ||
+      selectedBlock?.type === "calendarEmbed" ||
+      pageHasCalendarBlock ||
+      funnel?.bookingCalendarId,
+  );
+
+  useEffect(() => {
+    if (!shouldLoadAiReceptionistDefaults) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/portal/ai-receptionist/settings", {
+          cache: "no-store",
+          headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        const chatId = typeof json?.settings?.chatAgentId === "string" ? json.settings.chatAgentId.trim() : "";
+        if (!cancelled) {
+          setAiReceptionistChatAgentId(chatId || null);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [portalVariant, shouldLoadAiReceptionistDefaults]);
 
   const pageCustomCodeBlocks = useMemo(() => collectCustomCodeBlocks(editableBlocks), [editableBlocks]);
   const pageUiStateStorageKey = useMemo(
@@ -7023,16 +7997,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
       const storedCustomCodeId = typeof parsed.aiSidebarCustomCodeBlockId === "string" ? parsed.aiSidebarCustomCodeBlockId : "";
       const storedSelectedBlockId = typeof parsed.selectedBlockId === "string" ? parsed.selectedBlockId : "";
-      const storedSidebarPanel =
-        parsed.sidebarPanel === "selected" || parsed.sidebarPanel === "structure"
-          ? parsed.sidebarPanel
-          : parsed.sidebarPanel === "ai"
-            ? "activity"
-            : parsed.sidebarPanel === "page"
-              ? "settings"
-              : parsed.sidebarPanel === "activity" || parsed.sidebarPanel === "settings"
-                ? parsed.sidebarPanel
-                : null;
+      const storedSidebarPanel = parsed.sidebarPanel === "page" || parsed.sidebarPanel === "settings" ? "settings" : "structure";
 
       if (storedCustomCodeId && pageCustomCodeBlocks.some((block) => block.id === storedCustomCodeId)) {
         setAiSidebarCustomCodeBlockId(storedCustomCodeId);
@@ -7042,9 +8007,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         setSelectedBlockId(storedSelectedBlockId);
       }
 
-      if (storedSidebarPanel === "selected" && (storedSelectedBlockId || storedCustomCodeId || canonicalCustomCodeBlock)) {
-        setSidebarPanel("selected");
-      }
+      setSidebarPanel(storedSidebarPanel);
 
       restoredPageUiStateRef.current[selectedPage.id] = true;
     } catch {
@@ -7069,7 +8032,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   }, [aiSidebarCustomCodeBlockId, pageUiStateStorageKey, selectedBlockId, sidebarPanel]);
 
   useEffect(() => {
-    if (sidebarPanel !== "selected") return;
+    if (sidebarPanel !== "structure") return;
     if (selectedBlock) return;
     if (canonicalCustomCodeBlock) {
       setSelectedBlockId(canonicalCustomCodeBlock.id);
@@ -7194,6 +8157,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           return { kind: "Form", detail: directText || "Embedded form" };
         case "formLink":
           return { kind: "Form link", detail: directText || "Open form" };
+        case "calendarEmbed":
+          return { kind: "Booking", detail: directText || "Placeholder calendar" };
         case "image":
           return { kind: "Image", detail: directText || "Image block" };
         case "video":
@@ -7363,7 +8328,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         !nextState.onlyCodeIsland,
     );
     setBuilderSurfaceMode(shouldOpenSource ? "whole-page" : "blocks");
-    setWholePageViewMode(shouldOpenPreview ? "preview" : "source");
+    setPageLensStage("page");
+    setPageCanvasView("preview");
     setSelectedHtmlRegionKey(null);
     setWholePageSyncNotice(null);
     setSidebarPanel("structure");
@@ -7416,6 +8382,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     () => buildFunnelPageRouteLabel(funnel?.slug, selectedPage?.slug),
     [funnel?.slug, selectedPage?.slug],
   );
+  const setupPageRoutePreviewLabel = useMemo(
+    () => buildFunnelPageRouteLabel(funnel?.slug, normalizeSlug(setupPageSlugDraft) || selectedPage?.slug),
+    [funnel?.slug, selectedPage?.slug, setupPageSlugDraft],
+  );
+
+  useEffect(() => {
+    if (!briefPanelOpen) return;
+    setSetupPageSlugDraft(String(selectedPage?.slug || ""));
+    setSetupPageSlugError(null);
+  }, [briefPanelOpen, selectedPage?.id, selectedPage?.slug]);
+
   const foundationCapabilityInputs = useMemo<FunnelFoundationCapabilityInputs>(
     () => ({
       existingFormsCount: Array.isArray(forms) ? forms.length : 0,
@@ -7550,7 +8527,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   }, [buildWholePageDraftHtml, saveableBlocks, selectedPage, selectedPageSupportsBlocksSurface]);
   const selectedPageDirty = Boolean(selectedPageId && dirtyPageIds[selectedPageId]);
   const blocksSurfaceActive = Boolean(selectedPage && selectedPageSupportsBlocksSurface && builderSurfaceMode === "blocks");
-  const blankPageOnboardingActive = Boolean(emptyPageAiGuide && blocksSurfaceActive && selectedPage);
+  const blankPageOnboardingDismissed = Boolean(selectedPage?.id && dismissedBlankPageOnboarding[selectedPage.id]);
+  const blankPageOnboardingActive = Boolean(emptyPageAiGuide && blocksSurfaceActive && selectedPage && !blankPageOnboardingDismissed);
   const activeFoundationWizardStep = foundationWizardSteps[Math.min(foundationWizardStep, foundationWizardSteps.length - 1)] || foundationWizardSteps[0];
   const foundationWizardLastStepIndex = foundationWizardSteps.length - 1;
   const foundationWizardAtLastStep = foundationWizardStep >= foundationWizardLastStepIndex;
@@ -7563,6 +8541,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     selectedPage && !blocksSurfaceActive && (selectedPageGraph.sourceMode === "custom-html" || builderSurfaceMode === "whole-page"),
   );
   const wholePageSourceEditable = Boolean(selectedPage && selectedPageGraph.capabilities.supportsWholePageSource && !blocksSurfaceActive);
+  const wholePageSourceCanStartEditing = Boolean(selectedPage && !blocksSurfaceActive && selectedPageGraph.sourceMode !== "markdown");
+  const wholePageSourceRequiresModeSwitch = Boolean(wholePageSourceCanStartEditing && !wholePageSourceEditable);
+  const pendingSourceEditActivationRef = useRef(false);
+  const pendingSourceSelectAllRef = useRef(false);
 
   useEffect(() => {
     if (!briefPanelOpen || !blankPageOnboardingActive) {
@@ -7624,31 +8606,36 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   }, [briefPanelOpen, businessProfileSummary, foundationCapabilityInputs, funnel?.brief, funnelId, pageIntentProfile, portalVariant, selectedPage, selectedPageRouteLabel]);
 
   useEffect(() => {
-    const pageId = selectedPage?.id || null;
-    if (!blankPageOnboardingActive || !pageId) {
+    if (!blankPageOnboardingActive) {
       blankPageWizardAutoOpenRef.current = null;
-      return;
     }
-    if (blankPageWizardAutoOpenRef.current === pageId) return;
-    blankPageWizardAutoOpenRef.current = pageId;
-    setBriefPanelOpen(true);
-  }, [blankPageOnboardingActive, selectedPage?.id]);
+  }, [blankPageOnboardingActive]);
 
   const saveStatusLabel = (() => {
     if (!selectedPage) return null;
     if (selectedPageDirty) return wholePageSourceEditable ? "Unsaved draft" : "Unsaved";
     return formatSavedAtLabel((selectedPage as any).updatedAt) || (wholePageSourceEditable ? "Draft saved" : "Saved");
   })();
-  const currentPageSourceHtml = useMemo(() => {
+  const committedPageSourceHtml = useMemo(() => {
     if (!selectedPage) return "";
     if (selectedPageGraph.sourceMode === "custom-html") return storedPageSourceHtml;
     if (generatedBlockWholePageHtml) return generatedBlockWholePageHtml;
-    if (!selectedPageDirty) return storedPageSourceHtml;
-    return "";
+    return storedPageSourceHtml;
   }, [generatedBlockWholePageHtml, selectedPage, selectedPageDirty, selectedPageGraph.sourceMode, storedPageSourceHtml]);
+  const normalizedCommittedPageSourceHtml = useMemo(
+    () => stripDiffMarkers(committedPageSourceHtml),
+    [committedPageSourceHtml],
+  );
+  const formattedCommittedPageSourceHtml = useMemo(
+    () => formatHtmlSourceForDisplay(normalizedCommittedPageSourceHtml),
+    [normalizedCommittedPageSourceHtml],
+  );
+  const currentPageSourceHtml = sourceEditMode ? sourceEditDraft : formattedCommittedPageSourceHtml;
+  const previewPageSourceHtml = sourceEditMode && sourcePreviewActive ? sourceEditDraft : normalizedCommittedPageSourceHtml;
+  const sourceHasPendingChanges = sourceEditMode && sourceEditDraft !== sourceEditBaseline;
   const wholePageUsesLiveDraftSource = Boolean(!wholePageSourceEditable && generatedBlockWholePageHtml);
   const wholePageNeedsSaveForDeployableSource = !wholePageSourceEditable && selectedPageDirty && !generatedBlockWholePageHtml;
-  const editorPreviewHtml = useMemo(() => buildEditorPreviewHtml(currentPageSourceHtml), [currentPageSourceHtml]);
+  const editorPreviewHtml = useMemo(() => buildEditorPreviewHtml(previewPageSourceHtml), [previewPageSourceHtml]);
   const wholePageStatusMessage = useMemo(() => {
     if (!wholePageModeActive) return wholePageSyncNotice;
     if (!selectedPage || !selectedPageSupportsBlocksSurface) return wholePageSyncNotice;
@@ -7656,7 +8643,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       return selectedPageLensUi.wholePageStatusMessageWhenUnsynced;
     }
     if (wholePageNeedsSaveForDeployableSource) {
-      return "This page includes a server-rendered block. Preview is showing the current draft, and deployable source regenerates when you save.";
+      return "Source is showing the last saved snapshot. Save the page to refresh the source snapshot.";
     }
     if (!generatedBlockWholePageHtml) {
       return "Source reflects the latest saved structure.";
@@ -7680,13 +8667,35 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     }
 
     if (wholePageUsesLiveDraftSource) return "Follows current draft";
-    if (wholePageNeedsSaveForDeployableSource) return "Save to refresh source";
+    if (wholePageNeedsSaveForDeployableSource) return "Save page to refresh snapshot";
     return formatSavedAtLabel((selectedPage as any).updatedAt) || "Source current";
   }, [selectedPage, wholePageModeActive, wholePageNeedsSaveForDeployableSource, wholePageSourceEditable, wholePageUsesLiveDraftSource, selectedPageDirty]);
+
+  const sourcePaneMeta = useMemo(() => {
+    if (!sourceEditMode) return wholePageSyncMeta;
+    if (sourcePreviewActive && sourceHasPendingChanges) return "Previewing staged changes";
+    if (sourceHasPendingChanges) return "Changes not yet applied";
+    return "Editing staged source";
+  }, [sourceEditMode, sourceHasPendingChanges, sourcePreviewActive, wholePageSyncMeta]);
 
   useEffect(() => {
     setWholePageSyncNotice(null);
   }, [selectedPageId]);
+
+  useEffect(() => {
+    setSourceEditMode(false);
+    setSourceEditDraft("");
+    setSourceEditBaseline("");
+    setSourcePreviewActive(false);
+    setSourceSelectAllSignal(0);
+  }, [selectedPage?.id, wholePageSourceEditable]);
+
+  useEffect(() => {
+    pendingSourceEditActivationRef.current = false;
+    pendingSourceSelectAllRef.current = false;
+  }, [selectedPage?.id]);
+
+
 
   const htmlRegionScopes = useMemo(
     () => (currentPageSourceHtml ? detectHtmlRegionScopes(currentPageSourceHtml) : []),
@@ -7696,7 +8705,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     () => htmlRegionScopes.find((region) => region.key === selectedHtmlRegionKey) || null,
     [htmlRegionScopes, selectedHtmlRegionKey],
   );
-  const sourceScopeLabel = selectedHtmlRegion ? selectedHtmlRegion.label : "Whole page";
+  const sourceScopeLabel = wholePageSourceEditable ? "Current draft source" : "Generated source";
   const pageStyle = (pageSettingsBlock as any)?.props?.style as BlockStyle | undefined;
   const pageCanvasFontPresetKey = fontPresetKeyFromStyle({
     fontFamily: (pageStyle as any)?.fontFamily,
@@ -7713,12 +8722,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       setSelectedHtmlRegionKey(null);
     }
   }, [htmlRegionScopes, selectedHtmlRegionKey]);
-
-  useEffect(() => {
-    if (selectedPage?.editorMode !== "CUSTOM_HTML") {
-      setHtmlScopePickerOpen(false);
-    }
-  }, [selectedPage?.editorMode]);
 
   const pageHasStripeProductButtons = useMemo(() => {
     const visit = (blocks: CreditFunnelBlock[] | undefined): boolean => {
@@ -7812,35 +8815,67 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     );
   }, [buildWholePageDraftHtml, pushUndoSnapshot, selectedPage]);
 
-  const load = useCallback(async () => {
-    setError(null);
-    const [fRes, pRes, formsRes, bookingCalendarsRes, bookingSettingsRes] = await Promise.all([
-      fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
-        cache: "no-store",
-      }),
-      fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages`, {
-        cache: "no-store",
-      }),
-      fetch("/api/portal/funnel-builder/forms", {
-        cache: "no-store",
-        headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
-      }).catch(() => null as any),
+  const loadBookingResources = useCallback(async () => {
+    const [bookingCalendarsRes, bookingSettingsRes] = await Promise.all([
       fetch("/api/portal/booking/calendars", { cache: "no-store" }).catch(() => null as any),
       fetch("/api/portal/booking/settings", { cache: "no-store" }).catch(() => null as any),
     ]);
-    const fJson = (await fRes.json().catch(() => null)) as any;
-    const pJson = (await pRes.json().catch(() => null)) as any;
-    const formsJson = formsRes ? ((await formsRes.json().catch(() => null)) as any) : null;
     const bookingCalendarsJson = bookingCalendarsRes
       ? ((await bookingCalendarsRes.json().catch(() => null)) as any)
       : null;
     const bookingSettingsJson = bookingSettingsRes
       ? ((await bookingSettingsRes.json().catch(() => null)) as any)
       : null;
+
+    if (bookingCalendarsRes?.ok && bookingCalendarsJson?.ok === true) {
+      setBookingCalendars(normalizeBookingCalendarList(bookingCalendarsJson?.config?.calendars));
+    } else {
+      setBookingCalendars([]);
+    }
+
+    if (bookingSettingsRes?.ok && bookingSettingsJson?.ok === true) {
+      const normalizedSite = normalizeFunnelBookingSettingsSite(bookingSettingsJson?.site);
+      const slug = typeof normalizedSite?.slug === "string" ? normalizedSite.slug.trim() : "";
+      setBookingSiteSlug(slug || null);
+      setBookingSettingsSite(normalizedSite);
+    } else {
+      setBookingSiteSlug(null);
+      setBookingSettingsSite(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!shouldLoadBookingResources) return;
+    void loadBookingResources();
+  }, [loadBookingResources, shouldLoadBookingResources]);
+
+  const load = useCallback(async () => {
+    setError(null);
+    const [fRes, pRes, tRes, formsRes] = await Promise.all([
+      fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
+        cache: "no-store",
+      }),
+      fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages`, {
+        cache: "no-store",
+      }),
+      fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/threads`, {
+        cache: "no-store",
+      }),
+      fetch("/api/portal/funnel-builder/forms", {
+        cache: "no-store",
+        headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+      }).catch(() => null as any),
+    ]);
+    const fJson = (await fRes.json().catch(() => null)) as any;
+    const pJson = (await pRes.json().catch(() => null)) as any;
+    const tJson = (await tRes.json().catch(() => null)) as any;
+    const formsJson = formsRes ? ((await formsRes.json().catch(() => null)) as any) : null;
     if (!fRes.ok || !fJson || fJson.ok !== true)
       throw new Error(fJson?.error || "Failed to load funnel");
     if (!pRes.ok || !pJson || pJson.ok !== true)
       throw new Error(pJson?.error || "Failed to load pages");
+    if (!tRes.ok || !tJson || tJson.ok !== true)
+      throw new Error(tJson?.error || "Failed to load threads");
 
     const cachedDraft = readFunnelEditorDraftCache(funnelId);
     const liveDirtyPages = (pagesRef.current || []).filter((page) => dirtyPageIdsRef.current[page.id]);
@@ -7871,9 +8906,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         ? cloneFunnelBriefForCache(cachedDraft.funnelBrief)
         : null;
 
+    savedFunnelSeoKeyRef.current = serializeFunnelSeoDraft(baseFunnel.seo ?? null);
     setFunnel(preferredFunnelBrief ? ({ ...baseFunnel, brief: preferredFunnelBrief } as Funnel) : baseFunnel);
     setFunnelBriefDirty(Boolean(funnelBriefDirtyRef.current || cachedDraft?.funnelBriefDirty));
     setPages(nextPages);
+    setThreads(Array.isArray(tJson.threads) ? (tJson.threads as FunnelThread[]) : []);
+    setThreadsLoaded(true);
     setDirtyPageIds(nextDirtyPageIds);
     const preferredFromUrl = (() => {
       if (initialPageSelectionConsumedRef.current) return null;
@@ -7891,29 +8929,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
     if (formsRes && formsRes.ok && formsJson?.ok === true) {
       setForms(Array.isArray(formsJson.forms) ? (formsJson.forms as CreditForm[]) : []);
-    }
-
-    if (bookingCalendarsRes?.ok && bookingCalendarsJson?.ok === true) {
-      const raw = bookingCalendarsJson?.config?.calendars;
-      const next = Array.isArray(raw)
-        ? (raw
-            .map((c: any) => ({
-              id: typeof c?.id === "string" ? c.id : "",
-              title: typeof c?.title === "string" ? c.title : undefined,
-              enabled: typeof c?.enabled === "boolean" ? c.enabled : undefined,
-            }))
-            .filter((c: BookingCalendarLite) => !!c.id) as BookingCalendarLite[])
-        : [];
-      setBookingCalendars(next);
-    } else {
-      setBookingCalendars([]);
-    }
-
-    if (bookingSettingsRes?.ok && bookingSettingsJson?.ok === true) {
-      const slug = typeof bookingSettingsJson?.site?.slug === "string" ? bookingSettingsJson.site.slug.trim() : "";
-      setBookingSiteSlug(slug || null);
-    } else {
-      setBookingSiteSlug(null);
     }
   }, [funnelId, portalVariant]);
 
@@ -7936,6 +8951,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save SEO");
+      savedFunnelSeoKeyRef.current = serializeFunnelSeoDraft(json.funnel?.seo ?? null);
       setFunnel(json.funnel as Funnel);
       setSeoDirty(false);
       toast.success("SEO saved");
@@ -7956,7 +8972,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ bookingCalendarId: funnel.bookingCalendarId ?? null }),
+        body: JSON.stringify({
+          bookingCalendarId: funnel.bookingCalendarId ?? null,
+          bookingDefaults: resolveFunnelBookingDefaults(funnel.bookingDefaults ?? null),
+        }),
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save booking route");
@@ -7971,6 +8990,78 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       setFunnelBookingBusy(false);
     }
   }, [funnel, funnelId, toast]);
+
+  const saveFunnelBookingRouteSelection = useCallback(async (calendarId: string | null) => {
+    if (!funnel) return false;
+
+    const previousCalendarId = funnel.bookingCalendarId ?? null;
+    const nextCalendarId = calendarId ?? null;
+    if (previousCalendarId === nextCalendarId) return true;
+
+    setFunnelBookingBusy(true);
+    setFunnelBookingError(null);
+    setFunnel((prev) => (prev ? ({ ...prev, bookingCalendarId: nextCalendarId } as Funnel) : prev));
+
+    try {
+      const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bookingCalendarId: nextCalendarId }),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to route booking calendar");
+
+      setFunnel((prev) => {
+        if (!prev) return prev;
+        const nextFunnel = json.funnel as Funnel;
+        return {
+          ...nextFunnel,
+          bookingDefaults: funnelBookingDirty ? prev.bookingDefaults : nextFunnel.bookingDefaults,
+        } as Funnel;
+      });
+      setDialog((prev) => (prev?.type === "booking-routing" ? { ...prev, surface: "manage" } : prev));
+      toast.success(nextCalendarId ? "Funnel calendar routed" : "Funnel calendar cleared");
+      return true;
+    } catch (e) {
+      const msg = (e as any)?.message ? String((e as any).message) : "Failed to route booking calendar";
+      setFunnel((prev) => (prev ? ({ ...prev, bookingCalendarId: previousCalendarId } as Funnel) : prev));
+      setFunnelBookingError(msg);
+      toast.error(msg);
+      return false;
+    } finally {
+      setFunnelBookingBusy(false);
+    }
+  }, [funnel, funnelBookingDirty, funnelId, toast]);
+
+  const resolvedFunnelBookingDefaults = useMemo(
+    () => resolveFunnelBookingDefaults(funnel?.bookingDefaults ?? null),
+    [funnel?.bookingDefaults],
+  );
+
+  const selectedBookingPreset = useMemo(
+    () => getFunnelBookingPresetDefinition(resolvedFunnelBookingDefaults.presetId),
+    [resolvedFunnelBookingDefaults.presetId],
+  );
+
+  const updateFunnelBookingDefaults = useCallback(
+    (patch: Partial<FunnelBookingDefaults>, mode: "merge" | "preset" = "merge") => {
+      setFunnelBookingDirty(true);
+      setFunnelBookingError(null);
+      setFunnel((prev) => {
+        if (!prev) return prev;
+        const currentDefaults = resolveFunnelBookingDefaults(prev.bookingDefaults ?? null);
+        const nextDefaults =
+          mode === "preset" && patch.presetId
+            ? {
+                ...resolveFunnelBookingDefaults({ presetId: patch.presetId }),
+                timeZone: currentDefaults.timeZone,
+              }
+            : resolveFunnelBookingDefaults({ ...currentDefaults, ...patch });
+        return { ...prev, bookingDefaults: nextDefaults } as Funnel;
+      });
+    },
+    [setFunnel],
+  );
 
   const saveFunnelBrief = useCallback(async (nextBrief: FunnelBriefProfile | null) => {
     if (!funnel) return false;
@@ -8003,7 +9094,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   useEffect(() => {
     let cancelled = false;
-    if (funnel !== null && pages !== null) return;
+    if (funnel !== null && pages !== null && threadsLoaded) return;
 
     void load().catch((e) => {
       if (cancelled) return;
@@ -8012,7 +9103,138 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return () => {
       cancelled = true;
     };
-  }, [funnel, load, pages]);
+  }, [funnel, load, pages, threadsLoaded]);
+
+  const upsertThreadLocal = useCallback((thread: FunnelThread) => {
+    setThreads((prev) => {
+      const next = prev.some((item) => item.id === thread.id)
+        ? prev.map((item) => (item.id === thread.id ? thread : item))
+        : [thread, ...prev];
+      next.sort((left, right) => {
+        const leftAt = Date.parse(left.lastMessageAt || left.updatedAt || left.createdAt || "") || 0;
+        const rightAt = Date.parse(right.lastMessageAt || right.updatedAt || right.createdAt || "") || 0;
+        return rightAt - leftAt;
+      });
+      return next;
+    });
+  }, []);
+
+  const saveThread = useCallback(
+    async (
+      threadId: string,
+      patch: {
+        title?: string;
+        kind?: FunnelThread["kind"];
+        pageId?: string | null;
+        messagesJson?: unknown;
+        contextJson?: Record<string, unknown> | null;
+      },
+    ) => {
+      const res = await fetch(
+        `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/threads/${encodeURIComponent(threadId)}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(patch),
+        },
+      );
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true || !json.thread) {
+        throw new Error(json?.error || "Failed to save thread");
+      }
+      const nextThread = json.thread as FunnelThread;
+      upsertThreadLocal(nextThread);
+      return nextThread;
+    },
+    [funnelId, upsertThreadLocal],
+  );
+
+  const createThread = useCallback(
+    async (input?: {
+      title?: string;
+      kind?: FunnelThread["kind"];
+      pageId?: string | null;
+      cloneFromThreadId?: string | null;
+      messagesJson?: unknown;
+      contextJson?: Record<string, unknown> | null;
+    }) => {
+      const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/threads`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: input?.title,
+          kind: input?.kind,
+          pageId: input?.pageId,
+          cloneFromThreadId: input?.cloneFromThreadId,
+          messagesJson: input?.messagesJson,
+          contextJson: input?.contextJson,
+        }),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true || !json.thread) {
+        throw new Error(json?.error || "Failed to create thread");
+      }
+      const nextThread = json.thread as FunnelThread;
+      upsertThreadLocal(nextThread);
+      setSelectedThreadId(nextThread.id);
+      return nextThread;
+    },
+    [funnelId, upsertThreadLocal],
+  );
+
+  const persistThreadMessages = useCallback(
+    async (
+      messagesRaw: unknown,
+      options?: {
+        pageId?: string | null;
+        title?: string;
+        kind?: FunnelThread["kind"];
+        context?: Record<string, unknown> | null;
+      },
+    ) => {
+      const messages = normalizeFunnelThreadMessages(messagesRaw);
+      const pageId = options?.pageId !== undefined ? options.pageId : selectedPage?.id || selectedThread?.pageId || null;
+      const pageTitle = String(selectedPage?.title || (selectedThread?.context?.pageTitle as string | undefined) || "").trim();
+      const context = {
+        ...(selectedThread?.context || {}),
+        ...(options?.context || {}),
+        ...(pageId ? { pageId } : {}),
+        ...(pageTitle ? { pageTitle } : {}),
+      } as Record<string, unknown>;
+      const nowIso = new Date().toISOString();
+      const lastMessageAt = readFunnelThreadLastMessageAt(messages, nowIso);
+
+      if (selectedThread) {
+        const optimisticThread: FunnelThread = {
+          ...selectedThread,
+          pageId,
+          title: options?.title || selectedThread.title,
+          kind: options?.kind || selectedThread.kind,
+          messages,
+          context,
+          lastMessageAt,
+          updatedAt: nowIso,
+        };
+        upsertThreadLocal(optimisticThread);
+        return saveThread(selectedThread.id, {
+          pageId,
+          title: optimisticThread.title,
+          kind: optimisticThread.kind,
+          messagesJson: messages,
+          contextJson: context,
+        });
+      }
+
+      return createThread({
+        pageId,
+        kind: options?.kind || (pageId ? "page" : "main"),
+        title: options?.title || buildDefaultFunnelThreadTitle({ kind: options?.kind || (pageId ? "page" : "main"), pageTitle }),
+        messagesJson: messages,
+        contextJson: context,
+      });
+    },
+    [createThread, saveThread, selectedPage?.id, selectedPage?.title, selectedThread, upsertThreadLocal],
+  );
 
   const savePage = useCallback(
     async (
@@ -8031,7 +9253,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           | "customChatJson"
           | "brief"
         >
-      >,
+      > & { metaPixelId?: string | null },
     ) => {
       if (!selectedPage) return false;
       const pageId = selectedPage.id;
@@ -8093,6 +9315,70 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     },
     [funnelId, load, selectedPage],
   );
+
+  const ensurePageChatMirror = useCallback(async (messagesRaw: unknown) => {
+    if (!selectedPage) return true;
+
+    const nextMessages = normalizeFunnelThreadMessages(messagesRaw);
+    const currentMessages = normalizeFunnelThreadMessages(selectedPage.customChatJson);
+    if (JSON.stringify(currentMessages) === JSON.stringify(nextMessages)) return true;
+
+    setSelectedPageLocal({ customChatJson: nextMessages });
+    return savePage({ customChatJson: nextMessages });
+  }, [savePage, selectedPage, setSelectedPageLocal]);
+
+  const commitSetupPageSlug = useCallback(async () => {
+    if (!selectedPage) return false;
+
+    const requestedSlug = setupPageSlugDraft.trim();
+    const normalizedSlug = requestedSlug ? normalizeSlug(requestedSlug) : "";
+    if (!requestedSlug || !normalizedSlug) {
+      setSetupPageSlugError("Use letters, numbers, and dashes for the page path.");
+      return false;
+    }
+
+    const currentSlug = normalizeSlug(selectedPage.slug);
+    if (normalizedSlug === currentSlug) {
+      setSetupPageSlugDraft(normalizedSlug);
+      setSetupPageSlugError(null);
+      return true;
+    }
+
+    const conflict = (pages || []).find((page) => page.id !== selectedPage.id && normalizeSlug(page.slug) === normalizedSlug);
+    if (conflict) {
+      setSetupPageSlugError(`The path /${normalizedSlug} is already used by "${conflict.title || conflict.slug}".`);
+      return false;
+    }
+
+    setSetupPageSlugError(null);
+    setSelectedPageLocal({ slug: normalizedSlug });
+    const saved = await savePage({ slug: normalizedSlug });
+    if (!saved) {
+      setSetupPageSlugError("Failed to save the page path.");
+      return false;
+    }
+
+    setSetupPageSlugDraft(normalizedSlug);
+    toast.success(`Page path updated to /${normalizedSlug}`);
+    return true;
+  }, [pages, savePage, selectedPage, setSelectedPageLocal, setupPageSlugDraft, toast]);
+
+  const createAlternateThread = useCallback(async () => {
+    const pageTitle = String(selectedPage?.title || "").trim();
+    const nextThread = await createThread({
+      pageId: selectedPage?.id || null,
+      kind: "alternate",
+      title: buildDefaultFunnelThreadTitle({ kind: "alternate", pageTitle }),
+      cloneFromThreadId: selectedThread?.id || null,
+      messagesJson: selectedThreadMessages,
+      contextJson: {
+        ...(selectedPage?.id ? { pageId: selectedPage.id } : {}),
+        ...(pageTitle ? { pageTitle } : {}),
+      },
+    });
+    setChatRailMode("chat");
+    return nextThread;
+  }, [createThread, selectedPage?.id, selectedPage?.title, selectedThread?.id, selectedThreadMessages]);
 
   const updatePageIntentProfile = useCallback(
     (patch: Partial<FunnelPageIntentProfile>, persist = false) => {
@@ -8248,6 +9534,116 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     },
     [savePage, selectedPage, setSelectedPageLocal],
   );
+
+  const uploadPageFaviconFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const list = Array.from(files || [])
+        .filter((file) => Boolean(file) && String(file.type || "").toLowerCase().startsWith("image/"))
+        .slice(0, 1);
+      if (!list.length) {
+        toast.error("Choose an image file for the tab icon");
+        return;
+      }
+
+      setPageFaviconUploadBusy(true);
+      try {
+        const created = await uploadToMediaLibrary(list, { maxFiles: 1 });
+        const item = created[0];
+        const nextUrl = String(item?.shareUrl || item?.previewUrl || item?.downloadUrl || "").trim();
+        if (!nextUrl) throw new Error("Upload succeeded, but did not return a URL");
+        await setPageFaviconUrl(nextUrl);
+        toast.success("Tab icon updated");
+      } catch (err) {
+        const message = (err as any)?.message ? String((err as any).message) : "Could not update the tab icon";
+        toast.error(message);
+      } finally {
+        setPageFaviconUploadBusy(false);
+      }
+    },
+    [setPageFaviconUrl, toast, uploadToMediaLibrary],
+  );
+
+  const setSelectedPageMetaPixelIdLocal = useCallback(
+    (nextPixelIdRaw: string) => {
+      if (!selectedPage) return;
+      const nextPixelId = normalizeEditorMetaPixelId(nextPixelIdRaw);
+      const currentTracking = selectedPage.trackingSettings || {
+        globalPixelId: funnel?.trackingSettings?.globalPixelId ?? null,
+        funnelPixelId: funnel?.trackingSettings?.funnelPixelId ?? null,
+        pagePixelId: null,
+        resolvedPixelId: selectedPage.executionSummary?.metaPixelId ?? funnel?.trackingSettings?.resolvedPixelId ?? null,
+      };
+      const nextTracking = {
+        ...currentTracking,
+        pagePixelId: nextPixelId,
+        resolvedPixelId: nextPixelId || currentTracking.funnelPixelId || currentTracking.globalPixelId || null,
+      };
+      setSelectedPageLocal({
+        trackingSettings: nextTracking,
+        executionSummary: selectedPage.executionSummary
+          ? {
+              ...selectedPage.executionSummary,
+              metaPixelReady: Boolean(nextTracking.resolvedPixelId),
+              metaPixelId: nextTracking.resolvedPixelId,
+            }
+          : null,
+      });
+    },
+    [funnel?.trackingSettings?.funnelPixelId, funnel?.trackingSettings?.globalPixelId, funnel?.trackingSettings?.resolvedPixelId, selectedPage, setSelectedPageLocal],
+  );
+
+  const saveSelectedPageMetaPixelId = useCallback(
+    async (nextPixelIdRaw: string) => {
+      return await savePage({ metaPixelId: normalizeEditorMetaPixelId(nextPixelIdRaw) });
+    },
+    [savePage],
+  );
+
+  const setFunnelMetaPixelIdLocal = useCallback((nextPixelIdRaw: string) => {
+    const nextPixelId = normalizeEditorMetaPixelId(nextPixelIdRaw);
+    setFunnel((prev) => {
+      if (!prev) return prev;
+      const currentTracking = prev.trackingSettings || {
+        globalPixelId: null,
+        funnelPixelId: null,
+        pagePixelId: null,
+        resolvedPixelId: null,
+      };
+      return {
+        ...prev,
+        trackingSettings: {
+          ...currentTracking,
+          funnelPixelId: nextPixelId,
+          resolvedPixelId: nextPixelId || currentTracking.globalPixelId || null,
+        },
+      } as Funnel;
+    });
+  }, []);
+
+  const saveFunnelMetaPixelId = useCallback(async (nextPixelIdRaw: string) => {
+    if (!funnel) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ metaPixelId: normalizeEditorMetaPixelId(nextPixelIdRaw) }),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save funnel tracking");
+      setFunnel(json.funnel as Funnel);
+      toast.success(json?.funnel?.trackingSettings?.funnelPixelId ? "Funnel Meta pixel saved" : "Funnel Meta pixel cleared");
+      return true;
+    } catch (e) {
+      const message = (e as any)?.message ? String((e as any).message) : "Failed to save funnel tracking";
+      setError(message);
+      toast.error(message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [funnel, funnelId, toast]);
 
   const createPage = () => {
     const seededIntent = inferFunnelPageIntentProfile({
@@ -8407,11 +9803,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       );
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) {
-        throw new Error(json?.error || "Failed to convert this page into Structure");
+        throw new Error(json?.error || "Failed to convert this page into Builder mode");
       }
 
       const page = json.page as Partial<Page> | undefined;
       if (page?.id) {
+        pushUndoSnapshot("editorMode", 0);
         setPages((prev) =>
           (prev || []).map((p) =>
             p.id === page.id
@@ -8427,13 +9824,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       }
 
       setBuilderSurfaceMode("whole-page");
-      setWholePageViewMode("source");
+      setPageLensStage("page");
+      setPageCanvasView("preview");
       setAiSidebarCustomCodeBlockId(importedBlockId);
       setSelectedBlockId(importedBlockId);
       setSidebarPanel("structure");
-      toast.success("Converted to Structure");
+      toast.success("Converted to Builder");
     } catch (e) {
-      const message = (e as any)?.message ? String((e as any).message) : "Failed to convert this page into Structure";
+      const message = (e as any)?.message ? String((e as any).message) : "Failed to convert this page into Builder mode";
       setError(message);
       toast.error(message);
     } finally {
@@ -8452,19 +9850,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       setWholePageSyncNotice(null);
 
       const nextDraftHtml = buildWholePageDraftHtml(selectedPage, saveableBlocks);
-      setPages((prev) =>
-        (prev || []).map((p) =>
-          p.id === selectedPage.id
-            ? ({
-                ...p,
-                editorMode: "CUSTOM_HTML",
-                ...(nextDraftHtml !== null ? { draftHtml: nextDraftHtml } : null),
-              } as Page)
-            : p,
-        ),
-      );
+      setSelectedPageLocal({
+        editorMode: "CUSTOM_HTML",
+        ...(nextDraftHtml !== null ? { draftHtml: nextDraftHtml } : null),
+      });
 
       if (nextDraftHtml !== null) return;
+
+      const exportRequestVersion = pageLocalVersionRef.current[selectedPage.id] || 0;
 
       const runServerExport = async () => {
         try {
@@ -8480,24 +9873,27 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to sync whole-page source");
           setWholePageSyncNotice(null);
 
+          if ((pageLocalVersionRef.current[selectedPage.id] || 0) !== exportRequestVersion) {
+            return;
+          }
+
           const page = json.page as Partial<Page> | undefined;
           if (page?.id) {
-            setPages((prev) =>
-              (prev || []).map((p) =>
-                p.id === page.id
-                  ? ({
-                      ...p,
-                      ...page,
-                      draftHtml:
-                        typeof page.draftHtml === "string"
-                          ? page.draftHtml
-                          : typeof json.html === "string"
-                            ? json.html
-                            : p.draftHtml,
-                    } as Page)
-                  : p,
-              ),
-            );
+            setPages((prev) => {
+              return (prev || []).map((p) => {
+                if (p.id !== page.id) return p;
+                return {
+                  ...p,
+                  ...page,
+                  draftHtml:
+                    typeof page.draftHtml === "string"
+                      ? page.draftHtml
+                      : typeof json.html === "string"
+                        ? json.html
+                        : p.draftHtml,
+                } as Page;
+              });
+            });
             return;
           }
 
@@ -8555,11 +9951,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setWholePageSyncNotice(null);
 
     if (mode === "whole-page") {
-      setWholePageViewMode("source");
+      setPageLensStage("page");
       return;
     }
 
-    setSidebarPanel(selectedBlockId ? "selected" : "structure");
+    setSidebarPanel("structure");
     setPreviewMode("edit");
   };
 
@@ -8592,6 +9988,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const saveCurrentPage = async () => {
     if (!selectedPage) return false;
+    if (sourceHasPendingChanges) {
+      applySourceEditing();
+    }
     setSavingPage(true);
     try {
       return await saveCurrentFunnelEditorPage({
@@ -8656,6 +10055,173 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
     });
   };
+
+  const openBookingCalendarEditor = useCallback((calendarId: string | null | undefined) => {
+    const nextCalendarId = typeof calendarId === "string" ? calendarId.trim() : "";
+    if (!nextCalendarId) return;
+    setBookingCalendarEditorId(nextCalendarId);
+    setDialog((prev) => (prev?.type === "booking-routing" ? { ...prev, surface: "details" } : prev));
+  }, []);
+
+  const saveBookingSettingsPatch = useCallback(async (patch: Partial<FunnelBookingSettingsSite>) => {
+    setBookingSettingsSaveBusy(true);
+    try {
+      const res = await fetch("/api/portal/booking/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to save booking setup");
+      const normalizedSite = normalizeFunnelBookingSettingsSite(json?.site);
+      setBookingSettingsSite(normalizedSite);
+      const slug = typeof normalizedSite?.slug === "string" ? normalizedSite.slug.trim() : "";
+      setBookingSiteSlug(slug || null);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save booking setup";
+      toast.error(message);
+      return false;
+    } finally {
+      setBookingSettingsSaveBusy(false);
+    }
+  }, [toast]);
+
+  const saveBookingCalendars = useCallback(async (nextCalendars: BookingCalendar[]) => {
+    setBookingCalendarSaveBusy(true);
+    try {
+      const res = await fetch("/api/portal/booking/calendars", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          calendars: nextCalendars.map((calendar) => ({
+            id: calendar.id,
+            enabled: calendar.enabled ?? true,
+            title: String(calendar.title || "Calendar").trim().slice(0, 80),
+            ...(calendar.description ? { description: calendar.description } : {}),
+            ...(typeof calendar.durationMinutes === "number" ? { durationMinutes: calendar.durationMinutes } : {}),
+            ...(typeof calendar.minimumNoticeMinutes === "number" ? { minimumNoticeMinutes: calendar.minimumNoticeMinutes } : {}),
+            ...(calendar.meetingLocation ? { meetingLocation: calendar.meetingLocation } : {}),
+            ...(calendar.meetingDetails ? { meetingDetails: calendar.meetingDetails } : {}),
+            ...(Array.isArray(calendar.notificationEmails) && calendar.notificationEmails.length
+              ? { notificationEmails: sanitizeNotificationEmails(calendar.notificationEmails) }
+              : {}),
+          })),
+        }),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Failed to save calendar details");
+      setBookingCalendars(normalizeBookingCalendarList(json?.config?.calendars));
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save calendar details";
+      toast.error(message);
+      return false;
+    } finally {
+      setBookingCalendarSaveBusy(false);
+    }
+  }, [toast]);
+
+  const saveSelectedBookingCalendarPatch = useCallback(async (patch: Partial<BookingCalendar>) => {
+    if (!bookingCalendarEditorId) return false;
+    const nextCalendars = bookingCalendars.map((calendar) => (
+      calendar.id === bookingCalendarEditorId ? { ...calendar, ...patch } : calendar
+    ));
+    return saveBookingCalendars(nextCalendars);
+  }, [bookingCalendarEditorId, bookingCalendars, saveBookingCalendars]);
+
+  const createQuickCalendarAndSyncFunnel = useCallback(async (opts?: {
+    title?: string;
+    routeTarget?: "funnel" | "block";
+    blockId?: string | null;
+    openEditor?: boolean;
+  }) => {
+    if (quickCalendarBusy || !funnel) return;
+    setQuickCalendarBusy(true);
+    setQuickCalendarError(null);
+    setFunnelBookingError(null);
+
+    const bookingDefaults = resolveFunnelBookingDefaults(funnel.bookingDefaults ?? null);
+    const routeTarget = opts?.routeTarget === "block" ? "block" : "funnel";
+    const requestedTitle = String(opts?.title || "").trim();
+    const targetBlockId = typeof opts?.blockId === "string" && opts.blockId.trim() ? opts.blockId.trim() : null;
+
+    try {
+      const res = await fetch("/api/portal/booking/calendars", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: requestedTitle || undefined,
+          ...(routeTarget === "funnel"
+            ? {
+                funnelId,
+                funnelName: funnel.name,
+                pageTitle: selectedPage?.title || undefined,
+                bookingDefaults,
+              }
+            : {}),
+        }),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to create calendar");
+
+      const nextCalendars = normalizeBookingCalendarList(json?.config?.calendars);
+      const createdCalendarId =
+        typeof json?.bookingCalendarId === "string"
+          ? json.bookingCalendarId.trim()
+          : typeof json?.calendar?.id === "string"
+            ? json.calendar.id.trim()
+            : "";
+      if (!createdCalendarId) throw new Error("Calendar created without an id");
+
+      setBookingCalendars(nextCalendars);
+
+      if (routeTarget === "funnel") {
+        setFunnel((prev) => (prev ? ({ ...prev, bookingCalendarId: createdCalendarId } as Funnel) : prev));
+        setFunnelBookingDirty(false);
+
+        if (targetBlockId) {
+          const targetBlock = findBlockInTree(editableBlocks, targetBlockId)?.block || null;
+          if (targetBlock?.type === "calendarEmbed") {
+            upsertBlock({
+              ...targetBlock,
+              props: { ...targetBlock.props, calendarId: "" },
+            });
+          }
+        }
+
+        toast.success(json?.created === false ? "Calendar linked to this funnel" : "Calendar created and linked to this funnel");
+      } else {
+        if (targetBlockId) {
+          const targetBlock = findBlockInTree(editableBlocks, targetBlockId)?.block || null;
+          if (targetBlock?.type === "calendarEmbed") {
+            upsertBlock({
+              ...targetBlock,
+              props: { ...targetBlock.props, calendarId: createdCalendarId },
+            });
+          }
+        }
+
+        toast.success("Calendar created and pinned to this booking step");
+      }
+
+      if (opts?.openEditor) {
+        setBookingCalendarEditorId(createdCalendarId);
+      }
+
+      setDialog((prev) => (
+        prev?.type === "booking-routing"
+          ? { ...prev, surface: opts?.openEditor ? "details" : "manage", newCalendarTitle: "" }
+          : prev
+      ));
+    } catch (e) {
+      const msg = (e as any)?.message ? String((e as any).message) : "Failed to create calendar";
+      setQuickCalendarError(msg);
+      toast.error(msg);
+    } finally {
+      setQuickCalendarBusy(false);
+    }
+  }, [editableBlocks, findBlockInTree, funnel, funnelId, quickCalendarBusy, selectedPage?.title, toast, upsertBlock]);
 
   const insertBlock = (
     base: CreditFunnelBlock,
@@ -8816,6 +10382,99 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     });
   };
 
+  const updateSelectedTestimonialGridItem = (itemIndex: number, patch: Partial<TestimonialGridItem>) => {
+    if (!selectedBlock || selectedBlock.type !== "testimonialGrid") return;
+    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
+    if (itemIndex < 0 || itemIndex >= items.length) return;
+    upsertBlock({
+      ...selectedBlock,
+      props: {
+        ...selectedBlock.props,
+        items: items.map((item, index) => (index === itemIndex ? { ...item, ...patch } : item)),
+      },
+    });
+  };
+
+  const addSelectedTestimonialGridItem = () => {
+    if (!selectedBlock || selectedBlock.type !== "testimonialGrid") return;
+    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
+    upsertBlock({
+      ...selectedBlock,
+      props: {
+        ...selectedBlock.props,
+        items: [
+          ...items,
+          {
+            quote: "Add a concise client quote here.",
+            name: "Customer name",
+            role: "Customer role",
+          },
+        ],
+      },
+    });
+  };
+
+  const removeSelectedTestimonialGridItem = (itemIndex: number) => {
+    if (!selectedBlock || selectedBlock.type !== "testimonialGrid") return;
+    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
+    if (items.length <= 1) return;
+    upsertBlock({
+      ...selectedBlock,
+      props: {
+        ...selectedBlock.props,
+        items: items.filter((_, index) => index !== itemIndex),
+      },
+    });
+  };
+
+  const updateSelectedPricingGridItem = (itemIndex: number, patch: Partial<PricingGridItem>) => {
+    if (!selectedBlock || selectedBlock.type !== "pricingGrid") return;
+    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
+    if (itemIndex < 0 || itemIndex >= items.length) return;
+    upsertBlock({
+      ...selectedBlock,
+      props: {
+        ...selectedBlock.props,
+        items: items.map((item, index) => (index === itemIndex ? { ...item, ...patch } : item)),
+      },
+    });
+  };
+
+  const addSelectedPricingGridItem = () => {
+    if (!selectedBlock || selectedBlock.type !== "pricingGrid") return;
+    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
+    upsertBlock({
+      ...selectedBlock,
+      props: {
+        ...selectedBlock.props,
+        items: [
+          ...items,
+          {
+            name: "New plan",
+            price: "Custom quote",
+            description: "Describe who this plan is for and what it includes.",
+            ctaText: "Learn more",
+            ctaHref: "#contact",
+            features: ["Primary outcome", "Clear next step"],
+          },
+        ],
+      },
+    });
+  };
+
+  const removeSelectedPricingGridItem = (itemIndex: number) => {
+    if (!selectedBlock || selectedBlock.type !== "pricingGrid") return;
+    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
+    if (items.length <= 1) return;
+    upsertBlock({
+      ...selectedBlock,
+      props: {
+        ...selectedBlock.props,
+        items: items.filter((_, index) => index !== itemIndex),
+      },
+    });
+  };
+
   const addBlock = (type: Exclude<CreditFunnelBlock["type"], "page" | "anchor">): string | null => {
     if (!selectedPage) return null;
     setPreviewMode("edit");
@@ -8841,6 +10500,84 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         ? { id, type, props: { text: "Headline", level: 2 } }
         : type === "paragraph"
           ? { id, type, props: { text: "Write something compelling here." } }
+          : type === "syncedReviews"
+            ? {
+                id,
+                type,
+                props: {
+                  eyebrow: "Social proof",
+                  heading: "Real reviews from recent customers",
+                  intro: "This section stays connected to your review inbox so new proof can show up on the page without rebuilding testimonials by hand.",
+                  limit: 6,
+                  minRating: 4,
+                  columns: 3,
+                  showBusinessReply: true,
+                  includePhotos: false,
+                },
+              }
+          : type === "testimonialGrid"
+            ? {
+                id,
+                type,
+                props: {
+                  eyebrow: "Proof",
+                  heading: "What customers say after they choose you",
+                  intro: "Use this section for curated proof that removes hesitation and reinforces the decision.",
+                  columns: 2,
+                  items: [
+                    {
+                      quote: "Replace this with an approved quote that names the result or the relief the customer felt.",
+                      name: "Recent client",
+                      role: "Add the customer role or business type",
+                      outcome: "Approved proof",
+                    },
+                    {
+                      quote: "Use the second card to reinforce why the offer felt worth acting on now.",
+                      name: "Verified customer",
+                      role: "Add approved attribution",
+                    },
+                  ],
+                },
+              }
+          : type === "pricingGrid"
+            ? {
+                id,
+                type,
+                props: {
+                  eyebrow: "Pricing",
+                  heading: "Choose the right fit",
+                  intro: "Compare plans or packages before the next step.",
+                  columns: 3,
+                  items: [
+                    {
+                      name: "Starter",
+                      price: "Custom quote",
+                      description: "Use this card for the lightest package or entry offer.",
+                      ctaText: "Learn more",
+                      ctaHref: "#contact",
+                      features: ["Simple scope", "Fastest entry point"],
+                    },
+                    {
+                      name: "Signature",
+                      price: "Custom quote",
+                      description: "Use this card for the plan you want most buyers to choose.",
+                      badge: "Recommended",
+                      featured: true,
+                      ctaText: "Learn more",
+                      ctaHref: "#contact",
+                      features: ["Best overall fit", "Strongest value story"],
+                    },
+                    {
+                      name: "Custom",
+                      price: "Let's scope it",
+                      description: "Use this card for larger or tailored engagements.",
+                      ctaText: "Talk to us",
+                      ctaHref: "#contact",
+                      features: ["Flexible scope", "Custom requirements"],
+                    },
+                  ],
+                },
+              }
           : type === "button"
             ? {
                 id,
@@ -8899,14 +10636,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               markdown: "",
                               children: [
                                 { id: newId(), type: "heading", props: { text: "Column 1", level: 3 } },
-                                { id: newId(), type: "paragraph", props: { text: "Add your content…" } },
+                                { id: newId(), type: "paragraph", props: { text: "Add your content..." } },
                               ],
                             },
                             {
                               markdown: "",
                               children: [
                                 { id: newId(), type: "heading", props: { text: "Column 2", level: 3 } },
-                                { id: newId(), type: "paragraph", props: { text: "Add your content…" } },
+                                { id: newId(), type: "paragraph", props: { text: "Add your content..." } },
                               ],
                             },
                           ],
@@ -8941,7 +10678,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             }
                           : { id, type: "spacer", props: { height: 24 } };
 
-    return insertBlock(base, { select: true, sidebarPanel: "selected" });
+    return insertBlock(base, { select: true, sidebarPanel: "structure" });
   };
 
   type FunnelPresetKey = "hero" | "body" | "form" | "shop";
@@ -9103,7 +10840,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setPreviewMode("edit");
     const blocks = buildPresetBlocks(preset);
     if (!blocks.length) return;
-    insertPageFlowBlocks(blocks, { select: true, sidebarPanel: "selected" });
+    insertPageFlowBlocks(blocks, { select: true, sidebarPanel: "structure" });
   };
 
   const removeBlock = useCallback((blockId: string) => {
@@ -9246,10 +10983,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setSelectedBlockId(id);
   };
 
-  const runAi = async (promptOverride?: string) => {
+  const runAi = async (promptOverride?: string, opts?: { sourceActionPlan?: SourceActionPlan | null; displayPrompt?: string | null }) => {
     if (!selectedPage) return;
-    const promptText = String(promptOverride ?? chatInput).trim();
+    const displayPromptText = String(opts?.displayPrompt ?? chatInput ?? promptOverride ?? "").trim();
+    const promptText = String(promptOverride ?? displayPromptText).trim();
     if (!promptText) return;
+    const summaryPromptText = displayPromptText || promptText;
     const shouldUseWholePageForFirstDraft = Boolean(
       blankPageOnboardingActive && !canonicalCustomCodeBlock && editableBlocks.length === 0 && selectedChat.length === 0,
     );
@@ -9264,6 +11003,88 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setError(null);
     setChatInput("");
     try {
+      if (aiUsesManagedStructure && !shouldUseWholePageForFirstDraft && !canonicalCustomCodeBlock && opts?.sourceActionPlan) {
+        const plannedMutations = deriveFunnelPageMutationsFromSourceActionPlan(editableBlocks, opts.sourceActionPlan);
+        if (plannedMutations.length) {
+          const mutationResult = applyFunnelPageMutations(editableBlocks, plannedMutations);
+          if (mutationResult.appliedMutations.length) {
+            const nextBlocksJson = pageSettingsBlock ? [pageSettingsBlock, ...mutationResult.blocks] : mutationResult.blocks;
+            const runAt = new Date().toISOString();
+            const diff = summarizeBuilderDiff(previousPage.blocksJson, nextBlocksJson);
+            const summaryText = buildBuilderResultSummary({
+              scopeLabel: "Whole page",
+              summary: opts.sourceActionPlan.summary || "Applied planned builder changes.",
+              prompt: summaryPromptText,
+              diff,
+              customCodeDiff: null,
+            });
+            const threadSummary = buildBuilderThreadSummary({
+              scopeLabel: "Whole page",
+              summary: summaryText,
+              prompt: summaryPromptText,
+              diff,
+              customCodeDiff: null,
+            });
+            const nextPageChat = appendPageThreadTurn(selectedThread?.messages ?? selectedPage.customChatJson, {
+              prompt: summaryPromptText,
+              assistantText: threadSummary,
+              at: runAt,
+              sourceActionPlan: opts.sourceActionPlan,
+            });
+
+            setAiWorkFocus({
+              mode: "builder",
+              label: "Pura is applying planned builder changes",
+              phase: "pending",
+              regionKey: null,
+              blockId: null,
+            });
+
+            setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: nextBlocksJson, customChatJson: nextPageChat, brief: pageIntentProfile });
+            void persistThreadMessages(nextPageChat, { pageId: selectedPage.id }).catch(() => null);
+
+            const saved = await savePage({
+              editorMode: "BLOCKS",
+              blocksJson: nextBlocksJson,
+              customChatJson: nextPageChat,
+              brief: pageIntentProfile,
+            });
+            if (!saved) return;
+
+            setPendingSourceActionPlan(opts.sourceActionPlan);
+            setLastAiRun({
+              pageId: selectedPage.id,
+              surface: "structure",
+              prompt: summaryPromptText,
+              summary: summaryText,
+              warnings: mutationResult.warnings.slice(0, 4),
+              at: runAt,
+              previousPage,
+            });
+            setAiResultBanner({ summary: summaryText, at: runAt, tone: diff.changed ? "success" : "warning" });
+            appendBuilderChangeActivity({
+              id: newId(),
+              pageId: selectedPage.id,
+              kind: diff.changed ? "ai-update" : "no-change",
+              scopeLabel: "Whole page",
+              prompt: summaryPromptText,
+              summary: summaryText,
+              at: runAt,
+              diff,
+              previewChanged: diff.changed,
+            });
+            setAiWorkFocus({
+              mode: "builder",
+              label: diff.changed ? "Applied planned builder changes" : "Builder unchanged",
+              phase: "settled",
+              regionKey: null,
+              blockId: null,
+            });
+            return;
+          }
+        }
+      }
+
       if (aiUsesManagedStructure && !shouldUseWholePageForFirstDraft) {
         const existingBlock = canonicalCustomCodeBlock;
         const builderFocusBlock = existingBlock && existingBlock.type === "customCode" ? existingBlock : selectedBlock;
@@ -9290,7 +11111,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           existingBlock && existingBlock.type === "customCode" && Array.isArray((existingBlock.props as any).chatJson)
             ? ((existingBlock.props as any).chatJson as BlockChatMessage[])
             : [];
-        const threadContextChat = buildCustomCodeActiveThreadMessages(prevChat, promptText);
+        const threadContextChat = buildCustomCodeActiveThreadMessages(prevChat, summaryPromptText);
 
         const res = await fetch("/api/portal/funnel-builder/custom-code-block/generate", {
           method: "POST",
@@ -9301,6 +11122,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             prompt: promptText,
             currentHtml,
             currentCss,
+            designContext: sanitizedAiDesignContext,
             contextKeys: aiContextKeys,
             contextMedia: effectiveAiContextMedia,
             funnelBrief: funnel?.brief ?? null,
@@ -9312,7 +11134,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to generate builder content");
         const resultSummary = typeof json?.summary === "string" ? String(json.summary).trim() : "";
 
-        const userMsg: BlockChatMessage = { role: "user", content: promptText, at: new Date().toISOString() };
+        const userMsg: BlockChatMessage = { role: "user", content: summaryPromptText, at: new Date().toISOString() };
 
         const insertCustomCodeBlock = (base: CreditFunnelBlock): CreditFunnelBlock[] => {
           const selectedContainer = selectedBlockId ? findContainerForBlock(editableBlocks, selectedBlockId) : null;
@@ -9395,6 +11217,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         const question = typeof json?.question === "string" ? String(json.question).trim() : "";
         if (question) {
           const askedAt = new Date().toISOString();
+          setActiveAiQuestion({ pageId: selectedPage.id, surface: "structure", question, at: askedAt, prompt: summaryPromptText });
+          if (shouldOpenQuickCalendarForAiQuestion(question)) {
+            void createQuickCalendarAndSyncFunnel();
+          }
           const assistantMsg: BlockChatMessage = { role: "assistant", content: question, at: askedAt };
           const nextChat = [...threadContextChat, userMsg, assistantMsg].slice(-((CUSTOM_CODE_THREAD_WINDOW_LIMIT + 1) * 2));
           if (existingBlock && existingBlock.type === "customCode") {
@@ -9402,7 +11228,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               id: newId(),
               kind: "question",
               at: askedAt,
-              prompt: promptText,
+              prompt: summaryPromptText,
               summary: question,
               previewChanged: false,
               builderDiff: null,
@@ -9425,7 +11251,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: nextBlocksJson });
             setAiSidebarCustomCodeBlockId(existingBlock.id);
             setSelectedBlockId(existingBlock.id);
-            setSidebarPanel("selected");
+            setSidebarPanel("structure");
             await savePage({
               editorMode: "BLOCKS",
               blocksJson: nextBlocksJson,
@@ -9433,7 +11259,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             });
           } else {
             setAiSidebarCustomCodeBlockId(null);
-            setSidebarPanel("activity");
+            setSidebarPanel("structure");
             setAiResultBanner({ summary: question, at: askedAt, tone: "warning" });
             setAiWorkFocus({
               mode: "builder",
@@ -9446,6 +11272,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           setLastAiRun(null);
           return;
         }
+
+        setActiveAiQuestion(null);
 
         const actions = Array.isArray(json?.actions) ? (json.actions as any[]) : [];
         if (actions.length) {
@@ -9604,7 +11432,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
             if (type === "calendarEmbed") {
               const calendarId = s((props as any).calendarId, 160);
-              if (!calendarId) return null;
               const heightNum = Number((props as any).height);
               const height = Number.isFinite(heightNum) ? Math.max(120, Math.min(1600, heightNum)) : undefined;
               return {
@@ -9720,22 +11547,41 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
           nextEditable = pruneEmptyCustomCodeArtifacts(nextEditable, customCodeId);
           let nextBlocksJson = pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable;
-          const summaryText =
-            resultSummary ||
-            assistantText ||
-            (insertedIds.length
-              ? `Added ${insertedIds.length} builder block${insertedIds.length === 1 ? "" : "s"}.`
-              : "Updated the builder with AI.");
           const diff = summarizeBuilderDiff(previousPage.blocksJson, nextBlocksJson);
           const runAt = new Date().toISOString();
           const structureReviewHtml = buildEditorPreviewHtml(buildWholePageDraftHtml(selectedPage, nextBlocksJson) || "");
+          const summaryText = buildBuilderResultSummary({
+            scopeLabel: insertedIds.length ? "Builder + insert" : "Builder",
+            summary:
+              resultSummary ||
+              assistantText ||
+              (insertedIds.length
+                ? `Added ${insertedIds.length} builder block${insertedIds.length === 1 ? "" : "s"}.`
+                : "Updated the builder with AI."),
+            prompt: summaryPromptText,
+            diff,
+            customCodeDiff,
+          });
+          const pageThreadSummary = buildBuilderThreadSummary({
+            scopeLabel: insertedIds.length ? "Builder + insert" : "Builder",
+            summary: summaryText,
+            prompt: summaryPromptText,
+            diff,
+            customCodeDiff,
+          });
+          const nextPageChat = appendPageThreadTurn(selectedThread?.messages ?? selectedPage.customChatJson, {
+            prompt: summaryPromptText,
+            assistantText: pageThreadSummary,
+            at: runAt,
+            sourceActionPlan: opts?.sourceActionPlan ?? pendingSourceActionPlan,
+          });
 
           if (existingBlock && existingBlock.type === "customCode") {
             const nextHistory = prependPersistedCustomCodeAuditEntry((existingBlock.props as any).aiHistoryJson, {
               id: newId(),
               kind: diff.changed ? "ai-update" : "no-change",
               at: runAt,
-              prompt: promptText,
+              prompt: summaryPromptText,
               summary: summaryText,
               previewChanged: diff.changed,
               builderDiff: diff,
@@ -9754,12 +11600,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             nextBlocksJson = pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable;
           }
 
-          setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: nextBlocksJson });
+          setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: nextBlocksJson, customChatJson: nextPageChat });
+          void persistThreadMessages(nextPageChat, { pageId: selectedPage.id }).catch(() => null);
           setAiSidebarCustomCodeBlockId(customCodeId);
           setLastAiRun({
             pageId: selectedPage.id,
             surface: "structure",
-            prompt: promptText,
+            prompt: summaryPromptText,
             summary: summaryText,
             warnings: [],
             at: runAt,
@@ -9774,8 +11621,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             id: newId(),
             pageId: selectedPage.id,
             kind: diff.changed ? "ai-update" : "no-change",
-            scopeLabel: insertedIds.length ? "Structure + insert" : "Structure",
-            prompt: promptText,
+            scopeLabel: insertedIds.length ? "Builder + insert" : "Builder",
+            prompt: summaryPromptText,
             summary: summaryText,
             at: runAt,
             diff,
@@ -9795,17 +11642,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
           if (insertedIds[0]) {
             setSelectedBlockId(insertedIds[0]);
-            setSidebarPanel("selected");
+            setSidebarPanel("structure");
           } else if (customCodeId) {
             setSelectedBlockId(customCodeId);
-            setSidebarPanel("selected");
+            setSidebarPanel("structure");
           } else {
-            setSidebarPanel("selected");
+            setSidebarPanel("structure");
           }
 
           await savePage({
             editorMode: "BLOCKS",
             blocksJson: nextBlocksJson,
+            customChatJson: nextPageChat,
             brief: pageIntentProfile,
           });
           void requestBackgroundVisualReview({
@@ -9838,7 +11686,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         const nextChat = [...threadContextChat, userMsg, ...(assistantMsg ? [assistantMsg] : [])].slice(-((CUSTOM_CODE_THREAD_WINDOW_LIMIT + 1) * 2));
 
         const customCodeId = existingBlock && existingBlock.type === "customCode" ? existingBlock.id : newId();
-        const summaryText = resultSummary || assistantText || "Updated a custom code block in the builder.";
         const customCodeDiff = summarizeCustomCodeDiff({
           previousHtml: currentHtml,
           nextHtml,
@@ -9869,13 +11716,20 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         let nextEditable = pruneEmptyCustomCodeArtifacts(nextEditableBase, customCodeId);
         let nextBlocksJson = pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable;
         const diff = summarizeBuilderDiff(previousPage.blocksJson, nextBlocksJson);
+        const summaryText = buildBuilderResultSummary({
+          scopeLabel: "Custom code block",
+          summary: resultSummary || assistantText || "Updated a custom code block in the builder.",
+          prompt: summaryPromptText,
+          diff,
+          customCodeDiff,
+        });
         const nextHistory = prependPersistedCustomCodeAuditEntry(
           existingBlock && existingBlock.type === "customCode" ? (existingBlock.props as any).aiHistoryJson : undefined,
           {
             id: newId(),
             kind: customCodeDiff.htmlChanged || customCodeDiff.cssChanged || diff.changed ? "ai-update" : "no-change",
             at: runAt,
-            prompt: promptText,
+            prompt: summaryPromptText,
             summary: summaryText,
             previewChanged: customCodeDiff.htmlChanged || customCodeDiff.cssChanged,
             builderDiff: diff,
@@ -9895,15 +11749,29 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         const structureReviewHtml = buildEditorPreviewHtml(
           buildWholePageDraftHtml(selectedPage, nextBlocksJson) || buildStandaloneCustomCodePreviewHtml(nextHtml, nextCss),
         );
+        const pageThreadSummary = buildBuilderThreadSummary({
+          scopeLabel: "Custom code block",
+          summary: summaryText,
+          prompt: summaryPromptText,
+          diff,
+          customCodeDiff,
+        });
+        const nextPageChat = appendPageThreadTurn(selectedThread?.messages ?? selectedPage.customChatJson, {
+          prompt: summaryPromptText,
+          assistantText: pageThreadSummary,
+          at: runAt,
+          sourceActionPlan: opts?.sourceActionPlan ?? pendingSourceActionPlan,
+        });
 
-        setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: nextBlocksJson });
+        setSelectedPageLocal({ editorMode: "BLOCKS", blocksJson: nextBlocksJson, customChatJson: nextPageChat });
+        void persistThreadMessages(nextPageChat, { pageId: selectedPage.id }).catch(() => null);
         setAiSidebarCustomCodeBlockId(customCodeId);
         setSelectedBlockId(customCodeId);
-        setSidebarPanel("selected");
+        setSidebarPanel("structure");
         setLastAiRun({
           pageId: selectedPage.id,
           surface: "structure",
-          prompt: promptText,
+          prompt: summaryPromptText,
           summary: summaryText,
           warnings: routeWarnings,
           at: runAt,
@@ -9919,7 +11787,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           pageId: selectedPage.id,
           kind: diff.changed ? "ai-update" : "no-change",
           scopeLabel: "Custom code block",
-          prompt: promptText,
+          prompt: summaryPromptText,
           summary: summaryText,
           at: runAt,
           diff,
@@ -9937,6 +11805,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         await savePage({
           editorMode: "BLOCKS",
           blocksJson: nextBlocksJson,
+          customChatJson: nextPageChat,
           brief: pageIntentProfile,
         });
         void requestBackgroundVisualReview({
@@ -9954,6 +11823,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         });
         return;
       }
+
+      const mirroredThread = await ensurePageChatMirror(selectedThread?.messages ?? selectedChat);
+      if (!mirroredThread) return;
 
       setAiWorkFocus({
         mode: "page",
@@ -9973,10 +11845,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             prompt: promptText,
+            displayPrompt: summaryPromptText,
             currentHtml,
             wasBlocksExport,
+            sourceActionPlan: opts?.sourceActionPlan ?? null,
             funnelBrief: funnel?.brief ?? null,
             intentProfile: pageIntentProfile,
+            designContext: sanitizedAiDesignContext,
             selectedRegion: selectedHtmlRegion
               ? {
                   key: selectedHtmlRegion.key,
@@ -9995,10 +11870,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to generate HTML");
 
       const aiResult = json.aiResult && typeof json.aiResult === "object" ? json.aiResult : null;
+      const nextSourceActionPlan = sanitizeSourceActionPlan(json.sourceActionPlan);
       const page = json.page as Partial<Page> | undefined;
       let sourceReviewAt: string | null = null;
       let htmlChangedForRun = false;
       if (!json.question) {
+        setActiveAiQuestion(null);
         const nextHtml = getFunnelPageCurrentHtml(page);
         const diff = summarizeHtmlDiff(getFunnelPageCurrentHtml(previousPage), nextHtml);
         const runAt = typeof aiResult?.at === "string" && aiResult.at.trim() ? aiResult.at : new Date().toISOString();
@@ -10006,6 +11883,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         const htmlChanged = diff.changed;
         htmlChangedForRun = htmlChanged;
         const changelog = coerceAiCheckpointChangelog(aiResult?.changelog);
+        const run = coerceAiCheckpointRun(aiResult?.run);
         const noChangeSummary = selectedHtmlRegion
           ? `${selectedHtmlRegion.label} review finished, but the hosted page source did not change.`
           : "AI finished, but the hosted page source did not change.";
@@ -10025,7 +11903,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         setLastAiRun({
           pageId: selectedPage.id,
           surface: "source",
-          prompt: promptText,
+          prompt: summaryPromptText,
           summary: summaryText,
           warnings: [...warnings, ...(htmlChanged ? [] : ["No hosted source lines changed in this run."])].slice(0, 4),
           at: runAt,
@@ -10033,6 +11911,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           backgroundReviewSummary: null,
           backgroundReviewMode: null,
           changelog,
+          run,
           previousPage,
         });
         setAiResultBanner({ summary: summaryText, at: runAt, tone: htmlChanged ? "success" : "warning" });
@@ -10041,13 +11920,29 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           pageId: selectedPage.id,
           kind: htmlChanged ? "ai-update" : "no-change",
           scopeLabel: selectedHtmlRegion ? selectedHtmlRegion.label : "Whole page",
-          prompt: promptText,
+          prompt: summaryPromptText,
           summary: summaryText,
           at: runAt,
           diff,
           previewChanged: htmlChanged,
         });
       } else if (json.question) {
+        const question = typeof json.question === "string" ? json.question.trim() : "";
+        const askedAt = new Date().toISOString();
+        if (question) {
+          setActiveAiQuestion({ pageId: selectedPage.id, surface: "source", question, at: askedAt, prompt: summaryPromptText });
+          if (shouldOpenQuickCalendarForAiQuestion(question)) {
+            void createQuickCalendarAndSyncFunnel();
+          }
+          setAiResultBanner({ summary: question, at: askedAt, tone: "warning" });
+          setAiWorkFocus({
+            mode: "page",
+            label: selectedHtmlRegion ? `AI needs one more detail for ${selectedHtmlRegion.label}` : "AI needs one more detail before it can change this page",
+            phase: "settled",
+            regionKey: selectedHtmlRegion?.key || null,
+            blockId: null,
+          });
+        }
         setLastAiRun(null);
         setAiWorkFocus(null);
       }
@@ -10071,19 +11966,23 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
       if (page?.id) {
         const reviewedHtml = getFunnelPageCurrentHtml(page);
+        void persistThreadMessages(page.customChatJson, { pageId: page.id }).catch(() => null);
         if (shouldUseWholePageForFirstDraft) {
           pendingBlankPagePreviewRef.current = page.id;
           setBuilderSurfaceMode("whole-page");
-          setWholePageViewMode("preview");
+          setPageLensStage("page");
+          setPageCanvasView("preview");
           setSelectedBlockId(null);
           setSelectedHtmlRegionKey(null);
           setBriefPanelOpen(false);
         } else if (htmlChangedForRun && !selectedHtmlRegion && selectedPageGraph.sourceMode === "custom-html") {
           setBuilderSurfaceMode("whole-page");
-          setWholePageViewMode("preview");
+          setPageLensStage("page");
+          setPageCanvasView("preview");
         }
         pushUndoSnapshot("ai-result", 0);
         setPages((prev) => (prev || []).map((p) => (p.id === page.id ? ({ ...p, ...page } as Page) : p)));
+        setPendingSourceActionPlan(nextSourceActionPlan);
         if (!json.question) {
           void requestBackgroundVisualReview({
             funnelId,
@@ -10110,6 +12009,60 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     }
   };
 
+  const runAiChat = async (prompt: string) => {
+    if (!selectedPage) return;
+    const trimmedPrompt = String(prompt || "").trim();
+    if (!trimmedPrompt) return;
+    const mirroredThread = await ensurePageChatMirror(selectedThread?.messages ?? selectedChat);
+    if (!mirroredThread) return;
+    const currentHtml = committedPageSourceHtml || getFunnelPageCurrentHtml(selectedPage);
+    const sectionPlanItems = collectBuilderSectionPlanItems(selectedPage.blocksJson);
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/chat`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            prompt: trimmedPrompt,
+            useLiveState: true,
+            currentHtml,
+            sectionPlanItems,
+            designContext: sanitizedAiDesignContext,
+            contextMedia: effectiveAiContextMedia,
+            selectedRegion: selectedHtmlRegion
+              ? {
+                  key: selectedHtmlRegion.key,
+                  label: selectedHtmlRegion.label,
+                  summary: selectedHtmlRegion.summary,
+                }
+              : null,
+            allRegions: htmlRegionScopes.map((region) => ({
+              key: region.key,
+              label: region.label,
+              summary: region.summary,
+            })),
+          }),
+        },
+      );
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Chat failed");
+      const nextSourceActionPlan = sanitizeSourceActionPlan(json.sourceActionPlan);
+      const page = json.page as Partial<Page> | undefined;
+      if (page?.id) {
+        setPages((prev) => (prev || []).map((p) => (p.id === page.id ? ({ ...p, ...page } as Page) : p)));
+        void persistThreadMessages(page.customChatJson, { pageId: page.id }).catch(() => null);
+      }
+      setPendingSourceActionPlan(nextSourceActionPlan);
+    } catch (e) {
+      setError((e as any)?.message ? String((e as any).message) : "Chat failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const restoreLastAiRun = async () => {
     if (!selectedPage || !lastAiRun || lastAiRun.pageId !== selectedPage.id) return;
     const currentPage = {
@@ -10130,13 +12083,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         kind: "restore",
         scopeLabel: "Restore",
         prompt: lastAiRun.prompt,
-        summary: "Restored the previous managed structure.",
+        summary: "Restored the previous builder draft.",
         at: restoreAt,
         diff,
         previewChanged: diff.changed,
       });
       if (diff.changed) {
-        setAiResultBanner({ summary: "Restored the previous managed structure.", at: restoreAt, tone: "success" });
+        setAiResultBanner({ summary: "Restored the previous builder draft.", at: restoreAt, tone: "success" });
       }
     }
     if (currentPage.editorMode === "CUSTOM_HTML" || lastAiRun.previousPage.editorMode === "CUSTOM_HTML") {
@@ -10161,23 +12114,116 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     toast.success("Restored page before the last AI update");
   };
 
+  const beginSourceEditing = useCallback((options?: { selectAll?: boolean }) => {
+    if (!selectedPage || !wholePageSourceCanStartEditing) return;
+
+    if (!wholePageSourceEditable) {
+      pendingSourceEditActivationRef.current = true;
+      pendingSourceSelectAllRef.current = Boolean(options?.selectAll);
+      setPageLensStage("page");
+      setPageCanvasView("source");
+      void setEditorMode("CUSTOM_HTML");
+      return;
+    }
+
+    const rawDraft = normalizedCommittedPageSourceHtml || stripDiffMarkers(getFunnelPageDraftHtml(selectedPage));
+    const initialDraft = formatHtmlSourceForDisplay(rawDraft);
+    setSourceEditDraft(initialDraft);
+    setSourceEditBaseline(initialDraft);
+    setSourceEditMode(true);
+    setSourcePreviewActive(false);
+    setPageLensStage("page");
+    setPageCanvasView("source");
+    if (options?.selectAll) {
+      setSourceSelectAllSignal((prev) => prev + 1);
+    }
+  }, [normalizedCommittedPageSourceHtml, selectedPage, setEditorMode, wholePageSourceCanStartEditing, wholePageSourceEditable]);
+
+  const openSourceWorkspace = useCallback((options?: { selectAll?: boolean }) => {
+    if (selectedPageSupportsBlocksSurface) setBuilderMode("whole-page");
+    setPageLensStage("page");
+    setPageCanvasView("source");
+
+    if (!wholePageSourceCanStartEditing) return;
+
+    if (wholePageSourceEditable && sourceEditMode) {
+      if (options?.selectAll) {
+        setSourceSelectAllSignal((prev) => prev + 1);
+      }
+      return;
+    }
+
+    beginSourceEditing(options);
+  }, [beginSourceEditing, selectedPageSupportsBlocksSurface, setBuilderMode, sourceEditMode, wholePageSourceCanStartEditing, wholePageSourceEditable]);
+
+  useEffect(() => {
+    if (!pendingSourceEditActivationRef.current) return;
+    if (pageCanvasView !== "source" || !wholePageSourceEditable || sourceEditMode) return;
+
+    pendingSourceEditActivationRef.current = false;
+    const shouldSelectAll = pendingSourceSelectAllRef.current;
+    pendingSourceSelectAllRef.current = false;
+    beginSourceEditing();
+    if (shouldSelectAll) {
+      setSourceSelectAllSignal((prev) => prev + 1);
+    }
+  }, [beginSourceEditing, pageCanvasView, sourceEditMode, wholePageSourceEditable]);
+
+  const discardSourceEditing = useCallback(() => {
+    if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setSourceEditMode(false);
+    setSourceEditDraft("");
+    setSourceEditBaseline("");
+    setSourcePreviewActive(false);
+    setSourceSelectAllSignal(0);
+  }, []);
+
+  const previewSourceEditing = useCallback(() => {
+    if (!sourceHasPendingChanges) return;
+    if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setSourcePreviewActive(true);
+    setPageLensStage("page");
+    setPageCanvasView("preview");
+  }, [sourceHasPendingChanges]);
+
+  const applySourceEditing = useCallback(() => {
+    if (!selectedPage || !wholePageSourceEditable) return;
+    if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    if (!sourceHasPendingChanges) {
+      discardSourceEditing();
+      return;
+    }
+    setSelectedPageLocal({ draftHtml: stripDiffMarkers(sourceEditDraft) });
+    setSourceEditMode(false);
+    setSourceEditDraft("");
+    setSourceEditBaseline("");
+    setSourcePreviewActive(false);
+    setSourceSelectAllSignal(0);
+    toast.success("Source changes applied to draft");
+  }, [discardSourceEditing, selectedPage, setSelectedPageLocal, sourceEditDraft, sourceHasPendingChanges, toast, wholePageSourceEditable]);
+
   const wholePageSurfaceActive = wholePageModeActive;
   const customCodeModeActive = wholePageSourceEditable;
   const wholePageManagedStructureAi = Boolean(wholePageSurfaceActive && !wholePageSourceEditable && selectedPageGraph.sourceMode === "managed");
   const wholePageUsesBuilderSidebar = Boolean(wholePageModeActive && selectedPageGraph.sourceMode === "managed" && selectedPageSupportsBlocksSurface);
-  const wholePageSourcePanelLabel = "Source";
-  const wholePageStageMeta = WHOLE_PAGE_VIEW_META[wholePageViewMode];
-  const showWholePagePreviewPane = wholePageSurfaceActive && wholePageViewMode === "preview";
-  const showWholePageSourcePane = wholePageSurfaceActive && wholePageViewMode === "source";
-  const showWholePageDirectionPane = wholePageSurfaceActive && wholePageViewMode === "direction";
+  const wholePageStageMeta = pageLensStage === "chat" ? PAGE_LENS_STAGE_META.chat : PAGE_CANVAS_VIEW_META[pageCanvasView];
+  const activeBusyLabel = busy ? BUSY_PHASES[busyPhaseIdx] : null;
+  const activeWorkLabel = busy && aiWorkFocus?.phase === "pending" ? aiWorkFocus.label : null;
+
   const aiUsesManagedStructure = Boolean(blocksSurfaceActive || wholePageManagedStructureAi);
   const pageManagementUi = useMemo(() => {
     if (selectedPageGraph.sourceMode === "managed") {
       return {
-        badgeLabel: "Managed structure",
+        badgeLabel: "Managed builder",
         badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-800",
-        summary: "Structure edits and AI update this page. Source shows the current HTML from that same page.",
-        lensLabel: wholePageModeActive ? "Source" : "Structure",
+        summary: "Builder owns this draft. Opening Source switches this page into direct HTML drafting.",
+        lensLabel: wholePageModeActive ? "Source" : "Builder",
       };
     }
 
@@ -10185,15 +12231,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       return {
         badgeLabel: "Advanced page",
         badgeClassName: "border-blue-200 bg-blue-50 text-blue-800",
-        summary: "This page is being edited as direct source. Convert to Structure when you want managed sections, module-safe edits, and structure-level AI targeting.",
-        lensLabel: wholePageModeActive ? "Source" : "Structure",
+        summary: "Draft workflow: Page previews the draft, Source edits it, Save keeps it private, and Publish makes it live.",
+        lensLabel: wholePageModeActive ? "Source" : "Page",
       };
     }
 
     return {
       badgeLabel: "Legacy page",
       badgeClassName: "border-amber-200 bg-amber-50 text-amber-800",
-      summary: "This page is still in a legacy mode. Move it into Structure or Page editing to bring it onto the current draft model.",
+      summary: "This page is still in a legacy mode. Move it into Builder or Page editing to bring it onto the current draft model.",
       lensLabel: "Legacy lens",
     };
   }, [selectedPageGraph.sourceMode, wholePageModeActive]);
@@ -10213,7 +12259,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         { method: "POST", headers: { "content-type": "application/json" } },
       );
       const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to publish");
+      if (!res.ok || !json || json.ok !== true) {
+        const issues = Array.isArray(json?.issues)
+          ? json.issues
+              .filter((issue: unknown) => typeof issue === "string" && issue.trim())
+              .map((issue: string) => issue.trim())
+          : [];
+        const detail = issues.length ? ` ${issues.join(" ")}` : "";
+        throw new Error(`${json?.error || "Failed to publish"}${detail}`.trim());
+      }
       if (json.page?.id) {
         setPages((prev) => (prev || []).map((p) => (p.id === json.page.id ? ({ ...p, ...json.page } as Page) : p)));
         setDirtyPageIds((prev) => { const next = { ...prev }; delete next[selectedPage.id]; return next; });
@@ -10249,14 +12303,400 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     selectedPageIsEntryPage,
   });
   const selectedPageExecutionSummary = selectedPage?.executionSummary || null;
-  const selectedPageExecutionMetrics = selectedPageExecutionSummary?.metrics || {
-    page_view: 0,
-    cta_click: 0,
-    form_submitted: 0,
-    booking_created: 0,
-    checkout_started: 0,
-    add_to_cart: 0,
-  };
+  const workspaceDefaultMetaPixelId = funnel?.trackingSettings?.globalPixelId ?? null;
+  const funnelOverrideMetaPixelId = funnel?.trackingSettings?.funnelPixelId ?? null;
+  const pageOverrideMetaPixelId = selectedPage?.trackingSettings?.pagePixelId ?? null;
+  const effectiveMetaPixelId = selectedPage?.trackingSettings?.resolvedPixelId || selectedPageExecutionSummary?.metaPixelId || null;
+  const effectiveMetaPixelSourceLabel = pageOverrideMetaPixelId
+    ? "This page"
+    : funnelOverrideMetaPixelId
+      ? "This funnel"
+      : workspaceDefaultMetaPixelId
+        ? "Account default"
+        : "No pixel";
+  const trackingRuntimeStatusLabel = selectedPageExecutionSummary?.trackingReady
+    ? selectedPageExecutionSummary?.metaPixelReady
+      ? "Tracking live"
+      : "Tracking live, pixel missing"
+    : "Event store unavailable";
+  const trackingRuntimeHelperLabel = !selectedPageExecutionSummary?.trackingReady
+    ? "Live verification is unavailable right now."
+    : selectedPageExecutionSummary?.metaPixelReady
+      ? "Page events and this Pixel ID are both active."
+      : effectiveMetaPixelId
+        ? "Page events are active. This Pixel ID has not been confirmed by the runtime check yet."
+        : "Page events are active. Add a Pixel ID if this page should also report to Meta.";
+  const sidebarSettingsStatusLabel = seoDirty || funnelBookingDirty ? "Draft changes" : "Ready";
+  const linkedFunnelCalendarTitle = funnel?.bookingCalendarId
+    ? enabledBookingCalendars.find((calendar) => calendar.id === funnel.bookingCalendarId)?.title || funnel.bookingCalendarId
+    : "";
+  const bookingSummaryLabel = !funnel?.bookingCalendarId
+    ? pageHasCalendarPlaceholder
+      ? "Booking steps are still placeholders until you link a funnel calendar."
+      : "No funnel calendar linked yet"
+    : `Linked to funnel: ${linkedFunnelCalendarTitle}`;
+  const searchSummaryLabel = funnel?.seo?.noIndex ? "Hidden from search" : "Search visible";
+  const canvasSummaryLabel = !showCanvasDefaults
+    ? "Inherited from imported page"
+    : pageCanvasFontPresetKey === "custom"
+      ? String((pageStyle as any)?.fontFamily || "Custom font")
+      : pageCanvasFontPresetKey === "default"
+        ? "Default app font"
+        : String(pageCanvasFontPresetKey || "Canvas defaults");
+  const trackingSummaryLabel = effectiveMetaPixelId ? `Using ${effectiveMetaPixelSourceLabel.toLowerCase()} Pixel ID` : "No Pixel ID yet";
+  const sidebarTitle = wholePageModeActive && !wholePageUsesBuilderSidebar
+    ? "Page setup"
+    : builderTopLevelPanel === "settings"
+      ? "Page setup"
+      : "Page structure";
+  const sidebarSettingsPanel = selectedPage ? (
+    <div className="border-t border-zinc-200">
+      <details open={pageHasCalendarPlaceholder || funnelBookingDirty || Boolean(quickCalendarError || funnelBookingError)} className="border-t border-zinc-200 py-3">
+        <summary className="cursor-pointer list-none">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-zinc-900">Booking</div>
+              <div className="mt-1 text-xs leading-5 text-zinc-500">{bookingSummaryLabel}</div>
+            </div>
+            <div className={classNames(
+              "text-[11px] font-semibold uppercase tracking-[0.14em]",
+              !funnel?.bookingCalendarId && pageHasCalendarPlaceholder
+                ? "text-amber-900"
+                : funnel?.bookingCalendarId
+                  ? "text-emerald-700"
+                  : "text-zinc-500",
+            )}>
+              {!funnel?.bookingCalendarId ? (pageHasCalendarPlaceholder ? "Needs route" : "Optional") : "Linked"}
+            </div>
+          </div>
+        </summary>
+
+        <div className="mt-2 space-y-2">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600">
+              {funnel?.bookingCalendarId
+                ? `Funnel calendar: ${linkedFunnelCalendarTitle}`
+                : "Funnel calendar: not linked"}
+            </div>
+            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600">
+              {selectedCalendarBlock
+                ? selectedCalendarBlockRouteKind === "block"
+                  ? `This booking step uses ${selectedCalendarBlockResolvedCalendarTitle}.`
+                  : selectedCalendarBlockRouteKind === "funnel"
+                    ? `This booking step uses the funnel calendar ${selectedCalendarBlockResolvedCalendarTitle}.`
+                    : "This booking step is still a placeholder."
+                : funnel?.bookingCalendarId
+                  ? `New booking steps on this page will use ${linkedFunnelCalendarTitle}.`
+                  : "No booking step selected on this page."}
+            </div>
+          </div>
+
+          {(funnelBookingDirty || quickCalendarError || funnelBookingError) ? (
+            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600">
+              {quickCalendarError || funnelBookingError || "Booking changes are still open in draft state."}
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={() => openBookingRoutingDialog()}
+            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50"
+          >
+            Open booking setup
+          </button>
+        </div>
+      </details>
+
+      <details className="border-t border-zinc-200 py-3">
+        <summary className="cursor-pointer list-none">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-zinc-900">Search</div>
+              <div className="mt-1 text-xs leading-5 text-zinc-500">{searchSummaryLabel}</div>
+            </div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">SEO</div>
+          </div>
+        </summary>
+
+        <div className="mt-2 space-y-3">
+          <div>
+            <div className="mb-2 text-xs font-medium text-zinc-500">Tab icon</div>
+            <div className="space-y-2">
+              <div
+                className={classNames(
+                  "rounded-lg border border-dashed px-3 py-3 transition-colors",
+                  pageFaviconUploadBusy ? "border-zinc-300 bg-zinc-100" : "border-zinc-200 bg-zinc-50 hover:border-zinc-300 hover:bg-white",
+                )}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (pageFaviconUploadBusy) return;
+                  void uploadPageFaviconFiles(e.dataTransfer.files);
+                }}
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-zinc-200 bg-white">
+                    {selectedPage?.seo?.faviconUrl ? (
+                      <img src={selectedPage.seo.faviconUrl} alt="Tab icon" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-xs font-semibold text-zinc-400">Icon</span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-zinc-900">
+                      {pageFaviconUploadBusy ? "Uploading tab icon..." : selectedPage?.seo?.faviconUrl ? "Tab icon ready" : "No tab icon yet"}
+                    </div>
+                    <div className="mt-1 text-xs leading-5 text-zinc-500">
+                      Drop an image here, upload one, or choose one from the media library.
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPageFaviconPickerOpen(true)}
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                >
+                  Choose from media
+                </button>
+                <label
+                  className={classNames(
+                    "cursor-pointer rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                    pageFaviconUploadBusy ? "opacity-60" : "",
+                  )}
+                >
+                  {pageFaviconUploadBusy ? "Uploading..." : "Upload image"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={pageFaviconUploadBusy}
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      e.currentTarget.value = "";
+                      if (!files.length) return;
+                      void uploadPageFaviconFiles(files);
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={!selectedPage?.seo?.faviconUrl}
+                  onClick={() => void setPageFaviconUrl("")}
+                  className={classNames(
+                    "rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                    !selectedPage?.seo?.faviconUrl ? "opacity-50" : "",
+                  )}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <label className="flex items-center justify-between gap-4 rounded-lg border border-zinc-200 bg-white px-3 py-2">
+            <span className="text-sm font-semibold text-zinc-900">Hide from search</span>
+            <ToggleSwitch
+              checked={!!funnel?.seo?.noIndex}
+              onChange={(checked) => {
+                setSeoError(null);
+                setFunnel((prev) => {
+                  if (!prev) return prev;
+                  const nextSeo: FunnelSeo = { ...(prev.seo || {}), noIndex: checked || undefined };
+                  setSeoDirty(serializeFunnelSeoDraft(nextSeo) !== savedFunnelSeoKeyRef.current);
+                  return { ...prev, seo: nextSeo };
+                });
+              }}
+            />
+          </label>
+          <div className="text-xs leading-5 text-zinc-500">Use this for internal, checkout, or thank-you pages that should not appear in search.</div>
+
+          {seoError ? <div className="text-xs font-semibold text-red-700">{seoError}</div> : null}
+
+          <div className="flex items-center justify-between gap-3 border-t border-zinc-200 pt-2">
+            <div className="text-xs text-zinc-500">
+              {seoBusy ? "Saving..." : seoDirty ? "Save search changes." : "Saved."}
+            </div>
+            <button
+              type="button"
+              disabled={seoBusy || !seoDirty}
+              onClick={() => void saveFunnelSeo()}
+              className={classNames(
+                "rounded-md px-3 py-2 text-sm font-semibold",
+                seoBusy || !seoDirty
+                  ? "border border-zinc-200 bg-zinc-100 text-zinc-400"
+                  : "bg-brand-ink text-white hover:opacity-95",
+              )}
+            >
+              {seoBusy ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </div>
+      </details>
+
+      <details className="border-t border-zinc-200 py-3">
+        <summary className="cursor-pointer list-none">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-zinc-900">Tracking</div>
+              <div className="mt-1 text-xs leading-5 text-zinc-500">{trackingSummaryLabel}</div>
+            </div>
+            <div className={classNames(
+              "text-[11px] font-semibold uppercase tracking-[0.14em]",
+              effectiveMetaPixelId ? "text-emerald-800" : "text-zinc-500",
+            )}>
+              {trackingRuntimeStatusLabel}
+            </div>
+          </div>
+        </summary>
+
+        <div className="mt-2 space-y-2.5">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Account pixel ID</div>
+              <div className="mt-1 text-sm font-semibold text-zinc-900">{workspaceDefaultMetaPixelId || "Not configured"}</div>
+              <Link
+                href={`${basePath}/app/services/funnel-builder`}
+                className="mt-2 inline-flex text-xs font-semibold text-zinc-700 hover:text-zinc-900"
+              >
+                Manage account pixel
+              </Link>
+            </div>
+            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Active pixel ID</div>
+              <div className="mt-1 text-sm font-semibold text-zinc-900">{effectiveMetaPixelId || "No pixel ID yet"}</div>
+              <div className="mt-1 text-xs leading-5 text-zinc-500">{effectiveMetaPixelId ? `Source: ${effectiveMetaPixelSourceLabel.toLowerCase()}.` : "Internal tracking only."}</div>
+            </div>
+          </div>
+
+          <label className="block">
+            <div className="mb-1 text-xs font-medium text-zinc-500">Pixel ID for every page in this funnel</div>
+            <div className="flex items-center gap-2">
+              <input
+                value={String(funnelOverrideMetaPixelId || "")}
+                onChange={(e) => setFunnelMetaPixelIdLocal(e.target.value)}
+                onBlur={(e) => {
+                  void saveFunnelMetaPixelId(e.target.value);
+                }}
+                placeholder="Use this when the whole funnel should share one Pixel ID"
+                className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setFunnelMetaPixelIdLocal("");
+                  void saveFunnelMetaPixelId("");
+                }}
+                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Clear
+              </button>
+            </div>
+          </label>
+
+          <label className="block">
+            <div className="mb-1 text-xs font-medium text-zinc-500">Pixel ID just for this page</div>
+            <div className="flex items-center gap-2">
+              <input
+                value={String(pageOverrideMetaPixelId || "")}
+                onChange={(e) => setSelectedPageMetaPixelIdLocal(e.target.value)}
+                onBlur={(e) => {
+                  void saveSelectedPageMetaPixelId(e.target.value);
+                }}
+                placeholder="Only use this if this page needs its own Pixel ID"
+                className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedPageMetaPixelIdLocal("");
+                  void saveSelectedPageMetaPixelId("");
+                }}
+                className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Clear
+              </button>
+            </div>
+          </label>
+
+          <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Runtime check</div>
+            <div className="mt-1 text-sm font-semibold text-zinc-900">{trackingRuntimeStatusLabel}</div>
+            <div className="mt-1 text-xs leading-5 text-zinc-500">{trackingRuntimeHelperLabel}</div>
+          </div>
+        </div>
+      </details>
+
+      <details className="border-t border-zinc-200 py-3">
+        <summary className="cursor-pointer list-none">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-zinc-900">Canvas defaults</div>
+              <div className="mt-1 text-xs leading-5 text-zinc-500">{canvasSummaryLabel}</div>
+            </div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Canvas</div>
+          </div>
+        </summary>
+
+        {showCanvasDefaults ? (
+          <div className="mt-3 space-y-3">
+            <label className="block">
+              <div className="mb-1 text-xs font-medium text-zinc-500">Canvas font</div>
+              <PortalFontDropdown
+                value={pageCanvasFontPresetKey}
+                onChange={(k) => {
+                  const next = applyFontPresetToStyle(String(k || "default"));
+                  updatePageStyle({
+                    fontFamily: next.fontFamily,
+                    fontGoogleFamily: next.fontGoogleFamily,
+                  } as any);
+                }}
+                includeCustom
+                customFontFamily={String((pageStyle as any)?.fontFamily || "").trim()}
+                extraOptions={[{ value: "default", label: "Default (app font)" }]}
+                className="mt-1 w-full"
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+              />
+            </label>
+
+            {pageCanvasFontPresetKey === "custom" ? (
+              <label className="block">
+                <div className="mb-1 text-xs font-medium text-zinc-500">Custom font family</div>
+                <input
+                  value={(pageStyle as any)?.fontFamily || ""}
+                  onChange={(e) =>
+                    updatePageStyle({
+                      fontFamily: e.target.value.replace(/[\r\n\t]/g, " ").slice(0, 200) || undefined,
+                      fontGoogleFamily: undefined,
+                    } as any)
+                  }
+                  className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
+                  placeholder='e.g. ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial'
+                />
+              </label>
+            ) : null}
+          </div>
+        ) : (
+          <div className="mt-3 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-xs leading-5 text-zinc-600">Imported pages keep their own typography and spacing.</div>
+        )}
+      </details>
+
+      <PortalMediaPickerModal
+        open={pageFaviconPickerOpen}
+        title="Choose a tab icon"
+        confirmLabel="Use"
+        onClose={() => setPageFaviconPickerOpen(false)}
+        onPick={(item) => {
+          setPageFaviconPickerOpen(false);
+          void setPageFaviconUrl(item.shareUrl);
+        }}
+      />
+    </div>
+  ) : null;
 
   return (
     <div className="flex min-h-screen flex-col lg:h-dvh lg:overflow-hidden">
@@ -10290,7 +12730,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               if (!next.some((m) => String(m.url || "").trim() === url)) {
                 next.unshift({ url, fileName: it.fileName, mimeType: it.mimeType });
               }
-              return next.slice(0, 24);
+              return next.slice(0, AI_CONTEXT_MEDIA_LIMIT);
             });
             return;
           }
@@ -10441,11 +12881,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
       <AppModal
         open={briefPanelOpen && !!selectedPage}
-        title={blankPageOnboardingActive ? "Shape the First Draft Foundation" : "Foundation and Shell"}
+        title={blankPageOnboardingActive ? "Shape the First Draft Foundation" : "Brief"}
         description={
           blankPageOnboardingActive
             ? "AI is already inferring the strongest starting direction from the available context. Refine that recommendation, shape the shell, and then generate the first draft from a coherent foundation."
-            : "Edit the saved foundation and baseline shell AI should use for this funnel and the current page. This stays separate from chat history and feeds both builder and whole-page drafting."
+            : "Keep the shared funnel context and page direction lean. This guides drafting without turning the modal into a second chat thread."
         }
         onClose={() => setBriefPanelOpen(false)}
         widthClassName={blankPageOnboardingActive ? "w-[min(1080px,calc(100vw-24px))]" : "w-[min(960px,calc(100vw-32px))]"}
@@ -10481,7 +12921,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                     onClick={() => {
                       setBriefPanelOpen(false);
-                      void runAi(composePromptFromIntent("clarify"));
+                      void runAi(composePromptFromIntent("clarify"), { displayPrompt: "Ask 3 high-impact questions" });
                     }}
                   >
                     Ask 3 high-impact questions
@@ -10496,7 +12936,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       return;
                     }
                     setBriefPanelOpen(false);
-                    void runAi(composePromptFromIntent("draft"));
+                    void runAi(composePromptFromIntent("draft"), { displayPrompt: "Generate the first draft" });
                   }}
                 >
                   {foundationWizardAtLastStep ? "Generate first draft" : `Continue to ${foundationWizardSteps[foundationWizardStep + 1]?.title ?? "next step"}`}
@@ -10600,67 +13040,72 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </div>
                         ) : null}
 
+                        <div className="rounded-[28px] border border-zinc-200 bg-white px-5 py-4 shadow-[0_12px_32px_rgba(15,23,42,0.04)]">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Page path</div>
+                              <div className="mt-1 text-sm leading-6 text-zinc-600">Edit the public page path directly from setup. This changes the page route, not the funnel slug.</div>
+                            </div>
+                            <div className="font-mono text-[11px] text-zinc-500">{setupPageRoutePreviewLabel}</div>
+                          </div>
+
+                          <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-start">
+                            <label className="block min-w-0 flex-1">
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Page path</div>
+                              <div className="mt-1 flex items-center rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                                <span className="shrink-0 text-sm text-zinc-500">/</span>
+                                <input
+                                  value={setupPageSlugDraft}
+                                  onChange={(e) => {
+                                    setSetupPageSlugDraft(e.target.value.toLowerCase().replace(/\s+/g, "-"));
+                                    if (setupPageSlugError) setSetupPageSlugError(null);
+                                  }}
+                                  onBlur={() => {
+                                    void commitSetupPageSlug();
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      void commitSetupPageSlug();
+                                    }
+                                  }}
+                                  placeholder="page-path"
+                                  className="min-w-0 flex-1 bg-transparent px-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                                />
+                              </div>
+                            </label>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void commitSetupPageSlug();
+                              }}
+                              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              Save path
+                            </button>
+                          </div>
+
+                          {setupPageSlugError ? <div className="mt-2 text-xs leading-5 text-red-600">{setupPageSlugError}</div> : null}
+                        </div>
+
                         {showFoundationOverviewStep ? (
                           <div className="rounded-[28px] border border-zinc-200 bg-[linear-gradient(180deg,#fbfdff_0%,#ffffff_74%)] px-5 py-4 shadow-[0_12px_32px_rgba(15,23,42,0.04)]">
                             <div className="flex flex-col gap-4">
-                              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                    <span>First-draft foundation</span>
-                                    <span className="h-1 w-1 rounded-full bg-zinc-300" />
-                                    <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 font-mono normal-case tracking-normal text-zinc-700">{selectedPageRouteLabel}</span>
-                                  </div>
-                                  <div className="mt-2 text-lg font-semibold tracking-tight text-zinc-950">{foundationOverview.headline}</div>
-                                  <div className="mt-1 max-w-3xl text-sm leading-6 text-zinc-600">{foundationArtifact?.strategicSummary || foundationOverview.summary}</div>
-                                </div>
-                                <div className="shrink-0 rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold text-zinc-700">
-                                  {foundationOverview.readinessLabel}
-                                </div>
+                              <div className="min-w-0">
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">First-draft foundation</div>
+                                <div className="mt-1 font-mono text-[11px] text-zinc-500">{selectedPageRouteLabel}</div>
+                                <div className="mt-2 text-lg font-semibold tracking-tight text-zinc-950">{foundationOverview.headline}</div>
+                                <div className="mt-1 max-w-3xl text-sm leading-6 text-zinc-600">{foundationArtifact?.strategicSummary || foundationOverview.summary}</div>
                               </div>
 
                               <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                                <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-                                  <div className="min-w-0 flex-1">
-                                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">What AI understands about the business</div>
-                                    <div className="mt-1 text-sm leading-6 text-zinc-900">{foundationArtifact?.narrative || foundationOverview.businessNarrative}</div>
-                                    <div className="mt-1 text-xs leading-5 text-zinc-500">{foundationOverview.contextSummary}</div>
-                                    {foundationArtifact?.assumption ? (
-                                      <div className="mt-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-600">
-                                        Current working assumption: {foundationArtifact.assumption}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                  {foundationOverview.missingContext.length ? (
-                                    <div className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-700">
-                                      Still thin on {foundationOverview.missingContext.join(" and ")}
-                                    </div>
-                                  ) : null}
-                                </div>
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                  {foundationOverview.contextSignals.length ? (
-                                    foundationOverview.contextSignals.map((signal, index) => (
-                                      <span
-                                        key={`${signal.source}-${signal.label}-${index}`}
-                                        className={classNames(
-                                          "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold",
-                                          signal.source === "profile"
-                                            ? "border-blue-200 bg-blue-50 text-blue-800"
-                                            : signal.source === "funnel"
-                                              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                                              : signal.source === "page"
-                                                ? "border-zinc-200 bg-zinc-100 text-zinc-700"
-                                                : "border-violet-200 bg-violet-50 text-violet-800",
-                                        )}
-                                      >
-                                        <span className="uppercase tracking-wide text-[10px] opacity-70">{signal.label}</span>
-                                        <span>{signal.value}</span>
-                                      </span>
-                                    ))
-                                  ) : (
-                                    <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-600">
-                                      Mostly inferring from the route and the page cues right now
-                                    </span>
-                                  )}
+                                <div className="min-w-0">
+                                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Business read</div>
+                                  <div className="mt-1 text-sm leading-6 text-zinc-900">{foundationArtifact?.narrative || foundationOverview.businessNarrative}</div>
+                                  <div className="mt-1 text-xs leading-5 text-zinc-500">{foundationOverview.contextSummary}</div>
+                                  {foundationArtifact?.assumption ? <div className="mt-2 text-xs leading-5 text-zinc-600">Working assumption: {foundationArtifact.assumption}</div> : null}
+                                  {foundationOverview.missingContext.length ? <div className="mt-2 text-xs leading-5 text-amber-700">Still thin on {foundationOverview.missingContext.join(" and ")}.</div> : null}
                                 </div>
                               </div>
 
@@ -10670,25 +13115,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   <div className="mt-1 text-sm leading-6 text-zinc-700">{foundationOverview.conversionPath}</div>
                                   <div className="mt-2 text-xs leading-5 text-zinc-500">{foundationOverview.assetPlanSummary}</div>
                                   <div className="mt-2 text-xs leading-5 text-zinc-600">{foundationOverview.capabilitySummary}</div>
-                                  <div className="mt-3 flex flex-wrap gap-2">
-                                    {foundationOverview.capabilityGraph.map((capability) => (
-                                      <span
-                                        key={capability.key}
-                                        className={classNames(
-                                          "rounded-full border px-3 py-1.5 text-[11px] font-semibold",
-                                          capability.status === "ready"
-                                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                                            : capability.status === "needs-setup"
-                                              ? "border-amber-200 bg-amber-50 text-amber-800"
-                                              : capability.status === "planned"
-                                                ? "border-blue-200 bg-blue-50 text-blue-800"
-                                                : "border-zinc-200 bg-zinc-100 text-zinc-700",
-                                        )}
-                                      >
-                                        {capability.label} · {capability.status === "needs-setup" ? "setup needed" : capability.status === "not-needed" ? "not needed" : capability.status}
-                                      </span>
-                                    ))}
-                                  </div>
                                   {blankPageOnboardingActive ? (
                                     <div className="mt-2 text-xs leading-5 text-zinc-500">
                                       The page is still blank, so this is where you steer the foundation before the first draft lands.
@@ -10698,11 +13124,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
                                   <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Baseline shell</div>
                                   <div className="mt-1 text-sm leading-6 text-zinc-700">{foundationOverview.shellConcept}</div>
-                                  <div className="mt-3 flex flex-wrap gap-2">
-                                    {sectionPlanItems.map((item, index) => (
-                                      <span key={`${item}-${index}`} className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-semibold text-zinc-700">
-                                        {item}
-                                      </span>
+                                  <div className="mt-3 space-y-2">
+                                    {sectionPlanItems.slice(0, 6).map((item, index) => (
+                                      <SectionPlanHintRow key={`${item}-${index}`} item={item} index={index} total={Math.min(sectionPlanItems.length, 6)} />
                                     ))}
                                   </div>
                                 </div>
@@ -10852,9 +13276,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               </div>
               {showPageDirectionStep ? (
                 <>
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,240px)_1fr]">
-                      <label className="block">
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
                           <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Suggested page type</div>
                         </div>
@@ -10886,9 +13309,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             );
                           })}
                         </div>
-                      </label>
+                    </div>
 
-                      <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Primary CTA direction</div>
                         <div className="mt-1 text-sm text-zinc-700">Pick the motion you want. AI can still phrase the actual button copy, but this tells it what conversion action the page is trying to win.</div>
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -10911,7 +13334,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             );
                           })}
                         </div>
-                      </div>
                     </div>
                   </div>
 
@@ -11210,11 +13632,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm leading-7 text-zinc-700">
                       {foundationOverview.shellConcept}
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {sectionPlanItems.map((item, index) => (
-                        <span key={`${item}-${index}`} className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700">
-                          {item}
-                        </span>
+                    <div className="mt-3 space-y-2">
+                      {sectionPlanItems.slice(0, 6).map((item, index) => (
+                        <SectionPlanHintRow key={`${item}-${index}`} item={item} index={index} total={Math.min(sectionPlanItems.length, 6)} />
                       ))}
                     </div>
 
@@ -11377,6 +13797,670 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             ) : null}
           </div>
         ) : null}
+      </AppModal>
+
+      <AppModal
+        open={dialog?.type === "booking-routing"}
+        title={dialog?.type === "booking-routing"
+          ? dialog.surface === "details"
+            ? selectedBookingCalendar
+              ? `Edit ${selectedBookingCalendar.title}`
+              : "Edit calendar"
+            : dialog.blockId
+              ? "Booking flow for this step"
+              : "Booking flow"
+          : "Booking flow"}
+        description={dialog?.type === "booking-routing"
+          ? dialog.surface === "details"
+            ? "Update the live booking calendar this funnel routes into. Guest-facing location and expectations save here; internal notification inboxes stay private."
+            : dialog.blockId
+              ? "Keep this step on the shared funnel calendar unless it truly needs its own booking path. Create the real calendar now, then finish details inline or later."
+              : "Choose the calendar this funnel should book into. Create it here, attach it immediately, and refine the details without leaving the builder."
+          : undefined}
+        onClose={closeDialog}
+        widthClassName="w-[min(920px,calc(100vw-32px))]"
+        footer={dialog?.type === "booking-routing" && dialog.surface === "details" ? undefined : (
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              onClick={closeDialog}
+              disabled={busy || funnelBookingBusy || quickCalendarBusy}
+            >
+              Done
+            </button>
+            <button
+              type="button"
+              className={classNames(
+                "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                funnelBookingBusy || !funnelBookingDirty ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
+              )}
+              disabled={funnelBookingBusy || !funnelBookingDirty}
+              onClick={() => void saveFunnelBookingRouting()}
+            >
+              {funnelBookingBusy ? "Saving..." : funnelBookingDirty ? "Save funnel default" : "Funnel default saved"}
+            </button>
+          </div>
+        )}
+      >
+        {(() => {
+          const dialogBlock = dialog?.type === "booking-routing" && dialog.blockId
+            ? findBlockInTree(editableBlocks, dialog.blockId)?.block || null
+            : null;
+          const dialogPinnedCalendarId = dialogBlock?.type === "calendarEmbed"
+            ? String((dialogBlock.props as any)?.calendarId || "").trim()
+            : "";
+          const dialogResolvedCalendarId = dialogPinnedCalendarId || String(funnel?.bookingCalendarId || "").trim();
+          const dialogResolvedCalendarTitle = dialogResolvedCalendarId
+            ? bookingCalendarTitleById[dialogResolvedCalendarId] || dialogResolvedCalendarId
+            : "";
+          const dialogRouteKind = dialogPinnedCalendarId
+            ? "block"
+            : funnel?.bookingCalendarId
+              ? "funnel"
+              : "placeholder";
+          const dialogMode = dialog?.type === "booking-routing" ? dialog.mode : "funnel";
+          const dialogSurface = dialog?.type === "booking-routing" ? dialog.surface : "route";
+          const canLeavePlaceholder = !funnel?.bookingCalendarId;
+          const dialogResolvedCalendar = dialogResolvedCalendarId
+            ? bookingCalendars.find((calendar) => calendar.id === dialogResolvedCalendarId) || null
+            : null;
+          const dialogMeetingLocationSummary = getPortalMeetingLocationSummary(
+            bookingSettingsSite?.meetingPlatform,
+            dialogResolvedCalendar?.meetingLocation,
+          );
+          const dialogNativeProviderConnected = bookingSettingsSite?.meetingPlatform === "ZOOM"
+            ? Boolean(bookingSettingsSite?.meetingIntegrations?.providers.zoom.connected)
+            : bookingSettingsSite?.meetingPlatform === "GOOGLE_MEET"
+              ? Boolean(bookingSettingsSite?.meetingIntegrations?.providers.google_meet.connected)
+              : true;
+          const dialogLocationSummaryText = bookingSettingsSite?.meetingPlatform === "ZOOM" && !dialogNativeProviderConnected
+            ? "Connect Zoom to create a fresh meeting automatically."
+            : bookingSettingsSite?.meetingPlatform === "GOOGLE_MEET" && !dialogNativeProviderConnected
+              ? "Connect Google Meet to create a fresh meeting automatically."
+              : dialogMeetingLocationSummary.summary;
+          const dialogCalendarHasLocation = dialogMeetingLocationSummary.configured;
+          const dialogCalendarHasDetails = Boolean(String(dialogResolvedCalendar?.meetingDetails || "").trim());
+          const dialogCalendarHasNotifications = Boolean(
+            Array.isArray(dialogResolvedCalendar?.notificationEmails) && dialogResolvedCalendar.notificationEmails.length,
+          );
+          const dialogHasRoute = Boolean(dialogResolvedCalendarId);
+          const dialogSetupComplete = dialogHasRoute && dialogNativeProviderConnected && dialogCalendarHasLocation && dialogCalendarHasDetails;
+          const dialogNeedsSetup = !dialogResolvedCalendarId || !dialogNativeProviderConnected || !dialogCalendarHasLocation || !dialogCalendarHasDetails;
+          const dialogStatusLabel = dialogNeedsSetup
+            ? "Needs setup"
+            : dialogRouteKind === "block"
+              ? "Step-specific"
+              : "Ready";
+          const dialogPathLabel = dialogBlock
+            ? dialogMode === "block"
+              ? "This step uses its own booking calendar."
+              : "This step inherits the funnel's shared booking calendar."
+            : dialogResolvedCalendarId
+              ? "This funnel has a shared booking calendar."
+              : "This funnel does not have a booking calendar yet.";
+          const dialogPathHelp = dialogBlock
+            ? dialogMode === "block"
+              ? "Use a step-specific calendar only when this step needs a different owner, appointment type, or qualification path."
+              : "The shared funnel calendar is the normal path. Keep it unless this step truly needs a separate flow."
+            : dialogResolvedCalendarId
+              ? "Every booking step can inherit this default unless one step needs its own calendar."
+              : "Create or attach the shared funnel calendar here so future booking steps have a real default to use.";
+          const quickCreateButtonLabel = dialogMode === "block" ? "Create and link to this step" : "Create and link to this funnel";
+          const selectedAvailabilityLabel =
+            FUNNEL_BOOKING_AVAILABILITY_TEMPLATE_OPTIONS.find((option) => option.value === resolvedFunnelBookingDefaults.availabilityTemplateId)?.label ||
+            resolvedFunnelBookingDefaults.availabilityTemplateId;
+          const usesStepOverride = dialogMode === "block" && Boolean(dialogPinnedCalendarId);
+          const dialogShowsManageSurface = dialogHasRoute && dialogSurface === "manage";
+          const dialogShowsDetailsSurface = dialogSurface === "details";
+
+          if (dialogShowsDetailsSurface) {
+            return (
+              <PortalBookingCalendarEditorModal
+                embedded
+                open
+                onClose={() => setDialog((prev) => (
+                  prev?.type === "booking-routing"
+                    ? { ...prev, surface: dialogHasRoute ? "manage" : "route" }
+                    : prev
+                ))}
+                title={selectedBookingCalendar ? `Edit ${selectedBookingCalendar.title}` : "Edit calendar"}
+                description="Finish the calendar details the funnel needs right now. Availability and reminder automation still live in Booking Automation."
+                widthClassName="max-w-3xl"
+                busy={bookingCalendarSaveBusy || bookingSettingsSaveBusy}
+                calendar={selectedBookingCalendar ? {
+                  id: selectedBookingCalendar.id,
+                  title: selectedBookingCalendar.title,
+                  durationMinutes: selectedBookingCalendar.durationMinutes,
+                  meetingLocation: selectedBookingCalendar.meetingLocation,
+                  meetingDetails: selectedBookingCalendar.meetingDetails,
+                  notificationEmails: selectedBookingCalendar.notificationEmails,
+                } : null}
+                introNotice={(
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+                    This screen edits the routed calendar entry itself. Choose the platform this funnel should use, then only configure the one platform-specific detail that actually matters.
+                  </div>
+                )}
+                titleLabel="Calendar name"
+                titlePlaceholder="e.g. Strategy call"
+                meetingLocationField={(
+                  <PortalMeetingPlatformConfigurator
+                    platform={bookingSettingsSite?.meetingPlatform}
+                    meetingLocation={bookingCalendarDraftMeetingLocation}
+                    integrationStatus={bookingSettingsSite?.meetingIntegrations ?? null}
+                    busy={bookingSettingsSaveBusy || bookingCalendarSaveBusy}
+                    title="Meeting platform"
+                    description="Pick the platform this funnel should use, then only configure the one thing that platform still needs."
+                    onPlatformChange={async (meetingPlatform) => {
+                      await saveBookingSettingsPatch({ meetingPlatform });
+                    }}
+                    onMeetingLocationChange={setBookingCalendarDraftMeetingLocation}
+                    onMeetingLocationCommit={async (meetingLocation) => {
+                      await saveSelectedBookingCalendarPatch({ meetingLocation });
+                    }}
+                  />
+                )}
+                meetingDetailsLabel="Prep and booking expectations"
+                meetingDetailsHelpText="This shows on the public booking page and confirmation state. Use it for prep notes, agenda, or what happens next after they book."
+                meetingDetailsPlaceholder="Tell them what this call covers, what to prepare, and what happens next."
+                notificationEmailsLabel="Internal notification inboxes"
+                notificationEmailsHelpText="Only your team sees these addresses. They receive the internal booking alert for this funnel calendar."
+                notificationEmailsEmptyText="Add the email addresses that should be notified internally when someone books from this funnel."
+                notificationEmailSuggestions={Array.isArray(bookingSettingsSite?.notificationEmails) ? bookingSettingsSite.notificationEmails : []}
+                doneLabel="Back to booking flow"
+                draftTitle={bookingCalendarDraftTitle}
+                onDraftTitleChange={setBookingCalendarDraftTitle}
+                draftDurationMinutes={bookingCalendarDraftDurationMinutes}
+                onDraftDurationMinutesChange={setBookingCalendarDraftDurationMinutes}
+                draftMeetingLocation={bookingCalendarDraftMeetingLocation}
+                onDraftMeetingLocationChange={setBookingCalendarDraftMeetingLocation}
+                draftMeetingDetails={bookingCalendarDraftMeetingDetails}
+                onDraftMeetingDetailsChange={setBookingCalendarDraftMeetingDetails}
+                draftNotificationEmails={bookingCalendarDraftNotificationEmails}
+                onDraftNotificationEmailsChange={setBookingCalendarDraftNotificationEmails}
+                normalizeNotificationEmails={sanitizeNotificationEmails}
+                onSavePatch={(patch) => {
+                  void saveSelectedBookingCalendarPatch(patch);
+                }}
+              />
+            );
+          }
+
+          return (
+            <div className="space-y-5">
+              <div className="rounded-3xl border border-zinc-200 bg-[radial-gradient(circle_at_top_left,#f8fafc_0%,#ffffff_58%,#f5f7fb_100%)] p-5">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Setup status</div>
+                <div className="mt-2 text-xl font-semibold tracking-tight text-zinc-950">
+                  {!dialogHasRoute
+                    ? "No calendar linked yet"
+                    : dialogRouteKind === "block"
+                      ? "Calendar linked to this step"
+                      : "Calendar linked to this funnel"}
+                </div>
+                <div className="mt-2 max-w-3xl text-sm leading-7 text-zinc-600">
+                  {!dialogHasRoute
+                    ? dialogBlock
+                      ? "This step does not have a booking calendar yet. Use the shared funnel calendar or create one now, then finish the setup here."
+                      : "This funnel does not have a booking calendar yet. Name one, create it, link it to this funnel, and then configure the details here."
+                    : !dialogSetupComplete
+                      ? `${dialogResolvedCalendarTitle || "This calendar"} is linked ${dialogRouteKind === "block" ? "to this step" : "to this funnel"}. Finish the remaining details below before the booking flow goes live.`
+                      : dialogPathHelp}
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className={classNames("rounded-2xl border px-4 py-3", dialogHasRoute ? "border-zinc-200 bg-white" : "border-amber-200 bg-amber-50")}>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Route</div>
+                    <div className="mt-1 text-sm font-semibold text-zinc-900">
+                      {!dialogHasRoute
+                        ? "Not linked yet"
+                      : dialogRouteKind === "block"
+                          ? "Step-specific"
+                          : "Funnel default"}
+                    </div>
+                  </div>
+                  <div className={classNames("rounded-2xl border px-4 py-3", dialogHasRoute ? "border-zinc-200 bg-white" : "border-amber-200 bg-amber-50")}>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Calendar</div>
+                    <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogResolvedCalendarTitle || "Name it first"}</div>
+                  </div>
+                  <div className={classNames("rounded-2xl border px-4 py-3", dialogSetupComplete ? "border-zinc-200 bg-white" : "border-amber-200 bg-amber-50")}>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Setup</div>
+                    <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogSetupComplete ? "Ready to book" : dialogHasRoute ? "Finish details" : "Waiting for route"}</div>
+                  </div>
+                </div>
+              </div>
+
+              {dialogShowsManageSurface ? (
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(260px,0.8fr)]">
+                  <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Linked calendar</div>
+                        <div className="mt-1 text-lg font-semibold text-zinc-950">{dialogResolvedCalendarTitle || "Linked calendar"}</div>
+                        <div className="mt-2 max-w-2xl text-sm leading-6 text-zinc-700">
+                          {dialogPathLabel} {dialogNeedsSetup ? "Finish the remaining details in the calendar editor." : dialogPathHelp}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openBookingCalendarEditor(dialogResolvedCalendarId)}
+                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        {usesStepOverride ? "Edit this step's calendar" : "Edit linked calendar"}
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Route</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogStatusLabel}</div>
+                        <div className="mt-1 text-xs leading-5 text-zinc-600">{dialogPathLabel}</div>
+                      </div>
+                      <div className={classNames("rounded-2xl border px-4 py-3", dialogCalendarHasLocation ? "border-zinc-200 bg-zinc-50" : "border-amber-200 bg-amber-50")}>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Location</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogCalendarHasLocation ? "Configured" : "Missing"}</div>
+                        <div className="mt-1 text-xs leading-5 text-zinc-600">
+                          {dialogCalendarHasLocation
+                            ? dialogLocationSummaryText
+                            : "Choose the platform this funnel should use."}
+                        </div>
+                      </div>
+                      <div className={classNames("rounded-2xl border px-4 py-3", dialogCalendarHasDetails ? "border-zinc-200 bg-zinc-50" : "border-amber-200 bg-amber-50")}>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Booking copy</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900">{dialogCalendarHasDetails ? "Configured" : "Missing"}</div>
+                        <div className="mt-1 text-xs leading-5 text-zinc-600">{dialogCalendarHasDetails ? "Expectations and details are in place." : "Add the booking details and expectations before this goes live."}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openBookingCalendarEditor(dialogResolvedCalendarId)}
+                        className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                      >
+                        {dialogNeedsSetup ? "Finish calendar setup" : "Open calendar setup"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDialog((prev) => (prev?.type === "booking-routing" ? { ...prev, surface: "route" } : prev))}
+                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        {dialogMode === "block" ? "Change this step's route" : "Change linked calendar"}
+                      </button>
+                    </div>
+
+                    <div className="mt-3 text-xs leading-5 text-zinc-500">
+                      Changing the route reopens the create and attach tools. The current link stays in place until you choose something else.
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Setup checklist</div>
+                      <div className="mt-3 space-y-2 text-sm leading-6 text-zinc-700">
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                          Meeting location: {dialogCalendarHasLocation ? dialogLocationSummaryText : "still missing"}
+                        </div>
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                          Booking details: {dialogCalendarHasDetails ? "configured" : "still missing"}
+                        </div>
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                          Notifications: {dialogCalendarHasNotifications ? "configured" : "optional and currently empty"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {(funnelBookingDirty || funnelBookingError) ? (
+                      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Pending funnel defaults</div>
+                        <div className="mt-2 text-sm leading-6 text-zinc-700">
+                          Preset, timing, or availability defaults have unsaved changes for future calendars created from this funnel.
+                        </div>
+                        {funnelBookingError ? <div className="mt-3 text-xs text-red-600">{funnelBookingError}</div> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {dialogHasRoute ? (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setDialog((prev) => (prev?.type === "booking-routing" ? { ...prev, surface: "manage" } : prev))}
+                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      >
+                        Back to linked calendar
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {dialogBlock?.type === "calendarEmbed" ? (
+                    <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+                      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Routing choice</div>
+                      <div className="mt-1 text-sm text-zinc-700">Start with the shared funnel calendar. Only give this step its own calendar when the booking flow is intentionally different.</div>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDialog((prev) => (prev?.type === "booking-routing" ? { ...prev, mode: "funnel" } : prev));
+                            if (dialogPinnedCalendarId) {
+                              upsertBlock({
+                                ...dialogBlock,
+                                props: { ...dialogBlock.props, calendarId: "" },
+                              });
+                            }
+                          }}
+                          className={classNames(
+                            "rounded-2xl border px-4 py-4 text-left transition-colors",
+                            dialogMode === "funnel"
+                              ? "border-blue-300 bg-blue-50 text-blue-950"
+                              : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                          )}
+                        >
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] opacity-70">Recommended default</div>
+                          <div className="mt-2 text-sm font-semibold">Use the shared funnel calendar</div>
+                          <div className="mt-1 text-xs leading-5 opacity-80">This keeps the booking path consistent across the funnel and avoids one-off scheduling logic unless you truly need it.</div>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setDialog((prev) => (prev?.type === "booking-routing" ? { ...prev, mode: "block" } : prev))}
+                          className={classNames(
+                            "rounded-2xl border px-4 py-4 text-left transition-colors",
+                            dialogMode === "block"
+                              ? "border-emerald-300 bg-emerald-50 text-emerald-950"
+                              : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                          )}
+                        >
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] opacity-70">Only when it is intentional</div>
+                          <div className="mt-2 text-sm font-semibold">Give this step its own calendar</div>
+                          <div className="mt-1 text-xs leading-5 opacity-80">Use this when the step needs a different owner, appointment type, or qualification path than the rest of the funnel.</div>
+                        </button>
+                      </div>
+
+                      {canLeavePlaceholder ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDialog((prev) => (prev?.type === "booking-routing" ? { ...prev, mode: "funnel" } : prev));
+                            upsertBlock({
+                              ...dialogBlock,
+                              props: { ...dialogBlock.props, calendarId: "" },
+                            });
+                            setFunnel((prev) => (prev ? ({ ...prev, bookingCalendarId: null } as Funnel) : prev));
+                            setFunnelBookingDirty(true);
+                            setFunnelBookingError(null);
+                          }}
+                          className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                        >
+                          Leave this step unassigned for now
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(260px,0.85fr)]">
+                    <div className="space-y-4">
+                      <div className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                            {dialogMode === "block" ? "Name this calendar" : "Name the funnel calendar"}
+                          </div>
+                          <div className="mt-1 text-sm text-zinc-700">
+                            {dialogMode === "block"
+                              ? "Create and link a new calendar for this step, then configure the details right here."
+                              : "Create and link the funnel's booking calendar first. As soon as it exists, you can configure the details right here."}
+                          </div>
+                        </div>
+
+                        <label className="mt-4 block">
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Calendar name</div>
+                          <input
+                            value={dialog?.type === "booking-routing" ? dialog.newCalendarTitle : ""}
+                            onChange={(e) => setDialog((prev) => (prev?.type === "booking-routing" ? { ...prev, newCalendarTitle: e.target.value.slice(0, 80) } : prev))}
+                            className="min-w-0 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                            placeholder={dialogMode === "block" ? "e.g. VIP strategy call" : "e.g. Main consultation calendar"}
+                          />
+                        </label>
+
+                        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+                          <button
+                            type="button"
+                            disabled={quickCalendarBusy || !funnel || (dialogMode === "block" && dialogBlock?.type !== "calendarEmbed")}
+                            onClick={() =>
+                              void createQuickCalendarAndSyncFunnel({
+                                title: dialog?.type === "booking-routing" ? dialog.newCalendarTitle : "",
+                                routeTarget: dialogMode,
+                                blockId: dialogBlock?.type === "calendarEmbed" ? dialogBlock.id : null,
+                                openEditor: true,
+                              })
+                            }
+                            className={classNames(
+                              "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                              quickCalendarBusy || (dialogMode === "block" && dialogBlock?.type !== "calendarEmbed")
+                                ? "bg-zinc-400"
+                                : "bg-(--color-brand-blue) hover:bg-blue-700",
+                            )}
+                          >
+                            {quickCalendarBusy ? "Creating..." : quickCreateButtonLabel}
+                          </button>
+                          <div className="text-xs leading-5 text-zinc-500">
+                            After creation, the calendar opens in the detail editor so you can finish location, availability, and expectation copy without leaving the builder.
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                          <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Preset</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedBookingPreset.label}</div>
+                          </div>
+                          <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Meeting length</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-900">{resolvedFunnelBookingDefaults.durationMinutes} minutes</div>
+                          </div>
+                          <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Availability</div>
+                            <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedAvailabilityLabel}</div>
+                          </div>
+                        </div>
+
+                        {quickCalendarError ? <div className="mt-3 text-xs text-red-600">{quickCalendarError}</div> : null}
+                      </div>
+
+                      <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                              {dialogMode === "block" && dialogBlock?.type === "calendarEmbed"
+                                ? "Or attach an existing calendar to this step"
+                                : "Or attach an existing calendar"}
+                            </div>
+                            <div className="mt-1 text-sm text-zinc-700">
+                              {dialogMode === "block"
+                                ? "Pick an existing calendar for this step, or let it fall back to the shared funnel default."
+                                : "If the calendar already exists, attach it here instead of creating a new one."}
+                            </div>
+                          </div>
+                          {dialogResolvedCalendarId ? (
+                            <button
+                              type="button"
+                              onClick={() => openBookingCalendarEditor(dialogResolvedCalendarId)}
+                              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                            >
+                              {usesStepOverride ? "Edit this step's calendar" : "Edit calendar details"}
+                            </button>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-4">
+                          {dialogMode === "block" && dialogBlock?.type === "calendarEmbed" ? (
+                            <label className="block">
+                              <div className="mb-1 text-xs font-medium text-zinc-500">Calendar for this step</div>
+                              <PortalSelectDropdown
+                                value={dialogPinnedCalendarId}
+                                options={[
+                                  {
+                                    value: "",
+                                    label: funnel?.bookingCalendarId ? "Use the shared funnel calendar" : "Keep this unassigned",
+                                    hint: funnel?.bookingCalendarId
+                                      ? bookingCalendarTitleById[funnel.bookingCalendarId] || funnel.bookingCalendarId
+                                      : "This booking step will stay unassigned until you choose or create a calendar.",
+                                  },
+                                  ...enabledBookingCalendars.map((calendar) => ({
+                                    value: calendar.id,
+                                    label: calendar.title || calendar.id,
+                                    hint: calendar.id,
+                                  })),
+                                ]}
+                                onChange={(value) =>
+                                  upsertBlock({
+                                    ...dialogBlock,
+                                    props: { ...dialogBlock.props, calendarId: String(value || "") },
+                                  })
+                                }
+                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                placeholder="Choose a calendar"
+                              />
+                            </label>
+                          ) : (
+                            <label className="block">
+                              <div className="mb-1 text-xs font-medium text-zinc-500">Shared funnel calendar</div>
+                              <PortalSelectDropdown
+                                value={String(funnel?.bookingCalendarId || "")}
+                                options={[
+                                  {
+                                    value: "",
+                                    label: "No shared funnel calendar yet",
+                                    hint: "The funnel will stay unassigned until you choose or create one.",
+                                  },
+                                  ...enabledBookingCalendars.map((calendar) => ({
+                                    value: calendar.id,
+                                    label: calendar.title || calendar.id,
+                                    hint: calendar.id,
+                                  })),
+                                ]}
+                                onChange={(value) => {
+                                  if (dialogBlock?.type === "calendarEmbed") {
+                                    upsertBlock({
+                                      ...dialogBlock,
+                                      props: { ...dialogBlock.props, calendarId: "" },
+                                    });
+                                  }
+                                  void saveFunnelBookingRouteSelection(value || null);
+                                }}
+                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                placeholder="Choose a calendar"
+                              />
+                            </label>
+                          )}
+                        </div>
+
+                        <div className="mt-3 text-xs leading-5 text-zinc-500">
+                          {dialogMode === "block"
+                            ? usesStepOverride
+                              ? "This step is currently detached from the shared funnel default."
+                              : "This step will use the shared funnel calendar unless you intentionally override it."
+                            : "Selecting a shared funnel calendar routes it immediately. Preset and schedule defaults still use Save funnel default."}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Defaults for new calendars</div>
+                        <div className="mt-1 text-sm text-zinc-700">These only shape brand-new calendars created from this popup. They do not overwrite an existing calendar you attach here.</div>
+
+                        <div className="mt-4 space-y-3">
+                          <label className="block">
+                            <div className="mb-1 text-xs font-medium text-zinc-500">Calendar setup preset</div>
+                            <PortalSelectDropdown
+                              value={resolvedFunnelBookingDefaults.presetId}
+                              options={FUNNEL_BOOKING_PRESET_OPTIONS}
+                              onChange={(value) => updateFunnelBookingDefaults({ presetId: value as FunnelBookingDefaults["presetId"] }, "preset")}
+                              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                              placeholder="Select a preset"
+                            />
+                          </label>
+
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <label className="block">
+                              <div className="mb-1 text-xs font-medium text-zinc-500">Meeting length</div>
+                              <PortalSelectDropdown
+                                value={String(resolvedFunnelBookingDefaults.durationMinutes)}
+                                options={BOOKING_DURATION_OPTIONS}
+                                onChange={(value) => updateFunnelBookingDefaults({ durationMinutes: Number(value) || 30 })}
+                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                placeholder="Select duration"
+                              />
+                            </label>
+
+                            <label className="block">
+                              <div className="mb-1 text-xs font-medium text-zinc-500">Minimum notice</div>
+                              <PortalSelectDropdown
+                                value={String(resolvedFunnelBookingDefaults.minimumNoticeMinutes)}
+                                options={BOOKING_NOTICE_OPTIONS}
+                                onChange={(value) => updateFunnelBookingDefaults({ minimumNoticeMinutes: Number(value) || 0 })}
+                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                placeholder="Select notice"
+                              />
+                            </label>
+                          </div>
+
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <label className="block">
+                              <div className="mb-1 text-xs font-medium text-zinc-500">Availability template</div>
+                              <PortalSelectDropdown
+                                value={resolvedFunnelBookingDefaults.availabilityTemplateId}
+                                options={FUNNEL_BOOKING_AVAILABILITY_TEMPLATE_OPTIONS}
+                                onChange={(value) =>
+                                  updateFunnelBookingDefaults({
+                                    availabilityTemplateId: value as FunnelBookingDefaults["availabilityTemplateId"],
+                                  })
+                                }
+                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                placeholder="Select availability"
+                              />
+                            </label>
+
+                            <label className="block">
+                              <div className="mb-1 text-xs font-medium text-zinc-500">Booking time zone</div>
+                              <PortalSelectDropdown
+                                value={resolvedFunnelBookingDefaults.timeZone}
+                                options={BOOKING_TIME_ZONE_OPTIONS}
+                                onChange={(value) => updateFunnelBookingDefaults({ timeZone: value || "America/New_York" })}
+                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                placeholder="Select time zone"
+                              />
+                            </label>
+                          </div>
+
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-xs leading-5 text-zinc-600">
+                            {`New calendars created from this popup start with the ${selectedBookingPreset.label.toLowerCase()} setup: ${resolvedFunnelBookingDefaults.durationMinutes} minutes, ${formatBookingNoticeWindow(resolvedFunnelBookingDefaults.minimumNoticeMinutes)}, ${resolvedFunnelBookingDefaults.timeZone}, and the ${selectedAvailabilityLabel.toLowerCase()} schedule.`}
+                          </div>
+
+                          {funnelBookingError ? <div className="text-xs text-red-600">{funnelBookingError}</div> : null}
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">What saves now</div>
+                        <div className="mt-3 space-y-2 text-sm leading-6 text-zinc-700">
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                            A step-specific calendar updates this page draft immediately.
+                          </div>
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                            Choosing the shared funnel calendar saves that route immediately. Preset, timing, and availability defaults stay in draft until you click Save funnel default.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
       </AppModal>
 
       <AppModal
@@ -11788,7 +14872,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       <AppConfirmModal
         open={dialog?.type === "delete-page"}
         title="Delete page"
-        message={selectedPage ? `Delete page “${selectedPage.title}”? This cannot be undone.` : "Delete this page?"}
+        message={selectedPage ? `Delete page â€œ${selectedPage.title}â€? This cannot be undone.` : "Delete this page?"}
         confirmLabel="Delete"
         cancelLabel="Cancel"
         destructive
@@ -11852,7 +14936,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 void continuePageSelection("save");
               }}
             >
-              {savingPage ? "Saving…" : workflowView.leavePageConfirmLabel}
+              {savingPage ? "Saving..." : workflowView.leavePageConfirmLabel}
             </button>
           </div>
         }
@@ -11869,8 +14953,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
       <AppModal
         open={aiContextOpen}
-        title="Attach references to AI"
-        description="These references are passed with future AI edits in this editor session. Use them when the next change needs real content or visuals. They are not auto-generated from chat history."
+        title="AI references and design direction"
+        description="These references and design notes are passed with future AI edits in this editor session. Use them to keep fonts, vibes, concepts, and visual references consistent across discuss, work, and edit runs."
         onClose={() => setAiContextOpen(false)}
         widthClassName="w-[min(560px,calc(100vw-32px))]"
         footer={
@@ -11890,6 +14974,87 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         }
       >
         <div className="space-y-3">
+          <div className="rounded-2xl border border-blue-200 bg-blue-50/70 px-4 py-3 text-sm leading-6 text-blue-950">
+            Attached references stay available to later AI passes in this editor session until you remove them. Screenshots, font direction, vibe notes, and styling constraints are sent to Pura on discuss, work, and edit runs so the agent can reason from the same design brief each time.
+          </div>
+
+          <div className="grid gap-3 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Design brief</div>
+              <textarea
+                value={aiDesignContext.designBrief || ""}
+                onChange={(e) => setAiDesignContext((prev) => ({ ...prev, designBrief: e.target.value.slice(0, 1600) }))}
+                rows={4}
+                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+                placeholder="Describe the overall art direction, feel, or brand posture you want Pura to carry across edits."
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm text-zinc-700">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Font direction</span>
+                <input
+                  value={aiDesignContext.fontDirection || ""}
+                  onChange={(e) => setAiDesignContext((prev) => ({ ...prev, fontDirection: e.target.value.slice(0, 400) }))}
+                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+                  placeholder="High-contrast serif headlines with clean grotesk body copy"
+                />
+              </label>
+              <label className="block text-sm text-zinc-700">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Vibes and keywords</span>
+                <input
+                  value={formatAiDesignContextKeywords(aiDesignContext.vibeKeywords || [])}
+                  onChange={(e) => setAiDesignContext((prev) => ({ ...prev, vibeKeywords: parseAiDesignContextKeywords(e.target.value) }))}
+                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+                  placeholder="editorial, calm, premium, high-trust"
+                />
+              </label>
+              <label className="block text-sm text-zinc-700">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Color direction</span>
+                <input
+                  value={aiDesignContext.colorDirection || ""}
+                  onChange={(e) => setAiDesignContext((prev) => ({ ...prev, colorDirection: e.target.value.slice(0, 320) }))}
+                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+                  placeholder="Bone, ink, muted olive, restrained brass accents"
+                />
+              </label>
+              <label className="block text-sm text-zinc-700">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Avoid</span>
+                <input
+                  value={aiDesignContext.avoid || ""}
+                  onChange={(e) => setAiDesignContext((prev) => ({ ...prev, avoid: e.target.value.slice(0, 600) }))}
+                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+                  placeholder="No generic SaaS gradients, no default Inter-only look, no purple"
+                />
+              </label>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Design concepts and references</div>
+              <textarea
+                value={aiDesignContext.designConcepts || ""}
+                onChange={(e) => setAiDesignContext((prev) => ({ ...prev, designConcepts: e.target.value.slice(0, 900) }))}
+                rows={3}
+                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+                placeholder="Reference design languages, typography pairings, or analogs you want it to understand."
+              />
+            </div>
+
+            {hasFunnelDesignContext(sanitizedAiDesignContext) ? (
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600">
+                <div>Pura will keep this design direction in context on future discuss, work, and edit runs.</div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setAiDesignContext({ ...EMPTY_AI_DESIGN_CONTEXT })}
+                  className="rounded-xl border border-zinc-200 bg-white px-2.5 py-1.5 font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  Clear design brief
+                </button>
+              </div>
+            ) : null}
+          </div>
+
           <input
             ref={aiContextUploadInputRef}
             type="file"
@@ -11911,7 +15076,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               onClick={() => aiContextUploadInputRef.current?.click()}
               className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
             >
-              {aiContextUploadBusy ? "Uploading…" : "Upload"}
+              {aiContextUploadBusy ? "Uploading..." : "Upload"}
             </button>
             <button
               type="button"
@@ -11937,21 +15102,50 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           </div>
 
           {aiContextMedia.length ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               {aiContextMedia.map((m) => {
-                const label = (m.fileName || "").trim() || "Image";
+                const label = getAiContextMediaLabel(m);
+                const meta = getAiContextMediaMeta(m);
+                const image = isAiContextImage(m);
                 return (
-                  <button
+                  <div
                     key={m.url}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setAiContextMedia((prev) => (prev || []).filter((x) => x.url !== m.url))}
-                    className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
-                    title="Click to remove"
+                    className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.05)]"
                   >
-                    <span className="font-semibold">{label}</span>
-                    <span className="text-zinc-400">×</span>
-                  </button>
+                    <div className="aspect-4/3 border-b border-zinc-200 bg-zinc-100">
+                      {image ? (
+                        <img
+                          src={m.url}
+                          alt={label}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-sm text-zinc-500">
+                          <div className="rounded-full border border-zinc-300 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-600">
+                            Asset
+                          </div>
+                          <div className="max-w-[20ch] leading-5">{meta}</div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-start justify-between gap-3 p-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-zinc-900">{label}</div>
+                        <div className="mt-1 truncate text-xs text-zinc-500">{meta}</div>
+                        <div className="mt-1 text-[11px] leading-5 text-zinc-400">Shared with Pura on discuss, work, and edit runs.</div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setAiContextMedia((prev) => (prev || []).filter((x) => x.url !== m.url))}
+                        className="shrink-0 rounded-xl border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-60"
+                        title={`Remove ${label}`}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
             </div>
@@ -11963,27 +15157,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         </div>
       </AppModal>
 
-      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/85 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white">
         <div className="flex flex-col gap-2 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <Link
               href={`${basePath}/app/services/funnel-builder`}
               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
             >
-              ← Back
+              Back
             </Link>
-
-            {selectedPageGraph.sourceMode === "custom-html" && selectedPage ? (
-              <button
-                type="button"
-                disabled={busy || selectedPage.editorMode === "MARKDOWN"}
-                onClick={() => void convertCurrentPageToBlocks()}
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                title={selectedPageLensUi.structureTabTitle}
-              >
-                Convert to Structure
-              </button>
-            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -11994,7 +15176,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 requestPageSelection(nextId);
               }}
               options={[
-                { value: "", label: "Select a page…", disabled: true },
+                { value: "", label: "Select a page...", disabled: true },
                 ...(pages || []).map((p) => ({ value: p.id, label: p.title })),
               ]}
               className="min-w-55"
@@ -12022,7 +15204,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 className="rounded-lg p-2 text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
                 title={
                   typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
-                    ? "Undo (⌘Z)"
+                    ? "Undo (âŒ˜Z)"
                     : "Undo (Ctrl+Z)"
                 }
               >
@@ -12036,7 +15218,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 className="rounded-lg p-2 text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
                 title={
                   typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
-                    ? "Redo (⇧⌘Z)"
+                    ? "Redo (â‡§âŒ˜Z)"
                     : "Redo (Ctrl+Shift+Z)"
                 }
               >
@@ -12090,75 +15272,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           </div>
         </div>
 
-        {selectedPage ? (
-          <div className="border-t border-zinc-200/80 px-4 py-3">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                  <div className="truncate text-base font-semibold text-zinc-900">{selectedPage.title || "Untitled page"}</div>
-                  <span className="text-sm text-zinc-500">/{selectedPage.slug}</span>
-                </div>
-
-                <div className="mt-1 text-sm text-zinc-600">{workflowView.workflowSummary}</div>
-                <div className="mt-1 text-xs text-zinc-500">{pageManagementUi.summary}</div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                {customCodeModeActive ? (
-                  <button
-                    type="button"
-                    disabled={busy || publishingPage || !selectedPage || !workflowView.hasDeployableDraft}
-                    onClick={() => void publishPage()}
-                    className={classNames(
-                      "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white",
-                      busy || publishingPage || !selectedPage || !workflowView.hasDeployableDraft
-                        ? "bg-zinc-400"
-                        : "bg-emerald-600 hover:bg-emerald-700",
-                    )}
-                    title="Save any pending draft changes, then replace the live hosted page with this draft"
-                  >
-                    {publishingPage ? (
-                      <>
-                        <SpinnerIcon className="h-4 w-4" />
-                        Publishing
-                      </>
-                    ) : (
-                      <>
-                        <IconUpload size={16} className="shrink-0" />
-                        {workflowView.publishButtonLabel}
-                      </>
-                    )}
-                  </button>
-                ) : null}
-                {funnelLiveHref ? (
-                  <>
-                    <Link
-                      href={funnelLiveHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3.5 py-2 text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-zinc-50"
-                    >
-                      <IconExport size={16} className="text-zinc-500" />
-                      {workflowView.liveLinkLabel}
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => void copyLiveFunnelHref()}
-                      className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3.5 py-2 text-sm font-semibold text-zinc-900 transition-colors duration-150 hover:bg-zinc-50"
-                    >
-                      <IconCopy size={16} className="text-zinc-500" />
-                      Copy live URL
-                    </button>
-                  </>
-                ) : (
-                  <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-500">
-                    Live URL will appear after this funnel has a valid public route.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : null}
       </header>
 
       {error ? (
@@ -12170,12 +15283,54 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       <div
         className={classNames(
           "relative flex flex-1 flex-col overflow-auto lg:min-h-0 lg:overflow-hidden",
-          "lg:grid lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[296px_minmax(0,1fr)]",
+          chatRailOpen
+            ? sidebarCollapsed
+              ? "lg:grid lg:grid-cols-[72px_minmax(0,1fr)_340px]"
+              : "lg:grid lg:grid-cols-[280px_minmax(0,1fr)_340px] xl:grid-cols-[296px_minmax(0,1fr)_340px]"
+            : sidebarCollapsed
+              ? "lg:grid lg:grid-cols-[72px_minmax(0,1fr)]"
+              : "lg:grid lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[296px_minmax(0,1fr)]",
         )}
       >
         <aside
-          className="w-full shrink-0 overflow-y-auto border-b border-zinc-200 bg-zinc-50/80 px-3 py-3.5 lg:order-1 lg:h-full lg:min-h-0 lg:border-b-0 lg:border-r lg:px-3.5"
+          className={classNames(
+            "w-full shrink-0 border-b border-zinc-200 bg-zinc-50/80 py-3.5 lg:order-1 lg:h-full lg:min-h-0 lg:border-b-0 lg:border-r",
+            sidebarCollapsed ? "overflow-hidden px-2 lg:px-2" : "overflow-y-auto px-3 lg:px-3.5",
+          )}
         >
+          {sidebarCollapsed ? (
+            <div className="flex h-full flex-col items-center py-1">
+              <button
+                type="button"
+                onClick={() => setSidebarCollapsed(false)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                title="Expand sidebar"
+                aria-label="Expand sidebar"
+              >
+                <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M7 4l6 6-6 6" />
+                </svg>
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="mb-3 flex items-center justify-between gap-3 border-b border-zinc-200 pb-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-zinc-900">{sidebarTitle}</div>
+                  {selectedPage ? <div className="mt-1 truncate text-xs text-zinc-500">{selectedPage.title || "Untitled page"}</div> : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSidebarCollapsed(true)}
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M13 4l-6 6 6 6" />
+                  </svg>
+                  Collapse
+                </button>
+              </div>
+
           {!selectedPage ? (
             pages === null ? (
               <div className="space-y-3">
@@ -12187,17 +15342,22 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               <div className="text-sm text-zinc-600">Select a page to edit.</div>
             )
           ) : wholePageModeActive && !wholePageUsesBuilderSidebar ? (
-            <div className="space-y-4">
-              <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Source workspace</div>
-                <div className="mt-1 text-sm font-semibold text-zinc-900">{wholePageSourceEditable ? "Draft HTML" : "Generated HTML"}</div>
-                <div className="mt-2 text-sm leading-6 text-zinc-700">
-                  {wholePageNeedsSaveForDeployableSource
-                    ? "Structure is still the authoring surface for this page. Save when you want deployable source regenerated."
-                    : wholePageStatusMessage || "Source stays on the same draft you are editing here."}
+            <div className="space-y-3">
+              <div className="pb-1">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="break-all text-xs leading-5 text-zinc-500">{selectedPageRouteLabel || `/${selectedPage.slug}`}</div>
+                  </div>
+                  <span className={classNames(
+                    "pt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]",
+                    selectedPageDirty ? "text-amber-900" : "text-zinc-500",
+                  )}>
+                    {sourcePaneMeta || wholePageSyncMeta || (selectedPageDirty ? "Unsaved draft" : "Draft saved")}
+                  </span>
                 </div>
-                {wholePageSyncMeta ? <div className="mt-3 text-xs text-zinc-500">{wholePageSyncMeta}</div> : null}
               </div>
+
+              {sidebarSettingsPanel}
             </div>
           ) : selectedPage.editorMode === "MARKDOWN" ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -12216,7 +15376,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     busy ? "opacity-60" : "",
                   )}
                 >
-                  Switch to Structure
+                  Switch to Builder
                 </button>
                 <button
                   type="button"
@@ -12231,12 +15391,30 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 </button>
               </div>
             </div>
-          ) : blocksSurfaceActive || wholePageUsesBuilderSidebar ? (
+          ) : wholePageUsesBuilderSidebar ? (
+            <div className="space-y-3">
+              <div className="pb-1">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="break-all text-xs leading-5 text-zinc-500">{selectedPageRouteLabel || `/${selectedPage.slug}`}</div>
+                  </div>
+                  <span className={classNames(
+                    "pt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]",
+                    selectedPageDirty ? "text-amber-900" : "text-zinc-500",
+                  )}>
+                    {sourcePaneMeta || wholePageSyncMeta || (selectedPageDirty ? "Unsaved draft" : "Draft saved")}
+                  </span>
+                </div>
+              </div>
+
+              {sidebarSettingsPanel}
+            </div>
+          ) : blocksSurfaceActive ? (
             <div className="space-y-3">
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-1.5">
-                <div className={classNames("grid gap-1.5", selectedBlock ? "grid-cols-4" : "grid-cols-3")}>
+                <div className="grid grid-cols-2 gap-1.5">
                   <BuilderRailNavButton
-                    label="Structure"
+                    label="Builder"
                     icon={
                       <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="3" y="4" width="14" height="4" rx="1.5" />
@@ -12246,35 +15424,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     active={builderTopLevelPanel === "structure"}
                     onClick={() => setSidebarPanel("structure")}
                   />
-                  <BuilderRailNavButton
-                    label="Activity"
-                    badge={pageActivityCount ? String(pageActivityCount) : undefined}
-                    icon={
-                      <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 10h3l1.2-3 2.6 7 1.6-4H16" />
-                        <path d="M4 4.5h12" />
-                        <path d="M4 15.5h12" />
-                      </svg>
-                    }
-                    active={builderTopLevelPanel === "activity"}
-                    onClick={() => setSidebarPanel("activity")}
-                  />
-                  {selectedBlock ? (
-                    <BuilderRailNavButton
-                      label="Selection"
-                      icon={
-                        <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M6 3.5H4.75A1.25 1.25 0 0 0 3.5 4.75V6" />
-                          <path d="M14 3.5h1.25a1.25 1.25 0 0 1 1.25 1.25V6" />
-                          <path d="M6 16.5H4.75a1.25 1.25 0 0 1-1.25-1.25V14" />
-                          <path d="M14 16.5h1.25a1.25 1.25 0 0 0 1.25-1.25V14" />
-                          <rect x="7" y="7" width="6" height="6" rx="1.25" />
-                        </svg>
-                      }
-                      active={builderTopLevelPanel === "selected"}
-                      onClick={() => setSidebarPanel("selected")}
-                    />
-                  ) : null}
                   <BuilderRailNavButton
                     label="Settings"
                     icon={
@@ -12290,219 +15439,70 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 </div>
               </div>
 
-              {wholePageUsesBuilderSidebar ? (
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50/75 p-3.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Stage</div>
-                    {wholePageSyncMeta ? <div className="text-right text-[11px] font-medium leading-4 text-zinc-500">{wholePageSyncMeta}</div> : null}
-                  </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className="inline-flex rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
-                      {wholePageStageMeta.label}
-                    </span>
-                    <span className="text-[11px] font-medium text-zinc-500">{selectedPageDirty ? "Draft in progress" : "Draft stable"}</span>
-                  </div>
-                  <div className="mt-3 space-y-1.5 text-[11px] text-zinc-500">
-                    <div className="flex items-start gap-2">
-                      <span className={classNames("mt-1 inline-flex h-1.5 w-1.5 shrink-0 rounded-full", selectedPageDirty ? "bg-zinc-400" : "bg-emerald-400/80")} />
-                      <span>
-                        {wholePageNeedsSaveForDeployableSource
-                          ? "Unsaved draft changes"
-                          : selectedPageDirty
-                            ? "Preview and source are on this draft"
-                            : "Preview and source are in sync"}
-                      </span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <span className="mt-1 inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300" />
-                      <span>{wholePageStageMeta.summary}</span>
-                    </div>
-                    {wholePageStatusMessage ? (
-                      <div className="flex items-start gap-2">
-                        <span className="mt-1 inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-300" />
-                        <span>{wholePageStatusMessage}</span>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
               {builderTopLevelPanel === "structure" ? (
-                <div className="rounded-2xl border border-zinc-200 bg-white p-3.5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Map</div>
-                      <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{selectedPage.title || "Untitled page"}</div>
-                    </div>
-                    <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
-                      {blockOutlineItems.length} {blockOutlineItems.length === 1 ? "item" : "items"}
-                    </span>
-                  </div>
-
-                  {blockOutlineItems.length ? (
-                    <div className="mt-3 max-h-120 space-y-1.5 overflow-y-auto isolate">
-                      {blockOutlineItems.map((item) => {
-                        const isActive = selectedBlockId === item.id;
-                        const isAnchor = selectedPageFlowAnchorId === item.id;
-                        const isNested = item.depth > 0;
-                        const indent = item.depth ? Math.min(item.depth * 14, 34) : 0;
-
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedBlockId(item.id);
-                              if (wholePageUsesBuilderSidebar && !pageAnatomy.onlyCodeIsland) {
-                                setBuilderMode("blocks");
-                                setPreviewMode("edit");
-                              }
-                            }}
-                            className={classNames(
-                              "relative z-0 w-full rounded-xl border px-2.5 py-2 text-left transition-[border-color,background-color,box-shadow] hover:z-10 focus-visible:z-10",
-                              isActive
-                                ? "border-zinc-300 bg-white text-zinc-950 shadow-[0_8px_20px_rgba(15,23,42,0.06)]"
-                                : isAnchor
-                                  ? "border-blue-200 bg-blue-50 text-zinc-900"
-                                  : "border-zinc-200 bg-white text-zinc-900 hover:border-zinc-300 hover:bg-zinc-50",
-                            )}
-                          >
-                            {item.depth ? (
-                              <span
-                                aria-hidden="true"
-                                className="absolute bottom-2.5 top-2.5 w-px rounded-full bg-zinc-200"
-                                style={{ left: `${14 + Math.max(indent - 8, 0)}px` }}
-                              />
-                            ) : null}
-
-                            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2.5">
-                              <div className="pt-0.5" style={{ marginLeft: indent ? `${indent}px` : undefined }}>
-                                <div
-                                  className={classNames(
-                                    "inline-flex h-7 w-7 items-center justify-center rounded-lg border",
-                                    isActive ? "border-zinc-200 bg-zinc-950 text-white" : "border-zinc-200 bg-zinc-50 text-zinc-600",
-                                  )}
-                                >
-                                  <BuilderOutlineGlyph kind={item.kind} active={isActive} />
-                                </div>
-                              </div>
-
-                              <div className="min-w-0">
-                                <div className={classNames("text-[10px] font-semibold uppercase tracking-[0.12em]", isActive ? "text-zinc-500" : isAnchor ? "text-blue-700" : "text-zinc-500")}>
-                                  {item.kind}
-                                  {isNested ? ` · L${item.depth}` : ""}
-                                  {isAnchor ? " · after" : ""}
-                                </div>
-                                <div className="mt-0.5 truncate text-[13px] font-semibold leading-5">{item.detail}</div>
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="mt-3 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
-                      Add the first section or block to start the page map.
-                    </div>
-                  )}
-
-                  {selectedBlock ? (
-                    <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3">
-                      <div className="min-w-0">
-                        <div className="text-[11px] font-medium text-zinc-500">Selected item</div>
-                        <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{selectedOutlineItem?.detail || selectedBlock.type}</div>
+                <div className="space-y-3">
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-3.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Current page</div>
+                        <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{selectedPage.title || "Untitled page"}</div>
+                        <div className="mt-1 break-all text-xs leading-5 text-zinc-500">{selectedPageRouteLabel}</div>
+                        <div className="mt-2 text-[11px] font-medium text-zinc-500">
+                          {pageAnatomy.sections > 0
+                            ? `${pageAnatomy.sections} sections`
+                            : `${Math.max(pageAnatomy.totalBlocks, blockOutlineItems.length)} ${Math.max(pageAnatomy.totalBlocks, blockOutlineItems.length) === 1 ? "block" : "blocks"}`}
+                        </div>
                       </div>
                     </div>
-                  ) : null}
-                </div>
-              ) : null}
 
-              {builderTopLevelPanel === "activity" ? (
-                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3.5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold text-zinc-900">Activity</div>
-                      <div className="mt-1 text-xs leading-5 text-zinc-500">Recent AI turns, saved changes, and runtime truth for this page stay here without stealing canvas focus.</div>
-                    </div>
-                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                      <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-600">
-                        {selectedPageDirty ? "Draft has unsaved edits" : "Draft synced"}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 space-y-3">
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="mt-3 rounded-[22px] border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3.5">
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Recent saves</div>
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Structured flow</div>
+                          <div className="mt-1 text-xs leading-5 text-zinc-500">Keep the page read in one sequence: objective, metric, mechanism, then sections.</div>
+                        </div>
+                        <div className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-500">
+                          {pageAnatomy.totalBlocks} {pageAnatomy.totalBlocks === 1 ? "block" : "blocks"}
                         </div>
                       </div>
 
-                      <div className="mt-3">
-                        <SavedChangeFeed
-                          entries={selectedPageRecentActivity}
-                          emptyState="Saved diffs will show up here after the first completed save."
-                        />
-                      </div>
-                    </div>
-
-                    <PageContinuityPanel
-                      thread={selectedPageChatThread}
-                      latestCheckpoint={selectedPageLatestAiCheckpoint}
-                      onRestoreLatest={() => void restoreLastAiRun()}
-                      restoreDisabled={Boolean(busy || savingPage || !selectedPageLatestAiCheckpoint)}
-                    />
-
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Execution</div>
-                          <div className="mt-1 text-xs leading-5 text-zinc-500">Hosted runtime truth for tracking and first-party page events.</div>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 space-y-2 rounded-xl border border-zinc-200 bg-white p-3">
-                        <div className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                          <div className="text-xs font-medium text-zinc-500">Tracking</div>
-                          <div className={classNames(
-                            "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
-                            selectedPageExecutionSummary?.trackingReady
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                              : "border-amber-200 bg-amber-50 text-amber-800",
-                          )}>
-                            {selectedPageExecutionSummary?.trackingReady ? "Ready" : "Pending"}
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                          <div>
-                            <div className="text-xs font-medium text-zinc-500">Meta pixel</div>
-                            <div className="mt-0.5 text-xs font-semibold text-zinc-900">{selectedPageExecutionSummary?.metaPixelId || "No Meta pixel configured"}</div>
-                          </div>
-                          <div className={classNames(
-                            "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
-                            selectedPageExecutionSummary?.metaPixelReady
-                              ? "border-blue-200 bg-blue-50 text-blue-800"
-                              : "border-zinc-200 bg-white text-zinc-600",
-                          )}>
-                            {selectedPageExecutionSummary?.metaPixelReady ? "Live" : "None"}
+                      <div className="mt-3 space-y-3">
+                        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-3">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Objective</div>
+                          <div className="mt-1 text-sm font-semibold text-zinc-950">{pageConversionFocus.headline}</div>
+                          <div className="mt-1 text-xs leading-5 text-zinc-600">{pageConversionFocus.summary}</div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                            <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 font-medium text-zinc-600">Next action: {pageConversionFocus.ctaValue}</span>
+                            {pageGoalUsesDefault ? <span>Using the default goal for this page type.</span> : null}
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2 pt-1">
-                          {[
-                            { label: "Views", value: selectedPageExecutionMetrics.page_view },
-                            { label: "CTA", value: selectedPageExecutionMetrics.cta_click },
-                            { label: "Forms", value: selectedPageExecutionMetrics.form_submitted },
-                            { label: "Bookings", value: selectedPageExecutionMetrics.booking_created },
-                            { label: "Checkout", value: selectedPageExecutionMetrics.checkout_started },
-                            { label: "Cart", value: selectedPageExecutionMetrics.add_to_cart },
-                          ].map((item) => (
-                            <div key={item.label} className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">{item.label}</div>
-                              <div className="mt-1 text-base font-semibold text-zinc-900">{item.value}</div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">{pageConversionFocus.metricLabel}</div>
+                            <div className="mt-1 wrap-break-word text-sm font-semibold leading-5 text-zinc-900">{pageConversionFocus.metricValue}</div>
+                          </div>
+                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">{pageConversionFocus.mechanismLabel}</div>
+                            <div className="mt-1 wrap-break-word text-sm font-semibold leading-5 text-zinc-900">{pageConversionFocus.mechanismValue}</div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-3">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Sections</div>
+                          <div className="mt-1 text-xs leading-5 text-zinc-500">Use this as the page sequence.</div>
+
+                          {sectionPlanItems.length ? (
+                            <div className="mt-3 space-y-1.5 border-l border-zinc-200/80 pl-3">
+                              {sectionPlanItems.slice(0, 6).map((item, index) => (
+                                <SectionPlanHintRow key={`${item}-${index}`} item={item} index={index} total={Math.min(sectionPlanItems.length, 6)} />
+                              ))}
                             </div>
-                          ))}
+                          ) : (
+                            <div className="mt-3 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
+                              No section outline yet. Start with the page goal, then shape the first pass.
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -12514,3103 +15514,52 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3.5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold text-zinc-900">Settings</div>
-                      <div className="mt-1 text-xs leading-5 text-zinc-500">Brief, routing, canvas defaults, and search settings for this page live here.</div>
+                      <div className="text-sm font-semibold text-zinc-900">Page setup</div>
+                      <div className="mt-1 text-xs leading-5 text-zinc-500">Use the sidebar sections below for booking, search, tracking, and defaults.</div>
                     </div>
                     <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-600">
-                      {seoDirty || funnelBookingDirty ? "Unsaved settings" : "Settings synced"}
+                      {sidebarSettingsStatusLabel}
                     </div>
                   </div>
 
-                  <div className="mt-3 space-y-3">
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Direction</div>
-                          <div className="mt-1 text-sm font-semibold text-zinc-900">AI is steering {selectedPageRouteLabel}</div>
-                          <div className="mt-1 text-xs leading-5 text-zinc-500">
-                            Keep the brief and prompt scaffolding tight here while the stage stays focused on preview, source, and direction.
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setBriefPanelOpen(true)}
-                          className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
-                        >
-                          Open brief
-                        </button>
-                      </div>
-
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setChatInput(composePromptFromIntent("draft"))}
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
-                        >
-                          Draft from shell
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setChatInput(composePromptFromIntent("clarify"))}
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
-                        >
-                          Clarify first
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="min-w-0">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Booking routing</div>
-                        <div className="mt-1 text-xs leading-5 text-zinc-500">Choose the funnel-level calendar route once. Booking blocks and first drafts inherit it unless overridden.</div>
-                      </div>
-
-                      <div className="mt-3 space-y-3 rounded-xl border border-zinc-200 bg-white p-3">
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Default funnel calendar</div>
-                          <PortalSelectDropdown
-                            value={String(funnel?.bookingCalendarId || "")}
-                            options={[
-                              {
-                                value: "",
-                                label: "No funnel default",
-                                hint: "Leave routing open until this account has a calendar worth pinning.",
-                              },
-                              ...enabledBookingCalendars.map((calendar) => ({
-                                value: calendar.id,
-                                label: calendar.title || calendar.id,
-                                hint: calendar.id,
-                              })),
-                            ]}
-                            onChange={(value) => {
-                              setFunnelBookingDirty(true);
-                              setFunnelBookingError(null);
-                              setFunnel((prev) => (prev ? ({ ...prev, bookingCalendarId: value || null } as Funnel) : prev));
-                            }}
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                            placeholder="Select a calendar"
-                          />
-                        </label>
-
-                        <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-500">
-                          {enabledBookingCalendars.length === 0
-                            ? "No calendars are created for this account yet. Leaving this on no funnel default is the correct state until a calendar exists."
-                            : funnel?.bookingCalendarId
-                              ? `This funnel routes booking traffic to ${enabledBookingCalendars.find((calendar) => calendar.id === funnel.bookingCalendarId)?.title || funnel.bookingCalendarId}.`
-                              : "No funnel route is locked yet. This page can still use a block-specific calendar or the first enabled runtime fallback."}
-                        </div>
-
-                        <button
-                          type="button"
-                          disabled={funnelBookingBusy || !funnelBookingDirty}
-                          onClick={() => void saveFunnelBookingRouting()}
-                          className={classNames(
-                            "w-full rounded-xl px-3 py-2 text-sm font-semibold text-white",
-                            funnelBookingBusy || !funnelBookingDirty ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
-                          )}
-                        >
-                          {funnelBookingBusy ? "Saving…" : funnelBookingDirty ? "Save booking route" : "Booking route saved"}
-                        </button>
-
-                        {funnelBookingError ? <div className="text-xs text-red-600">{funnelBookingError}</div> : null}
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Canvas defaults</div>
-                      {showCanvasDefaults ? (
-                        <div className="mt-3 space-y-3">
-                          <label className="block">
-                            <div className="mb-1 text-xs font-medium text-zinc-500">Canvas font</div>
-                            <PortalFontDropdown
-                              value={pageCanvasFontPresetKey}
-                              onChange={(k) => {
-                                const next = applyFontPresetToStyle(String(k || "default"));
-                                updatePageStyle({
-                                  fontFamily: next.fontFamily,
-                                  fontGoogleFamily: next.fontGoogleFamily,
-                                } as any);
-                              }}
-                              includeCustom
-                              customFontFamily={String((pageStyle as any)?.fontFamily || "").trim()}
-                              extraOptions={[{ value: "default", label: "Default (app font)" }]}
-                              className="mt-1 w-full"
-                              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                            />
-                          </label>
-
-                          {pageCanvasFontPresetKey === "custom" ? (
-                            <label className="block">
-                              <div className="mb-1 text-xs font-medium text-zinc-500">Custom font family</div>
-                              <input
-                                value={(pageStyle as any)?.fontFamily || ""}
-                                onChange={(e) =>
-                                  updatePageStyle({
-                                    fontFamily: e.target.value.replace(/[\r\n\t]/g, " ").slice(0, 200) || undefined,
-                                    fontGoogleFamily: undefined,
-                                  } as any)
-                                }
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                placeholder='e.g. ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial'
-                              />
-                            </label>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <div className="mt-3 text-sm leading-6 text-zinc-700">
-                          Imported-source pages still own their own font, background, and spacing, so canvas defaults stay out of the way here.
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                      <div className="min-w-0">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Search</div>
-                          <div className="mt-1 text-xs leading-5 text-zinc-500">Title, description, share image, and tab icon for this page.</div>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 space-y-3 rounded-xl border border-zinc-200 bg-white p-3">
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Title</div>
-                          <input
-                            value={String(funnel?.seo?.title || "")}
-                            onChange={(e) => {
-                              const v = e.target.value.slice(0, 120);
-                              setSeoDirty(true);
-                              setSeoError(null);
-                              setFunnel((prev) => {
-                                if (!prev) return prev;
-                                const nextSeo: FunnelSeo = { ...(prev.seo || {}), title: v || undefined };
-                                return { ...prev, seo: nextSeo };
-                              });
-                            }}
-                            placeholder="Shown in search and link previews"
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </label>
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Description</div>
-                          <textarea
-                            value={String(funnel?.seo?.description || "")}
-                            onChange={(e) => {
-                              const v = e.target.value.slice(0, 300);
-                              setSeoDirty(true);
-                              setSeoError(null);
-                              setFunnel((prev) => {
-                                if (!prev) return prev;
-                                const nextSeo: FunnelSeo = { ...(prev.seo || {}), description: v || undefined };
-                                return { ...prev, seo: nextSeo };
-                              });
-                            }}
-                            placeholder="Short summary for search and sharing"
-                            className="min-h-16 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </label>
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Share image</div>
-                          <input
-                            value={String(funnel?.seo?.imageUrl || "")}
-                            onChange={(e) => {
-                              const v = e.target.value.slice(0, 500);
-                              setSeoDirty(true);
-                              setSeoError(null);
-                              setFunnel((prev) => {
-                                if (!prev) return prev;
-                                const nextSeo: FunnelSeo = { ...(prev.seo || {}), imageUrl: v || undefined };
-                                return { ...prev, seo: nextSeo };
-                              });
-                            }}
-                            placeholder="https://…"
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          />
-                        </label>
-
-                        <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                          <div className="mb-2 text-xs font-medium text-zinc-500">Tab icon</div>
-                          <div className="flex flex-col gap-2">
-                            <div className="flex min-w-0 items-center gap-3">
-                              <div className="h-9 w-9 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
-                                {selectedPage?.seo?.faviconUrl ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={selectedPage.seo.faviconUrl} alt="Favicon" className="h-full w-full object-cover" />
-                                ) : null}
-                              </div>
-                              <input
-                                value={String(selectedPage?.seo?.faviconUrl || "")}
-                                onChange={(e) => {
-                                  const v = e.target.value.slice(0, 500);
-                                  setSelectedPageLocal({
-                                    seo: v.trim() ? { ...(selectedPage?.seo || {}), faviconUrl: v } : null,
-                                  });
-                                }}
-                                onBlur={(e) => {
-                                  void setPageFaviconUrl(e.target.value);
-                                }}
-                                placeholder="https://…"
-                                className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              />
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setPageFaviconPickerOpen(true)}
-                                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                              >
-                                Choose
-                              </button>
-                              <button
-                                type="button"
-                                disabled={!selectedPage?.seo?.faviconUrl}
-                                onClick={() => void setPageFaviconUrl("")}
-                                className={classNames(
-                                  "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50",
-                                  !selectedPage?.seo?.faviconUrl ? "opacity-50" : "",
-                                )}
-                              >
-                                Clear
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                          <span className="text-sm font-semibold text-zinc-900">Hide from search</span>
-                          <ToggleSwitch
-                            checked={!!funnel?.seo?.noIndex}
-                            onChange={(checked) => {
-                              setSeoDirty(true);
-                              setSeoError(null);
-                              setFunnel((prev) => {
-                                if (!prev) return prev;
-                                const nextSeo: FunnelSeo = { ...(prev.seo || {}), noIndex: checked || undefined };
-                                return { ...prev, seo: nextSeo };
-                              });
-                            }}
-                          />
-                        </label>
-
-                        {seoError ? <div className="text-xs font-semibold text-red-700">{seoError}</div> : null}
-
-                        <button
-                          type="button"
-                          disabled={seoBusy || !seoDirty}
-                          onClick={() => void saveFunnelSeo()}
-                          className={classNames(
-                            "w-full rounded-xl px-3 py-2 text-sm font-semibold text-white",
-                            seoBusy || !seoDirty ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
-                          )}
-                        >
-                          {seoBusy ? "Saving…" : seoDirty ? "Save search settings" : "Search settings saved"}
-                        </button>
-
-                        <div className="text-xs leading-5 text-zinc-500">Source HTML can still override these values if the page sets them directly.</div>
-                      </div>
-                    </div>
-
-                    <PortalMediaPickerModal
-                      open={pageFaviconPickerOpen}
-                      title="Choose a tab icon"
-                      confirmLabel="Use"
-                      onClose={() => setPageFaviconPickerOpen(false)}
-                      onPick={(item) => {
-                        setPageFaviconPickerOpen(false);
-                        void setPageFaviconUrl(item.shareUrl);
-                      }}
-                    />
-                  </div>
-                </div>
-              ) : null}
-
-              {builderTopLevelPanel === "selected" ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-zinc-900">Selection</div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      {selectedOutlineItem
-                        ? `${selectedOutlineItem.kind} · ${selectedOutlineItem.detail}${selectedPageFlowAnchorId ? " · anchor" : ""}${selectedBlockContainer && selectedBlockContainer.key !== "root" ? " · nested" : ""}`
-                        : "Choose a block from the page map or preview."}
-                    </div>
-                  </div>
-                  {!selectedBlock ? (
-                    <div className="mt-3 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">Click a block in the preview.</div>
-                  ) : (
-                    <div className="mt-3 space-y-3">
-                      <div className="text-xs font-medium text-zinc-500">{selectedBlock.type}</div>
-
-                      {selectedBlock.type === "heading" ? (
-                        <div className="space-y-2">
-                          <RichTextField
-                            valueHtml={selectedBlock.props.html}
-                            placeholder="Heading text"
-                            singleLine
-                            onCommit={(nextHtml, nextText) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, html: nextHtml, text: nextText },
-                              })
-                            }
-                          />
-                          <PortalSelectDropdown
-                            value={selectedBlock.props.level ?? 2}
-                            onChange={(level) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, level },
-                              })
-                            }
-                            options={[
-                              { value: 1, label: "H1" },
-                              { value: 2, label: "H2" },
-                              { value: 3, label: "H3" },
-                            ]}
-                            className="w-full"
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                          />
-                        </div>
-                      ) : null}
-
-                      {selectedBlock.type === "paragraph" ? (
-                        <RichTextField
-                          valueHtml={selectedBlock.props.html}
-                          placeholder="Paragraph text"
-                          onCommit={(nextHtml, nextText) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, html: nextHtml, text: nextText },
-                            })
-                          }
-                        />
-                      ) : null}
-
-                      {selectedBlock.type === "customCode" ? (
-                        (() => {
-                          const blockSnapshot = selectedCustomCodeSnapshot;
-                          if (!blockSnapshot) return null;
-
-                          const customCodeSavedChanges: SavedChangeFeedItem[] = selectedCustomCodeSavedAuditTrail.map((entry) => ({
-                            id: entry.id,
-                            at: entry.at,
-                            headline: getCustomCodeAuditHeadline(entry),
-                            countLabel: getCustomCodeAuditCountLabel(entry),
-                            tone: getCustomCodeAuditTone(entry),
-                          }));
-
-                          return (
-                            <div className="-mx-4 bg-zinc-50 px-4 py-3 space-y-4">
-                              <div className="flex flex-wrap items-center gap-2 pt-1">
-                                  <button
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={() => setAiContextOpen(true)}
-                                    className={classNames(
-                                      "inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold disabled:opacity-60",
-                                      aiContextMedia.length ? "border-blue-200 bg-white text-blue-600 hover:bg-blue-50" : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100",
-                                    )}
-                                  >
-                                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                                    </svg>
-                                    {aiContextMedia.length ? `${aiContextMedia.length} ref${aiContextMedia.length === 1 ? "" : "s"}` : "References"}
-                                  </button>
-                                  <div className="text-[11px] leading-5 text-zinc-400">
-                                    AI keeps the latest relevant turns for this block automatically.
-                                  </div>
-                              </div>
-
-                              <div className="space-y-2 border-t border-zinc-200 pt-3">
-                                <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-400">Recent saves</div>
-                                <SavedChangeFeed
-                                  entries={customCodeSavedChanges}
-                                  emptyState="Saved diffs for this block will show up here after the first completed save."
-                                />
-                              </div>
-                            </div>
-                          );
-                        })()
-                      ) : null}
-
-                      {selectedBlock.type === "chatbot" ? (
-                        <div className="space-y-2">
-                          {(() => {
-                            const placementX = String((selectedBlock.props as any).placementX || "right").trim();
-                            const placementY = String((selectedBlock.props as any).placementY || "bottom").trim();
-
-                            const btnCls = (active: boolean) =>
-                              classNames(
-                                "px-3 py-2 text-xs font-semibold",
-                                active
-                                  ? "bg-[color:var(--color-brand-blue)] text-white"
-                                  : "bg-white text-zinc-800 hover:bg-zinc-50",
-                              );
-
-                            return (
-                              <>
-                                <div className="block">
-                                  <div className="mb-1 text-xs font-medium text-zinc-500">Horizontal placement</div>
-                                  <div className="inline-flex overflow-hidden rounded-xl border border-zinc-200 bg-white">
-                                    {([
-                                      { v: "left", label: "Left" },
-                                      { v: "center", label: "Center" },
-                                      { v: "right", label: "Right" },
-                                    ] as const).map((opt) => (
-                                      <button
-                                        key={opt.v}
-                                        type="button"
-                                        disabled={busy}
-                                        onClick={() =>
-                                          upsertBlock({
-                                            ...selectedBlock,
-                                            props: { ...(selectedBlock.props as any), placementX: opt.v },
-                                          } as any)
-                                        }
-                                        className={btnCls(placementX === opt.v)}
-                                      >
-                                        {opt.label}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <div className="block">
-                                  <div className="mb-1 text-xs font-medium text-zinc-500">Vertical placement</div>
-                                  <div className="inline-flex overflow-hidden rounded-xl border border-zinc-200 bg-white">
-                                    {([
-                                      { v: "top", label: "Top" },
-                                      { v: "middle", label: "Middle" },
-                                      { v: "bottom", label: "Bottom" },
-                                    ] as const).map((opt) => (
-                                      <button
-                                        key={opt.v}
-                                        type="button"
-                                        disabled={busy}
-                                        onClick={() =>
-                                          upsertBlock({
-                                            ...selectedBlock,
-                                            props: { ...(selectedBlock.props as any), placementY: opt.v },
-                                          } as any)
-                                        }
-                                        className={btnCls(placementY === opt.v)}
-                                      >
-                                        {opt.label}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              </>
-                            );
-                          })()}
-
-                          <div className="block">
-                            <div className="mb-1 text-xs font-medium text-zinc-500">Agent ID</div>
-                            {availableAgentOptions.length ? (
-                              <PortalListboxDropdown
-                                value={String((selectedBlock.props as any).agentId || "")}
-                                onChange={(v) =>
-                                  upsertBlock({
-                                    ...selectedBlock,
-                                    props: { ...(selectedBlock.props as any), agentId: String(v || "") },
-                                  } as any)
-                                }
-                                options={(() => {
-                                  const current = String((selectedBlock.props as any).agentId || "").trim();
-                                  const opts = availableAgentOptions.map((a) => ({
-                                    value: a.id,
-                                    label: a.name ? `${a.name} - ${a.id}` : a.id,
-                                  }));
-                                  const hasCurrent = current && opts.some((o) => o.value === current);
-                                  return [
-                                    ...(current && !hasCurrent ? [{ value: current, label: `Current (${current})` }] : []),
-                                    { value: "", label: "Select an agent…" },
-                                    ...opts,
-                                  ];
-                                })() as any}
-                                className="w-full"
-                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                              />
-                            ) : (
-                              <input
-                                value={String((selectedBlock.props as any).agentId || "")}
-                                onChange={(e) =>
-                                  upsertBlock({
-                                    ...selectedBlock,
-                                    props: { ...(selectedBlock.props as any), agentId: e.target.value },
-                                  } as any)
-                                }
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                placeholder="agent_..."
-                              />
-                            )}
-                            <div className="mt-1 text-[11px] text-zinc-500">Pick the agent to power this widget.</div>
-                          </div>
-
-                          <ColorPickerField
-                            label="Primary color"
-                            value={String((selectedBlock.props as any).primaryColor || "")}
-                            onChange={(next) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...(selectedBlock.props as any), primaryColor: next || "" },
-                              } as any)
-                            }
-                            swatches={colorSwatches}
-                          />
-
-                          <label className="block">
-                            <div className="mb-1 text-xs font-medium text-zinc-500">Launcher style</div>
-                            <PortalListboxDropdown
-                              value={String((selectedBlock.props as any).launcherStyle || "bubble")}
-                              onChange={(launcherStyle) =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...(selectedBlock.props as any), launcherStyle: String(launcherStyle || "bubble") },
-                                } as any)
-                              }
-                              options={[
-                                { value: "bubble", label: "Bubble" },
-                                { value: "dots", label: "Dots" },
-                                { value: "spark", label: "Spark" },
-                              ]}
-                              className="w-full"
-                              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                            />
-                            <div className="mt-1 text-[11px] text-zinc-500">Affects the launcher icon when no image is set.</div>
-                          </label>
-
-                          <div className="block">
-                            <div className="mb-1 text-xs font-medium text-zinc-500">Launcher image</div>
-
-                            {String((selectedBlock.props as any).launcherImageUrl || "").trim() ? (
-                              <div className="mb-2 flex items-center gap-2">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  alt="Launcher image preview"
-                                  src={String((selectedBlock.props as any).launcherImageUrl || "").trim()}
-                                  className="h-10 w-10 rounded-lg border border-zinc-200 object-cover"
-                                />
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() =>
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: { ...(selectedBlock.props as any), launcherImageUrl: "" },
-                                    } as any)
-                                  }
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                                >
-                                  Remove image
-                                </button>
-                              </div>
-                            ) : null}
-
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => {
-                                  setMediaPickerTarget({ type: "chatbot-launcher", blockId: selectedBlock.id });
-                                  setMediaPickerOpen(true);
-                                }}
-                                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                              >
-                                Choose from media
-                              </button>
-                              <label
-                                className={classNames(
-                                  "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
-                                  uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
-                                )}
-                              >
-                                {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload image"}
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  disabled={busy || uploadingImageBlockId === selectedBlock.id}
-                                  onChange={(e) => {
-                                    const files = Array.from(e.target.files || []);
-                                    e.currentTarget.value = "";
-                                    if (files.length === 0) return;
-                                    if (!selectedBlock || selectedBlock.type !== "chatbot") return;
-                                    setUploadingImageBlockId(selectedBlock.id);
-                                    setError(null);
-                                    void (async () => {
-                                      try {
-                                        const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
-                                        const it = created[0];
-                                        if (!it) return;
-                                        const nextUrl = String((it as any).shareUrl || (it as any).previewUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
-                                        if (!nextUrl) return;
-                                        upsertBlock({
-                                          ...selectedBlock,
-                                          props: {
-                                            ...(selectedBlock.props as any),
-                                            launcherImageUrl: nextUrl,
-                                          },
-                                        } as any);
-                                        toast.success("Launcher image uploaded and selected");
-                                      } catch (err) {
-                                        const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                                        toast.error(msg);
-                                      } finally {
-                                        setUploadingImageBlockId(null);
-                                      }
-                                    })();
-                                  }}
-                                />
-                              </label>
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
-
-                    {selectedBlock.type === "button" ? (
-                      <div className="space-y-2">
-                        <input
-                          value={selectedBlock.props.text}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, text: e.target.value },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="Button text"
-                        />
-                        <input
-                          value={selectedBlock.props.href}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, href: e.target.value },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder={`${basePath}/forms/your-form-slug`}
-                        />
-                        <PortalListboxDropdown
-                          value={selectedBlock.props.variant ?? "primary"}
-                          onChange={(variant) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, variant },
-                            })
-                          }
-                          options={[
-                            { value: "primary", label: "Primary" },
-                            { value: "secondary", label: "Secondary" },
-                          ]}
-                          className="w-full"
-                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                        />
-                      </div>
-                    ) : null}
-
-                    {selectedBlock.type === "salesCheckoutButton" ? (
-                      <div className="space-y-2">
-                        <input
-                          value={selectedBlock.props.text ?? ""}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, text: e.target.value },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="Button text (e.g. Buy now)"
-                        />
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Product</div>
-                          <PortalListboxDropdown
-                            value={selectedBlock.props.priceId ?? ""}
-                            onChange={(nextPriceId) => {
-                              const priceId = String(nextPriceId || "").trim();
-                              const picked = stripeProducts.find((p) => String(p?.defaultPrice?.id || "").trim() === priceId) || null;
-                              const nextProductName = (picked?.name ? String(picked.name) : "").trim();
-                              const nextProductDescription = (picked?.description ? String(picked.description) : "").trim();
-
-                              const prevName = String((selectedBlock.props as any)?.productName || "").trim();
-                              const prevDesc = String((selectedBlock.props as any)?.productDescription || "").trim();
-
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: {
-                                  ...selectedBlock.props,
-                                  priceId,
-                                  productName: priceId
-                                    ? (prevName ? prevName : nextProductName || undefined)
-                                    : undefined,
-                                  productDescription: priceId
-                                    ? (prevDesc ? prevDesc : nextProductDescription || undefined)
-                                    : undefined,
-                                  text:
-                                    String((selectedBlock.props as any)?.text || "").trim() || "Buy now",
-                                },
-                              } as any);
-                            }}
-                            placeholder={stripeProductsBusy ? "Loading Stripe products…" : "Select a Stripe product"}
-                            options={[
-                              { value: "", label: "(No product selected)" },
-                              ...stripeProducts
-                                .filter((p) => p && p.defaultPrice && p.defaultPrice.id)
-                                .map((p) => ({
-                                  value: p.defaultPrice!.id,
-                                  label: p.name || "Product",
-                                  hint: formatMoney(p.defaultPrice!.unitAmount, p.defaultPrice!.currency) || "",
-                                })),
-                            ]}
-                            className="w-full"
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                            disabled={stripeProductsBusy}
-                          />
-                          <div className="mt-1 text-[11px] text-zinc-500">Pulled from your connected Stripe account.</div>
-                        </label>
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Product name</div>
-                          <input
-                            value={(selectedBlock.props as any)?.productName ?? ""}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, productName: e.target.value },
-                              } as any)
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="(Auto from Stripe)"
-                          />
-                        </label>
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Short description</div>
-                          <textarea
-                            rows={3}
-                            value={(selectedBlock.props as any)?.productDescription ?? ""}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, productDescription: e.target.value },
-                              } as any)
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="(Auto from Stripe)"
-                          />
-                        </label>
-
-                        {stripeProductsError ? (
-                          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                            {stripeProductsError}
-                          </div>
-                        ) : null}
-
-                        {stripeProductsError ? (
-                          <button
-                            type="button"
-                            disabled={stripeProductsBusy}
-                            onClick={() => void loadStripeProducts()}
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                          >
-                            Retry loading Stripe products
-                          </button>
-                        ) : null}
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Quantity</div>
-                          <input
-                            type="number"
-                            min={1}
-                            max={20}
-                            value={String(selectedBlock.props.quantity ?? 1)}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: {
-                                  ...selectedBlock.props,
-                                  quantity: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
-                                },
-                              })
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="1"
-                          />
-                        </label>
-                      </div>
-                    ) : null}
-
-                    {selectedBlock.type === "addToCartButton" ? (
-                      <div className="space-y-2">
-                        <input
-                          value={(selectedBlock.props as any).text ?? ""}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, text: e.target.value },
-                            } as any)
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="Button text (e.g. Add to cart)"
-                        />
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Product</div>
-                          <PortalListboxDropdown
-                            value={(selectedBlock.props as any).priceId ?? ""}
-                            onChange={(nextPriceId) => {
-                              const priceId = String(nextPriceId || "").trim();
-                              const picked = stripeProducts.find((p) => String(p?.defaultPrice?.id || "").trim() === priceId) || null;
-                              const nextProductName = (picked?.name ? String(picked.name) : "").trim();
-                              const nextProductDescription = (picked?.description ? String(picked.description) : "").trim();
-
-                              const prevName = String((selectedBlock.props as any)?.productName || "").trim();
-                              const prevDesc = String((selectedBlock.props as any)?.productDescription || "").trim();
-
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: {
-                                  ...selectedBlock.props,
-                                  priceId,
-                                  productName: priceId
-                                    ? (prevName ? prevName : nextProductName || undefined)
-                                    : undefined,
-                                  productDescription: priceId
-                                    ? (prevDesc ? prevDesc : nextProductDescription || undefined)
-                                    : undefined,
-                                  text: String((selectedBlock.props as any)?.text || "").trim() || "Add to cart",
-                                },
-                              } as any);
-                            }}
-                            placeholder={stripeProductsBusy ? "Loading Stripe products…" : "Select a Stripe product"}
-                            options={[
-                              { value: "", label: "(No product selected)" },
-                              ...stripeProducts
-                                .filter((p) => p && p.defaultPrice && p.defaultPrice.id)
-                                .map((p) => ({
-                                  value: p.defaultPrice!.id,
-                                  label: p.name || "Product",
-                                  hint: formatMoney(p.defaultPrice!.unitAmount, p.defaultPrice!.currency) || "",
-                                })),
-                            ]}
-                            className="w-full"
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                            disabled={stripeProductsBusy}
-                          />
-                          <div className="mt-1 text-[11px] text-zinc-500">Pulled from your connected Stripe account.</div>
-                        </label>
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Product name</div>
-                          <input
-                            value={(selectedBlock.props as any)?.productName ?? ""}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, productName: e.target.value },
-                              } as any)
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="(Auto from Stripe)"
-                          />
-                        </label>
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Short description</div>
-                          <textarea
-                            rows={3}
-                            value={(selectedBlock.props as any)?.productDescription ?? ""}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, productDescription: e.target.value },
-                              } as any)
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="(Auto from Stripe)"
-                          />
-                        </label>
-
-                        {stripeProductsError ? (
-                          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                            {stripeProductsError}
-                          </div>
-                        ) : null}
-
-                        {stripeProductsError ? (
-                          <button
-                            type="button"
-                            disabled={stripeProductsBusy}
-                            onClick={() => void loadStripeProducts()}
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                          >
-                            Retry loading Stripe products
-                          </button>
-                        ) : null}
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Quantity</div>
-                          <input
-                            type="number"
-                            min={1}
-                            max={20}
-                            value={String((selectedBlock.props as any).quantity ?? 1)}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: {
-                                  ...selectedBlock.props,
-                                  quantity: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
-                                },
-                              } as any)
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="1"
-                          />
-                        </label>
-                      </div>
-                    ) : null}
-
-                    {selectedBlock.type === "cartButton" ? (
-                      <div className="space-y-2">
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Button text</div>
-                          <input
-                            value={(selectedBlock.props as any).text ?? ""}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, text: e.target.value },
-                              } as any)
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="Cart"
-                          />
-                        </label>
-                        <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
-                          Cart is stored in the visitor’s browser and is scoped to this page.
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {selectedBlock.type === "headerNav" ? (
-                      <div className="space-y-3">
-                        <label className="flex items-start justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                          <span className="min-w-0 flex-1 text-sm font-semibold text-zinc-900">Make this the global header</span>
-                          <ToggleSwitch
-                            checked={Boolean((selectedBlock.props as any)?.isGlobal)}
-                            disabled={busy}
-                            onChange={(checked) => {
-                              const next = {
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, isGlobal: checked },
-                              } as any;
-                              upsertBlock(next);
-
-                              if (!selectedPage) return;
-                              setBusy(true);
-                              setError(null);
-                              void (async () => {
-                                try {
-                                  const res = await fetch(
-                                    `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/global-header`,
-                                    {
-                                      method: "POST",
-                                      headers: { "content-type": "application/json" },
-                                      body: JSON.stringify(
-                                        checked
-                                          ? { mode: "apply", headerBlock: next }
-                                          : { mode: "unset", keepOnPageId: selectedPage.id, localHeaderBlock: next },
-                                      ),
-                                    },
-                                  );
-                                  const json = (await res.json().catch(() => null)) as any;
-                                  if (!res.ok || !json || json.ok !== true) {
-                                    throw new Error(json?.error || "Failed to update global header");
-                                  }
-                                  await load();
-                                  toast.success(checked ? "Global header enabled" : "Global header disabled");
-                                } catch (err) {
-                                  const msg = (err as any)?.message ? String((err as any).message) : "Failed to update global header";
-                                  setError(msg);
-                                  toast.error(msg);
-                                } finally {
-                                  setBusy(false);
-                                }
-                              })();
-                            }}
-                          />
-                        </label>
-
-                        {Boolean((selectedBlock.props as any)?.isGlobal) ? (
-                          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
-                            Changes to a global header apply when you click <span className="font-semibold">Save</span>.
-                          </div>
-                        ) : null}
-
-                          <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                            <span className="min-w-0 flex-1 font-semibold text-zinc-900">Transparent</span>
-                            <ToggleSwitch
-                              checked={Boolean((selectedBlock.props as any)?.transparent)}
-                              disabled={busy}
-                              onChange={(checked) =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...selectedBlock.props, transparent: checked },
-                                } as any)
-                              }
-                            />
-                          </label>
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Mobile menu</div>
-                          <PortalListboxDropdown
-                            value={String((selectedBlock.props as any)?.mobileMode || "dropdown")}
-                            onChange={(v) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, mobileMode: String(v || "dropdown") },
-                              } as any)
-                            }
-                            options={[
-                              { value: "dropdown", label: "Dropdown" },
-                              { value: "slideover", label: "Slide-over" },
-                            ]}
-                            className="w-full"
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                          />
-                        </label>
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Desktop menu</div>
-                          <PortalListboxDropdown
-                            value={String((selectedBlock.props as any)?.desktopMode || "inline")}
-                            onChange={(v) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, desktopMode: String(v || "inline") },
-                              } as any)
-                            }
-                            options={[
-                              { value: "inline", label: "Inline links" },
-                              { value: "dropdown", label: "Dropdown" },
-                              { value: "slideover", label: "Slide-over" },
-                            ]}
-                            className="w-full"
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                          />
-                        </label>
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Header size</div>
-                          {(() => {
-                            const rawScale = (selectedBlock.props as any)?.sizeScale;
-                            const parsedScale = typeof rawScale === "number" && Number.isFinite(rawScale) ? rawScale : undefined;
-                            const legacySize = String((selectedBlock.props as any)?.size || "md");
-                            const legacyScale = legacySize === "lg" ? 1.15 : legacySize === "sm" ? 0.9 : 1;
-                            const scale = Math.max(0.75, Math.min(1.5, parsedScale ?? legacyScale));
-                            const pct = Math.round(scale * 100);
-
-                            return (
-                              <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                                <div className="flex items-center justify-between gap-3">
-                                  <div className="text-sm font-semibold text-zinc-900">{pct}%</div>
-                                  <button
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={() =>
-                                      upsertBlock({
-                                        ...selectedBlock,
-                                        props: { ...selectedBlock.props, sizeScale: 1, size: undefined },
-                                      } as any)
-                                    }
-                                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                                  >
-                                    Reset
-                                  </button>
-                                </div>
-                                <input
-                                  type="range"
-                                  min={75}
-                                  max={150}
-                                  step={1}
-                                  value={pct}
-                                  disabled={busy}
-                                  onChange={(e) => {
-                                    const nextPct = Math.max(75, Math.min(150, Number(e.target.value) || 100));
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: { ...selectedBlock.props, sizeScale: nextPct / 100, size: undefined },
-                                    } as any);
-                                  }}
-                                  className="mt-2 w-full"
-                                />
-                                <div className="mt-1 text-[11px] text-zinc-500">Adjusts padding/logo/button sizing.</div>
-                              </div>
-                            );
-                          })()}
-                        </label>
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Menu trigger</div>
-                          <PortalListboxDropdown
-                            value={String((selectedBlock.props as any)?.mobileTrigger || "hamburger")}
-                            onChange={(v) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, mobileTrigger: String(v || "hamburger") },
-                              } as any)
-                            }
-                            options={[
-                              { value: "hamburger", label: "Hamburger" },
-                              { value: "directory", label: "Directory button" },
-                            ]}
-                            className="w-full"
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                          />
-                        </label>
-
-                        {String((selectedBlock.props as any)?.mobileTrigger || "hamburger") === "directory" ? (
-                          <label className="block">
-                            <div className="mb-1 text-xs font-medium text-zinc-500">Directory label</div>
-                            <input
-                              value={String((selectedBlock.props as any)?.mobileTriggerLabel || "")}
-                              onChange={(e) =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...selectedBlock.props, mobileTriggerLabel: e.target.value.slice(0, 40) },
-                                } as any)
-                              }
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="Directory"
-                            />
-                          </label>
-                        ) : null}
-
-                        <div className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Logo image</div>
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                setMediaPickerTarget({ type: "header-logo", blockId: selectedBlock.id });
-                                setMediaPickerOpen(true);
-                              }}
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                            >
-                              Choose from media
-                            </button>
-
-                            <label
-                              className={classNames(
-                                "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
-                                uploadingHeaderLogoBlockId === selectedBlock.id ? "opacity-60" : "",
-                              )}
-                            >
-                              {uploadingHeaderLogoBlockId === selectedBlock.id ? "Uploading…" : "Upload image"}
-                              <input
-                                type="file"
-                                accept="image/*"
-                                className="hidden"
-                                disabled={busy || uploadingHeaderLogoBlockId === selectedBlock.id}
-                                onChange={(e) => {
-                                  const files = Array.from(e.target.files || []);
-                                  e.currentTarget.value = "";
-                                  if (files.length === 0) return;
-                                  if (!selectedBlock || selectedBlock.type !== "headerNav") return;
-                                  setUploadingHeaderLogoBlockId(selectedBlock.id);
-                                  setError(null);
-                                  void (async () => {
-                                    try {
-                                      const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
-                                      const it = created[0];
-                                      if (!it) return;
-                                      const nextUrl = String(
-                                        (it as any).shareUrl || (it as any).previewUrl || (it as any).openUrl || (it as any).downloadUrl || "",
-                                      ).trim();
-                                      if (!nextUrl) return;
-                                      const prevAlt = String((selectedBlock.props as any)?.logoAlt || "").trim();
-                                      upsertBlock({
-                                        ...selectedBlock,
-                                        props: {
-                                          ...(selectedBlock.props as any),
-                                          logoUrl: nextUrl,
-                                          ...(prevAlt ? null : { logoAlt: it.fileName }),
-                                        },
-                                      } as any);
-                                      toast.success("Logo uploaded and selected");
-                                    } catch (err) {
-                                      const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                                      toast.error(msg);
-                                    } finally {
-                                      setUploadingHeaderLogoBlockId(null);
-                                    }
-                                  })();
-                                }}
-                              />
-                            </label>
-
-                            <button
-                              type="button"
-                              disabled={busy || !String((selectedBlock.props as any)?.logoUrl || "").trim()}
-                              onClick={() =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...selectedBlock.props, logoUrl: "" },
-                                } as any)
-                              }
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                            >
-                              Clear
-                            </button>
-                          </div>
-
-                          {String((selectedBlock.props as any)?.logoUrl || "").trim() ? (
-                            <div className="mt-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                              <div className="text-xs font-medium text-zinc-500">Selected logo</div>
-                              <div className="mt-1 break-all font-mono text-xs text-zinc-700">
-                                {String((selectedBlock.props as any)?.logoUrl || "").trim()}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="mt-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No logo selected.</div>
-                          )}
-                        </div>
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-medium text-zinc-500">Logo link</div>
-                          <input
-                            value={String((selectedBlock.props as any)?.logoHref || "")}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, logoHref: e.target.value },
-                              } as any)
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="Leave blank to link to funnel home"
-                          />
-                        </label>
-
-                        <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <div className="text-xs font-medium text-zinc-500">Menu items</div>
-                              <div className="mt-1 text-xs text-zinc-500">Select one item, then edit its target below.</div>
-                            </div>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                const items = Array.isArray((selectedBlock.props as any)?.items)
-                                  ? (((selectedBlock.props as any).items as any[]) || [])
-                                  : [];
-                                const nextItem = { id: newId(), label: "Link", kind: "url", url: "" };
-                                const next = [...items, nextItem];
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...selectedBlock.props, items: next },
-                                } as any);
-                                setSelectedHeaderNavItemId(nextItem.id);
-                              }}
-                              className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                            >
-                              + Add item
-                            </button>
-                          </div>
-                          <div className="mt-3 space-y-3">
-                            {(() => {
-                              const items = Array.isArray((selectedBlock.props as any)?.items)
-                                ? (((selectedBlock.props as any).items as any[]) || [])
-                                : [];
-
-                              const collectAnchors = (): Array<{ value: string; label: string }> => {
-                                const out: Array<{ value: string; label: string }> = [];
-                                const walk = (arr: CreditFunnelBlock[]) => {
-                                  for (const b of arr) {
-                                    if (!b) continue;
-                                    if (b.type === "section") {
-                                      const props: any = b.props;
-                                      const rawId = String(props?.anchorId || "").trim();
-                                      const id = rawId || `section-${b.id}`;
-                                      const label = String(props?.anchorLabel || "").trim();
-                                      if (id) out.push({ value: id, label: label ? `${label} (#${id})` : `Section (#${id})` });
-                                      ["children", "leftChildren", "rightChildren"].forEach((k) => {
-                                        const nested = Array.isArray(props?.[k]) ? (props[k] as CreditFunnelBlock[]) : [];
-                                        walk(nested);
-                                      });
-                                    }
-                                    if (b.type === "columns") {
-                                      const props: any = b.props;
-                                      const cols = Array.isArray(props?.columns) ? (props.columns as any[]) : [];
-                                      cols.forEach((c) => {
-                                        const nested = Array.isArray(c?.children) ? (c.children as CreditFunnelBlock[]) : [];
-                                        walk(nested);
-                                      });
-                                    }
-                                  }
-                                };
-                                walk(editableBlocks);
-                                const unique = new Map<string, string>();
-                                for (const a of out) {
-                                  if (!unique.has(a.value)) unique.set(a.value, a.label);
-                                }
-                                return Array.from(unique.entries()).map(([value, label]) => ({ value, label }));
-                              };
-
-                              const anchorOptions = collectAnchors();
-
-                              const updateItems = (nextItems: any[]) =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...selectedBlock.props, items: nextItems },
-                                } as any);
-
-                              const describeMenuItemTarget = (item: any) => {
-                                const kind = item?.kind === "page" || item?.kind === "anchor" ? String(item.kind) : "url";
-                                if (kind === "page") {
-                                  const pageSlug = String(item?.pageSlug || "").trim();
-                                  if (!pageSlug) return "Opens the first funnel page";
-                                  const pageTitle = (pages || []).find((page) => page.slug === pageSlug)?.title || pageSlug;
-                                  return `Opens ${pageTitle}`;
-                                }
-                                if (kind === "anchor") {
-                                  const anchorId = String(item?.anchorId || "").trim();
-                                  return anchorId ? `Scrolls to #${anchorId}` : "Scroll target not set";
-                                }
-                                const url = String(item?.url || "").trim();
-                                return url || "External URL not set";
-                              };
-
-                              const selectedMenuItem = items.find((item: any) => String(item?.id || "") === selectedHeaderNavItemId) || null;
-
-                              return (
-                                <>
-                                  {items.length ? (
-                                    <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
-                                      {items.map((it: any, index: number) => {
-                                        const itemId = String(it?.id || "");
-                                        const label = String(it?.label || "").trim() || `Item ${index + 1}`;
-                                        const kind = it?.kind === "page" || it?.kind === "anchor" ? String(it.kind) : "url";
-                                        const isSelected = itemId === selectedHeaderNavItemId;
-
-                                        return (
-                                          <button
-                                            key={itemId}
-                                            type="button"
-                                            onClick={() => setSelectedHeaderNavItemId(itemId)}
-                                            className={classNames(
-                                              "flex w-full items-start gap-3 rounded-xl border px-3 py-2.5 text-left",
-                                              isSelected
-                                                ? "border-zinc-900 bg-zinc-900 text-white"
-                                                : "border-zinc-200 bg-zinc-50 text-zinc-900 hover:bg-white",
-                                            )}
-                                          >
-                                            <div className="min-w-0 flex-1">
-                                              <div className={classNames(
-                                                "text-[11px] font-medium",
-                                                isSelected ? "text-white/70" : "text-zinc-500",
-                                              )}>
-                                                {kind === "page" ? "Funnel page" : kind === "anchor" ? "Section link" : "External URL"}
-                                              </div>
-                                              <div className="mt-1 truncate text-sm font-semibold">{label}</div>
-                                              <div className={classNames(
-                                                "mt-1 truncate text-xs",
-                                                isSelected ? "text-white/75" : "text-zinc-500",
-                                              )}>
-                                                {describeMenuItemTarget(it)}
-                                              </div>
-                                            </div>
-                                            <div className={classNames(
-                                              "mt-1 text-[11px] font-medium",
-                                              isSelected ? "text-white/70" : "text-zinc-400",
-                                            )}>
-                                              {isSelected ? "Editing" : "Select"}
-                                            </div>
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  ) : (
-                                    <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
-                                      Add a menu item to start structuring this header.
-                                    </div>
-                                  )}
-
-                                  {selectedMenuItem ? (
-                                    <div className="border-t border-zinc-200 pt-3">
-                                      <div className="text-xs font-medium text-zinc-500">Selected item</div>
-                                      <div className="mt-3 space-y-2">
-                                        <input
-                                          value={String(selectedMenuItem?.label || "")}
-                                          onChange={(e) => {
-                                            const next = items.map((x: any) =>
-                                              String(x?.id || "") === String(selectedMenuItem?.id || "") ? { ...x, label: e.target.value } : x,
-                                            );
-                                            updateItems(next);
-                                          }}
-                                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                          placeholder="Label"
-                                        />
-
-                                        <PortalListboxDropdown
-                                          value={selectedMenuItem?.kind === "page" || selectedMenuItem?.kind === "anchor" ? String(selectedMenuItem.kind) : "url"}
-                                          onChange={(v) => {
-                                            const nextKind = String(v || "url");
-                                            const next = items.map((x: any) => {
-                                              if (String(x?.id || "") !== String(selectedMenuItem?.id || "")) return x;
-                                              const base = { ...x, kind: nextKind };
-                                              if (nextKind === "url") return { ...base, url: String(base.url || "").trim(), pageSlug: undefined, anchorId: undefined };
-                                              if (nextKind === "page") return { ...base, pageSlug: String(base.pageSlug || ""), url: undefined, anchorId: undefined };
-                                              return { ...base, anchorId: String(base.anchorId || ""), url: undefined, pageSlug: undefined };
-                                            });
-                                            updateItems(next);
-                                          }}
-                                          options={[
-                                            { value: "url", label: "External URL" },
-                                            { value: "page", label: "Funnel page" },
-                                            { value: "anchor", label: "Section (scroll)" },
-                                          ]}
-                                          className="w-full"
-                                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                                        />
-
-                                        {(selectedMenuItem?.kind === "page" || selectedMenuItem?.kind === "anchor") ? null : (
-                                          <>
-                                            <input
-                                              value={String(selectedMenuItem?.url || "")}
-                                              onChange={(e) => {
-                                                const next = items.map((x: any) =>
-                                                  String(x?.id || "") === String(selectedMenuItem?.id || "") ? { ...x, url: e.target.value } : x,
-                                                );
-                                                updateItems(next);
-                                              }}
-                                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                              placeholder="https://…"
-                                            />
-                                            <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                                              <span className="text-sm font-semibold text-zinc-900">Open in new tab</span>
-                                              <ToggleSwitch
-                                                checked={Boolean(selectedMenuItem?.newTab)}
-                                                disabled={busy}
-                                                onChange={(checked) => {
-                                                  const next = items.map((x: any) =>
-                                                    String(x?.id || "") === String(selectedMenuItem?.id || "") ? { ...x, newTab: checked } : x,
-                                                  );
-                                                  updateItems(next);
-                                                }}
-                                              />
-                                            </label>
-                                          </>
-                                        )}
-
-                                        {selectedMenuItem?.kind === "page" ? (
-                                          <PortalListboxDropdown
-                                            value={String(selectedMenuItem?.pageSlug || "")}
-                                            onChange={(v) => {
-                                              const next = items.map((x: any) =>
-                                                String(x?.id || "") === String(selectedMenuItem?.id || "") ? { ...x, pageSlug: String(v || "") } : x,
-                                              );
-                                              updateItems(next);
-                                            }}
-                                            options={[
-                                              { value: "", label: "(Home / first page)" },
-                                              ...(pages || []).map((p) => ({ value: p.slug, label: p.title })),
-                                            ]}
-                                            className="w-full"
-                                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                                          />
-                                        ) : null}
-
-                                        {selectedMenuItem?.kind === "anchor" ? (
-                                          <>
-                                            <PortalListboxDropdown
-                                              value={String(selectedMenuItem?.anchorId || "")}
-                                              onChange={(v) => {
-                                                const next = items.map((x: any) =>
-                                                  String(x?.id || "") === String(selectedMenuItem?.id || "") ? { ...x, anchorId: String(v || "") } : x,
-                                                );
-                                                updateItems(next);
-                                              }}
-                                              options={[
-                                                { value: "", label: "Select an anchor…" },
-                                                ...anchorOptions,
-                                              ]}
-                                              className="w-full"
-                                              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                                            />
-                                            <input
-                                              value={String(selectedMenuItem?.anchorId || "")}
-                                              onChange={(e) => {
-                                                const next = items.map((x: any) =>
-                                                  String(x?.id || "") === String(selectedMenuItem?.id || "") ? { ...x, anchorId: e.target.value } : x,
-                                                );
-                                                updateItems(next);
-                                              }}
-                                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                              placeholder="anchor-id"
-                                            />
-                                          </>
-                                        ) : null}
-
-                                        <div className="flex items-center justify-between gap-2 pt-1">
-                                          <div className="text-xs text-zinc-500">{describeMenuItemTarget(selectedMenuItem)}</div>
-                                          <button
-                                            type="button"
-                                            disabled={busy}
-                                            onClick={() => {
-                                              const next = items.filter((x: any) => String(x?.id || "") !== String(selectedMenuItem?.id || ""));
-                                              updateItems(next);
-                                              setSelectedHeaderNavItemId(next.length ? String(next[0]?.id || "") : null);
-                                            }}
-                                            className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                                          >
-                                            Remove item
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ) : null}
-                                </>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {selectedBlock.type === "formLink" ? (
-                      <div className="space-y-2">
-                        <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Form</div>
-                          <PortalListboxDropdown
-                            value={selectedBlock.props.formSlug || ""}
-                            onChange={(formSlug) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, formSlug: formSlug || "" },
-                              })
-                            }
-                            options={[
-                              { value: "", label: "Select a form…", disabled: true },
-                              ...(forms || []).map((f) => ({ value: f.slug, label: `${f.name} (${f.slug})` })),
-                            ]}
-                            className="w-full"
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                          />
-                          <div className="mt-1 text-[11px] text-zinc-500">Links to the hosted credit form.</div>
-                        </label>
-
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={openCreateForm}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                          >
-                            + New form
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy || !selectedBlock.props.formSlug || !formsBySlug.get(selectedBlock.props.formSlug)}
-                            onClick={() => {
-                              const f = formsBySlug.get(selectedBlock.props.formSlug);
-                              if (!f) return;
-                              window.open(
-                                `${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`,
-                                "_blank",
-                                "noopener,noreferrer",
-                              );
-                            }}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                          >
-                            Edit form
-                          </button>
-                        </div>
-
-                        <input
-                          value={selectedBlock.props.text ?? ""}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, text: e.target.value },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="CTA text"
-                        />
-                      </div>
-                    ) : null}
-
-                    {selectedBlock.type === "image" ? (
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => {
-                              setMediaPickerTarget({ type: "image-block", blockId: selectedBlock.id });
-                              setMediaPickerOpen(true);
-                            }}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                          >
-                            Choose from media
-                          </button>
-                          <label className={classNames(
-                            "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
-                            uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
-                          )}>
-                            {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload image"}
-                            <input
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              disabled={busy || uploadingImageBlockId === selectedBlock.id}
-                              onChange={(e) => {
-                                const files = Array.from(e.target.files || []);
-                                e.currentTarget.value = "";
-                                if (files.length === 0) return;
-                                if (!selectedBlock || selectedBlock.type !== "image") return;
-                                setUploadingImageBlockId(selectedBlock.id);
-                                setError(null);
-                                void (async () => {
-                                  try {
-                                    const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
-                                    const it = created[0];
-                                    if (!it) return;
-                                    const nextSrc = String((it as any).shareUrl || (it as any).previewUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
-                                    if (!nextSrc) return;
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: {
-                                        ...selectedBlock.props,
-                                        src: nextSrc,
-                                        alt: (selectedBlock.props.alt || "").trim() ? selectedBlock.props.alt : it.fileName,
-                                      },
-                                    });
-                                    toast.success("Image uploaded and selected");
-                                  } catch (err) {
-                                    const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                                    toast.error(msg);
-                                  } finally {
-                                    setUploadingImageBlockId(null);
-                                  }
-                                })();
-                              }}
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            disabled={busy || !selectedBlock.props.src}
-                            onClick={() =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, src: "" },
-                              })
-                            }
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                          >
-                            Clear
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={busy || !selectedBlock.props.src}
-                            onClick={() => setImageCropTarget({ blockId: selectedBlock.id, src: selectedBlock.props.src })}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                          >
-                            Edit image
-                          </button>
-                        </div>
-
-                        {selectedBlock.props.src ? (
-                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">Image selected.</div>
-                        ) : (
-                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No image selected.</div>
-                        )}
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Image name</div>
-                          <input
-                            value={selectedBlock.props.alt ?? ""}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, alt: e.target.value },
-                              })
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="e.g. hero-image.png"
-                          />
-                          <div className="mt-1 text-xs text-zinc-500">Saved as the image alt text.</div>
-                        </label>
-
-                        <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                          <span className="font-semibold text-zinc-900">Show frame</span>
-                          <ToggleSwitch
-                            checked={(selectedBlock.props as any)?.showFrame !== false}
-                            disabled={busy}
-                            onChange={(checked) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...(selectedBlock.props as any), showFrame: checked },
-                              } as any)
-                            }
-                          />
-                        </label>
-                      </div>
-                    ) : null}
-
-                    {selectedBlock.type === "video" ? (
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => {
-                              setMediaPickerTarget({ type: "video-block", blockId: selectedBlock.id });
-                              setMediaPickerOpen(true);
-                            }}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                          >
-                            Choose from media
-                          </button>
-                          <label
-                            className={classNames(
-                              "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
-                              uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
-                            )}
-                          >
-                            {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload video"}
-                            <input
-                              type="file"
-                              accept="video/*"
-                              className="hidden"
-                              disabled={busy || uploadingImageBlockId === selectedBlock.id}
-                              onChange={(e) => {
-                                const files = Array.from(e.target.files || []);
-                                e.currentTarget.value = "";
-                                if (files.length === 0) return;
-                                if (!selectedBlock || selectedBlock.type !== "video") return;
-                                const file = files[0];
-                                if (!file) return;
-                                setUploadingImageBlockId(selectedBlock.id);
-                                setError(null);
-                                void (async () => {
-                                  try {
-                                    const uploaded = await uploadToUploads(file);
-                                    const nextSrc = String(uploaded.mediaItem?.shareUrl || uploaded.url || "").trim();
-                                    if (!nextSrc) return;
-                                    const prevName = String((selectedBlock.props as any)?.name || "").trim();
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: {
-                                        ...(selectedBlock.props as any),
-                                        src: nextSrc,
-                                        ...(prevName ? null : { name: uploaded.mediaItem?.fileName || file.name }),
-                                      },
-                                    } as any);
-                                    toast.success("Video uploaded and selected");
-                                  } catch (err) {
-                                    const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                                    toast.error(msg);
-                                  } finally {
-                                    setUploadingImageBlockId(null);
-                                  }
-                                })();
-                              }}
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            disabled={busy || !String((selectedBlock.props as any).src || "").trim()}
-                            onClick={() =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...(selectedBlock.props as any), src: "" },
-                              } as any)
-                            }
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                          >
-                            Clear
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => setVideoSettingsBlockId((prev) => (prev === selectedBlock.id ? null : selectedBlock.id))}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                          >
-                            {videoSettingsBlockId === selectedBlock.id ? "Hide settings" : "Edit video"}
-                          </button>
-                        </div>
-
-                        {String((selectedBlock.props as any).src || "").trim() ? (
-                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">Video selected.</div>
-                        ) : (
-                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No video selected.</div>
-                        )}
-
-                        <label className="block">
-                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Video name</div>
-                          <input
-                            value={String((selectedBlock.props as any)?.name || "")}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...(selectedBlock.props as any), name: e.target.value.slice(0, 200) },
-                              } as any)
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="e.g. intro-video.mp4"
-                          />
-                        </label>
-
-                        {videoSettingsBlockId === selectedBlock.id ? (
-                          <div className="space-y-2 rounded-xl border border-zinc-200 bg-white p-3">
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Video settings</div>
-
-                            <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                              <span className="font-semibold text-zinc-900">Show controls</span>
-                              <ToggleSwitch
-                                checked={(selectedBlock.props as any)?.controls !== false}
-                                disabled={busy}
-                                onChange={(checked) =>
-                                  upsertBlock({
-                                    ...selectedBlock,
-                                    props: { ...(selectedBlock.props as any), controls: checked },
-                                  } as any)
-                                }
-                              />
-                            </label>
-
-                            <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                              <span className="font-semibold text-zinc-900">Autoplay</span>
-                              <ToggleSwitch
-                                checked={Boolean((selectedBlock.props as any)?.autoplay)}
-                                disabled={busy}
-                                onChange={(checked) =>
-                                  upsertBlock({
-                                    ...selectedBlock,
-                                    props: {
-                                      ...(selectedBlock.props as any),
-                                      autoplay: checked,
-                                      muted: checked ? true : (selectedBlock.props as any)?.muted,
-                                    },
-                                  } as any)
-                                }
-                              />
-                            </label>
-
-                            <div className="grid grid-cols-2 gap-2">
-                              <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                                <span className="font-semibold text-zinc-900">Loop</span>
-                                <ToggleSwitch
-                                  checked={Boolean((selectedBlock.props as any)?.loop)}
-                                  disabled={busy}
-                                  onChange={(checked) =>
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: { ...(selectedBlock.props as any), loop: checked },
-                                    } as any)
-                                  }
-                                />
-                              </label>
-
-                              <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                                <span className="font-semibold text-zinc-900">Muted</span>
-                                <ToggleSwitch
-                                  checked={Boolean((selectedBlock.props as any)?.muted)}
-                                  disabled={busy}
-                                  onChange={(checked) =>
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: { ...(selectedBlock.props as any), muted: checked },
-                                    } as any)
-                                  }
-                                />
-                              </label>
-                            </div>
-
-                            <label className="block">
-                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Fit</div>
-                              <PortalListboxDropdown
-                                value={String((selectedBlock.props as any)?.fit || "contain")}
-                                onChange={(fit) =>
-                                  upsertBlock({
-                                    ...selectedBlock,
-                                    props: { ...(selectedBlock.props as any), fit: String(fit || "contain") },
-                                  } as any)
-                                }
-                                options={[
-                                  { value: "contain", label: "Contain (no crop)" },
-                                  { value: "cover", label: "Cover (crop to fill)" },
-                                ]}
-                                className="w-full"
-                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                              />
-                            </label>
-
-                            <label className="block">
-                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Aspect ratio</div>
-                              <PortalListboxDropdown
-                                value={String((selectedBlock.props as any)?.aspectRatio || "auto")}
-                                onChange={(aspectRatio) =>
-                                  upsertBlock({
-                                    ...selectedBlock,
-                                    props: { ...(selectedBlock.props as any), aspectRatio: String(aspectRatio || "auto") },
-                                  } as any)
-                                }
-                                options={[
-                                  { value: "auto", label: "Auto" },
-                                  { value: "16:9", label: "16:9" },
-                                  { value: "9:16", label: "9:16" },
-                                  { value: "4:3", label: "4:3" },
-                                  { value: "1:1", label: "1:1" },
-                                ]}
-                                className="w-full"
-                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                              />
-                            </label>
-
-                            <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                              <span className="font-semibold text-zinc-900">Show frame</span>
-                              <ToggleSwitch
-                                checked={(selectedBlock.props as any)?.showFrame !== false}
-                                disabled={busy}
-                                onChange={(checked) =>
-                                  upsertBlock({
-                                    ...selectedBlock,
-                                    props: { ...(selectedBlock.props as any), showFrame: checked },
-                                  } as any)
-                                }
-                              />
-                            </label>
-
-                            <div className="space-y-2">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Poster image</div>
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => {
-                                    setMediaPickerTarget({ type: "video-poster", blockId: selectedBlock.id });
-                                    setMediaPickerOpen(true);
-                                  }}
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                                >
-                                  Choose from media
-                                </button>
-
-                                <label
-                                  className={classNames(
-                                    "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
-                                    uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
-                                  )}
-                                >
-                                  {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload poster"}
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    disabled={busy || uploadingImageBlockId === selectedBlock.id}
-                                    onChange={(e) => {
-                                      const files = Array.from(e.target.files || []);
-                                      e.currentTarget.value = "";
-                                      if (files.length === 0) return;
-                                      if (!selectedBlock || selectedBlock.type !== "video") return;
-                                      const file = files[0];
-                                      if (!file) return;
-                                      setUploadingImageBlockId(selectedBlock.id);
-                                      setError(null);
-                                      void (async () => {
-                                        try {
-                                          const created = await uploadToMediaLibrary([file], { maxFiles: 1 });
-                                          const it = created[0];
-                                          const nextPoster = String(it?.shareUrl || it?.previewUrl || "").trim();
-                                          if (!nextPoster) return;
-                                          upsertBlock({
-                                            ...selectedBlock,
-                                            props: { ...(selectedBlock.props as any), posterUrl: nextPoster },
-                                          } as any);
-                                          toast.success("Poster uploaded and selected");
-                                        } catch (err) {
-                                          const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                                          toast.error(msg);
-                                        } finally {
-                                          setUploadingImageBlockId(null);
-                                        }
-                                      })();
-                                    }}
-                                  />
-                                </label>
-
-                                <button
-                                  type="button"
-                                  disabled={busy || !String((selectedBlock.props as any)?.posterUrl || "").trim()}
-                                  onClick={() =>
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: { ...(selectedBlock.props as any), posterUrl: "" },
-                                    } as any)
-                                  }
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                                >
-                                  Clear
-                                </button>
-                              </div>
-
-                              {String((selectedBlock.props as any)?.posterUrl || "").trim() ? (
-                                <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected poster</div>
-                                  <div className="mt-1 break-all font-mono text-xs text-zinc-700">{String((selectedBlock.props as any)?.posterUrl || "").trim()}</div>
-                                </div>
-                              ) : (
-                                <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No poster selected.</div>
-                              )}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-
-                    {selectedBlock.type === "spacer" ? (
-                      <input
-                        type="number"
-                        value={String(selectedBlock.props.height ?? 24)}
-                        onChange={(e) =>
-                          upsertBlock({
-                            ...selectedBlock,
-                            props: { ...selectedBlock.props, height: Number(e.target.value) },
-                          })
-                        }
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      />
-                    ) : null}
-
-                    {selectedBlock.type === "formEmbed" ? (
-                      <div className="space-y-2">
-                        <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Form</div>
-                          <PortalListboxDropdown
-                            value={selectedBlock.props.formSlug || ""}
-                            onChange={(formSlug) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, formSlug: formSlug || "" },
-                              })
-                            }
-                            options={[
-                              { value: "", label: "Select a form…", disabled: true },
-                              ...(forms || []).map((f) => ({ value: f.slug, label: `${f.name} (${f.slug})` })),
-                            ]}
-                            className="w-full"
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                          />
-                        </label>
-
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={openCreateForm}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                          >
-                            + New form
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy || !selectedBlock.props.formSlug || !formsBySlug.get(selectedBlock.props.formSlug)}
-                            onClick={() => {
-                              const f = formsBySlug.get(selectedBlock.props.formSlug);
-                              if (!f) return;
-                              window.open(
-                                `${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`,
-                                "_blank",
-                                "noopener,noreferrer",
-                              );
-                            }}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                          >
-                            Edit form
-                          </button>
-                        </div>
-
-                        <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Embed height (px)</div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <input
-                              type="number"
-                              value={selectedBlock.props.height ?? ""}
-                              onChange={(e) => {
-                                const raw = e.target.value;
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: {
-                                    ...selectedBlock.props,
-                                    height: raw === "" ? undefined : Number(raw) || 0,
-                                  },
-                                });
-                              }}
-                              className="min-w-45 flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="Default: 760"
-                            />
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...selectedBlock.props, height: undefined },
-                                })
-                              }
-                              className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            >
-                              Default (760)
-                            </button>
-                          </div>
-                          <div className="mt-1 text-xs text-zinc-500">Controls the iframe height when this form is embedded on the hosted page.</div>
-                        </label>
-                      </div>
-                    ) : null}
-
-                    {selectedBlock.type === "calendarEmbed" ? (
-                      <div className="space-y-2">
-                        <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Calendar</div>
-                          <PortalListboxDropdown
-                            value={selectedBlock.props.calendarId || ""}
-                            onChange={(calendarId) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, calendarId: calendarId || "" },
-                              } as any)
-                            }
-                            options={[
-                              { value: "", label: "Select a calendar…", disabled: true },
-                              ...(bookingCalendars || []).map((c) => ({
-                                value: c.id,
-                                label: `${(c.title || "Untitled calendar").trim()} (${c.id})`,
-                              })),
-                            ]}
-                            className="w-full"
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                          />
-                          <div className="mt-1 text-xs text-zinc-500">Embeds your booking calendar as an iframe.</div>
-                        </label>
-
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => {
-                              window.open(`${basePath}/app/services/booking/settings`, "_blank", "noopener,noreferrer");
-                            }}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                          >
-                            Manage calendars
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy || !bookingSiteSlug || !selectedBlock.props.calendarId}
-                            onClick={() => {
-                              if (!bookingSiteSlug || !selectedBlock.props.calendarId) return;
-                              window.open(
-                                toPurelyHostedUrl(
-                                  `/book/${encodeURIComponent(bookingSiteSlug)}/c/${encodeURIComponent(selectedBlock.props.calendarId)}`,
-                                ),
-                                "_blank",
-                                "noopener,noreferrer",
-                              );
-                            }}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                          >
-                            Open calendar
-                          </button>
-                        </div>
-
-                        <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Embed height (px)</div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <input
-                              type="number"
-                              value={selectedBlock.props.height ?? ""}
-                              onChange={(e) => {
-                                const raw = e.target.value;
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: {
-                                    ...selectedBlock.props,
-                                    height: raw === "" ? undefined : Number(raw) || 0,
-                                  },
-                                } as any);
-                              }}
-                              className="min-w-45 flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="Default: 760"
-                            />
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...selectedBlock.props, height: undefined },
-                                } as any)
-                              }
-                              className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                            >
-                              Default (760)
-                            </button>
-                          </div>
-                        </label>
-                      </div>
-                    ) : null}
-
-                    {selectedBlock.type === "columns" ? (
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-2 gap-2">
-                          <label className="block">
-                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Columns</div>
-                            <input
-                              type="number"
-                              min={1}
-                              max={6}
-                              value={String((selectedBlock.props.columns || []).length || 2)}
-                              onChange={(e) => {
-                                const nextCount = Math.max(1, Math.min(6, Number(e.target.value) || 1));
-                                const prevCols = Array.isArray(selectedBlock.props.columns) ? selectedBlock.props.columns : [];
-                                const nextCols = [...prevCols];
-                                while (nextCols.length < nextCount) nextCols.push({ markdown: "", children: [] });
-                                while (nextCols.length > nextCount) nextCols.pop();
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...selectedBlock.props, columns: nextCols },
-                                } as any);
-                                setSelectedBlockId(selectedBlock.id);
-                              }}
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            />
-                          </label>
-                          <label className="block">
-                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Gap (px)</div>
-                            <input
-                              type="number"
-                              value={String(selectedBlock.props.gapPx ?? 24)}
-                              onChange={(e) =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...selectedBlock.props, gapPx: Number(e.target.value) || 0 },
-                                })
-                              }
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            />
-                          </label>
-                          <label className="col-span-2 flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                            <span className="font-semibold text-zinc-900">Stack on mobile</span>
-                            <ToggleSwitch
-                              checked={selectedBlock.props.stackOnMobile !== false}
-                              disabled={busy}
-                              onChange={(checked) =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...selectedBlock.props, stackOnMobile: checked },
-                                })
-                              }
-                            />
-                          </label>
-                        </div>
-
-                        {(selectedBlock.props.columns || []).map((col, colIdx) => {
-                          const children = Array.isArray(col.children) ? (col.children as CreditFunnelBlock[]) : [];
-                          return (
-                            <div key={colIdx} className="rounded-xl border border-zinc-200 bg-white p-3">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Column {colIdx + 1}</div>
-                                {(selectedBlock.props.columns || []).length > 1 ? (
-                                  <button
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={() => {
-                                      const cols = [...(selectedBlock.props.columns || [])];
-                                      cols.splice(colIdx, 1);
-                                      upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, columns: cols } } as any);
-                                      setSelectedBlockId(selectedBlock.id);
-                                    }}
-                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                  >
-                                    Remove column
-                                  </button>
-                                ) : null}
-                              </div>
-
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                {(
-                                  [
-                                    { t: "heading", label: "+ Heading" },
-                                    { t: "paragraph", label: "+ Text" },
-                                    { t: "button", label: "+ Button" },
-                                    { t: "image", label: "+ Image" },
-                                    { t: "video", label: "+ Video" },
-                                    { t: "spacer", label: "+ Spacer" },
-                                  ] as const
-                                ).map((b) => (
-                                  <button
-                                    key={b.t}
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={() => {
-                                      const id = newId();
-                                      const base: CreditFunnelBlock =
-                                        b.t === "heading"
-                                          ? { id, type: "heading", props: { text: `Heading`, level: 2 } }
-                                          : b.t === "paragraph"
-                                            ? { id, type: "paragraph", props: { text: `Text` } }
-                                            : b.t === "button"
-                                              ? {
-                                                  id,
-                                                  type: "button",
-                                                  props: { text: "Button", href: `${basePath}/forms/your-form-slug`, variant: "primary" },
-                                                }
-                                              : b.t === "image"
-                                                ? { id, type: "image", props: { src: "", alt: "" } }
-                                                : b.t === "video"
-                                                  ? { id, type: "video", props: { src: "", controls: true, aspectRatio: "16:9", fit: "contain", showFrame: false } as any }
-                                                : { id, type: "spacer", props: { height: 24 } };
-                                      const cols = [...(selectedBlock.props.columns || [])];
-                                      const nextCol = { ...(cols[colIdx] || { markdown: "" }) } as any;
-                                      const nextChildren = [...(Array.isArray(nextCol.children) ? nextCol.children : []), base];
-                                      nextCol.children = nextChildren;
-                                      cols[colIdx] = nextCol;
-                                      upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, columns: cols } } as any);
-                                      setSelectedBlockId(id);
-                                    }}
-                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                  >
-                                    {b.label}
-                                  </button>
-                                ))}
-                              </div>
-
-                              <div className="mt-3 space-y-2">
-                                {children.length === 0 ? (
-                                  <div className="text-sm text-zinc-600">No blocks yet.</div>
-                                ) : (
-                                  children.map((c) => (
-                                    <div
-                                      key={c.id}
-                                      className={classNames(
-                                        "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
-                                        selectedBlockId === c.id
-                                          ? "border-(--color-brand-blue) bg-blue-50"
-                                          : "border-zinc-200 bg-white",
-                                      )}
-                                    >
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedBlockId(c.id)}
-                                        className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-900"
-                                      >
-                                        {c.type}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={busy}
-                                        onClick={() => requestDeleteBlock(c.id)}
-                                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-
-                              <CollapsibleGroup title="Markdown (optional)" defaultOpen={false}>
-                                <textarea
-                                  value={col.markdown || ""}
-                                  onChange={(e) => {
-                                    const cols = [...(selectedBlock.props.columns || [])];
-                                    cols[colIdx] = { ...(cols[colIdx] || { markdown: "" }), markdown: e.target.value } as any;
-                                    upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, columns: cols } } as any);
-                                  }}
-                                  className="min-h-25 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  placeholder={`Column ${colIdx + 1} (markdown)`}
-                                />
-                                <div className="mt-1 text-[11px] text-zinc-500">Used only when the column has no blocks.</div>
-                              </CollapsibleGroup>
-
-                              <CollapsibleGroup title="Style" defaultOpen={false}>
-                                <div className="space-y-3">
-                                  <ColorPickerField
-                                    label="Text"
-                                    value={(col.style as any)?.textColor}
-                                    onChange={(v) => updateSelectedColumnsColumnStyle(colIdx, { textColor: v })}
-                                    swatches={colorSwatches}
-                                    allowAlpha
-                                  />
-                                  <ColorPickerField
-                                    label="Background"
-                                    value={(col.style as any)?.backgroundColor}
-                                    onChange={(v) => updateSelectedColumnsColumnStyle(colIdx, { backgroundColor: v })}
-                                    swatches={colorSwatches}
-                                    allowAlpha
-                                  />
-
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <label className="block">
-                                      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
-                                      <input
-                                        type="number"
-                                        value={(col.style as any)?.paddingPx ?? ""}
-                                        onChange={(e) =>
-                                          updateSelectedColumnsColumnStyle(colIdx, {
-                                            paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                          })
-                                        }
-                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                      />
-                                    </label>
-                                    <RadiusPicker
-                                      label="Radius"
-                                      value={(col.style as any)?.borderRadiusPx}
-                                      onChange={(v) => updateSelectedColumnsColumnStyle(colIdx, { borderRadiusPx: v })}
-                                      max={64}
-                                    />
-                                  </div>
-                                </div>
-                              </CollapsibleGroup>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-
-                    {selectedBlock.type === "section" ? (
-                      <div className="space-y-2">
-                        <PortalListboxDropdown
-                          value={selectedBlock.props.layout === "two" ? "two" : "one"}
-                          onChange={(layout) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: {
-                                ...selectedBlock.props,
-                                layout: layout === "two" ? "two" : "one",
-                              },
-                            })
-                          }
-                          options={[
-                            { value: "one", label: "One column" },
-                            { value: "two", label: "Two columns" },
-                          ]}
-                          className="w-full"
-                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                        />
-
-                        <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Section anchor</div>
-                          <div className="mt-2 space-y-2">
-                            <label className="block">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Anchor ID (optional)</div>
-                              <input
-                                value={String((selectedBlock.props as any)?.anchorId || "")}
-                                onChange={(e) => {
-                                  const cleaned = String(e.target.value || "")
-                                    .replace(/\s+/g, "-")
-                                    .replace(/[^a-zA-Z0-9_-]/g, "")
-                                    .slice(0, 64);
-                                  upsertBlock({
-                                    ...selectedBlock,
-                                    props: { ...selectedBlock.props, anchorId: cleaned },
-                                  } as any);
-                                }}
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                placeholder={`section-${selectedBlock.id}`}
-                              />
-                              <div className="mt-1 text-[11px] text-zinc-500">Menu links will use this like “#pricing”.</div>
-                            </label>
-
-                            <label className="block">
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Menu label (optional)</div>
-                              <input
-                                value={String((selectedBlock.props as any)?.anchorLabel || "")}
-                                onChange={(e) =>
-                                  upsertBlock({
-                                    ...selectedBlock,
-                                    props: { ...selectedBlock.props, anchorLabel: e.target.value.slice(0, 80) },
-                                  } as any)
-                                }
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                placeholder="Pricing"
-                              />
-                            </label>
-                          </div>
-                        </div>
-
-                        {selectedBlock.props.layout === "two" ? (
-                          <>
-                            <div className="grid grid-cols-2 gap-2">
-                              <label className="block">
-                                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Gap (px)</div>
-                                <input
-                                  type="number"
-                                  value={String(selectedBlock.props.gapPx ?? 24)}
-                                  onChange={(e) =>
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: { ...selectedBlock.props, gapPx: Number(e.target.value) || 0 },
-                                    })
-                                  }
-                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                />
-                              </label>
-                              <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                                <span className="min-w-0 flex-1 font-semibold text-zinc-900">Stack on mobile</span>
-                                <ToggleSwitch
-                                  checked={selectedBlock.props.stackOnMobile !== false}
-                                  disabled={busy}
-                                  onChange={(checked) =>
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: { ...selectedBlock.props, stackOnMobile: checked },
-                                    })
-                                  }
-                                />
-                              </label>
-                            </div>
-
-                            <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Left column blocks</div>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => {
-                                    const id = newId();
-                                    const base: CreditFunnelBlock = { id, type: "heading", props: { text: "Left heading", level: 2 } };
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: {
-                                        ...selectedBlock.props,
-                                        leftChildren: [
-                                          ...((selectedBlock.props as any).leftChildren || []),
-                                          base,
-                                        ],
-                                      },
-                                    } as any);
-                                    setSelectedBlockId(id);
-                                  }}
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  + Heading
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => {
-                                    const id = newId();
-                                    const base: CreditFunnelBlock = { id, type: "paragraph", props: { text: "Left text" } };
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: {
-                                        ...selectedBlock.props,
-                                        leftChildren: [
-                                          ...((selectedBlock.props as any).leftChildren || []),
-                                          base,
-                                        ],
-                                      },
-                                    } as any);
-                                    setSelectedBlockId(id);
-                                  }}
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  + Text
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => {
-                                    const id = newId();
-                                    const base: CreditFunnelBlock = {
-                                      id,
-                                      type: "button",
-                                      props: { text: "Button", href: `${basePath}/forms/your-form-slug`, variant: "primary" },
-                                    };
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: {
-                                        ...selectedBlock.props,
-                                        leftChildren: [
-                                          ...((selectedBlock.props as any).leftChildren || []),
-                                          base,
-                                        ],
-                                      },
-                                    } as any);
-                                    setSelectedBlockId(id);
-                                  }}
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  + Button
-                                </button>
-                              </div>
-
-                              <div className="mt-3 space-y-2">
-                                {(((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || []).length === 0 ? (
-                                  <div className="text-sm text-zinc-600">No blocks yet.</div>
-                                ) : (
-                                  (((selectedBlock.props as any).leftChildren as CreditFunnelBlock[]) || []).map((c) => (
-                                    <div
-                                      key={c.id}
-                                      className={classNames(
-                                        "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
-                                        selectedBlockId === c.id
-                                          ? "border-(--color-brand-blue) bg-blue-50"
-                                          : "border-zinc-200 bg-white",
-                                      )}
-                                    >
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedBlockId(c.id)}
-                                        className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-900"
-                                      >
-                                        {c.type}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={busy}
-                                        onClick={() => requestDeleteBlock(c.id)}
-                                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Right column blocks</div>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => {
-                                    const id = newId();
-                                    const base: CreditFunnelBlock = { id, type: "heading", props: { text: "Right heading", level: 2 } };
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: {
-                                        ...selectedBlock.props,
-                                        rightChildren: [
-                                          ...((selectedBlock.props as any).rightChildren || []),
-                                          base,
-                                        ],
-                                      },
-                                    } as any);
-                                    setSelectedBlockId(id);
-                                  }}
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  + Heading
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => {
-                                    const id = newId();
-                                    const base: CreditFunnelBlock = { id, type: "paragraph", props: { text: "Right text" } };
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: {
-                                        ...selectedBlock.props,
-                                        rightChildren: [
-                                          ...((selectedBlock.props as any).rightChildren || []),
-                                          base,
-                                        ],
-                                      },
-                                    } as any);
-                                    setSelectedBlockId(id);
-                                  }}
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  + Text
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => {
-                                    const id = newId();
-                                    const base: CreditFunnelBlock = {
-                                      id,
-                                      type: "button",
-                                      props: { text: "Button", href: `${basePath}/forms/your-form-slug`, variant: "primary" },
-                                    };
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: {
-                                        ...selectedBlock.props,
-                                        rightChildren: [
-                                          ...((selectedBlock.props as any).rightChildren || []),
-                                          base,
-                                        ],
-                                      },
-                                    } as any);
-                                    setSelectedBlockId(id);
-                                  }}
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  + Button
-                                </button>
-                              </div>
-
-                              <div className="mt-3 space-y-2">
-                                {(((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || []).length === 0 ? (
-                                  <div className="text-sm text-zinc-600">No blocks yet.</div>
-                                ) : (
-                                  (((selectedBlock.props as any).rightChildren as CreditFunnelBlock[]) || []).map((c) => (
-                                    <div
-                                      key={c.id}
-                                      className={classNames(
-                                        "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
-                                        selectedBlockId === c.id
-                                          ? "border-(--color-brand-blue) bg-blue-50"
-                                          : "border-zinc-200 bg-white",
-                                      )}
-                                    >
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedBlockId(c.id)}
-                                        className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-900"
-                                      >
-                                        {c.type}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={busy}
-                                        onClick={() => requestDeleteBlock(c.id)}
-                                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                            </div>
-
-                            <CollapsibleGroup title="Column styles" defaultOpen={false}>
-                              <div className="space-y-2">
-                                <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Left style</div>
-                                  <div className="mt-2 space-y-2">
-                                    <ColorPickerField
-                                      label="Text"
-                                      value={selectedBlock.props.leftStyle?.textColor}
-                                      onChange={(v) => updateSelectedSectionSideStyle("leftStyle", { textColor: v })}
-                                      swatches={colorSwatches}
-                                      allowAlpha
-                                    />
-                                    <ColorPickerField
-                                      label="Background"
-                                      value={selectedBlock.props.leftStyle?.backgroundColor}
-                                      onChange={(v) => updateSelectedSectionSideStyle("leftStyle", { backgroundColor: v })}
-                                      swatches={colorSwatches}
-                                      allowAlpha
-                                    />
-                                    <PaddingPicker
-                                      label="Padding"
-                                      value={selectedBlock.props.leftStyle?.paddingPx}
-                                      onChange={(v) => updateSelectedSectionSideStyle("leftStyle", { paddingPx: v })}
-                                    />
-                                  </div>
-                                </div>
-
-                                <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Right style</div>
-                                  <div className="mt-2 space-y-2">
-                                    <ColorPickerField
-                                      label="Text"
-                                      value={selectedBlock.props.rightStyle?.textColor}
-                                      onChange={(v) => updateSelectedSectionSideStyle("rightStyle", { textColor: v })}
-                                      swatches={colorSwatches}
-                                      allowAlpha
-                                    />
-                                    <ColorPickerField
-                                      label="Background"
-                                      value={selectedBlock.props.rightStyle?.backgroundColor}
-                                      onChange={(v) => updateSelectedSectionSideStyle("rightStyle", { backgroundColor: v })}
-                                      swatches={colorSwatches}
-                                      allowAlpha
-                                    />
-                                    <PaddingPicker
-                                      label="Padding"
-                                      value={selectedBlock.props.rightStyle?.paddingPx}
-                                      onChange={(v) => updateSelectedSectionSideStyle("rightStyle", { paddingPx: v })}
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                            </CollapsibleGroup>
-                          </>
-                        ) : (
-                          <>
-                            <div className="rounded-xl border border-zinc-200 bg-white p-3">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Section blocks</div>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => addBlock("heading")}
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  + Heading
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => addBlock("paragraph")}
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  + Text
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => addBlock("button")}
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  + Button
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => addBlock("formEmbed")}
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  + Form embed
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => addBlock("image")}
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  + Image
-                                </button>
-                              </div>
-
-                              <div className="mt-3 space-y-2">
-                                {(((selectedBlock.props as any).children as CreditFunnelBlock[]) || []).length === 0 ? (
-                                  <div className="text-sm text-zinc-600">No blocks yet.</div>
-                                ) : (
-                                  (((selectedBlock.props as any).children as CreditFunnelBlock[]) || []).map((c) => (
-                                    <div
-                                      key={c.id}
-                                      className={classNames(
-                                        "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
-                                        selectedBlockId === c.id
-                                          ? "border-(--color-brand-blue) bg-blue-50"
-                                          : "border-zinc-200 bg-white",
-                                      )}
-                                    >
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedBlockId(c.id)}
-                                        className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-zinc-900"
-                                      >
-                                        {c.type}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={busy}
-                                        onClick={() => requestDeleteBlock(c.id)}
-                                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
-                                  ))
-                                )}
-                              </div>
-                            </div>
-
-                            {(selectedBlock.props.markdown || "").trim() ? (
-                              <CollapsibleGroup title="Legacy markdown (optional)" defaultOpen={false}>
-                                <textarea
-                                  value={selectedBlock.props.markdown || ""}
-                                  onChange={(e) =>
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: { ...selectedBlock.props, markdown: e.target.value },
-                                    })
-                                  }
-                                  className="min-h-30 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  placeholder="Legacy markdown content"
-                                />
-                              </CollapsibleGroup>
-                            ) : null}
-                          </>
-                        )}
-                      </div>
-                    ) : null}
-
-                  </div>
-                )}
-                <div className="mt-4 text-xs text-zinc-500">Tip: drag blocks in the preview to reorder.</div>
+                  <div className="mt-3">{sidebarSettingsPanel}</div>
                 </div>
               ) : null}
             </div>
           ) : null}
+            </>
+          )}
         </aside>
 
         <main
           className={classNames(
-            "flex min-h-0 flex-col overflow-auto bg-zinc-100 p-3 sm:p-4 lg:overflow-hidden",
+            "relative flex min-h-0 flex-col bg-zinc-100 p-3 sm:p-4",
+            wholePageModeActive ? "overflow-hidden" : "overflow-auto",
             "lg:order-2",
           )}
         >
-          {aiResultBanner ? (() => {
-            const activeCheckpoint = selectedPageLatestAiCheckpoint?.at === aiResultBanner.at ? selectedPageLatestAiCheckpoint : null;
-            const checkpointChanges = activeCheckpoint?.changelog?.changes.slice(0, 3) || [];
-            const checkpointNotes = activeCheckpoint?.changelog?.conversionNotes.slice(0, 2) || [];
-            const checkpointWarnings = activeCheckpoint?.warnings.slice(0, 3) || [];
-
-            return (
-              <div
-                className={classNames(
-                  "mb-3 rounded-2xl border px-4 py-3 text-sm shadow-sm",
-                  aiResultBanner.tone === "warning"
-                    ? "border-amber-200 bg-amber-50 text-amber-900"
-                    : "border-emerald-200 bg-emerald-50 text-emerald-900",
-                )}
-              >
-                <div className="flex items-start gap-3">
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 20 20"
-                    className={classNames("mt-0.5 h-4 w-4 shrink-0", aiResultBanner.tone === "warning" ? "text-amber-500" : "text-emerald-500")}
-                    fill="currentColor"
-                  >
-                    <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clipRule="evenodd" />
-                  </svg>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium">{aiResultBanner.summary}</div>
-                    {activeCheckpoint ? (
-                      <>
-                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-[0.14em]">
-                          {activeCheckpoint.surface === "source" ? (
-                            <span className="rounded-full border border-current/15 bg-white/70 px-2.5 py-1">Preview opened from the updated draft</span>
-                          ) : null}
-                          <span className="rounded-full border border-current/15 bg-white/70 px-2.5 py-1">System used the current draft and saved direction</span>
-                          {activeCheckpoint.backgroundReviewStatus === "pending" ? (
-                            <span className="rounded-full border border-current/15 bg-white/70 px-2.5 py-1">Visual review running</span>
-                          ) : activeCheckpoint.backgroundReviewSummary ? (
-                            <span className="rounded-full border border-current/15 bg-white/70 px-2.5 py-1">
-                              {activeCheckpoint.backgroundReviewMode === "visual" ? "Visual review complete" : "Fallback review complete"}
-                            </span>
-                          ) : null}
-                        </div>
-                        {checkpointChanges.length ? (
-                          <div className="mt-3 grid gap-2 lg:grid-cols-3">
-                            {checkpointChanges.map((change, index) => (
-                              <div key={`${activeCheckpoint.at}-change-${index}`} className="rounded-xl border border-current/10 bg-white/70 px-3 py-2.5 text-[12px] leading-5">
-                                <div className="font-semibold uppercase tracking-[0.14em] opacity-70">{change.section}</div>
-                                <div className="mt-1 font-medium text-current">{change.what}</div>
-                                {change.why ? <div className="mt-1 opacity-80">{change.why}</div> : null}
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
-                        {activeCheckpoint.backgroundReviewSummary || checkpointNotes.length || checkpointWarnings.length ? (
-                          <div className="mt-3 space-y-2 text-[12px] leading-5">
-                            {activeCheckpoint.backgroundReviewSummary ? (
-                              <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2.5">
-                                <div className="font-semibold uppercase tracking-[0.14em] opacity-70">
-                                  {activeCheckpoint.backgroundReviewMode === "visual" ? "Visual review" : "Fallback review"}
-                                </div>
-                                <div className="mt-1">{activeCheckpoint.backgroundReviewSummary}</div>
-                              </div>
-                            ) : null}
-                            {checkpointNotes.length ? (
-                              <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2.5">
-                                {checkpointNotes.map((note, index) => (
-                                  <div key={`${activeCheckpoint.at}-note-${index}`}>{note}</div>
-                                ))}
-                              </div>
-                            ) : null}
-                            {checkpointWarnings.length ? (
-                              <div className="rounded-xl border border-current/10 bg-white/70 px-3 py-2.5">
-                                {checkpointWarnings.map((warning, index) => (
-                                  <div key={`${activeCheckpoint.at}-warning-${index}`}>{warning}</div>
-                                ))}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </>
-                    ) : null}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void restoreLastAiRun()}
-                      disabled={!selectedPageLatestAiCheckpoint}
-                      className={classNames(
-                        "rounded-full border bg-white px-3 py-1 text-xs font-semibold",
-                        aiResultBanner.tone === "warning"
-                          ? selectedPageLatestAiCheckpoint
-                            ? "border-amber-300 text-amber-800 hover:bg-amber-100"
-                            : "border-amber-200 text-amber-400"
-                          : selectedPageLatestAiCheckpoint
-                            ? "border-emerald-300 text-emerald-800 hover:bg-emerald-100"
-                            : "border-emerald-200 text-emerald-400",
-                      )}
-                    >
-                      Undo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAiResultBanner(null)}
-                      className={classNames(
-                        "shrink-0",
-                        aiResultBanner.tone === "warning"
-                          ? "text-amber-400 hover:text-amber-700"
-                          : "text-emerald-400 hover:text-emerald-700",
-                      )}
-                      aria-label="Dismiss"
-                    >
-                      <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor" aria-hidden="true">
-                        <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-                      </svg>
-                    </button>
-                  </div>
+          {aiWorkFocus?.phase === "pending" ? (
+            <div className="pointer-events-none sticky top-3 z-20 mb-3 flex w-full flex-col items-end gap-2 self-end sm:w-auto sm:max-w-[26rem]">
+              {aiWorkFocus?.phase === "pending" ? (
+                <div
+                  className={classNames(
+                    "pointer-events-auto inline-flex max-w-full items-center gap-3 rounded-2xl border px-4 py-2.5 text-sm shadow-[0_14px_32px_rgba(15,23,42,0.10)]",
+                    "border-zinc-200/90 bg-white/95 text-zinc-900",
+                  )}
+                >
+                  <span
+                    className={classNames(
+                      "inline-flex h-2.5 w-2.5 shrink-0 rounded-full",
+                      "animate-pulse bg-zinc-900",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1 font-medium">{aiWorkFocus.label}</span>
+                  {aiWorkFocus.mode === "page" && aiWorkFocus.regionKey ? (
+                    <span className="shrink-0 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                      Scoped
+                    </span>
+                  ) : null}
                 </div>
-              </div>
-            );
-          })() : null}
-          {aiWorkFocus ? (
-            <div
-              className={classNames(
-                "mb-3 flex items-center gap-3 rounded-2xl border px-4 py-2.5 text-sm shadow-sm",
-                aiWorkFocus.phase === "pending"
-                  ? "border-zinc-200 bg-white text-zinc-900"
-                  : "border-zinc-200 bg-zinc-50 text-zinc-700",
-              )}
-            >
-              <span
-                className={classNames(
-                  "inline-flex h-2.5 w-2.5 shrink-0 rounded-full",
-                  aiWorkFocus.phase === "pending" ? "animate-pulse bg-zinc-900" : "bg-zinc-500",
-                )}
-              />
-              <span className="min-w-0 flex-1 font-medium">{aiWorkFocus.label}</span>
-              {aiWorkFocus.mode === "page" && aiWorkFocus.regionKey ? (
-                <span className="shrink-0 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                  Scoped
-                </span>
               ) : null}
             </div>
           ) : null}
@@ -15625,10 +15574,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 <div className="flex min-w-0 items-center gap-2">
                   <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Preview"}</div>
                 </div>
-                {selectedPage ? <div className="truncate text-xs text-zinc-500">{selectedPageRouteLabel} • {pageManagementUi.summary}</div> : null}
+                {selectedPage ? <div className="truncate text-xs text-zinc-500">{selectedPageRouteLabel} - {pageManagementUi.summary}</div> : null}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <div className="inline-flex items-center rounded-xl border border-zinc-200 bg-white p-1">
+                <div className="inline-flex items-center gap-1.5 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-1">
                   <button
                     type="button"
                     onClick={() => setPreviewDevice((prev) => (prev === "desktop" ? "mobile" : "desktop"))}
@@ -15674,54 +15623,44 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     </span>
                   </button>
 
-                  {selectedPageSupportsBlocksSurface ? (
+                  {selectedPage ? (
                     <>
                       <div className="mx-0.5 h-4 w-px shrink-0 bg-zinc-200" />
                       <BuilderStageToggleButton
-                        label="Preview"
-                        active={blocksSurfaceActive && previewMode === "preview"}
-                        title={blocksSurfaceActive && previewMode === "preview" ? "Return to authoring" : "Preview the page"}
+                        label="Page"
+                        active={pageLensStage === "page" && pageCanvasView === "preview" && wholePageSurfaceActive}
+                        title="Show the same current page draft in Preview"
                         onClick={() => {
-                          if (blocksSurfaceActive && previewMode === "preview") {
-                            setPreviewMode("edit");
-                            return;
-                          }
-                          setBuilderMode("blocks");
-                          setPreviewMode("preview");
+                          if (selectedPageSupportsBlocksSurface) setBuilderMode("whole-page");
+                          setPageLensStage("page");
+                          setPageCanvasView("preview");
                         }}
                       />
                       <BuilderStageToggleButton
-                        label={wholePageSourcePanelLabel}
-                        active={wholePageSurfaceActive && wholePageViewMode === "source"}
+                        label="Source"
+                        active={pageLensStage === "page" && pageCanvasView === "source" && wholePageSurfaceActive}
+                        title="Show the same current page draft in Source"
                         onClick={() => {
-                          setBuilderMode("whole-page");
-                          setWholePageViewMode("source");
+                          openSourceWorkspace();
                         }}
                       />
-                      <BuilderStageToggleButton
-                        label="Direction"
-                        active={wholePageSurfaceActive && wholePageViewMode === "direction"}
-                        onClick={() => {
-                          setBuilderMode("whole-page");
-                          setWholePageViewMode("direction");
-                        }}
-                      />
-                    </>
-                  ) : (
-                    <>
                       <div className="mx-0.5 h-4 w-px shrink-0 bg-zinc-200" />
-                      <BuilderStageToggleButton label="Preview" active={wholePageViewMode === "preview"} onClick={() => setWholePageViewMode("preview")} />
-                      <BuilderStageToggleButton label={wholePageSourcePanelLabel} active={wholePageViewMode === "source"} onClick={() => setWholePageViewMode("source")} />
-                      <BuilderStageToggleButton label="Direction" active={wholePageViewMode === "direction"} onClick={() => setWholePageViewMode("direction")} />
+                      <BuilderStageToggleButton
+                        label="Chat"
+                        active={chatRailOpen}
+                        title={chatRailOpen ? "Close chat" : "Open chat"}
+                        onClick={() => setChatRailOpen((prev) => !prev)}
+                      />
                     </>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </div>
 
             <div
               className={classNames(
-                "flex min-h-0 flex-1 flex-col overflow-auto",
+                "flex min-h-0 flex-1 flex-col",
+                wholePageModeActive ? "overflow-hidden" : "overflow-auto",
                 previewDevice === "mobile" ? "px-3 py-4 sm:px-5" : "p-4",
               )}
               onDragOver={(e) => {
@@ -15751,244 +15690,261 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   <div className="text-sm text-zinc-600">Select a page to preview.</div>
                 )
               ) : wholePageModeActive ? (
-                <div className="mx-auto flex min-h-0 flex-1 w-full max-w-6xl flex-col">
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-
-                      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3">
-                        {showWholePagePreviewPane ? (
-                          <div className="flex min-h-0 flex-1 flex-col gap-3">
-                            <div className="flex min-h-0 flex-1 flex-col">
-                              {currentPageSourceHtml ? (
-                                <CustomHtmlPreviewFrame
-                                  html={editorPreviewHtml}
-                                  title={selectedPage.title}
-                                  previewDevice={previewDevice}
-                                  heightClassName="h-full"
-                                  selectedRegionKey={selectedHtmlRegion?.key || null}
-                                  selectionState={htmlPreviewSelectionState}
-                                />
-                              ) : selectedPage.editorMode === "BLOCKS" ? (
-                                <div className={classNames("mx-auto w-full", previewDevice === "mobile" ? "max-w-98" : "max-w-5xl")}>
-                                  <div
-                                    className={classNames(
-                                      previewDevice === "mobile"
-                                        ? "overflow-hidden rounded-[30px] border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3 shadow-[0_20px_60px_rgba(15,23,42,0.08)]"
-                                        : "border border-zinc-200 bg-white",
-                                    )}
-                                  >
-                                    {previewDevice === "mobile" ? <div className="mx-auto mb-3 h-1.5 w-24 rounded-full bg-zinc-300" /> : null}
-                                    <div className={classNames(previewDevice === "mobile" ? "h-[min(72vh,780px)] overflow-auto rounded-[28px] bg-white" : "min-h-[82vh]")}>
-                                      {renderCreditFunnelBlocks({
-                                        blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
-                                        basePath: hostedBasePath,
-                                        context: {
-                                          bookingSiteSlug: bookingSiteSlug || undefined,
-                                          defaultBookingCalendarId: funnel?.bookingCalendarId || undefined,
-                                          funnelId: funnel?.id || undefined,
-                                          funnelPageId: selectedPage.id,
-                                          funnelSlug: funnel?.slug || undefined,
-                                          funnelPageSlug: selectedPage.slug,
-                                          previewDevice,
-                                          previewEmbedMode: "live",
-                                        },
-                                      })}
-                                    </div>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="flex h-full min-h-[50vh] items-center justify-center rounded-[28px] border border-dashed border-zinc-300 bg-white px-6 text-center text-sm text-zinc-600">
-                                  {wholePageSyncNotice || "No page source available yet. Save the page to generate the source view."}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {showWholePageSourcePane ? (
-                          <div className="flex min-h-0 flex-1 flex-col">
-                            <div className="flex min-h-[50vh] flex-1 flex-col overflow-hidden rounded-[20px] bg-white">
-                              <div className="px-4 pt-3 pb-2">
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">Source</div>
-                                    <div className="mt-1 text-sm font-semibold text-zinc-700">{sourceScopeLabel}</div>
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-400">{wholePageSyncMeta}</span>
-                                    {currentPageSourceHtml ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          try {
-                                            void navigator.clipboard?.writeText?.(currentPageSourceHtml || currentPagePublishedHtml || getFunnelPageDraftHtml(selectedPage));
-                                            toast.success("HTML copied");
-                                          } catch {
-                                            toast.error("Could not copy HTML");
-                                          }
-                                        }}
-                                        className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-500 hover:border-zinc-300 hover:text-zinc-800"
-                                        title="Copy HTML"
-                                      >
-                                        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
-                                          <rect x="9" y="9" width="11" height="11" rx="2" />
-                                          <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
-                                        </svg>
-                                      </button>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="min-h-0 flex-1">
-                                {currentPageSourceHtml ? (
-                                  <CodeSurface
-                                    value={currentPageSourceHtml}
-                                    onChange={wholePageSourceEditable ? (next) => setSelectedPageLocal({ draftHtml: next }) : undefined}
-                                    placeholder="<!doctype html>"
-                                    readOnly={!wholePageSourceEditable}
-                                    lineHighlightRange={latestSourceHighlightRange}
-                                    seamless
-                                    tone="light"
-                                  />
-                                ) : (
-                                  <div className="flex h-full min-h-[36vh] items-center justify-center px-6 text-center text-sm text-zinc-400">
-                                    {wholePageStatusMessage || "No page source available yet. Save the page to generate the source view."}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {showWholePageDirectionPane ? (
-                          <DirectionWorkbenchPanel
-                            routeLabel={selectedPageRouteLabel}
-                            pageTypeLabel={PAGE_INTENT_TYPE_LABELS[pageIntentProfile.pageType]}
-                            scopeLabel={sourceScopeLabel}
-                            foundationStatusLabel={directionFoundationStatusLabel}
-                            foundationStatusClassName={directionFoundationStatusClassName}
-                            foundationSummary={foundationArtifact?.strategicSummary || foundationOverview.summary}
-                            foundationNarrative={foundationArtifact?.narrative || foundationOverview.businessNarrative}
-                            assumption={foundationArtifact?.assumption || null}
-                            pageConversionFocus={pageConversionFocus}
-                            shellFrame={selectedShellFrame
-                              ? {
-                                  label: selectedShellFrame.label,
-                                  summary: selectedShellFrame.summary,
-                                  sectionPlan: selectedShellFrame.sectionPlan,
-                                  visualTone: selectedShellFrame.visualTone,
-                                  proofModel: selectedShellFrame.proofModel,
-                                  ctaRhythm: selectedShellFrame.ctaRhythm,
-                                  designDirectives: selectedShellFrame.designDirectives,
+                <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col">
+                  <div className="min-h-0 flex-1 lg:flex lg:flex-col">
+                    {pageCanvasView === "source" ? (
+                      <WholePageLensWindow
+                        label="Source"
+                        title={sourceScopeLabel}
+                        meta={sourcePaneMeta}
+                        tone="subtle"
+                        actions={currentPageSourceHtml ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                try {
+                                  void navigator.clipboard?.writeText?.(currentPageSourceHtml || currentPagePublishedHtml || getFunnelPageDraftHtml(selectedPage));
+                                  toast.success("HTML copied");
+                                } catch {
+                                  toast.error("Could not copy HTML");
                                 }
-                              : null}
-                            sectionPlanItems={sectionPlanItems}
-                            pageGoalUsesDefault={pageGoalUsesDefault}
-                            pageAnatomy={directionPageAnatomy}
-                            thread={selectedPageChatThread}
-                            latestCheckpoint={selectedPageLatestAiCheckpoint}
-                            onRestoreLatest={() => void restoreLastAiRun()}
-                            restoreDisabled={Boolean(busy || savingPage || !selectedPageLatestAiCheckpoint)}
-                            onOpenBrief={() => setBriefPanelOpen(true)}
-                            onPrepareClarify={(promptHint) => {
-                              setChatInput(`${composePromptFromIntent("clarify")}\n\nDirection for this pass:\n${promptHint}`);
-                              setWholePageViewMode("source");
-                            }}
-                            onPrepareDraft={(promptHint) => {
-                              setChatInput(`${composePromptFromIntent("draft")}\n\nStructural redesign instruction:\nTreat this as a structural redesign pass on the current page HTML, not a small patch. Rework section structure, spacing, hierarchy, proof placement, and CTA anchoring wherever needed to satisfy the direction below while preserving only what is clearly working.\n\nDirection for this pass:\n${promptHint}`);
-                              setWholePageViewMode("source");
-                            }}
-                          />
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {!showWholePageDirectionPane ? (
-                    <div className="border-t border-zinc-200 bg-white px-3 py-2">
-                      <div className="relative">
-                        {wholePageSourceEditable && htmlScopePickerOpen ? (
-                            <div className="absolute bottom-[calc(100%+8px)] left-0 z-10 w-[min(320px,100%)] rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg">
-                              <div className="space-y-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedHtmlRegionKey(null);
-                                  setHtmlScopePickerOpen(false);
-                                }}
-                                className={classNames(
-                                  "w-full rounded-xl border px-3 py-2 text-left transition-colors",
-                                  selectedHtmlRegion
-                                    ? "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
-                                    : "border-zinc-200 bg-zinc-100 text-zinc-900",
-                                )}
-                              >
-                                <div className="text-sm font-semibold">Whole page</div>
-                                <div className="mt-1 text-xs leading-5 text-zinc-500">Apply the next AI change across the full draft HTML.</div>
-                              </button>
-                              {htmlRegionScopes.map((region) => (
+                              }}
+                              className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:text-zinc-900"
+                              title="Copy HTML"
+                            >
+                              <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+                                <rect x="9" y="9" width="11" height="11" rx="2" />
+                                <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+                              </svg>
+                              Copy
+                            </button>
+                            {wholePageSourceCanStartEditing ? (
+                              <>
+                                {!sourceEditMode ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openSourceWorkspace()}
+                                    className="inline-flex items-center rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100"
+                                  >
+                                    Edit source
+                                  </button>
+                                ) : null}
                                 <button
-                                  key={`popover-${region.key}`}
                                   type="button"
-                                  onClick={() => {
-                                    setSelectedHtmlRegionKey(region.key);
-                                    setHtmlScopePickerOpen(false);
-                                  }}
-                                  className={classNames(
-                                    "w-full rounded-xl border px-3 py-2 text-left transition-colors",
-                                    selectedHtmlRegion?.key === region.key
-                                      ? "border-zinc-200 bg-zinc-100 text-zinc-900"
-                                      : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
-                                  )}
-                                  title={region.summary}
+                                  onClick={() => openSourceWorkspace({ selectAll: true })}
+                                  className="inline-flex items-center rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:text-zinc-900"
                                 >
-                                  <div className="text-sm font-semibold">{region.label}</div>
-                                  <div className={classNames("mt-1 text-xs leading-5", selectedHtmlRegion?.key === region.key ? "text-zinc-600" : "text-zinc-500")}>{region.summary}</div>
+                                  {sourceEditMode ? "Select all" : "Edit and select all"}
                                 </button>
-                              ))}
+                                {sourceHasPendingChanges ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={previewSourceEditing}
+                                      className="inline-flex items-center rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:text-zinc-900"
+                                    >
+                                      Review in Page
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={applySourceEditing}
+                                      className="inline-flex items-center rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100"
+                                    >
+                                      Apply to draft
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={discardSourceEditing}
+                                      className="inline-flex items-center rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:text-zinc-900"
+                                    >
+                                      Cancel edits
+                                    </button>
+                                  </>
+                                ) : sourceEditMode ? (
+                                  <button
+                                    type="button"
+                                    onClick={discardSourceEditing}
+                                    className="inline-flex items-center rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:text-zinc-900"
+                                  >
+                                    Done editing
+                                  </button>
+                                ) : null}
+                              </>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        bodyClassName="min-h-0 flex flex-1 flex-col overflow-hidden bg-zinc-50"
+                      >
+                        {currentPageSourceHtml ? (
+                          <>
+                            <div
+                              className={classNames(
+                                "shrink-0 border-b px-4 py-3 sm:px-5",
+                                sourceEditMode
+                                  ? "border-zinc-300 bg-[linear-gradient(180deg,#ffffff_0%,#f4f4f5_100%)] text-zinc-950"
+                                  : wholePageSourceRequiresModeSwitch
+                                    ? "border-zinc-300 bg-[linear-gradient(180deg,#ffffff_0%,#f4f4f5_100%)] text-zinc-950"
+                                    : "border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] text-zinc-950",
+                              )}
+                            >
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                                    {sourceEditMode ? "Editing source" : wholePageSourceRequiresModeSwitch ? "Preparing source edit" : "Saved draft source"}
+                                  </div>
+                                  <div className="mt-1 text-sm font-semibold text-zinc-900">
+                                    {sourceEditMode
+                                      ? sourceHasPendingChanges
+                                        ? "These edits are staged until you apply them to the draft."
+                                        : "You are editing the same draft that Page previews."
+                                      : wholePageSourceRequiresModeSwitch
+                                        ? "The first source edit converts this page into direct HTML drafting."
+                                        : "Source is showing the current draft HTML."}
+                                  </div>
+                                  <div className="mt-1 text-xs leading-5 text-zinc-600">
+                                    {sourceHasPendingChanges
+                                      ? "Review in Page checks the staged version before you apply it."
+                                      : sourceEditMode
+                                        ? "Type here, then use Done editing when you are finished."
+                                        : wholePageSourceRequiresModeSwitch
+                                          ? "Use Edit source to start that conversion."
+                                          : "Use Edit source when you want to change the draft code."}
+                                  </div>
+                                </div>
+                                <div className={classNames(
+                                  "rounded-full px-3 py-1 text-[11px] font-semibold",
+                                  sourceEditMode
+                                    ? "border border-blue-200 bg-blue-50 text-blue-900"
+                                    : wholePageNeedsSaveForDeployableSource || wholePageSourceRequiresModeSwitch
+                                      ? "border border-amber-200 bg-amber-50 text-amber-900"
+                                      : "bg-white text-zinc-700 ring-1 ring-inset ring-zinc-200",
+                                )}>
+                                  {sourcePaneMeta || (wholePageSourceRequiresModeSwitch ? "Switching this draft to source editing" : "Viewing saved draft source")}
+                                </div>
                               </div>
                             </div>
-                          ) : null}
-
-                        <div className="mx-auto w-full max-w-5xl text-zinc-900">
-                          <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-                            {wholePageSourceEditable ? (
-                              <button
-                                type="button"
-                                onClick={() => setHtmlScopePickerOpen((prev) => !prev)}
-                                className="inline-flex shrink-0 items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50"
-                                title={selectedHtmlRegion ? selectedHtmlRegion.summary : "Apply changes across the whole page"}
-                              >
-                                <span>{sourceScopeLabel}</span>
-                                <svg aria-hidden="true" viewBox="0 0 20 20" className={classNames("h-3.5 w-3.5 transition-transform", htmlScopePickerOpen ? "rotate-180" : "") } fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="m5 7.5 5 5 5-5" />
-                                </svg>
-                              </button>
-                            ) : (
-                              <span className="inline-flex shrink-0 items-center rounded-full border border-zinc-200/70 bg-white/72 px-3 py-2 text-xs font-semibold text-zinc-700 shadow-[0_6px_16px_rgba(15,23,42,0.05)] backdrop-blur">
-                                AI edits structure
-                              </span>
-                            )}
-
-                            <div className="min-w-0 flex-1">
-                              <AiPromptComposer
-                                value={chatInput}
-                                onChange={setChatInput}
-                                onAttach={() => setAiContextOpen(true)}
-                                onSubmit={() => void runAi()}
-                                placeholder={wholePageSourceEditable ? (selectedHtmlRegion ? `Change ${selectedHtmlRegion.label}` : "Change the page") : "Change the page structure"}
-                                busy={busy}
-                                busyLabel={BUSY_PHASES[busyPhaseIdx]}
-                                attachCount={aiContextMedia.length}
-                                className="min-w-0 flex-1"
+                            <div className="min-h-0 flex-1 p-3 sm:p-4">
+                              <CodeSurface
+                                value={currentPageSourceHtml}
+                                onChange={sourceEditMode ? (next) => {
+                                  setSourceEditDraft(next);
+                                  if (sourcePreviewActive) setSourcePreviewActive(false);
+                                } : undefined}
+                                placeholder="<!doctype html>"
+                                readOnly={!sourceEditMode}
+                                lineHighlightRange={null}
                                 tone="light"
+                                statusLabel={sourceEditMode ? "Editing staged source" : wholePageSourceRequiresModeSwitch ? "Preparing source editor" : "Viewing saved draft source"}
+                                editorSelectAllSignal={sourceSelectAllSignal}
+                                onActivate={wholePageSourceCanStartEditing ? () => beginSourceEditing() : undefined}
                               />
                             </div>
+                          </>
+                        ) : (
+                          <div className="flex h-full min-h-[36vh] items-center justify-center px-6 text-center text-sm text-zinc-400">
+                            {wholePageStatusMessage || "No page source available yet. Save the page to generate the source view."}
                           </div>
-                        </div>
-                      </div>
-                    </div>
-                    ) : null}
+                        )}
+                      </WholePageLensWindow>
+                    ) : (
+                      <WholePageLensWindow
+                        label="Page"
+                        title={selectedPage.title || "Current draft"}
+                        meta={selectedPageRouteLabel ? `${selectedPageRouteLabel} - ${wholePageStageMeta.summary}` : wholePageStageMeta.summary}
+                        headerHidden
+                        tone="subtle"
+                        bodyClassName="min-h-0 flex flex-1 flex-col overflow-hidden bg-zinc-50"
+                      >
+                        {previewPageSourceHtml ? (
+                          <>
+                            {wholePageSourceEditable ? (
+                              <div className={classNames(
+                                "shrink-0 border-b px-4 py-3 sm:px-5",
+                                sourceEditMode && sourcePreviewActive
+                                  ? "border-amber-300 bg-[linear-gradient(180deg,#fffbeb_0%,#fef3c7_100%)] text-zinc-950"
+                                  : "border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f4f4f5_100%)] text-zinc-950",
+                              )}>
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-semibold">
+                                      {sourceEditMode && sourcePreviewActive
+                                        ? "Page is showing your staged source edits."
+                                        : "Page is showing the saved draft."}
+                                    </div>
+                                    <div className={classNames(
+                                      "mt-1 text-xs",
+                                      sourceEditMode && sourcePreviewActive ? "text-amber-950/80" : "text-zinc-600",
+                                    )}>
+                                      {sourceEditMode && sourcePreviewActive
+                                        ? "Return to Source to apply or discard them."
+                                        : "Use Source when you want to change the draft code."}
+                                    </div>
+                                  </div>
+                                  <div className={classNames(
+                                    "px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]",
+                                    sourceEditMode && sourcePreviewActive
+                                      ? "text-amber-900"
+                                      : "text-zinc-500",
+                                  )}>
+                                    {sourceEditMode && sourcePreviewActive ? "Staged changes" : "Saved draft"}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
+                            <div className={classNames(
+                              "min-h-0 flex-1 overflow-y-auto",
+                              previewDevice === "mobile" ? "px-3 py-4 sm:px-4" : "px-4 py-4",
+                            )}>
+                              <CustomHtmlPreviewFrame
+                                html={editorPreviewHtml}
+                                title={selectedPage.title}
+                                previewDevice={previewDevice}
+                                heightClassName={previewDevice === "mobile" ? "h-[min(72vh,780px)]" : "h-[min(82vh,1200px)] min-h-[720px]"}
+                                selectedRegionKey={selectedHtmlRegion?.key || null}
+                                selectionState={htmlPreviewSelectionState}
+                                minimalChrome
+                              />
+                            </div>
+                          </>
+                        ) : selectedPage.editorMode === "BLOCKS" ? (
+                          <div className={classNames("mx-auto w-full p-3 sm:p-4", previewDevice === "mobile" ? "max-w-98" : "max-w-5xl") }>
+                            <div
+                              className={classNames(
+                                previewDevice === "mobile"
+                                  ? "overflow-hidden rounded-[30px] border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3 shadow-[0_20px_60px_rgba(15,23,42,0.08)]"
+                                  : "bg-transparent",
+                              )}
+                            >
+                              {previewDevice === "mobile" ? <div className="mx-auto mb-3 h-1.5 w-24 rounded-full bg-zinc-300" /> : null}
+                              <div className={classNames(previewDevice === "mobile" ? "h-[min(72vh,780px)] overflow-auto rounded-[28px] bg-white" : "h-[min(78vh,980px)] min-h-[640px] overflow-auto bg-white")}>
+                                {renderCreditFunnelBlocks({
+                                  blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
+                                  basePath: hostedBasePath,
+                                  context: {
+                                    bookingSiteSlug: bookingSiteSlug || undefined,
+                                    defaultBookingCalendarId: funnel?.bookingCalendarId || undefined,
+                                    defaultBookingCalendarTitle: funnel?.bookingCalendarId ? bookingCalendarTitleById[funnel.bookingCalendarId] || funnel.bookingCalendarId : undefined,
+                                    bookingCalendarTitleById,
+                                    funnelId: funnel?.id || undefined,
+                                    funnelPageId: selectedPage.id,
+                                    funnelSlug: funnel?.slug || undefined,
+                                    funnelPageSlug: selectedPage.slug,
+                                    previewDevice,
+                                    previewEmbedMode: "live",
+                                    showBookingState: true,
+                                  },
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex h-full min-h-[50vh] items-center justify-center rounded-[28px] border border-dashed border-zinc-300 bg-white px-6 text-center text-sm text-zinc-600">
+                            {wholePageSyncNotice || "No page source available yet. Save the page to generate the source view."}
+                          </div>
+                        )}
+                      </WholePageLensWindow>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -15997,12 +15953,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     className={classNames(
                       previewDevice === "mobile"
                         ? "overflow-hidden rounded-[30px] border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3 shadow-[0_20px_60px_rgba(15,23,42,0.08)]"
-                        : "border border-zinc-200 bg-white",
+                        : previewMode === "edit"
+                          ? "border border-zinc-200 bg-white"
+                          : "bg-transparent",
                     )}
                   >
                     {previewDevice === "mobile" ? <div className="mx-auto mb-3 h-1.5 w-24 rounded-full bg-zinc-300" /> : null}
                     <div
-                      className={classNames(previewDevice === "mobile" ? "h-[min(72vh,780px)] overflow-auto rounded-[28px] bg-white" : "min-h-[82vh]") }
+                      className={classNames(previewDevice === "mobile" ? "h-[min(72vh,780px)] overflow-auto rounded-[28px] bg-white" : "h-[min(78vh,980px)] min-h-[640px] overflow-auto bg-white") }
                       onDragOver={(e) => {
                         if (!blocksSurfaceActive || previewMode !== "edit") return;
                         const t = e.dataTransfer.types;
@@ -16030,53 +15988,125 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       ) : null}
 
                       {editableBlocks.length === 0 ? (
-                        <div className={classNames(previewDevice === "mobile" ? "p-4" : "p-8")}>
-                          <div className="flex min-h-[60vh] items-center justify-center rounded-[28px] border border-zinc-200 bg-[radial-gradient(circle_at_top,#f8fafc_0%,#ffffff_52%,#f5f7fb_100%)] px-5 py-8">
-                            <div className="w-full max-w-3xl rounded-[28px] border border-zinc-200 bg-white/96 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.08)] backdrop-blur sm:p-8">
-                              <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-                                <div className="min-w-0 flex-1">
-                                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">First draft setup</div>
-                                  <div className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">Set up the first version of this page before you start designing it.</div>
-                                  <div className="mt-3 max-w-2xl text-sm leading-7 text-zinc-600">
-                                    This page is still empty at <span className="font-mono text-[13px] text-zinc-700">{selectedPageRouteLabel}</span>. Choose the direction, shape the first pass, and then let AI generate something you can immediately start refining on the canvas.
+                        blankPageOnboardingActive ? (
+                          <div className={classNames(previewDevice === "mobile" ? "p-4" : "p-8")}>
+                            <div className="flex min-h-[60vh] items-center justify-center rounded-[28px] border border-zinc-200 bg-[radial-gradient(circle_at_top,#f8fafc_0%,#ffffff_52%,#f5f7fb_100%)] px-5 py-8">
+                              <div className="w-full max-w-3xl rounded-[28px] border border-zinc-200 bg-white/96 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.08)] backdrop-blur sm:p-8">
+                                <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">First draft setup</div>
+                                    <div className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">Set up the first version of this page before you start designing it.</div>
+                                    <div className="mt-3 max-w-2xl text-sm leading-7 text-zinc-600">
+                                      This page is still empty at <span className="font-mono text-[13px] text-zinc-700">{selectedPageRouteLabel}</span>. Choose the direction, shape the first pass, and then let AI generate something you can immediately start refining on the canvas.
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-[11px] font-semibold text-zinc-600">
+                                    First draft setup
                                   </div>
                                 </div>
-                                <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-[11px] font-semibold text-zinc-600">
-                                  First draft setup
-                                </div>
-                              </div>
 
-                              <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
-                                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
-                                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Step 1</div>
-                                  <div className="mt-2 text-sm font-semibold text-zinc-900">Clarify what this page needs to do</div>
-                                  <div className="mt-1 text-xs leading-6 text-zinc-600">Set the offer, the audience, the next step, and anything the page has to respect.</div>
+                                <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+                                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
+                                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Step 1</div>
+                                    <div className="mt-2 text-sm font-semibold text-zinc-900">Clarify what this page needs to do</div>
+                                    <div className="mt-1 text-xs leading-6 text-zinc-600">Set the offer, the audience, the next step, and anything the page has to respect.</div>
+                                  </div>
+                                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
+                                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Step 2</div>
+                                    <div className="mt-2 text-sm font-semibold text-zinc-900">Choose the kind of opening you want</div>
+                                    <div className="mt-1 text-xs leading-6 text-zinc-600">Decide whether the first version should open with an image, a VSL, or no hero media at all.</div>
+                                  </div>
+                                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
+                                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Step 3</div>
+                                    <div className="mt-2 text-sm font-semibold text-zinc-900">Generate a first draft you can work from</div>
+                                    <div className="mt-1 text-xs leading-6 text-zinc-600">Once the draft exists, you can keep iterating on the canvas, swap visuals, and test different angles.</div>
+                                  </div>
                                 </div>
-                                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
-                                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Step 2</div>
-                                  <div className="mt-2 text-sm font-semibold text-zinc-900">Choose the kind of opening you want</div>
-                                  <div className="mt-1 text-xs leading-6 text-zinc-600">Decide whether the first version should open with an image, a VSL, or no hero media at all.</div>
-                                </div>
-                                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
-                                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Step 3</div>
-                                  <div className="mt-2 text-sm font-semibold text-zinc-900">Generate a first draft you can work from</div>
-                                  <div className="mt-1 text-xs leading-6 text-zinc-600">Once the draft exists, you can keep iterating on the canvas, swap visuals, and test different angles.</div>
-                                </div>
-                              </div>
 
-                              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="text-xs leading-6 text-zinc-500">The normal empty canvas and block drop flow are intentionally paused until the first generation is created.</div>
-                                <button
-                                  type="button"
-                                  onClick={() => setBriefPanelOpen(true)}
-                                  className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-                                >
-                                  Continue shell setup
-                                </button>
+                                <div className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                  <div className="text-xs leading-6 text-zinc-500">You can keep the guided shell flow, or skip it and start directly on the canvas.</div>
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (!selectedPage?.id) return;
+                                        setDismissedBlankPageOnboarding((prev) => ({ ...prev, [selectedPage.id]: true }));
+                                        setBriefPanelOpen(false);
+                                      }}
+                                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                                    >
+                                      Start with empty canvas
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setBriefPanelOpen(true)}
+                                      className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+                                    >
+                                      Continue shell setup
+                                    </button>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
+                        ) : (
+                          <div className={classNames(previewDevice === "mobile" ? "p-4" : "p-8")}>
+                            <div className="flex min-h-[60vh] items-center justify-center rounded-[28px] border border-dashed border-zinc-300 bg-[radial-gradient(circle_at_top,#f8fafc_0%,#ffffff_52%,#f5f7fb_100%)] px-5 py-8">
+                              <div className="w-full max-w-3xl rounded-[28px] border border-zinc-200 bg-white/96 p-6 shadow-[0_24px_70px_rgba(15,23,42,0.06)] backdrop-blur sm:p-8">
+                                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Empty canvas</div>
+                                    <div className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">This page is ready for a first move.</div>
+                                    <div className="mt-3 max-w-2xl text-sm leading-7 text-zinc-600">
+                                      Start from AI, add a starter section, or reopen the shell setup whenever you want. Nothing is blocked here anymore.
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                                    Canvas open
+                                  </div>
+                                </div>
+
+                                <div className="mt-6 flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => addPresetSection("hero")}
+                                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                                  >
+                                    Add hero section
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => addPresetSection("body")}
+                                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                                  >
+                                    Add body section
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setChatInput(emptyPageAiGuide?.prompts[0] || "");
+                                      setBriefPanelOpen(false);
+                                    }}
+                                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                                  >
+                                    Draft from recommendation
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setBriefPanelOpen(true)}
+                                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                                  >
+                                    Open shell setup
+                                  </button>
+                                </div>
+
+                                <div className="mt-4 text-xs leading-6 text-zinc-500">
+                                  You can also drop starter blocks into this canvas or use the assistant bar below to generate the first pass.
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
                       ) : (
                         renderCreditFunnelBlocks({
                           blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
@@ -16084,12 +16114,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           context: {
                             bookingSiteSlug: bookingSiteSlug || undefined,
                             defaultBookingCalendarId: funnel?.bookingCalendarId || undefined,
+                            defaultBookingCalendarTitle: funnel?.bookingCalendarId ? bookingCalendarTitleById[funnel.bookingCalendarId] || funnel.bookingCalendarId : undefined,
+                            bookingCalendarTitleById,
                             funnelId: funnel?.id || undefined,
                             funnelPageId: selectedPage.id,
                             funnelSlug: funnel?.slug || undefined,
                             funnelPageSlug: selectedPage.slug,
                             previewDevice,
                             previewEmbedMode: previewMode === "preview" ? "live" : "placeholder",
+                            showBookingState: true,
                           },
                           editor: previewMode === "edit"
                             ? {
@@ -16100,12 +16133,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 aiFocusedPhase: aiWorkFocus?.mode === "builder" ? aiWorkFocus.phase : null,
                                 onSelectBlockId: (id) => {
                                   setSelectedBlockId(id);
-                                  setSidebarPanel((prev) => (prev === "structure" ? "structure" : "selected"));
+                                  setSidebarPanel("structure");
                                 },
                                 onHoverBlockId: (id) => setHoveredBlockId(id),
                                 onUpsertBlock: (next) => upsertBlock(next),
                                 onReorder: (dragId, dropId) => reorderBlocks(dragId, dropId),
                                 onMove: (id, dir) => moveBlock(id, dir),
+                                onRequestBookingRouting: (id) => {
+                                  openBookingRoutingDialog(id);
+                                },
                                 canMove: (id, dir) => canMoveBlock(id, dir),
                               }
                             : undefined,
@@ -16116,28 +16152,188 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 </div>
               )}
             </div>
-
-            {blocksSurfaceActive && selectedPage && !blankPageOnboardingActive ? (
-              <div className="border-t border-zinc-200/70 bg-white/68 px-3 py-2.5 backdrop-blur">
-                <div className="mx-auto w-full max-w-4xl">
-                  <div className="flex w-full items-center gap-3">
-                    <AiPromptComposer
-                      value={chatInput}
-                      onChange={setChatInput}
-                      onAttach={() => setAiContextOpen(true)}
-                      onSubmit={() => void runAi()}
-                      placeholder={primaryBuilderAiPlaceholder}
-                      busy={busy}
-                      busyLabel={BUSY_PHASES[busyPhaseIdx]}
-                      attachCount={aiContextMedia.length}
-                      className="min-w-0 flex-1"
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : null}
           </div>
         </main>
+
+        {chatRailOpen && selectedPage ? (
+          <div className="hidden min-h-0 overflow-hidden border-l border-zinc-200 bg-white lg:flex lg:flex-col lg:order-3">
+            {chatRailMode === "threads" ? (
+              <ThreadRailSurface
+                heading="Chats"
+                actions={(
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void createAlternateThread().catch((error) => {
+                          const message = error && typeof error === "object" && "message" in error
+                            ? String((error as any).message)
+                            : "Failed to create thread";
+                          toast.error(message);
+                        });
+                      }}
+                      className="rounded-full px-3 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950"
+                    >
+                      New chat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChatRailMode("chat")}
+                      className="rounded-full px-3 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950"
+                    >
+                      Done
+                    </button>
+                  </div>
+                )}
+                items={(
+                  <>
+                    <div className="rounded-xl bg-zinc-50 px-3 py-2 text-[11px] leading-5 text-zinc-500">
+                      Other-page chats switch the canvas with them so the discussion stays tied to the right page.
+                    </div>
+
+                    {currentPageThreads.length ? (
+                      <div>
+                        <div className="mb-1.5 text-[11px] font-medium text-zinc-400">This page</div>
+                        <div className="space-y-2">
+                          {currentPageThreads.map((thread) => (
+                            <ThreadTransitionCard
+                              key={thread.id}
+                              title={getThreadDisplayTitle(thread, selectedPage.id, pageTitleById.get(thread.pageId || "") || "")}
+                              scopeLabel={getThreadScopeLabel(thread, selectedPage.id, pageTitleById.get(thread.pageId || "") || "")}
+                              meta={formatThreadLastActive(thread.lastMessageAt)}
+                              preview={buildThreadPreview(thread.messages as Array<{ role: string; content: string }>)}
+                              active={thread.id === selectedThreadId}
+                              onClick={() => {
+                                setSelectedThreadId(thread.id);
+                                setChatRailMode("chat");
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {funnelWideThreads.length ? (
+                      <div>
+                        <div className="mb-1.5 text-[11px] font-medium text-zinc-400">Funnel</div>
+                        <div className="space-y-2">
+                          {funnelWideThreads.map((thread) => (
+                            <ThreadTransitionCard
+                              key={thread.id}
+                              title={getThreadDisplayTitle(thread, selectedPage.id, "")}
+                              scopeLabel={getThreadScopeLabel(thread, selectedPage.id, "")}
+                              meta={formatThreadLastActive(thread.lastMessageAt)}
+                              preview={buildThreadPreview(thread.messages as Array<{ role: string; content: string }>)}
+                              active={thread.id === selectedThreadId}
+                              onClick={() => {
+                                setSelectedThreadId(thread.id);
+                                setChatRailMode("chat");
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {otherPageThreads.length ? (
+                      <div>
+                        <div className="mb-1.5 text-[11px] font-medium text-zinc-400">Other pages</div>
+                        <div className="space-y-2">
+                          {otherPageThreads.map((thread) => {
+                            const threadPageTitle = pageTitleById.get(thread.pageId || "") || String((thread.context as Record<string, unknown> | null)?.pageTitle || "").trim();
+                            return (
+                              <ThreadTransitionCard
+                                key={thread.id}
+                                title={getThreadDisplayTitle(thread, selectedPage.id, threadPageTitle)}
+                                scopeLabel={getThreadScopeLabel(thread, selectedPage.id, threadPageTitle)}
+                                meta={formatThreadLastActive(thread.lastMessageAt)}
+                                preview={buildThreadPreview(thread.messages as Array<{ role: string; content: string }>)}
+                                active={thread.id === selectedThreadId}
+                                onClick={() => {
+                                  setSelectedThreadId(thread.id);
+                                  setChatRailMode("chat");
+                                }}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              />
+            ) : (
+              <>
+                <div className="shrink-0 border-b border-zinc-200 bg-white px-4 py-2.5 sm:px-5">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setChatRailMode("threads")}
+                      className="-ml-2 flex min-w-0 flex-1 items-center gap-2 rounded-full px-2 py-1.5 text-left transition hover:bg-zinc-100"
+                    >
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-(--color-brand-blue)" />
+                      <span className="truncate text-sm font-medium text-zinc-950">{selectedThreadDisplayTitle}</span>
+                      <span className="truncate text-[11px] text-zinc-500">{selectedThreadMeta}</span>
+                    </button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void createAlternateThread().catch((error) => {
+                            const message = error && typeof error === "object" && "message" in error
+                              ? String((error as any).message)
+                              : "Failed to create thread";
+                            toast.error(message);
+                          });
+                        }}
+                          className="rounded-full px-3 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950"
+                      >
+                        New chat
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <DirectionWorkbenchPanel
+                  routeLabel={selectedPageRouteLabel}
+                  pageTypeLabel={PAGE_INTENT_TYPE_LABELS[pageIntentProfile.pageType]}
+                  assumption={foundationArtifact?.assumption || null}
+                  pageConversionFocus={pageConversionFocus}
+                  shellFrame={selectedShellFrame
+                    ? {
+                        label: selectedShellFrame.label,
+                        summary: selectedShellFrame.summary,
+                        sectionPlan: selectedShellFrame.sectionPlan,
+                        visualTone: selectedShellFrame.visualTone,
+                        proofModel: selectedShellFrame.proofModel,
+                        ctaRhythm: selectedShellFrame.ctaRhythm,
+                        designDirectives: selectedShellFrame.designDirectives,
+                      }
+                    : null}
+                  sectionPlanItems={sectionPlanItems}
+                  pageGoalUsesDefault={pageGoalUsesDefault}
+                  pageAnatomy={directionPageAnatomy}
+                  thread={selectedPageChatThread}
+                  messages={selectedPageDirectionMessages}
+                  latestCheckpoint={selectedPageLatestAiCheckpoint}
+                  onRestoreLatest={() => void restoreLastAiRun()}
+                  restoreDisabled={Boolean(busy || savingPage || !selectedPageLatestAiCheckpoint)}
+                  busy={busy}
+                  activityLabel={activeBusyLabel}
+                  activityDetail={activeWorkLabel}
+                  embedded
+                  onOpenBrief={() => setBriefPanelOpen(true)}
+                  onAsk={(prompt) => { void runAiChat(prompt); }}
+                  onAttach={() => setAiContextOpen(true)}
+                  onPaste={handleAiContextPaste}
+                  attachCount={aiReferenceCount}
+                  onPrepareDraft={(promptHint, displayPrompt) => {
+                    void runAi(`${composePromptFromIntent("draft")}\n\nStructural redesign instruction:\nTreat this as a structural redesign pass on the current page HTML, not a small patch. Rework section structure, spacing, hierarchy, proof placement, and CTA anchoring wherever needed to satisfy the direction below while preserving only what is clearly working.\n\nDirection for this pass:\n${promptHint}`, { sourceActionPlan: pendingSourceActionPlan, displayPrompt: displayPrompt || promptHint });
+                  }}
+                />
+              </>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );

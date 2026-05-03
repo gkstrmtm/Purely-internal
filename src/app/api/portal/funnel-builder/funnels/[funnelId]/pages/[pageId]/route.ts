@@ -4,12 +4,18 @@ import type { Prisma } from "@prisma/client";
 import {
   getCreditFunnelBuilderSettings,
   getCreditFunnelBuilderSettingsTx,
-  mutateCreditFunnelBuilderSettings,
   mutateCreditFunnelBuilderSettingsTx,
 } from "@/lib/creditFunnelBuilderSettingsStore";
 import { prisma } from "@/lib/db";
 import { coerceBlocksJson } from "@/lib/creditFunnelBlocks";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import {
+  dbHasCreditFunnelEventTable,
+  getCreditFunnelPageMetrics,
+  normalizeCreditFunnelMetaPixelId,
+  readCreditFunnelTrackingSettings,
+  writeFunnelPageCreditFunnelTrackingSettings,
+} from "@/lib/funnelEventTracking";
 import { applyFunnelPageMutations } from "@/lib/funnelPageMutationApplier";
 import { coerceFunnelPageMutations } from "@/lib/funnelPageMutations";
 import { inferFunnelPageIntentProfile, readFunnelPageBrief, writeFunnelPageBrief } from "@/lib/funnelPageIntent";
@@ -20,6 +26,7 @@ import {
   withDraftHtmlSelect,
 } from "@/lib/funnelPageDbCompat";
 import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
+import { validateFunnelPageContract } from "@/lib/funnelPageContract";
 import { createFunnelPageBlockSnapshotUpdate } from "@/lib/funnelPageState";
 
 export const dynamic = "force-dynamic";
@@ -86,13 +93,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     return NextResponse.json({ ok: false, error: "Invalid id" }, { status: 400 });
   }
 
+  const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
+
   const page = await prisma.creditFunnelPage.findFirst({
     where: { id: pageId, funnelId, funnel: { ownerId: auth.session.user.id } },
-    select: { id: true, title: true, editorMode: true, blocksJson: true },
+    select: withDraftHtmlSelect({ id: true, slug: true, title: true, editorMode: true, blocksJson: true, customHtml: true }, hasDraftHtml),
   });
   if (!page) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
-
-  const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
   const settings = await getCreditFunnelBuilderSettings(auth.session.user.id).catch(() => ({}));
   const defaultBookingCalendarId = readFunnelBookingRouting(settings, funnelId)?.calendarId ?? undefined;
 
@@ -127,6 +134,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     : undefined;
   if (wantsBriefUpdate && requestedBriefRaw !== null && requestedBrief === undefined) {
     return NextResponse.json({ ok: false, error: "Invalid brief" }, { status: 400 });
+  }
+
+  const wantsTrackingUpdate = Object.prototype.hasOwnProperty.call(body ?? {}, "metaPixelId");
+  const requestedTrackingRaw = wantsTrackingUpdate ? (body as any).metaPixelId : undefined;
+  const requestedTrackingPixelId = wantsTrackingUpdate
+    ? requestedTrackingRaw === null
+      ? null
+      : normalizeCreditFunnelMetaPixelId(requestedTrackingRaw)
+    : undefined;
+  if (wantsTrackingUpdate && requestedTrackingRaw !== null && !requestedTrackingPixelId) {
+    return NextResponse.json({ ok: false, error: "Invalid Meta pixel id" }, { status: 400 });
   }
 
   const data: any = {};
@@ -195,6 +213,35 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     if (typeof body?.draftHtml !== "string") data.draftHtml = mutationSnapshotUpdate.draftHtml;
   }
 
+  const effectiveEditorMode = typeof data.editorMode === "string" ? data.editorMode : page.editorMode;
+  const shouldValidateManagedLiveUpdate =
+    effectiveEditorMode === "BLOCKS" &&
+    (body?.blocksJson !== undefined || (requestedMutations?.length ?? 0) > 0 || data.editorMode === "BLOCKS");
+
+  if (shouldValidateManagedLiveUpdate) {
+    const validation = validateFunnelPageContract({
+      ...normalizeDraftHtml(page),
+      intentProfile: readFunnelPageBrief(settings, pageId),
+      ...(typeof data.slug === "string" ? { slug: data.slug } : null),
+      ...(typeof data.title === "string" ? { title: data.title } : null),
+      editorMode: effectiveEditorMode,
+      ...(data.blocksJson !== undefined ? { blocksJson: data.blocksJson } : null),
+      ...(typeof data.customHtml === "string" ? { customHtml: data.customHtml } : null),
+      ...(typeof data.draftHtml === "string" ? { draftHtml: data.draftHtml } : null),
+    });
+
+    if (!validation.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `This ${validation.pageType} page is not ready to save live yet.`,
+          issues: validation.issues,
+        },
+        { status: 422 },
+      );
+    }
+  }
+
   const nextData = applyDraftHtmlWriteCompat(data, hasDraftHtml);
 
   const pageSelect = withDraftHtmlSelect({
@@ -217,6 +264,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
         updated: Prisma.CreditFunnelPageGetPayload<{ select: typeof pageSelect }>;
         nextSeo: FunnelPageSeo | null;
         nextBrief: ReturnType<typeof readFunnelPageBrief>;
+        trackingSettings: ReturnType<typeof readCreditFunnelTrackingSettings>;
       }
     | null = null;
 
@@ -234,12 +282,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
           });
 
       let settingsJson = await getCreditFunnelBuilderSettingsTx(tx, auth.session.user.id);
-      if (wantsSeoUpdate || wantsBriefUpdate) {
+      if (wantsSeoUpdate || wantsBriefUpdate || wantsTrackingUpdate) {
         settingsJson = (
           await mutateCreditFunnelBuilderSettingsTx(tx, auth.session.user.id, (current) => {
             let nextJson: any = current;
             if (wantsSeoUpdate) nextJson = writeFunnelPageSeo(nextJson, pageId, (requestedSeo as any) ?? null);
             if (wantsBriefUpdate) nextJson = writeFunnelPageBrief(nextJson, pageId, requestedBrief ?? null);
+            if (wantsTrackingUpdate) {
+              nextJson = writeFunnelPageCreditFunnelTrackingSettings(nextJson, pageId, { metaPixelId: requestedTrackingPixelId });
+            }
             return { next: nextJson, value: nextJson };
           })
         ).dataJson;
@@ -249,6 +300,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
         updated,
         nextSeo: readFunnelPageSeo(settingsJson, pageId),
         nextBrief: readFunnelPageBrief(settingsJson, pageId),
+        trackingSettings: readCreditFunnelTrackingSettings(settingsJson, funnelId, pageId),
       };
     });
   } catch (error) {
@@ -267,9 +319,37 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     throw new Error("Missing page transaction result");
   }
 
-  const { updated, nextSeo, nextBrief } = transactionResult;
+  const { updated, nextSeo, nextBrief, trackingSettings } = transactionResult;
+  const [eventTableReady, pageMetrics] = await Promise.all([
+    dbHasCreditFunnelEventTable(),
+    getCreditFunnelPageMetrics([pageId]),
+  ]);
+  const metrics =
+    pageMetrics.get(pageId) || {
+      page_view: 0,
+      cta_click: 0,
+      form_submitted: 0,
+      booking_created: 0,
+      checkout_started: 0,
+      add_to_cart: 0,
+    };
 
-  return NextResponse.json({ ok: true, page: { ...normalizeDraftHtml(updated), seo: nextSeo, brief: nextBrief }, mutationWarnings });
+  return NextResponse.json({
+    ok: true,
+    page: {
+      ...normalizeDraftHtml(updated),
+      seo: nextSeo,
+      brief: nextBrief,
+      trackingSettings,
+      executionSummary: {
+        trackingReady: eventTableReady,
+        metaPixelReady: Boolean(trackingSettings.resolvedPixelId),
+        metaPixelId: trackingSettings.resolvedPixelId,
+        metrics,
+      },
+    },
+    mutationWarnings,
+  });
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ funnelId: string; pageId: string }> }) {
@@ -298,6 +378,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ funnelId: s
     await mutateCreditFunnelBuilderSettingsTx(tx, auth.session.user.id, (current) => {
       let nextJson = writeFunnelPageSeo(current, pageId, null);
       nextJson = writeFunnelPageBrief(nextJson, pageId, null);
+      nextJson = writeFunnelPageCreditFunnelTrackingSettings(nextJson, pageId, { metaPixelId: null });
       return { next: nextJson, value: true };
     });
 

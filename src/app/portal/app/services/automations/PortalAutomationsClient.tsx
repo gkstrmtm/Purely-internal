@@ -2784,7 +2784,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
       {confirm ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pa-modal-safe-pad"
           onMouseDown={() => {
             if (confirmBusy) return;
             setConfirm(null);
@@ -2840,7 +2840,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       ) : null}
 
       {renameOpen && selectedAutomation ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]" onMouseDown={() => setRenameOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pa-modal-safe-pad" onMouseDown={() => setRenameOpen(false)}>
           <div
             className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
@@ -2907,7 +2907,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       ) : null}
 
       {testOpen && selectedAutomation ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]" onMouseDown={() => setTestOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pa-modal-safe-pad" onMouseDown={() => setTestOpen(false)}>
           <div
             className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
@@ -2991,7 +2991,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       ) : null}
 
       {createTagOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]" onMouseDown={() => setCreateTagOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pa-modal-safe-pad" onMouseDown={() => setCreateTagOpen(false)}>
           <div
             className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
@@ -3116,7 +3116,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
       {libraryOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 pa-modal-safe-pad"
           onMouseDown={() => {
             setLibraryOpen(false);
             setLibraryMenuFor(null);

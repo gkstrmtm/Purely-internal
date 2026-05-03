@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
-  getCreditFunnelBuilderSettings,
   getCreditFunnelBuilderSettingsTx,
-  mutateCreditFunnelBuilderSettings,
   mutateCreditFunnelBuilderSettingsTx,
 } from "@/lib/creditFunnelBuilderSettingsStore";
 import { prisma } from "@/lib/db";
@@ -20,7 +18,14 @@ import {
   readFunnelBookingRouting,
   writeFunnelBookingRouting,
 } from "@/lib/funnelBookingRouting";
+import { resolveFunnelBookingDefaults } from "@/lib/funnelBookingDefaults";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import {
+  normalizeCreditFunnelMetaPixelId,
+  readCreditFunnelTrackingSettings,
+  writeFunnelCreditFunnelTrackingSettings,
+  writeFunnelPageCreditFunnelTrackingSettings,
+} from "@/lib/funnelEventTracking";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -210,7 +215,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
 
   return NextResponse.json({
     ok: true,
-    funnel: { ...funnel, assignedDomain: funnelDomains[funnel.id] ?? null, seo, brief, exhibitArchetypePack, bookingCalendarId: bookingRouting?.calendarId ?? null },
+    funnel: {
+      ...funnel,
+      assignedDomain: funnelDomains[funnel.id] ?? null,
+      seo,
+      brief,
+      exhibitArchetypePack,
+      bookingCalendarId: bookingRouting?.calendarId ?? null,
+      bookingDefaults: resolveFunnelBookingDefaults(bookingRouting ?? null),
+      trackingSettings: readCreditFunnelTrackingSettings(settings?.dataJson ?? null, funnel.id, null),
+    },
   });
 }
 
@@ -268,6 +282,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     return NextResponse.json({ ok: false, error: "Invalid brief" }, { status: 400 });
   }
 
+  const wantsTrackingUpdate = Object.prototype.hasOwnProperty.call(body ?? {}, "metaPixelId");
+  const requestedTrackingRaw = wantsTrackingUpdate ? (body as any).metaPixelId : undefined;
+  const requestedTrackingPixelId = wantsTrackingUpdate
+    ? requestedTrackingRaw === null
+      ? null
+      : normalizeCreditFunnelMetaPixelId(requestedTrackingRaw)
+    : undefined;
+  if (wantsTrackingUpdate && requestedTrackingRaw !== null && !requestedTrackingPixelId) {
+    return NextResponse.json({ ok: false, error: "Invalid Meta pixel id" }, { status: 400 });
+  }
+
   const wantsBookingCalendarUpdate = Object.prototype.hasOwnProperty.call(body ?? {}, "bookingCalendarId");
   const requestedBookingCalendarRaw = wantsBookingCalendarUpdate ? (body as any).bookingCalendarId : undefined;
   const requestedBookingCalendarId =
@@ -277,6 +302,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
   if (wantsBookingCalendarUpdate && requestedBookingCalendarRaw !== null && !requestedBookingCalendarId) {
     return NextResponse.json({ ok: false, error: "Invalid booking calendar" }, { status: 400 });
   }
+
+  const wantsBookingDefaultsUpdate = Object.prototype.hasOwnProperty.call(body ?? {}, "bookingDefaults");
+  const requestedBookingDefaultsRaw = wantsBookingDefaultsUpdate ? (body as any).bookingDefaults : undefined;
+  if (
+    wantsBookingDefaultsUpdate &&
+    requestedBookingDefaultsRaw !== null &&
+    (!requestedBookingDefaultsRaw || typeof requestedBookingDefaultsRaw !== "object" || Array.isArray(requestedBookingDefaultsRaw))
+  ) {
+    return NextResponse.json({ ok: false, error: "Invalid booking defaults" }, { status: 400 });
+  }
+  const requestedBookingDefaults = wantsBookingDefaultsUpdate ? resolveFunnelBookingDefaults(requestedBookingDefaultsRaw ?? null) : undefined;
 
   if (wantsDomainUpdate && requestedDomain) {
     const exists = await prisma.creditCustomDomain.findUnique({
@@ -330,6 +366,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     seo: FunnelSeo | null;
     brief: ReturnType<typeof readFunnelBrief>;
     bookingCalendarId: string | null;
+    bookingDefaults: ReturnType<typeof resolveFunnelBookingDefaults>;
+    trackingSettings: ReturnType<typeof readCreditFunnelTrackingSettings>;
   } | null = null;
   let candidate = desiredSlug;
   for (let i = 0; i < 8; i += 1) {
@@ -351,15 +389,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
       if (!funnel) return null;
 
       let settingsJson = await getCreditFunnelBuilderSettingsTx(tx, auth.session.user.id);
-      if (wantsDomainUpdate || wantsSeoUpdate || wantsBriefUpdate || wantsBookingCalendarUpdate) {
+      if (wantsDomainUpdate || wantsSeoUpdate || wantsBriefUpdate || wantsBookingCalendarUpdate || wantsBookingDefaultsUpdate || wantsTrackingUpdate) {
         settingsJson = (
           await mutateCreditFunnelBuilderSettingsTx(tx, auth.session.user.id, (current) => {
             let nextJson: any = current;
             if (wantsDomainUpdate) nextJson = writeFunnelDomain(nextJson, funnel.id, requestedDomain);
             if (wantsSeoUpdate) nextJson = writeFunnelSeo(nextJson, funnel.id, (requestedSeo as any) ?? null);
             if (wantsBriefUpdate) nextJson = writeFunnelBrief(nextJson, funnel.id, requestedBrief ?? null);
-            if (wantsBookingCalendarUpdate) {
-              nextJson = writeFunnelBookingRouting(nextJson, funnel.id, { calendarId: requestedBookingCalendarId });
+            if (wantsTrackingUpdate) nextJson = writeFunnelCreditFunnelTrackingSettings(nextJson, funnel.id, { metaPixelId: requestedTrackingPixelId });
+            if (wantsBookingCalendarUpdate || wantsBookingDefaultsUpdate) {
+              const existingBookingRouting = readFunnelBookingRouting(nextJson, funnel.id);
+              nextJson = writeFunnelBookingRouting(nextJson, funnel.id, {
+                ...(existingBookingRouting ?? {}),
+                calendarId: wantsBookingCalendarUpdate ? requestedBookingCalendarId : existingBookingRouting?.calendarId ?? null,
+                ...(wantsBookingDefaultsUpdate && requestedBookingDefaults ? requestedBookingDefaults : {}),
+              });
             }
             return { next: nextJson, value: nextJson };
           })
@@ -373,6 +417,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
         seo: readFunnelSeo(settingsJson, funnel.id),
         brief: readFunnelBrief(settingsJson, funnel.id),
         bookingCalendarId: readFunnelBookingRouting(settingsJson, funnel.id)?.calendarId ?? null,
+        bookingDefaults: resolveFunnelBookingDefaults(readFunnelBookingRouting(settingsJson, funnel.id) ?? null),
+        trackingSettings: readCreditFunnelTrackingSettings(settingsJson, funnel.id, null),
       };
     });
 
@@ -391,6 +437,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
       seo: result.seo,
       brief: result.brief,
       bookingCalendarId: result.bookingCalendarId,
+      bookingDefaults: result.bookingDefaults,
+      trackingSettings: result.trackingSettings,
     },
   });
 }
@@ -421,9 +469,11 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ funnelId: s
       nextJson = writeFunnelSeo(nextJson, existing.id, null);
       nextJson = writeFunnelBrief(nextJson, existing.id, null);
       nextJson = writeFunnelExhibitArchetypePack(nextJson, existing.id, null);
+      nextJson = writeFunnelCreditFunnelTrackingSettings(nextJson, existing.id, { metaPixelId: null });
       nextJson = writeFunnelBookingRouting(nextJson, existing.id, null);
       for (const page of existing.pages) {
         nextJson = writeFunnelPageBrief(nextJson, page.id, null);
+        nextJson = writeFunnelPageCreditFunnelTrackingSettings(nextJson, page.id, { metaPixelId: null });
       }
       nextJson = removeFunnelFromDomainRedirects(nextJson, existing.slug);
       return { next: nextJson, value: true };

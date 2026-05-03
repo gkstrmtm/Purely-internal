@@ -58,6 +58,7 @@ export async function generateText({
   history,
   model,
   temperature,
+  responseFormat,
   baseUrlOverride,
   apiKeyOverride,
 }: {
@@ -66,6 +67,7 @@ export async function generateText({
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   model?: string;
   temperature?: number;
+  responseFormat?: "json";
   baseUrlOverride?: string;
   apiKeyOverride?: string;
 }): Promise<string> {
@@ -92,6 +94,7 @@ export async function generateText({
       model: resolvedModel,
       messages,
       temperature: Math.min(2, Math.max(0, typeof temperature === "number" && Number.isFinite(temperature) ? temperature : 0.6)),
+      ...(responseFormat === "json" ? { response_format: { type: "json_object" } } : {}),
     }),
   });
 
@@ -112,6 +115,7 @@ export async function generateTextWithImages({
   history,
   model,
   temperature,
+  responseFormat,
   baseUrlOverride,
   apiKeyOverride,
 }: {
@@ -121,6 +125,7 @@ export async function generateTextWithImages({
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   model?: string;
   temperature?: number;
+  responseFormat?: "json";
   baseUrlOverride?: string;
   apiKeyOverride?: string;
 }): Promise<string> {
@@ -155,6 +160,7 @@ export async function generateTextWithImages({
       model: resolvedModel,
       messages,
       temperature: Math.min(2, Math.max(0, typeof temperature === "number" && Number.isFinite(temperature) ? temperature : 0.6)),
+      ...(responseFormat === "json" ? { response_format: { type: "json_object" } } : {}),
     }),
   });
 

@@ -85,6 +85,7 @@ export async function GET(
       title: cal.title,
       description: cal.description ?? site.description,
       durationMinutes: cal.durationMinutes ?? site.durationMinutes,
+      minimumNoticeMinutes: cal.minimumNoticeMinutes ?? 0,
       timeZone: site.timeZone,
       hostName: site.owner?.name ?? null,
       businessName: hasBusinessName ? ((profile as any)?.businessName ?? null) : null,

@@ -12,6 +12,7 @@ import {
   type FunnelHeaderSize,
 } from "@/components/funnel/FunnelHeaderNav";
 import { SalesCheckoutButton } from "@/components/funnel/SalesCheckoutButton";
+import { SyncedReviewsBlock } from "@/components/funnel/SyncedReviewsBlock";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
 import { appendCreditFunnelTrackingParams } from "@/lib/funnelEventTracking";
@@ -38,6 +39,38 @@ export type BlockStyle = {
 export type ColumnsColumn = {
   markdown: string;
   children?: CreditFunnelBlock[];
+  style?: BlockStyle;
+};
+
+export type TestimonialGridItem = {
+  quote: string;
+  name: string;
+  role?: string;
+  outcome?: string;
+};
+
+export type PricingGridItem = {
+  name: string;
+  price: string;
+  billingPeriod?: string;
+  description?: string;
+  badge?: string;
+  features?: string[];
+  ctaText?: string;
+  ctaHref?: string;
+  priceId?: string;
+  featured?: boolean;
+};
+
+export type SyncedReviewsBlockProps = {
+  eyebrow?: string;
+  heading?: string;
+  intro?: string;
+  limit?: number;
+  minRating?: number;
+  columns?: 1 | 2 | 3;
+  showBusinessReply?: boolean;
+  includePhotos?: boolean;
   style?: BlockStyle;
 };
 
@@ -139,6 +172,35 @@ export type CreditFunnelBlock =
     }
   | {
       id: string;
+      type: "testimonialGrid";
+      props: {
+        eyebrow?: string;
+        heading?: string;
+        intro?: string;
+        items: TestimonialGridItem[];
+        columns?: 1 | 2 | 3;
+        style?: BlockStyle;
+      };
+    }
+  | {
+      id: string;
+      type: "pricingGrid";
+      props: {
+        eyebrow?: string;
+        heading?: string;
+        intro?: string;
+        items: PricingGridItem[];
+        columns?: 1 | 2 | 3;
+        style?: BlockStyle;
+      };
+    }
+  | {
+      id: string;
+      type: "syncedReviews";
+      props: SyncedReviewsBlockProps;
+    }
+  | {
+      id: string;
       type: "button";
       props: {
         text: string;
@@ -220,6 +282,81 @@ export type CreditFunnelBlock =
         rightStyle?: BlockStyle;
       };
     };
+
+function coerceStringList(v: unknown, maxItems: number, maxLen: number): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const items = v
+    .filter((item) => typeof item === "string")
+    .map((item) => String(item).trim())
+    .filter(Boolean)
+    .slice(0, maxItems)
+    .map((item) => item.slice(0, maxLen));
+  return items.length ? items : undefined;
+}
+
+function coerceColumnsCount(v: unknown): 1 | 2 | 3 | undefined {
+  const n = Number(v);
+  if (n === 1 || n === 2 || n === 3) return n;
+  return undefined;
+}
+
+function coerceTestimonialGridItems(v: unknown): TestimonialGridItem[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const items = v
+    .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    .map((entry) => {
+      const rec = entry as Record<string, unknown>;
+      const quote = coerceShortString(rec.quote, 800);
+      const name = coerceShortString(rec.name, 120);
+      const role = coerceShortString(rec.role, 160);
+      const outcome = coerceShortString(rec.outcome, 160);
+      if (!quote || !name) return null;
+      return {
+        quote,
+        name,
+        ...(role ? { role } : {}),
+        ...(outcome ? { outcome } : {}),
+      };
+    })
+    .filter((entry): entry is TestimonialGridItem => Boolean(entry))
+    .slice(0, 6);
+  return items.length ? items : undefined;
+}
+
+function coercePricingGridItems(v: unknown): PricingGridItem[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const items = v
+    .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    .map((entry) => {
+      const rec = entry as Record<string, unknown>;
+      const name = coerceShortString(rec.name, 120);
+      const price = coerceShortString(rec.price, 80);
+      const billingPeriod = coerceShortString(rec.billingPeriod, 80);
+      const description = coerceShortString(rec.description, 240);
+      const badge = coerceShortString(rec.badge, 60);
+      const features = coerceStringList(rec.features, 8, 160);
+      const ctaText = coerceShortString(rec.ctaText, 120);
+      const ctaHref = sanitizeHref(typeof rec.ctaHref === "string" ? rec.ctaHref : undefined);
+      const priceId = coerceShortString(rec.priceId, 140);
+      const featured = coerceBool(rec.featured);
+      if (!name || !price) return null;
+      return {
+        name,
+        price,
+        ...(billingPeriod ? { billingPeriod } : {}),
+        ...(description ? { description } : {}),
+        ...(badge ? { badge } : {}),
+        ...(features ? { features } : {}),
+        ...(ctaText ? { ctaText } : {}),
+        ...(ctaHref ? { ctaHref } : {}),
+        ...(priceId ? { priceId } : {}),
+        ...(featured !== undefined ? { featured } : {}),
+      };
+    })
+    .filter((entry): entry is PricingGridItem => Boolean(entry))
+    .slice(0, 4);
+  return items.length ? items : undefined;
+}
 
 function clampNum(v: unknown, min: number, max: number): number | undefined {
   const n = Number(v);
@@ -890,6 +1027,80 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
       continue;
     }
 
+    if (type === "testimonialGrid") {
+      const eyebrow = coerceShortString((props as any)?.eyebrow, 80);
+      const heading = coerceShortString((props as any)?.heading, 180);
+      const intro = coerceShortString((props as any)?.intro, 400);
+      const items = coerceTestimonialGridItems((props as any)?.items);
+      const columns = coerceColumnsCount((props as any)?.columns);
+      const style = coerceStyle(props?.style);
+      if (!items?.length) continue;
+      out.push({
+        id,
+        type,
+        props: {
+          ...(eyebrow ? { eyebrow } : {}),
+          ...(heading ? { heading } : {}),
+          ...(intro ? { intro } : {}),
+          items,
+          ...(columns ? { columns } : {}),
+          style,
+        },
+      });
+      continue;
+    }
+
+    if (type === "pricingGrid") {
+      const eyebrow = coerceShortString((props as any)?.eyebrow, 80);
+      const heading = coerceShortString((props as any)?.heading, 180);
+      const intro = coerceShortString((props as any)?.intro, 400);
+      const items = coercePricingGridItems((props as any)?.items);
+      const columns = coerceColumnsCount((props as any)?.columns);
+      const style = coerceStyle(props?.style);
+      if (!items?.length) continue;
+      out.push({
+        id,
+        type,
+        props: {
+          ...(eyebrow ? { eyebrow } : {}),
+          ...(heading ? { heading } : {}),
+          ...(intro ? { intro } : {}),
+          items,
+          ...(columns ? { columns } : {}),
+          style,
+        },
+      });
+      continue;
+    }
+
+    if (type === "syncedReviews") {
+      const eyebrow = coerceShortString((props as any)?.eyebrow, 80);
+      const heading = coerceShortString((props as any)?.heading, 180);
+      const intro = coerceShortString((props as any)?.intro, 400);
+      const limit = clampNum((props as any)?.limit, 1, 12);
+      const minRating = clampNum((props as any)?.minRating, 1, 5);
+      const columns = coerceColumnsCount((props as any)?.columns);
+      const showBusinessReply = coerceBool((props as any)?.showBusinessReply);
+      const includePhotos = coerceBool((props as any)?.includePhotos);
+      const style = coerceStyle(props?.style);
+      out.push({
+        id,
+        type,
+        props: {
+          ...(eyebrow ? { eyebrow } : {}),
+          ...(heading ? { heading } : {}),
+          ...(intro ? { intro } : {}),
+          ...(limit !== undefined ? { limit } : {}),
+          ...(minRating !== undefined ? { minRating } : {}),
+          ...(columns ? { columns } : {}),
+          ...(showBusinessReply !== undefined ? { showBusinessReply } : {}),
+          ...(includePhotos !== undefined ? { includePhotos } : {}),
+          style,
+        },
+      });
+      continue;
+    }
+
     if (type === "button") {
       const text =
         typeof props?.text === "string" ? props.text : "Click";
@@ -1205,7 +1416,7 @@ function renderMarkdown(content: string): React.ReactNode {
         return React.createElement(
           "div",
           { key: idx, className: "overflow-hidden rounded-2xl border border-zinc-200" },
-          React.createElement("img", { src: b.src, alt: b.alt, className: "h-auto w-full" }),
+          React.createElement("img", { src: b.src, alt: b.alt, className: "h-auto w-full", loading: "lazy", decoding: "async" }),
         );
       }
       return null;
@@ -1225,6 +1436,8 @@ export function renderCreditFunnelBlocks({
     bookingSiteSlug?: string;
     bookingOwnerId?: string;
     defaultBookingCalendarId?: string;
+    defaultBookingCalendarTitle?: string;
+    bookingCalendarTitleById?: Record<string, string>;
     funnelId?: string;
     funnelPageId?: string;
     funnelSlug?: string;
@@ -1233,6 +1446,7 @@ export function renderCreditFunnelBlocks({
     metaPixelId?: string | null;
     previewDevice?: "desktop" | "mobile";
     previewEmbedMode?: "live" | "placeholder";
+    showBookingState?: boolean;
   };
   editor?: {
     enabled?: boolean;
@@ -1245,6 +1459,7 @@ export function renderCreditFunnelBlocks({
     onUpsertBlock?: (next: CreditFunnelBlock) => void;
     onReorder?: (dragId: string, dropId: string) => void;
     onMove?: (id: string, dir: "up" | "down") => void;
+    onRequestBookingRouting?: (id: string) => void;
     canMove?: (id: string, dir: "up" | "down") => boolean;
   };
 }): React.ReactNode {
@@ -1319,6 +1534,7 @@ export function renderCreditFunnelBlocks({
     subtitle: string;
     detail?: string;
     height: number;
+    preface?: React.ReactNode;
   }) =>
     React.createElement(
       "div",
@@ -1328,6 +1544,7 @@ export function renderCreditFunnelBlocks({
         ...wrapProps(opts.blockId),
       },
       renderMoveControls(opts.blockId),
+      opts.preface,
       React.createElement(
         "div",
         {
@@ -2228,6 +2445,273 @@ export function renderCreditFunnelBlocks({
         );
       }
 
+      if (b.type === "testimonialGrid") {
+        const items = Array.isArray(b.props.items) ? b.props.items : [];
+        if (!items.length) return null;
+        const columns = b.props.columns === 1 || b.props.columns === 2 || b.props.columns === 3 ? b.props.columns : Math.min(3, Math.max(1, items.length));
+        const gridClassName = [
+          "grid gap-4",
+          columns >= 2 ? "md:grid-cols-2" : "",
+          columns >= 3 ? "xl:grid-cols-3" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        return React.createElement(
+          "section",
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
+          renderMoveControls(b.id),
+          b.props.eyebrow
+            ? React.createElement(
+                "div",
+                { className: "text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500" },
+                b.props.eyebrow,
+              )
+            : null,
+          b.props.heading
+            ? React.createElement(
+                "h2",
+                { className: "mt-2 text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl" },
+                b.props.heading,
+              )
+            : null,
+          b.props.intro
+            ? React.createElement(
+                "p",
+                { className: "mt-3 max-w-3xl text-sm leading-7 text-zinc-600 sm:text-base" },
+                b.props.intro,
+              )
+            : null,
+          React.createElement(
+            "div",
+            { className: `${b.props.heading || b.props.intro || b.props.eyebrow ? "mt-6 " : ""}${gridClassName}`.trim() },
+            ...items.map((item, index) =>
+              React.createElement(
+                "figure",
+                {
+                  key: `${b.id}-testimonial-${index}`,
+                  className: "flex h-full flex-col justify-between rounded-[28px] border border-zinc-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.06)]",
+                },
+                item.outcome
+                  ? React.createElement(
+                      "div",
+                      { className: "mb-4 inline-flex w-fit rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700" },
+                      item.outcome,
+                    )
+                  : null,
+                React.createElement(
+                  "blockquote",
+                  { className: "text-base leading-7 text-zinc-700" },
+                  `\u201c${item.quote}\u201d`,
+                ),
+                React.createElement(
+                  "figcaption",
+                  { className: "mt-5 border-t border-zinc-100 pt-4" },
+                  React.createElement("div", { className: "text-sm font-semibold text-zinc-950" }, item.name),
+                  item.role
+                    ? React.createElement("div", { className: "mt-1 text-sm text-zinc-500" }, item.role)
+                    : null,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      if (b.type === "pricingGrid") {
+        const items = Array.isArray(b.props.items) ? b.props.items : [];
+        if (!items.length) return null;
+        const columns = b.props.columns === 1 || b.props.columns === 2 || b.props.columns === 3 ? b.props.columns : Math.min(3, Math.max(1, items.length));
+        const gridClassName = [
+          "grid gap-4",
+          columns >= 2 ? "lg:grid-cols-2" : "",
+          columns >= 3 ? "xl:grid-cols-3" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        return React.createElement(
+          "section",
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
+          renderMoveControls(b.id),
+          b.props.eyebrow
+            ? React.createElement(
+                "div",
+                { className: "text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500" },
+                b.props.eyebrow,
+              )
+            : null,
+          b.props.heading
+            ? React.createElement(
+                "h2",
+                { className: "mt-2 text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl" },
+                b.props.heading,
+              )
+            : null,
+          b.props.intro
+            ? React.createElement(
+                "p",
+                { className: "mt-3 max-w-3xl text-sm leading-7 text-zinc-600 sm:text-base" },
+                b.props.intro,
+              )
+            : null,
+          React.createElement(
+            "div",
+            { className: `${b.props.heading || b.props.intro || b.props.eyebrow ? "mt-6 " : ""}${gridClassName}`.trim() },
+            ...items.map((item, index) => {
+              const ctaText = item.ctaText || (item.priceId ? "Buy now" : item.ctaHref ? "Learn more" : "");
+              return React.createElement(
+                "article",
+                {
+                  key: `${b.id}-pricing-${index}`,
+                  className: [
+                    "flex h-full flex-col rounded-[30px] border p-6",
+                    item.featured
+                      ? "border-zinc-950 bg-zinc-950 text-white shadow-[0_22px_48px_rgba(15,23,42,0.18)]"
+                      : "border-zinc-200 bg-white text-zinc-900 shadow-[0_16px_40px_rgba(15,23,42,0.06)]",
+                  ].join(" "),
+                },
+                item.badge
+                  ? React.createElement(
+                      "div",
+                      {
+                        className: [
+                          "mb-4 inline-flex w-fit rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]",
+                          item.featured
+                            ? "border-white/20 bg-white/10 text-white"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-600",
+                        ].join(" "),
+                      },
+                      item.badge,
+                    )
+                  : null,
+                React.createElement("div", { className: item.featured ? "text-sm font-semibold text-white/78" : "text-sm font-semibold text-zinc-600" }, item.name),
+                React.createElement(
+                  "div",
+                  { className: "mt-3 flex items-end gap-2" },
+                  React.createElement("div", { className: "text-4xl font-semibold tracking-tight" }, item.price),
+                  item.billingPeriod
+                    ? React.createElement("div", { className: item.featured ? "pb-1 text-sm text-white/72" : "pb-1 text-sm text-zinc-500" }, item.billingPeriod)
+                    : null,
+                ),
+                item.description
+                  ? React.createElement("p", { className: item.featured ? "mt-3 text-sm leading-7 text-white/78" : "mt-3 text-sm leading-7 text-zinc-600" }, item.description)
+                  : null,
+                item.features?.length
+                  ? React.createElement(
+                      "ul",
+                      { className: item.featured ? "mt-5 space-y-3 text-sm text-white/88" : "mt-5 space-y-3 text-sm text-zinc-700" },
+                      ...item.features.map((feature: string, featureIndex: number) =>
+                        React.createElement(
+                          "li",
+                          { key: `${b.id}-pricing-${index}-feature-${featureIndex}`, className: "flex items-start gap-3" },
+                          React.createElement(
+                            "span",
+                            {
+                              className: [
+                                "mt-[7px] h-1.5 w-1.5 rounded-full",
+                                item.featured ? "bg-white" : "bg-zinc-900",
+                              ].join(" "),
+                            },
+                          ),
+                          React.createElement("span", null, feature),
+                        ),
+                      ),
+                    )
+                  : null,
+                React.createElement(
+                  "div",
+                  { className: "mt-6" },
+                  item.priceId
+                    ? React.createElement(SalesCheckoutButton, {
+                        pageId: context?.funnelPageId || "",
+                        priceId: item.priceId,
+                        text: ctaText || "Buy now",
+                        className: "w-full",
+                        disabled: !context?.funnelPageId,
+                      })
+                    : item.ctaHref && ctaText
+                      ? React.createElement(
+                          "a",
+                          {
+                            href: item.ctaHref,
+                            className: buttonClass(item.featured ? "primary" : "secondary"),
+                            onClick: isEditor
+                              ? (e: any) => {
+                                  e.preventDefault?.();
+                                  e.stopPropagation?.();
+                                  editor?.onSelectBlockId?.(b.id);
+                                }
+                              : undefined,
+                          },
+                          ctaText,
+                        )
+                      : null,
+                ),
+              );
+            }),
+          ),
+        );
+      }
+
+      if (b.type === "syncedReviews") {
+        return React.createElement(
+          "section",
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
+          renderMoveControls(b.id),
+          b.props.eyebrow
+            ? React.createElement(
+                "div",
+                { className: "text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500" },
+                b.props.eyebrow,
+              )
+            : null,
+          b.props.heading
+            ? React.createElement(
+                "h2",
+                { className: "mt-2 text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl" },
+                b.props.heading,
+              )
+            : null,
+          b.props.intro
+            ? React.createElement(
+                "p",
+                { className: "mt-3 max-w-3xl text-sm leading-7 text-zinc-600 sm:text-base" },
+                b.props.intro,
+              )
+            : null,
+          React.createElement(
+            "div",
+            { className: b.props.heading || b.props.intro || b.props.eyebrow ? "mt-6" : undefined },
+            React.createElement(
+              SafeClientBoundary,
+              { name: "Synced reviews" },
+              React.createElement(SyncedReviewsBlock, {
+                pageId: context?.funnelPageId || null,
+                limit: typeof b.props.limit === "number" ? b.props.limit : 6,
+                minRating: typeof b.props.minRating === "number" ? b.props.minRating : 4,
+                columns: b.props.columns === 1 || b.props.columns === 2 || b.props.columns === 3 ? b.props.columns : 3,
+                showBusinessReply: b.props.showBusinessReply === true,
+                includePhotos: b.props.includePhotos === true,
+                isEditor,
+              }),
+            ),
+          ),
+        );
+      }
+
       if (b.type === "button") {
         const s = b.props.style;
         const wrapper: React.CSSProperties = wrapperStyle({
@@ -2323,6 +2807,8 @@ export function renderCreditFunnelBlocks({
               src: b.props.src,
               alt: b.props.alt || "",
               className: "h-auto w-full",
+              loading: "lazy",
+              decoding: "async",
             }),
           ),
         );
@@ -2582,9 +3068,107 @@ export function renderCreditFunnelBlocks({
       }
 
       if (b.type === "calendarEmbed") {
-        const calendarId = String((b.props as any).calendarId || context?.defaultBookingCalendarId || "").trim();
+          const blockCalendarId = String((b.props as any).calendarId || "").trim();
+          const inheritedCalendarId = String(context?.defaultBookingCalendarId || "").trim();
+          const calendarId = String(blockCalendarId || inheritedCalendarId || "").trim();
+          const showBookingState = Boolean(context?.showBookingState);
+          const calendarTitleById = context?.bookingCalendarTitleById || {};
+          const resolvedCalendarTitle = blockCalendarId
+            ? String(calendarTitleById[blockCalendarId] || blockCalendarId)
+            : inheritedCalendarId
+              ? String(context?.defaultBookingCalendarTitle || calendarTitleById[inheritedCalendarId] || inheritedCalendarId)
+              : "";
+          const bookingRouteLabel = blockCalendarId
+            ? "Linked to this step"
+            : inheritedCalendarId
+              ? "Linked to this funnel"
+              : "Booking placeholder";
+          const bookingRouteTitle = blockCalendarId || inheritedCalendarId
+            ? resolvedCalendarTitle || calendarId
+            : "No calendar is linked to this booking step yet.";
+          const bookingRouteContext = blockCalendarId
+            ? "This step has its own booking calendar."
+            : inheritedCalendarId
+              ? "This step is inheriting the funnel's default calendar."
+              : "This step is still waiting for a funnel or step-specific calendar.";
+          const bookingRouteDetail = blockCalendarId
+            ? "Preview is routed through the calendar pinned directly to this step."
+            : inheritedCalendarId
+              ? "Preview is routed through the funnel-linked calendar for this step."
+              : "Create or attach a calendar and this preview will switch from placeholder to a routed booking state automatically.";
+          const bookingRouteActionLabel = blockCalendarId || inheritedCalendarId
+            ? "Change or configure route"
+            : "Choose or create calendar";
+          const pausedCalendarSubtitle = blockCalendarId
+            ? "Step-specific calendar"
+            : inheritedCalendarId
+              ? "Funnel-linked calendar"
+              : "Booking placeholder";
+          const pausedCalendarDetail = blockCalendarId
+            ? `${resolvedCalendarTitle || "This calendar"} is linked directly to this step. The live booking surface stays paused in editor preview so the routing context stays visible while the canvas remains fast.`
+            : inheritedCalendarId
+              ? `${resolvedCalendarTitle || "This calendar"} is linked at the funnel level, so this step inherits it automatically. The live booking surface stays paused in editor preview so the routing context stays visible while the canvas remains fast.`
+              : "This block is still a booking placeholder with no routed calendar yet. Once you create or attach a calendar, this preview will reflect that route automatically.";
+          const bookingStateCard = showBookingState
+            ? React.createElement(
+                "div",
+                {
+                  className:
+                    blockCalendarId || inheritedCalendarId
+                      ? "mb-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-950"
+                      : "mb-3 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950",
+                },
+                React.createElement(
+                  "div",
+                  {
+                    className: blockCalendarId || inheritedCalendarId
+                      ? "text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700"
+                      : "text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700",
+                  },
+                  bookingRouteLabel,
+                ),
+                React.createElement(
+                  "div",
+                  { className: "mt-1 font-semibold" },
+                  bookingRouteTitle,
+                ),
+                React.createElement(
+                  "div",
+                  { className: "mt-1 text-xs font-medium opacity-80" },
+                  bookingRouteContext,
+                ),
+                React.createElement(
+                  "div",
+                  { className: "mt-2 leading-6 opacity-80" },
+                  bookingRouteDetail,
+                ),
+                editor?.onRequestBookingRouting
+                  ? React.createElement(
+                      "div",
+                      { className: "mt-3 flex items-center justify-start gap-2" },
+                      React.createElement(
+                        "button",
+                        {
+                          type: "button",
+                          "data-funnel-editor-interactive": "true",
+                          onClick: (e: any) => {
+                            e.preventDefault?.();
+                            e.stopPropagation?.();
+                            editor.onRequestBookingRouting?.(b.id);
+                          },
+                          className:
+                            blockCalendarId || inheritedCalendarId
+                              ? "rounded-xl border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100"
+                              : "rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-50",
+                        },
+                        bookingRouteActionLabel,
+                      ),
+                    )
+                  : null,
+              )
+            : null;
         if (!calendarId) {
-          if (!isEditor) return null;
+            if (!isEditor && !showBookingState) return null;
           return React.createElement(
             "div",
             {
@@ -2593,13 +3177,28 @@ export function renderCreditFunnelBlocks({
               ...wrapProps(b.id),
             },
             renderMoveControls(b.id),
+              bookingStateCard,
             React.createElement(
               "div",
               {
                 className:
-                  "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-600",
+                  "rounded-2xl border border-dashed border-amber-300 bg-[linear-gradient(180deg,#fffdf5_0%,#fff7ed_100%)] px-4 py-8 text-center text-sm text-zinc-700",
               },
-              "Calendar embed: pick a calendar on this block or set the funnel booking route in page settings.",
+              React.createElement(
+                "div",
+                { className: "text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700" },
+                "Booking placeholder",
+              ),
+              React.createElement(
+                "div",
+                { className: "mt-2 text-base font-semibold text-zinc-900" },
+                "This booking step is waiting for a calendar route.",
+              ),
+              React.createElement(
+                "div",
+                { className: "mx-auto mt-2 max-w-md leading-6 text-zinc-600" },
+                "Create or attach a funnel calendar and this preview will switch from placeholder to the linked booking route automatically.",
+              ),
             ),
           );
         }
@@ -2639,6 +3238,7 @@ export function renderCreditFunnelBlocks({
               ...wrapProps(b.id),
             },
             renderMoveControls(b.id),
+            bookingStateCard,
             React.createElement(
               "div",
               {
@@ -2656,9 +3256,10 @@ export function renderCreditFunnelBlocks({
             style: (b.props as any).style,
             blockId: b.id,
             title: "Calendar embed",
-            subtitle: `Calendar ${calendarId}`,
-            detail: "The booking calendar is paused in editor preview so mobile framing stays accurate and the builder remains usable on slower connections.",
+            subtitle: pausedCalendarSubtitle,
+            detail: pausedCalendarDetail,
             height: effectiveHeight,
+            preface: bookingStateCard,
           });
         }
 
@@ -2670,6 +3271,7 @@ export function renderCreditFunnelBlocks({
             ...wrapProps(b.id),
           },
           renderMoveControls(b.id),
+          bookingStateCard,
           isEditor
             ? React.createElement(
                 "div",

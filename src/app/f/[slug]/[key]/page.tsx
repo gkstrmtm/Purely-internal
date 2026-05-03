@@ -121,9 +121,10 @@ function injectHostedRuntimeScripts(
   return `${html}${script}`;
 }
 
-async function fetchFunnel(slug: string, key: string) {
+async function fetchHostedFunnelRoute(slug: string, key: string, pageSlug?: string | null) {
   const s = String(slug || "").trim().toLowerCase();
   const k = String(key || "").trim();
+  const requestedPageSlug = String(pageSlug || "").trim().toLowerCase();
   if (!s || !k) return null;
 
   const funnel = await prisma.creditFunnel
@@ -133,11 +134,17 @@ async function fetchFunnel(slug: string, key: string) {
         id: true,
         ownerId: true,
         slug: true,
-        pages: {
-          orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-          take: 1,
-          select: { id: true, slug: true, title: true, contentMarkdown: true, editorMode: true, blocksJson: true, customHtml: true },
-        },
+        pages: requestedPageSlug
+          ? {
+              where: { slug: { equals: requestedPageSlug, mode: "insensitive" } },
+              take: 1,
+              select: { id: true, slug: true, title: true, contentMarkdown: true, editorMode: true, blocksJson: true, customHtml: true },
+            }
+          : {
+              orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+              take: 1,
+              select: { id: true, slug: true, title: true, contentMarkdown: true, editorMode: true, blocksJson: true, customHtml: true },
+            },
       },
     })
     .catch(() => null);
@@ -147,12 +154,14 @@ async function fetchFunnel(slug: string, key: string) {
   // The DB lookup uses `endsWith` but we also validate the derived key for safety.
   if (publicKeyFromId(funnel.id, k.length) !== k) return null;
 
+  const page = funnel.pages[0] || null;
+  if (requestedPageSlug && !page) return null;
+
   const settings = await prisma.creditFunnelBuilderSettings
     .findUnique({ where: { ownerId: funnel.ownerId }, select: { dataJson: true } })
     .catch(() => null);
 
   const seoSettings = readFunnelSeo(settings?.dataJson ?? null, funnel.id);
-  const page = funnel.pages[0] || null;
   const renderState = resolveFunnelPageRenderState(page, "published");
   const templateVars = funnel.ownerId ? await getBusinessProfileTemplateVars(funnel.ownerId).catch(() => ({})) : {};
   const renderedCustomHtml =
@@ -184,7 +193,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string; key: string }>;
 }): Promise<Metadata> {
   const { slug, key } = await params;
-  const loaded = await fetchFunnel(slug, key);
+  const loaded = await fetchHostedFunnelRoute(slug, key);
   if (!loaded) return {};
 
   const { page, seo } = loaded;
@@ -205,18 +214,14 @@ export async function generateMetadata({
   };
 }
 
-export default async function HostedFunnelWithKeyPage({
-  params,
-}: {
-  params: Promise<{ slug: string; key: string }>;
+async function renderHostedFunnelRoute(opts: {
+  loaded: NonNullable<Awaited<ReturnType<typeof fetchHostedFunnelRoute>>>;
+  slug: string;
+  key: string;
 }) {
-  const { slug, key } = await params;
+  const { loaded, slug, key } = opts;
   const s = String(slug || "").trim().toLowerCase();
   const k = String(key || "").trim();
-  if (!s || !k) notFound();
-
-  const loaded = await fetchFunnel(s, k);
-  if (!loaded) notFound();
   const { funnel, page, renderedCustomHtml, renderState, tracking, defaultBookingCalendarId } = loaded;
   const markdownBlocks = renderState.kind === "markdown" ? parseBlogContent(renderState.markdown) : [];
 
@@ -334,4 +339,20 @@ export default async function HostedFunnelWithKeyPage({
       ) : null}
     </main>
   );
+}
+
+export default async function HostedFunnelWithKeyPage({
+  params,
+}: {
+  params: Promise<{ slug: string; key: string }>;
+}) {
+  const { slug, key } = await params;
+  const s = String(slug || "").trim().toLowerCase();
+  const k = String(key || "").trim();
+  if (!s || !k) notFound();
+
+  const loaded = await fetchHostedFunnelRoute(s, k);
+  if (!loaded) notFound();
+
+  return renderHostedFunnelRoute({ loaded, slug: s, key: k });
 }

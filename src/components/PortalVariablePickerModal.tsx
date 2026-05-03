@@ -268,7 +268,7 @@ export function PortalVariablePickerModal(props: {
       <div
         className={classNames(
           "fixed inset-0 z-(--pa-variable-picker-z,8110) flex items-start justify-center px-4",
-          "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
+          "pa-modal-safe-pad",
           "sm:items-center",
         )}
         aria-modal

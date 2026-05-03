@@ -41,7 +41,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
     ok: true,
     funnel,
     pack,
-    seedPrompt: buildExhibitArchetypeSeedPrompt(),
+    seedPrompt: buildExhibitArchetypeSeedPrompt({
+      funnelName: funnel.name,
+      routeLabel: `/${funnel.slug}`,
+    }),
   });
 }
 
@@ -70,7 +73,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const businessContext = await getBusinessProfileAiContext(auth.session.user.id).catch(() => "");
   const prompt = cleanText(body?.prompt, 2400);
 
-  const { pack, promptUsed } = await fetchFunnelExhibitArchetypePack({
+  const { pack, promptUsed, diagnostics } = await fetchFunnelExhibitArchetypePack({
     prompt,
     funnelName: funnel.name,
     routeLabel: `/${funnel.slug}`,
@@ -86,5 +89,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     value: true,
   }));
 
-  return NextResponse.json({ ok: true, funnel, pack, promptUsed });
+  return NextResponse.json({ ok: true, funnel, pack, promptUsed, diagnostics });
 }

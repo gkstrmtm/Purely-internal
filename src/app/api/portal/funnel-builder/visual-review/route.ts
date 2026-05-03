@@ -120,6 +120,37 @@ function countPatternMatches(value: string, pattern: RegExp) {
   return (String(value || "").match(pattern) || []).length;
 }
 
+function buildBookingCtaAudit(html: string) {
+  const source = String(html || "");
+  const openingSlice = source.slice(0, Math.max(1400, Math.floor(source.length * 0.22)));
+  const openingActions = countPatternMatches(openingSlice, /<(a|button)\b/gi);
+  const bookingActionLabels = countPatternMatches(
+    openingSlice,
+    /\b(book a call|book now|schedule|schedule now|schedule a call|request a consultation|apply now|start application)\b/gi,
+  );
+  const competingActionLabels = countPatternMatches(
+    openingSlice,
+    /\b(learn more|see how|view details|read more|explore|watch demo|get started)\b/gi,
+  );
+  const primaryHintInAction = /<(a|button)\b[^>]*(class|id|data-[^=]+)=['"][^'"]*(cta|primary|book|schedule|apply)[^'"]*['"]/i.test(
+    openingSlice,
+  );
+  const primaryStyleHint =
+    /\.(?:cta|button|btn|link)[-_a-z0-9]*(primary|book|schedule|apply)[^{]*\{[^}]*?(background\s*:|box-shadow\s*:|font-weight\s*:\s*(?:700|800)|border-radius\s*:\s*999)/i.test(
+      source,
+    ) ||
+    /<(a|button)\b[^>]*style=['"][^'"]*(background\s*:|box-shadow\s*:|font-weight\s*:\s*(?:700|800)|border-radius\s*:\s*999)/i.test(
+      openingSlice,
+    );
+
+  return {
+    openingActions,
+    bookingActionLabels,
+    competingActionLabels,
+    primaryDominanceLikely: primaryHintInAction || primaryStyleHint,
+  };
+}
+
 function isNarrowRepairPrompt(prompt: string) {
   const text = String(prompt || "");
   return /(fix|stop|keep|move|reduce|tighten|correct|repair).*(overlap|padding|button|header|spacing|margin|cover|collision)|overlap with the header|keep the button inside|stop it from covering/i.test(
@@ -147,6 +178,7 @@ function buildSceneWatchouts(input: {
     input.html,
   );
   const usesSinglePath = ["booking", "application", "lead-capture"].includes(input.pageType);
+  const bookingCtaAudit = input.pageType === "booking" ? buildBookingCtaAudit(input.html) : null;
 
   for (const check of input.quality.pageQualityChecks) {
     if (check.tone === "good") continue;
@@ -180,6 +212,22 @@ function buildSceneWatchouts(input: {
   }
   if (usesSinglePath && input.anatomy.sections >= 2 && input.anatomy.layoutBlocks >= 3 && input.anatomy.actions <= 1) {
     warnings.push("The reading path is clearer now, but the booking flow still needs a calmer single-column close with reassurance stacked directly around the ask.");
+  }
+  if (
+    input.pageType === "booking" &&
+    bookingCtaAudit &&
+    bookingCtaAudit.bookingActionLabels >= 1 &&
+    !bookingCtaAudit.primaryDominanceLikely
+  ) {
+    warnings.push("The primary CTA is present, but it still lacks a clearly dominant treatment. Give the main booking ask stronger contrast, size, or containment than anything around it.");
+  }
+  if (
+    input.pageType === "booking" &&
+    bookingCtaAudit &&
+    bookingCtaAudit.openingActions >= 2 &&
+    bookingCtaAudit.competingActionLabels >= 1
+  ) {
+    warnings.push("The first screen is splitting attention across multiple actions. Demote exploratory links so the booking CTA remains the obvious next step.");
   }
   if (premiumTone && input.anatomy.layoutBlocks <= 1 && /restrained-character/i.test(input.visualWhyBlock)) {
     warnings.push("Character is still doing too little work; introduce one restrained contrast beat instead of keeping every band at the same visual temperature.");
@@ -218,10 +266,26 @@ function buildReviewSummary(warnings: string[], strengths: string[], surface: "s
   return `Background visual review flagged ${first.toLowerCase()}${second}${strengthLead}`.trim();
 }
 
+function isSoftVisualSuggestion(warning: string) {
+  const text = String(warning || "").trim().toLowerCase();
+  if (!text) return false;
+  if (/(overlap|collid|cover|covering|hidden|missing|blank|broken|error|failed|illegible|off-screen|cut off|cropped|unusable|not visible)/.test(text)) {
+    return false;
+  }
+  const hedged = /(could benefit|would benefit|could be more|would be more|could be positioned|could be stronger|would feel stronger|slightly|a bit more)/.test(
+    text,
+  );
+  if (!hedged) return false;
+  return /(cta|contrast|prominence|dominance|stand out|visual prominence|visual contrast|proof|trust|reading path|user flow|distractions|streamlined)/.test(
+    text,
+  );
+}
+
 async function runPreviewImageCritique(input: {
   prompt: string;
   surface: "structure" | "source";
   pageType: string;
+  primaryCta: string;
   routeLabel: string;
   shellFrameLabel: string;
   visualWhyBlock: string;
@@ -235,6 +299,7 @@ async function runPreviewImageCritique(input: {
     "Use concise, concrete design language grounded in what is visibly true in the screenshot.",
     "Do not echo the user's prompt.",
     "Warnings should describe visible hierarchy, proof, spacing, overlap, CTA support, or visual character problems.",
+    "For booking, application, and lead-capture pages, judge the first-screen CTA before anything else. If the main ask does not visibly outrank nearby links or buttons by contrast, size, or containment, warn explicitly about CTA dominance.",
     "Strengths should only mention visibly resolved qualities.",
     "If the screenshot is blank, mostly blank, clearly failed, placeholder-heavy, error-like, or not visually usable for design critique, set renderAdequate to false and return an empty summary, warnings, and strengths.",
     "Maximum 3 warnings and 2 strengths.",
@@ -243,6 +308,7 @@ async function runPreviewImageCritique(input: {
   const user = [
     `Surface: ${input.surface}`,
     `Page type: ${input.pageType}`,
+    `Primary CTA target: ${input.primaryCta}`,
     `Route: ${input.routeLabel}`,
     `Shell posture: ${input.shellFrameLabel}`,
     `Original request: ${input.prompt}`,
@@ -313,6 +379,11 @@ export async function POST(req: Request) {
     frameId: intentProfile.shellFrameId,
     pageType: intentProfile.pageType,
     formStrategy: intentProfile.formStrategy,
+    audience: intentProfile.audience,
+    offer: intentProfile.offer,
+    companyContext: intentProfile.companyContext,
+    pageGoal: intentProfile.pageGoal,
+    primaryCta: intentProfile.primaryCta,
   });
   const routeLabel = buildFunnelPageRouteLabel(page.funnel.slug, page.slug);
   const storedExhibitArchetypePack = readFunnelExhibitArchetypePack(settings?.dataJson ?? null, page.funnel.id);
@@ -357,6 +428,7 @@ export async function POST(req: Request) {
         prompt: body.prompt,
         surface: body.surface,
         pageType: intentProfile.pageType,
+        primaryCta: intentProfile.primaryCta || "Primary CTA not specified",
         routeLabel,
         shellFrameLabel: shellFrame?.label || "Not resolved",
         visualWhyBlock,
@@ -365,7 +437,8 @@ export async function POST(req: Request) {
         previewImageDataUrl: body.previewImageDataUrl,
       });
       if (visualCritique.renderAdequate) {
-        mergedWarnings = Array.from(new Set([...visualCritique.warnings, ...warnings])).slice(0, 4);
+        const critiqueWarnings = visualCritique.warnings.filter((warning) => !isSoftVisualSuggestion(warning));
+        mergedWarnings = Array.from(new Set([...critiqueWarnings, ...warnings])).slice(0, 4);
         mergedStrengths = Array.from(new Set([...visualCritique.strengths, ...strengths])).slice(0, 3);
         summary = visualCritique.summary || buildReviewSummary(mergedWarnings, mergedStrengths, body.surface);
         visualReviewed = Boolean(visualCritique.summary || visualCritique.warnings.length || visualCritique.strengths.length);

@@ -4,6 +4,10 @@ Internal ops dashboard for dialers/closers/managers: leads, calls, appointments,
 
 This repo now also includes a public marketing landing page at `/` with a demo request form and a public booking flow.
 
+## Platform docs
+
+- Platform guide: `docs/platform-guide/README.md`
+
 ## Purely Connect (video meetings)
 
 - Landing: `/connect`

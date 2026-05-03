@@ -607,7 +607,7 @@ function buildFallbackNewsletterOpening(opts: { audienceHint?: string | null; re
   const audience = String(opts.audienceHint || "business owners").trim() || "business owners";
   const goal = String(opts.rewriteGoal || "speaks directly to readers who want more revenue from existing demand").trim();
   return [
-    `${audience} do not need more generic marketing ideas—they need a clearer way to turn the demand they already have into higher-value revenue opportunities. This newsletter opens with a direct promise about using educational follow-up to move existing interest toward stronger conversations and better outcomes.`,
+    `${audience} do not need more generic marketing ideas - they need a clearer way to turn the demand they already have into higher-value revenue opportunities. This newsletter opens with a direct promise about using educational follow-up to move existing interest toward stronger conversations and better outcomes.`,
     `The focus here is practical and revenue-minded: ${goal.charAt(0).toLowerCase()}${goal.slice(1)}. Instead of chasing only net-new demand, the message centers on helping owners get more value from the leads, tune-ups, and buying signals already in motion.`,
   ].join("\n\n");
 }
@@ -4853,7 +4853,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           ]);
           const funnelLabel = String(funnelRecord?.name || funnelRecord?.slug || "this funnel").trim() || "this funnel";
           const pageLabel = String(pageRecord?.title || pageRecord?.slug || "this page").trim() || "this page";
-          const anchorAssistantText = `Got it — I’ll stay on the Funnel Builder editor for “${funnelLabel}” and use the exact page “${pageLabel}” for the next changes.\n\n${formatAssistantMarkdownLink("Open Funnel Builder", funnelEditorAnchor.canvasUrl)}`;
+          const anchorAssistantText = `Got it - I'll stay on the Funnel Builder editor for "${funnelLabel}" and use the exact page "${pageLabel}" for the next changes.\n\n${formatAssistantMarkdownLink("Open Funnel Builder", funnelEditorAnchor.canvasUrl)}`;
           const anchorResponse = await finalizePreflightResponse({
             exec: {
               ok: true,

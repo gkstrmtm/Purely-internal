@@ -4,71 +4,115 @@ Use this in a new chat with the `Full Force Redesign` agent.
 
 ## Prompt
 
-I need you to redesign the funnel builder's `Recent saved changes` sidebar module as a full information-model and UX problem, not as a local styling patch.
+I need you to treat the funnel builder as a full product-system problem, not a local UI patch.
 
-Target the owning surface in `src/app/portal/app/services/funnel-builder/funnels/[funnelId]/edit/FunnelEditorClient.tsx`.
+Primary target:
 
-This is the actual problem:
+- `src/app/portal/app/services/funnel-builder/funnels/[funnelId]/edit/FunnelEditorClient.tsx`
 
-- The sidebar has been too request-driven instead of change-driven.
-- It has been repeating the user's prompt or prompt-derived text instead of primarily showing what actually changed.
-- It has been too bulky, too noisy, and too visually insistent.
-- The design should be sleeker, more compressed, and more editorial.
-- The most important thing is fast comprehension of progress: what changed, whether anything was saved, when it happened, and what someone can do next.
+Reference inputs:
 
-What I do **not** want:
+- Live page: `https://shop.home2smart.com/bundles`
+- Reference repo: `https://github.com/gkstrmtm/h2s-bundles-workspace`
 
-- no full prompt echo in the recent-saved-changes sidebar
-- no prompt-derived fallback copy unless there is absolutely no better outcome data
-- no bulky cards
-- no decorative color blocking
-- no generic timeline UI
-- no repetitive status + detail + request text all saying the same thing
+Important constraint:
 
-What I **do** want:
+- Use the Home2Smart links strictly as reference material.
+- Do not clone, pull, vendor, or directly port code.
+- Do not cargo-cult their implementation details.
+- Use it to benchmark what “precise, high-converting, production-ready page generation and booking UX” should feel like.
 
-- an outcome-first recent-changes module
-- concise entries that tell me what actually happened
-- strong hierarchy with less visual weight
-- a clear distinction between:
-  - saved change
-  - no new saved result
-  - needs input
-  - restored version
-- a sidebar that helps a user understand progress quickly without rereading their own request
+What I want from you:
 
-You must audit the whole surface before editing, including:
+I want a serious audit of what is keeping our funnel builder from being a 10/10 system for generating pages that are:
 
-- the main recent-saved-changes cards in the Activity rail
-- the selected custom-code block's recent-saved-changes section
-- helper functions that build labels, headlines, detail text, and fallbacks
-- any tooltips, titles, or hidden metadata that may still leak the prompt
-- any summary area that still says `Latest request` or otherwise frames the UI around the request instead of the saved result
+- visually precise
+- conversion-aware
+- structurally strong
+- technically performant
+- capable of richer design elements
+- capable of robust booking / scheduling flows
+- easy and fluid for a user to create, refine, and iterate inside the builder
 
-Use the full-surface redesign approach, not incremental patching.
+Use the Home2Smart bundles page as a benchmark for the level of polish and operational completeness we should be able to support, especially around:
 
-Specific context from prior work:
+- above-the-fold clarity and CTA structure
+- package / offer presentation
+- proof placement and trust sequencing
+- booking and scheduling flow sophistication
+- pricing clarity
+- motion, responsiveness, and perceived smoothness
+- defer loading / lazy loading / reduced waterfall behavior
+- rendering resilience and placeholder strategy
+- capability to support rich commercial sections without the builder fighting the user
 
-- A custom workspace agent exists at `.github/agents/full-force-redesign.agent.md` and is intended for this exact kind of task.
-- Prior work already attempted to simplify the cards, but the failure mode was not fully conceptual: prompt-derived content leaked through secondary paths.
-- The user explicitly wants the sidebar to summarize the changes and what happened, not reprint the request.
-- The user explicitly rejected designs that got bulkier or louder.
+The point is not to copy that page.
+
+The point is to identify the missing capabilities, workflow friction, architectural gaps, editor-model limits, design-system weaknesses, performance constraints, and product UX problems in our funnel builder that prevent us from reliably producing pages at or above that level.
+
+What you should specifically study from the Home2Smart reference:
+
+- the overall precision of the landing page composition
+- the way proof, reviews, and guarantees support conversion without clutter
+- the package grid / offer framing
+- the booking intent path and how the page supports action decisively
+- the signs of performance discipline, such as aggregated data loading, deferred logic, skeletons/placeholders, and lazy secondary work
+- the fact that the page appears built to handle real commercial complexity instead of just rendering static marketing blocks
+
+Useful reference details already observed from the Home2Smart page/repo:
+
+- hero with immediate CTA split and proof support
+- recent-install proof rails and trust sections
+- package grid with clear pricing and inclusions
+- aggregated data endpoint instead of obvious front-end waterfalls
+- deferred and lazy-loaded secondary logic
+- placeholder structure to avoid layout shift in dynamic review areas
+- cart / booking / promo / checkout style flows backed by real API paths
+- recommendation / bundle-swap logic that goes beyond static brochure content
 
 Your job now:
 
-1. map the full recent-saved-changes information flow in the owning module
-2. identify every place prompt text or request-framing still leaks through
-3. redesign the whole module around outcome, saved state, time, and next action
-4. implement the redesign coherently across duplicate render paths
-5. validate the edited slice
+1. inspect the current funnel builder as a whole product surface, not just one panel
+2. compare its actual generation, editing, design, and conversion capabilities against the level implied by the Home2Smart bundles reference
+3. identify every major blocker that keeps the builder from reliably producing pages with that level of polish, richness, and booking-flow competence
+4. separate the problems into categories such as:
+   - builder UX friction
+   - page model / content model limitations
+   - design-system / styling limitations
+   - AI generation gaps
+   - proof / offer / pricing / CTA composition gaps
+   - booking-flow capability gaps
+   - performance / loading / rendering architecture gaps
+   - workflow friction for users trying to create or refine complex pages
+5. call out where the builder currently nudges users toward weak, generic, flat, or brittle outputs
+6. call out where the builder makes sophisticated pages too hard to create, too hard to revise, or too easy to break
+7. propose the right redesign direction for the system so it can support best-in-class funnel creation with an easy, free-flowing user workflow
 
-Acceptance criteria:
+Deliverables I want in the response:
 
-- the visible recent-saved-changes surfaces do not restate the full user prompt
-- hover/tooltips/titles do not leak the full prompt either
-- the UI feels slimmer and easier to scan than before
-- the cards primarily communicate result, not request
-- duplicate render paths feel aligned
-- TypeScript and local diagnostics pass
+1. a blunt audit of the pain points and missing capabilities
+2. the highest-leverage structural changes needed in the builder
+3. the highest-leverage workflow changes needed for the user experience
+4. the highest-leverage generation and rendering changes needed for page quality
+5. the highest-leverage performance and deferred-loading changes needed for serious production pages
+6. a prioritized roadmap of what should be fixed first vs later
 
-If you find yourself making a small visual tweak without first fixing the information model, stop and widen the redesign.
+Important framing:
+
+- Do not reduce this to “make it prettier.”
+- Do not reduce this to one page template.
+- Do not stay at the level of generic advice.
+- Do not give me soft product-language fluff.
+- Point directly at the real constraints in our builder that are holding page quality back.
+- If the current editor model, generation model, or page schema is too weak, say so plainly.
+- If the workflow is too fragmented, too technical, too rigid, or too patchy, say so plainly.
+- If performance architecture would break under richer page experiences, say so plainly.
+
+What good looks like:
+
+- the audit should make it obvious why our current builder is or is not capable of matching and beating that level of page
+- the findings should connect concrete builder pain to concrete output weakness
+- the redesign direction should feel like a whole-system answer, not scattered local fixes
+- the end result should push us toward a funnel builder that can generate better-than-Home2Smart pages with less friction and more control
+
+If you need to inspect the external references, do so through available web/repo inspection only. Again: no cloning, no pulling, no direct code import.

@@ -16,6 +16,20 @@ This system should generate first drafts that feel intentional, elevated, and co
 3. The shell should give the user something strong enough to iterate from immediately.
 4. The page must feel conversion-aware from the first draft, not just visually cleaner.
 
+## Adaptive Sophistication
+
+1. Default toward a sophisticated, intentional result even when user direction is partial.
+2. The exact posture should adapt to the business, audience, offer, page type, and latest user direction rather than forcing one house aesthetic.
+3. Sophistication should come primarily from hierarchy, spacing, proof staging, CTA centrality, and restraint before decorative flourishes.
+4. A booking page, lead page, sales page, or application page should each feel purpose-built for that business instead of sharing one flattened visual formula.
+
+## Performance Discipline
+
+1. Stronger visual ambition is desirable only while first-screen clarity, loading discipline, and interaction speed remain intact.
+2. Non-critical media should stay defer-friendly by default.
+3. Above-the-fold imagery, video, or richer visual treatments should be promoted intentionally only when they materially improve the conversion moment.
+4. Premium output should not regress into heavy-by-default output.
+
 ## Brand Restraint
 
 1. Stored company colors are selective accents by default, not full-page styling instructions.
@@ -44,3 +58,5 @@ This system should generate first drafts that feel intentional, elevated, and co
 3. A sales page should immediately read like a premium proof-driven offer surface.
 4. Brand use should remain calm even when the business palette is loud.
 5. The user should need less typing to reach a strong first draft.
+6. Two businesses in the same page category should still be able to land on different but equally intentional design postures.
+7. Richer designs should preserve defer-friendly media behavior unless a specific above-the-fold asset clearly deserves priority.

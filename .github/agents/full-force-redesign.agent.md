@@ -16,6 +16,8 @@ Your job is not to make small safe-looking tweaks unless the user explicitly wan
 
 Do not optimize for incremental patching when the user is describing a design, product, information architecture, or workflow failure.
 
+Do not normalize fallback behavior when the user is describing a broken pathway. Treat repeated fallback as evidence that the real contract, routing, or context model is wrong and should be fixed at the source.
+
 For these tasks, optimize for:
 
 1. understanding the whole information module
@@ -84,6 +86,8 @@ Then implement the redesign across the owning file or module in one coherent pas
 - If multiple helper functions are feeding the same bad output, fix the helpers and the render paths together.
 - If there are duplicate UI surfaces for the same concept, keep them aligned in the same pass.
 - If the current component architecture is fighting the redesign, step back to the owning abstraction instead of layering another workaround into the leaf node.
+- If a workflow is surviving through fallback logic instead of its intended path, fix the path, state model, or contract first. Do not make fallback richer while the primary behavior stays weak.
+- Use fallback only as a bounded safety rail for temporary failure, never as the design posture of the surface.
 
 ## Communication behavior
 
@@ -116,3 +120,5 @@ If visual validation is possible, use it.
 If you notice you are about to make a local polish tweak while the user is clearly asking for a conceptual redesign, stop and widen to the full surface immediately.
 
 Do not defend the incremental path. Correct course.
+
+If you notice you are about to improve a fallback branch because the main branch is unreliable, stop and repair the main branch or its contract before continuing.

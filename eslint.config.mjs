@@ -9,6 +9,13 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    ".next-dev/**",
+    ".next-dev-*/**",
+    ".next-dev*/**",
+    "**/.next/**",
+    "**/.next-dev/**",
+    "**/.next-dev-*/**",
+    "**/.next-dev*/**",
     "out/**",
     "build/**",
     "mobile-app/**",
@@ -34,6 +41,21 @@ const eslintConfig = defineConfig([
     files: ["scripts/**/*.js"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+
+  // Temporary repro and audit probes under /tmp also use CommonJS.
+  {
+    files: ["tmp/**/*.cjs", "tmp*.cjs"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+
+  {
+    files: ["**/FunnelEditorClient.tsx"],
+    rules: {
+      "react/no-unescaped-entities": "off",
     },
   },
 

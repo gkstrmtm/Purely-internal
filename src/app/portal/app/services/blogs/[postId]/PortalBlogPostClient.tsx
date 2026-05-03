@@ -1036,7 +1036,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
       {confirmKind ? (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 px-4 pa-modal-safe-pad"
           role="dialog"
           aria-modal="true"
           onMouseDown={() => setConfirmKind(null)}

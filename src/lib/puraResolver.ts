@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { generatePuraText as generateText } from "@/lib/puraAi";
-import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { ensureEnabledBookingCalendar, getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { createOwnerContactTag } from "@/lib/portalContactTags";
 import { normalizeSmsPeerKey } from "@/lib/portalInbox";
@@ -3247,7 +3247,8 @@ async function resolveBookingCalendarId(opts: {
   if (!enabled.length) {
     return {
       kind: "not_found",
-      question: "I can embed a booking calendar, but you don’t have any enabled booking calendars configured yet.",
+      question:
+        "I can add a booking calendar, but this account does not have one linked yet. Tell me the calendar name you want to create, or create and link one first.",
     };
   }
 

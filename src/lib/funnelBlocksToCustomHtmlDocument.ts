@@ -92,6 +92,10 @@ export function blocksToCustomHtmlDocument(opts: {
       for (const b of arr) {
         if (!b || typeof b !== "object") continue;
         if (b.type === "addToCartButton" || b.type === "salesCheckoutButton" || b.type === "cartButton") return true;
+        if (b.type === "pricingGrid") {
+          const items: any[] = Array.isArray((b.props as any)?.items) ? ((b.props as any).items as any[]) : [];
+          if (items.some((item) => item && typeof item === "object" && String((item as any).priceId || "").trim())) return true;
+        }
         if (b.type === "section") {
           const p: any = b.props as any;
           if (walk(coerceBlockChildren(p?.children))) return true;
@@ -102,6 +106,29 @@ export function blocksToCustomHtmlDocument(opts: {
           const cols: any[] = Array.isArray((b.props as any)?.columns) ? ((b.props as any).columns as any[]) : [];
           for (const c of cols) {
             if (c && walk(coerceBlockChildren((c as any).children))) return true;
+          }
+        }
+      }
+      return false;
+    };
+    return walk(blocks);
+  })();
+
+  const hasSyncedReviews = (() => {
+    const walk = (arr: CreditFunnelBlock[]): boolean => {
+      for (const b of arr) {
+        if (!b || typeof b !== "object") continue;
+        if (b.type === "syncedReviews") return true;
+        if (b.type === "section") {
+          const p: any = b.props as any;
+          if (walk(coerceBlockChildren(p?.children))) return true;
+          if (walk(coerceBlockChildren(p?.leftChildren))) return true;
+          if (walk(coerceBlockChildren(p?.rightChildren))) return true;
+        }
+        if (b.type === "columns") {
+          const cols: any[] = Array.isArray((b.props as any)?.columns) ? ((b.props as any).columns as any[]) : [];
+          for (const c of cols) {
+            if (c && walk(coerceBlockChildren((c as any)?.children))) return true;
           }
         }
       }
@@ -265,6 +292,103 @@ export function blocksToCustomHtmlDocument(opts: {
       if (!calendarId || !opts.ownerId) return "";
       const src = `/book/u/${encodeURIComponent(opts.ownerId)}/${encodeURIComponent(calendarId)}`;
       return withBlockAnchor(b, `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><iframe title=\"Booking\" src=\"${escapeHtmlAttr(src)}\" style=\"width:100%;height:${height}px;border:1px solid var(--pa-border);border-radius:16px;background:#fff\" sandbox=\"allow-forms allow-scripts allow-same-origin\"></iframe></div>`);
+    }
+
+    if (b.type === "syncedReviews") {
+      const cssInline = styleToCss((b.props as any)?.style);
+      const eyebrow = typeof (b.props as any)?.eyebrow === "string" ? String((b.props as any).eyebrow).trim() : "";
+      const heading = typeof (b.props as any)?.heading === "string" ? String((b.props as any).heading).trim() : "";
+      const intro = typeof (b.props as any)?.intro === "string" ? String((b.props as any).intro).trim() : "";
+      const limit = typeof (b.props as any)?.limit === "number" && Number.isFinite((b.props as any).limit) ? Math.max(1, Math.min(12, Math.round((b.props as any).limit))) : 6;
+      const minRating = typeof (b.props as any)?.minRating === "number" && Number.isFinite((b.props as any).minRating) ? Math.max(1, Math.min(5, Math.round((b.props as any).minRating))) : 4;
+      const columns = (b.props as any)?.columns === 1 || (b.props as any)?.columns === 2 || (b.props as any)?.columns === 3 ? (b.props as any).columns : 3;
+      const showBusinessReply = (b.props as any)?.showBusinessReply === true ? "1" : "0";
+      const includePhotos = (b.props as any)?.includePhotos === true ? "1" : "0";
+      const introHtml = intro ? `<p class=\"pa-p\" style=\"max-width:760px\">${escapeHtml(intro)}</p>` : "";
+      return withBlockAnchor(
+        b,
+        `<section${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""} data-pa-synced-reviews=\"1\" data-pa-page-id=\"${escapeHtmlAttr(opts.pageId)}\" data-pa-limit=\"${limit}\" data-pa-min-rating=\"${minRating}\" data-pa-columns=\"${columns}\" data-pa-show-reply=\"${showBusinessReply}\" data-pa-include-photos=\"${includePhotos}\"><div>${eyebrow ? `<div style=\"font-size:11px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:#64748b\">${escapeHtml(eyebrow)}</div>` : ""}${heading ? `<h2 class=\"pa-h2\" style=\"margin-top:8px\">${escapeHtml(heading)}</h2>` : ""}${introHtml}<div class=\"pa-grid\" style=\"--cols:${columns};margin-top:${eyebrow || heading || intro ? "24" : "0"}px\" data-pa-synced-reviews-root><div class=\"pa-card\" style=\"color:#475569\">Loading reviews...</div></div></div></section>`,
+      );
+    }
+
+    if (b.type === "testimonialGrid") {
+      const cssInline = styleToCss((b.props as any)?.style);
+      const eyebrow = typeof (b.props as any)?.eyebrow === "string" ? String((b.props as any).eyebrow).trim() : "";
+      const heading = typeof (b.props as any)?.heading === "string" ? String((b.props as any).heading).trim() : "";
+      const intro = typeof (b.props as any)?.intro === "string" ? String((b.props as any).intro).trim() : "";
+      const items: any[] = Array.isArray((b.props as any)?.items) ? ((b.props as any).items as any[]) : [];
+      if (!items.length) return "";
+      const columns = (b.props as any)?.columns === 1 || (b.props as any)?.columns === 2 || (b.props as any)?.columns === 3
+        ? (b.props as any).columns
+        : Math.min(3, Math.max(1, items.length));
+      const introHtml = intro ? `<p class="pa-p" style="max-width:760px">${escapeHtml(intro)}</p>` : "";
+      const cards = items
+        .map((item) => {
+          if (!item || typeof item !== "object") return "";
+          const quote = typeof (item as any).quote === "string" ? String((item as any).quote).trim() : "";
+          const name = typeof (item as any).name === "string" ? String((item as any).name).trim() : "";
+          const role = typeof (item as any).role === "string" ? String((item as any).role).trim() : "";
+          const outcome = typeof (item as any).outcome === "string" ? String((item as any).outcome).trim() : "";
+          if (!quote || !name) return "";
+          return `<figure class="pa-card" style="display:flex;height:100%;flex-direction:column;justify-content:space-between;border-radius:28px;padding:24px;box-shadow:0 16px 40px rgba(15,23,42,0.06)">${outcome ? `<div style="margin-bottom:16px;display:inline-flex;width:fit-content;border-radius:999px;border:1px solid #bbf7d0;background:#ecfdf5;padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#047857">${escapeHtml(outcome)}</div>` : ""}<blockquote style="margin:0;font-size:16px;line-height:1.75;color:#3f3f46">&ldquo;${escapeHtml(quote)}&rdquo;</blockquote><figcaption style="margin-top:20px;border-top:1px solid #f4f4f5;padding-top:16px"><div style="font-size:14px;font-weight:700;color:#09090b">${escapeHtml(name)}</div>${role ? `<div style="margin-top:4px;font-size:14px;color:#71717a">${escapeHtml(role)}</div>` : ""}</figcaption></figure>`;
+        })
+        .filter(Boolean)
+        .join("\n");
+      if (!cards) return "";
+      return withBlockAnchor(
+        b,
+        `<section${cssInline ? ` style="${escapeHtmlAttr(cssInline)}"` : ""}><div>${eyebrow ? `<div style="font-size:11px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:#64748b">${escapeHtml(eyebrow)}</div>` : ""}${heading ? `<h2 class="pa-h2" style="margin-top:8px">${escapeHtml(heading)}</h2>` : ""}${introHtml}<div class="pa-grid" style="--cols:${columns};margin-top:${eyebrow || heading || intro ? "24" : "0"}px">${cards}</div></div></section>`,
+      );
+    }
+
+    if (b.type === "pricingGrid") {
+      const cssInline = styleToCss((b.props as any)?.style);
+      const eyebrow = typeof (b.props as any)?.eyebrow === "string" ? String((b.props as any).eyebrow).trim() : "";
+      const heading = typeof (b.props as any)?.heading === "string" ? String((b.props as any).heading).trim() : "";
+      const intro = typeof (b.props as any)?.intro === "string" ? String((b.props as any).intro).trim() : "";
+      const items: any[] = Array.isArray((b.props as any)?.items) ? ((b.props as any).items as any[]) : [];
+      if (!items.length) return "";
+      const columns = (b.props as any)?.columns === 1 || (b.props as any)?.columns === 2 || (b.props as any)?.columns === 3
+        ? (b.props as any).columns
+        : Math.min(3, Math.max(1, items.length));
+      const introHtml = intro ? `<p class="pa-p" style="max-width:760px">${escapeHtml(intro)}</p>` : "";
+      const cards = items
+        .map((item) => {
+          if (!item || typeof item !== "object") return "";
+          const name = typeof (item as any).name === "string" ? String((item as any).name).trim() : "";
+          const price = typeof (item as any).price === "string" ? String((item as any).price).trim() : "";
+          if (!name || !price) return "";
+          const billingPeriod = typeof (item as any).billingPeriod === "string" ? String((item as any).billingPeriod).trim() : "";
+          const description = typeof (item as any).description === "string" ? String((item as any).description).trim() : "";
+          const badge = typeof (item as any).badge === "string" ? String((item as any).badge).trim() : "";
+          const featured = (item as any).featured === true;
+          const ctaTextRaw = typeof (item as any).ctaText === "string" ? String((item as any).ctaText).trim() : "";
+          const ctaHref = typeof (item as any).ctaHref === "string" ? String((item as any).ctaHref).trim() : "";
+          const priceId = typeof (item as any).priceId === "string" ? String((item as any).priceId).trim() : "";
+          const features = Array.isArray((item as any).features) ? ((item as any).features as unknown[]).map((feature) => String(feature || "").trim()).filter(Boolean) : [];
+          const ctaText = ctaTextRaw || (priceId ? "Buy now" : ctaHref ? "Learn more" : "");
+          const textColor = featured ? "#ffffff" : "#09090b";
+          const mutedColor = featured ? "rgba(255,255,255,0.78)" : "#52525b";
+          const badgeMarkup = badge
+            ? `<div style="margin-bottom:16px;display:inline-flex;width:fit-content;border-radius:999px;border:1px solid ${featured ? "rgba(255,255,255,0.2)" : "#e4e4e7"};background:${featured ? "rgba(255,255,255,0.1)" : "#fafafa"};padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:${featured ? "#ffffff" : "#52525b"}">${escapeHtml(badge)}</div>`
+            : "";
+          const featureMarkup = features.length
+            ? `<ul style="margin:20px 0 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px;font-size:14px;color:${featured ? "rgba(255,255,255,0.88)" : "#3f3f46"}">${features.map((feature) => `<li style="display:flex;align-items:flex-start;gap:12px"><span style="margin-top:7px;height:6px;width:6px;flex:0 0 auto;border-radius:999px;background:${featured ? "#ffffff" : "#09090b"}"></span><span>${escapeHtml(feature)}</span></li>`).join("")}</ul>`
+            : "";
+          const ctaMarkup = priceId && ctaText
+            ? `<button type="button" class="${featured ? "pa-btn pa-btn-primary" : "pa-btn"}" data-pa-action="buy" data-pa-price-id="${escapeHtmlAttr(priceId)}" data-pa-qty="1" data-pa-name="${escapeHtmlAttr(name)}" data-pa-desc="${escapeHtmlAttr(description)}" style="width:100%">${escapeHtml(ctaText)}</button>`
+            : ctaHref && ctaText
+              ? `<a class="${featured ? "pa-btn pa-btn-primary" : "pa-btn"}" href="${escapeHtmlAttr(ctaHref)}" style="width:100%">${escapeHtml(ctaText)}</a>`
+              : "";
+          return `<article style="display:flex;height:100%;flex-direction:column;border-radius:30px;border:1px solid ${featured ? "#09090b" : "#e4e4e7"};background:${featured ? "#09090b" : "#ffffff"};padding:24px;box-shadow:${featured ? "0 22px 48px rgba(15,23,42,0.18)" : "0 16px 40px rgba(15,23,42,0.06)"};color:${textColor}">${badgeMarkup}<div style="font-size:14px;font-weight:700;color:${featured ? "rgba(255,255,255,0.78)" : "#52525b"}">${escapeHtml(name)}</div><div style="margin-top:12px;display:flex;align-items:flex-end;gap:8px"><div style="font-size:40px;font-weight:700;letter-spacing:-0.02em">${escapeHtml(price)}</div>${billingPeriod ? `<div style="padding-bottom:4px;font-size:14px;color:${mutedColor}">${escapeHtml(billingPeriod)}</div>` : ""}</div>${description ? `<p style="margin:12px 0 0 0;font-size:14px;line-height:1.75;color:${mutedColor}">${escapeHtml(description)}</p>` : ""}${featureMarkup}${ctaMarkup ? `<div style="margin-top:24px">${ctaMarkup}</div>` : ""}</article>`;
+        })
+        .filter(Boolean)
+        .join("\n");
+      if (!cards) return "";
+      return withBlockAnchor(
+        b,
+        `<section${cssInline ? ` style="${escapeHtmlAttr(cssInline)}"` : ""}><div>${eyebrow ? `<div style="font-size:11px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:#64748b">${escapeHtml(eyebrow)}</div>` : ""}${heading ? `<h2 class="pa-h2" style="margin-top:8px">${escapeHtml(heading)}</h2>` : ""}${introHtml}<div class="pa-grid" style="--cols:${columns};margin-top:${eyebrow || heading || intro ? "24" : "0"}px">${cards}</div></div></section>`,
+      );
     }
 
     if (b.type === "columns") {
@@ -458,21 +582,21 @@ export function blocksToCustomHtmlDocument(opts: {
   };
 
   const modalHtml = () => {
-    return ''
-      + '<div id="pa-modal" style="position:fixed;inset:0;z-index:9999;display:none">'
-      + '  <div id="pa-backdrop" style="position:absolute;inset:0;background:rgba(15,23,42,.45)"></div>'
-      + '  <div style="position:relative;max-width:720px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:18px;overflow:hidden">'
-      + '    <div style="padding:14px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center">'
-      + '      <div style="font-weight:900">Your cart</div>'
-      + '      <button id="pa-close" aria-label="Close" title="Close" style="border:1px solid transparent;border-radius:999px;width:40px;height:40px;line-height:40px;padding:0;background:#fff;cursor:pointer;font-size:18px;font-weight:900;color:#334155">×</button>'
-      + '    </div>'
-      + '    <div id="pa-items" style="padding:16px;display:flex;flex-direction:column;gap:10px"></div>'
-      + '    <div style="padding:16px;border-top:1px solid #e2e8f0;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">'
-      + '      <button id="pa-clear" style="border:1px solid #e2e8f0;border-radius:14px;padding:12px 16px;background:#fff;font-weight:800;cursor:pointer">Clear</button>'
-      + '      <button id="pa-checkout" style="border:1px solid #2563eb;border-radius:14px;padding:12px 16px;background:#2563eb;color:#fff;font-weight:900;cursor:pointer">Checkout</button>'
-      + '    </div>'
-      + '  </div>'
-      + '</div>';
+    return \`
+<div id="pa-modal" style="position:fixed;inset:0;z-index:9999;display:none">
+  <div id="pa-backdrop" style="position:absolute;inset:0;background:rgba(15,23,42,.45)"></div>
+  <div style="position:relative;max-width:720px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:18px;overflow:hidden">
+    <div style="padding:14px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-weight:900">Your cart</div>
+      <button id="pa-close" aria-label="Close" title="Close" style="border:1px solid transparent;border-radius:999px;width:40px;height:40px;line-height:40px;padding:0;background:#fff;cursor:pointer;font-size:18px;font-weight:900;color:#334155">×</button>
+    </div>
+    <div id="pa-items" style="padding:16px;display:flex;flex-direction:column;gap:10px"></div>
+    <div style="padding:16px;border-top:1px solid #e2e8f0;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+      <button id="pa-clear" style="border:1px solid #e2e8f0;border-radius:14px;padding:12px 16px;background:#fff;font-weight:800;cursor:pointer">Clear</button>
+      <button id="pa-checkout" style="border:1px solid #2563eb;border-radius:14px;padding:12px 16px;background:#2563eb;color:#fff;font-weight:900;cursor:pointer">Checkout</button>
+    </div>
+  </div>
+</div>\`;
   };
 
   const ensureModal = () => {
@@ -513,17 +637,17 @@ export function blocksToCustomHtmlDocument(opts: {
       const desc = esc(it.desc || '');
       const qty = Math.max(1, Math.min(20, Number(it.qty) || 1));
 
-      return ''
-        + '<div style="display:flex;gap:12px;align-items:flex-start;border:1px solid #e2e8f0;border-radius:16px;padding:12px">'
-        + '  <div style="flex:1">'
-        + '    <div style="font-weight:900">' + name + '</div>'
-        + '    ' + (desc ? '<div style="margin-top:4px;color:#475569;font-size:13px">' + desc + '</div>' : '')
-        + '  </div>'
-        + '  <div style="display:flex;gap:10px;align-items:center">'
-        + '    <label style="font-size:12px;color:#475569">Qty</label>'
-        + '    <input data-pa-qty-input="' + id + '" type="number" min="1" max="20" value="' + qty + '" style="width:72px;border:1px solid #e2e8f0;border-radius:12px;padding:8px" />'
-        + '  </div>'
-        + '</div>';
+      return \`
+<div style="display:flex;gap:12px;align-items:flex-start;border:1px solid #e2e8f0;border-radius:16px;padding:12px">
+  <div style="flex:1">
+    <div style="font-weight:900">\${name}</div>
+    \${desc ? \`<div style="margin-top:4px;color:#475569;font-size:13px">\${desc}</div>\` : ''}
+  </div>
+  <div style="display:flex;gap:10px;align-items:center">
+    <label style="font-size:12px;color:#475569">Qty</label>
+    <input data-pa-qty-input="\${id}" type="number" min="1" max="20" value="\${qty}" style="width:72px;border:1px solid #e2e8f0;border-radius:12px;padding:8px" />
+  </div>
+</div>\`;
     }).join('');
 
     root.querySelectorAll('input[data-pa-qty-input]').forEach((inp) => {
@@ -603,7 +727,73 @@ export function blocksToCustomHtmlDocument(opts: {
 `
     : "";
 
+  const syncedReviewsScript = hasSyncedReviews
+    ? `
+<script>
+(() => {
+  const esc = (v) => String(v == null ? '' : v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
+  const renderCards = (host, reviews, includePhotos) => {
+    const root = host.querySelector('[data-pa-synced-reviews-root]');
+    if (!root) return;
+    if (!Array.isArray(reviews) || !reviews.length) {
+      root.innerHTML = '<div class="pa-card" style="color:#475569">No matching reviews yet.</div>';
+      return;
+    }
+
+    root.innerHTML = reviews.map((review) => {
+      const photos = includePhotos && Array.isArray(review.photoUrls) ? review.photoUrls.slice(0, 2) : [];
+      const photoHtml = photos.length
+        ? \`<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:16px">\${photos.map((url, index) => \`<img src="\${esc(url)}" alt="Review photo \${String(index + 1)}" style="width:100%;height:112px;object-fit:cover;border-radius:16px;border:1px solid #e2e8f0" />\`).join('')}</div>\`
+        : '';
+      const replyHtml = review.businessReply
+        ? \`
+<div style="margin-top:16px;border:1px solid #e2e8f0;border-radius:16px;background:#f8fafc;padding:14px">
+  <div style="font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#64748b">Business reply</div>
+  <div style="margin-top:8px;font-size:14px;line-height:1.6;color:#334155">\${esc(review.businessReply)}</div>
+</div>\`
+        : '';
+      return \`
+<article class="pa-card" style="height:100%;border-radius:28px;padding:24px;box-shadow:0 16px 40px rgba(15,23,42,.06)">
+  <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
+    <div style="font-size:14px;font-weight:700;color:#0f172a">\${esc(review.name || 'Customer')}</div>
+    <div style="font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#d97706">\${esc(String(review.rating || 0))}/5</div>
+  </div>
+  \${review.body ? \`<p style="margin:16px 0 0 0;font-size:14px;line-height:1.8;color:#334155">\${esc(review.body)}</p>\` : ''}
+  \${photoHtml}
+  <div style="margin-top:20px;padding-top:16px;border-top:1px solid #f1f5f9;font-size:12px;color:#64748b">\${esc(new Date(review.createdAt).toLocaleDateString())}</div>
+  \${replyHtml}
+</article>\`;
+    }).join('');
+  };
+
+  document.querySelectorAll('[data-pa-synced-reviews="1"]').forEach((host) => {
+    const pageId = host.getAttribute('data-pa-page-id') || '';
+    if (!pageId) return;
+    const params = new URLSearchParams({
+      pageId,
+      limit: host.getAttribute('data-pa-limit') || '6',
+      minRating: host.getAttribute('data-pa-min-rating') || '4',
+      showBusinessReply: host.getAttribute('data-pa-show-reply') || '0',
+      includePhotos: host.getAttribute('data-pa-include-photos') || '0',
+    });
+    const includePhotos = (host.getAttribute('data-pa-include-photos') || '0') === '1';
+    fetch('/api/public/funnel-builder/page-reviews?' + params.toString(), { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((json) => renderCards(host, Array.isArray(json && json.reviews) ? json.reviews : [], includePhotos))
+      .catch(() => renderCards(host, [], includePhotos));
+  });
+})();
+</script>
+`
+    : "";
+
   const title = String(opts.title || "Funnel page").trim().slice(0, 80) || "Funnel page";
 
-  return `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(title)}</title><style>${css}</style></head><body><div class="pa-container">${bodyInner}</div>${cartScript}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(title)}</title><style>${css}</style></head><body><div class="pa-container">${bodyInner}</div>${cartScript}${syncedReviewsScript}</body></html>`;
 }

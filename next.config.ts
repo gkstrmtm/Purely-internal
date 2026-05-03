@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   turbopack: {
     // Prevent Next from inferring an incorrect workspace root when multiple
     // lockfiles exist elsewhere on disk.

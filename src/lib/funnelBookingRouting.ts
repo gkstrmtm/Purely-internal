@@ -1,5 +1,19 @@
+import {
+  normalizeFunnelBookingAvailabilityTemplateId,
+  normalizeFunnelBookingPresetId,
+  normalizeFunnelBookingTimeZone,
+  type FunnelBookingAvailabilityTemplateId,
+  type FunnelBookingDefaults,
+  type FunnelBookingPresetId,
+} from "@/lib/funnelBookingDefaults";
+
 export type FunnelBookingRouting = {
   calendarId: string | null;
+  presetId?: FunnelBookingPresetId | null;
+  durationMinutes?: number | null;
+  minimumNoticeMinutes?: number | null;
+  availabilityTemplateId?: FunnelBookingAvailabilityTemplateId | null;
+  timeZone?: string | null;
 };
 
 type BookingCalendarLike = {
@@ -12,6 +26,21 @@ export function normalizeFunnelBookingCalendarId(raw: unknown): string | null {
     .trim()
     .slice(0, 80);
   return next || null;
+}
+
+function normalizeFunnelBookingNumber(raw: unknown, min: number, max: number): number | null {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
+  return Math.min(max, Math.max(min, Math.round(raw)));
+}
+
+export function funnelBookingDefaultsToRouting(defaults: FunnelBookingDefaults): Omit<FunnelBookingRouting, "calendarId"> {
+  return {
+    presetId: defaults.presetId,
+    durationMinutes: defaults.durationMinutes,
+    minimumNoticeMinutes: defaults.minimumNoticeMinutes,
+    availabilityTemplateId: defaults.availabilityTemplateId,
+    timeZone: defaults.timeZone,
+  };
 }
 
 export function readFunnelBookingRouting(settingsJson: unknown, funnelId: string): FunnelBookingRouting | null {
@@ -27,6 +56,11 @@ export function readFunnelBookingRouting(settingsJson: unknown, funnelId: string
 
   return {
     calendarId: normalizeFunnelBookingCalendarId((row as any).calendarId),
+    presetId: normalizeFunnelBookingPresetId((row as any).presetId),
+    durationMinutes: normalizeFunnelBookingNumber((row as any).durationMinutes, 10, 180),
+    minimumNoticeMinutes: normalizeFunnelBookingNumber((row as any).minimumNoticeMinutes, 0, 60 * 24 * 14),
+    availabilityTemplateId: normalizeFunnelBookingAvailabilityTemplateId((row as any).availabilityTemplateId),
+    timeZone: normalizeFunnelBookingTimeZone((row as any).timeZone),
   };
 }
 
@@ -43,7 +77,23 @@ export function writeFunnelBookingRouting(
       : {};
 
   const calendarId = normalizeFunnelBookingCalendarId(routing?.calendarId ?? null);
-  if (id && calendarId) funnelBookingRouting[id] = { calendarId };
+  const presetId = normalizeFunnelBookingPresetId(routing?.presetId ?? null);
+  const durationMinutes = normalizeFunnelBookingNumber(routing?.durationMinutes ?? null, 10, 180);
+  const minimumNoticeMinutes = normalizeFunnelBookingNumber(routing?.minimumNoticeMinutes ?? null, 0, 60 * 24 * 14);
+  const availabilityTemplateId = normalizeFunnelBookingAvailabilityTemplateId(routing?.availabilityTemplateId ?? null);
+  const timeZone = normalizeFunnelBookingTimeZone(routing?.timeZone ?? null);
+  const hasDefaults = Boolean(presetId || durationMinutes !== null || minimumNoticeMinutes !== null || availabilityTemplateId || timeZone);
+
+  if (id && (calendarId || hasDefaults)) {
+    funnelBookingRouting[id] = {
+      calendarId,
+      ...(presetId ? { presetId } : {}),
+      ...(durationMinutes !== null ? { durationMinutes } : {}),
+      ...(minimumNoticeMinutes !== null ? { minimumNoticeMinutes } : {}),
+      ...(availabilityTemplateId ? { availabilityTemplateId } : {}),
+      ...(timeZone ? { timeZone } : {}),
+    };
+  }
   else if (id) delete funnelBookingRouting[id];
 
   base.funnelBookingRouting = funnelBookingRouting;

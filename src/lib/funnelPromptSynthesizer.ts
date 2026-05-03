@@ -1,4 +1,6 @@
 import { generateText } from "@/lib/ai";
+import { buildDesignTokenContractBlock } from "@/lib/funnelDesignTokenGuard";
+import { buildFunnelDesignContextPromptBlock, type FunnelDesignContext } from "@/lib/funnelDesignContext";
 import { getExhibitDesignAdvisory } from "@/lib/exhibitDesignAdvisor.server";
 import { buildFunnelFoundationOverview, type FunnelBriefProfile, type FunnelPageIntentProfile } from "@/lib/funnelPageIntent";
 
@@ -32,6 +34,7 @@ export type FunnelPromptSynthesisInput = {
   currentHtml?: string | null;
   currentCss?: string | null;
   selectedRegion?: SynthesisSelectedRegion | null;
+  designContext?: FunnelDesignContext | null;
   contextKeys?: string[];
   contextMedia?: SynthesisMediaRef[];
   recentChatHistory?: SynthesisHistoryEntry[];
@@ -42,6 +45,20 @@ export type FunnelPromptSynthesisResult = {
   prompt: string;
   usedAi: boolean;
   exhibitAdvisory: NonNullable<Awaited<ReturnType<typeof getExhibitDesignAdvisory>>> | null;
+};
+
+type PromptSynthesisGenerateText = (opts: {
+  system?: string;
+  user: string;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  model?: string;
+  temperature?: number;
+  baseUrlOverride?: string;
+  apiKeyOverride?: string;
+}) => Promise<string>;
+
+type FunnelPromptSynthesisOptions = {
+  generateTextImpl?: PromptSynthesisGenerateText;
 };
 
 type FallbackPromptOptions = {
@@ -102,6 +119,8 @@ function buildRequestInterpretationBlock(requestPrompt: string) {
   const hasSpacingSignal = hasRequestSignal(normalized, /padding|spacing|gutter|margin|breathing room|breathe|air|cramped|tight|dense/);
   const hasButtonSignal = hasRequestSignal(normalized, /cta|button|call to action|book|booking|checkout|buy now|apply/);
   const hasLayoutSignal = hasRequestSignal(normalized, /layout|structure|section|flow|order|sequence/);
+  const hasHeaderSignal = hasRequestSignal(normalized, /header area|header|nav area|navigation|hero area|hero|above the fold|top of page/);
+  const hasTypographySignal = hasRequestSignal(normalized, /font|fonts|type|typography|headline|title treatment/);
   const hasLayoutDefectSignal = hasAnyRequestSignal(normalized, [
     /overlap|overlapping|collid|collision|covering|covered|stacking on|running into/,
     /header area|under the header|into the header|hero area|nav area/,
@@ -119,6 +138,15 @@ function buildRequestInterpretationBlock(requestPrompt: string) {
   }
   if (hasRequestSignal(normalized, /hero|above the fold|headline|opening section/)) {
     directives.push("Strengthen the hero hierarchy so the first viewport lands more clearly.");
+  }
+  if (hasHeaderSignal) {
+    directives.push("Treat the header and adjacent hero as one above-the-fold system. Upgrade structure, spacing, hierarchy, and atmosphere together instead of making a cosmetic local tweak.");
+  }
+  if (hasHeaderSignal && !hasLayoutDefectSignal) {
+    directives.push("Make a stronger autonomous first-screen design decision: improve logo and navigation presence, headline staging, CTA visibility, and the transition from header into hero without asking for more style detail first.");
+  }
+  if (hasTypographySignal || hasHeaderSignal) {
+    directives.push("Make decisive typography upgrades on your own. Improve display-vs-body contrast, weights, spacing, and headline presence without waiting for explicit font instructions unless brand constraints are already known.");
   }
   if (hasRequestSignal(normalized, /proof|credib|trust|testimonial|case stud/)) {
     directives.push("Make proof and credibility cues more explicit and better integrated into the flow.");
@@ -147,6 +175,131 @@ function buildRequestInterpretationBlock(requestPrompt: string) {
   return [
     "REQUEST_INTERPRETATION:",
     ...Array.from(new Set(directives)).map((directive) => `- ${directive}`),
+  ].join("\n");
+}
+
+function buildAdaptiveDesignDisciplineBlock(input: FunnelPromptSynthesisInput) {
+  const intent = input.intentProfile;
+  const brief = input.funnelBrief;
+  const pageType = cleanText(intent?.pageType, 40);
+  const audience = cleanText(intent?.audience || brief?.audienceSummary, 220);
+  const offer = cleanText(intent?.offer || brief?.offerSummary, 220);
+  const businessContext = compactParagraph(input.businessContext, 320);
+  const designBrief = compactParagraph(input.designContext?.designBrief, 320);
+  const fontDirection = cleanText(input.designContext?.fontDirection, 180);
+  const vibeKeywords = cleanList(input.designContext?.vibeKeywords, 6, 32);
+  const designConcepts = compactParagraph(input.designContext?.designConcepts, 240);
+
+  const businessFitLine = [
+    "Adaptive sophistication rule: choose the visual posture from the business, audience, offer, page type, and latest user direction.",
+    "Do not force one house aesthetic and do not collapse into generic page-builder output.",
+  ].join(" ");
+
+  const specificityLine = [
+    "Default to a commercially mature, intentionally art-directed result even when the brief is incomplete.",
+    audience ? `Let the audience shape the level of polish and seriousness: ${audience}.` : "",
+    offer ? `Let the offer shape the commercial posture: ${offer}.` : "",
+    businessContext ? `Use the business context to choose what kind of sophistication actually fits: ${businessContext}` : "",
+    designBrief ? `Honor the explicit art direction brief: ${designBrief}` : "",
+    fontDirection ? `Treat the requested typography direction as binding guidance: ${fontDirection}.` : "",
+    vibeKeywords.length ? `Use these vibe cues as actual design choices, not filler adjectives: ${vibeKeywords.join(", ")}.` : "",
+    designConcepts ? `Let these design concepts shape composition and styling: ${designConcepts}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const pageTypeLine =
+    pageType === "booking"
+      ? "Booking posture: make the booking motion feel like a real product surface with trust, proof, and scheduling treated as central, not secondary."
+      : pageType === "lead-capture"
+        ? "Lead-capture posture: make the value exchange immediate, credible, and visually intentional instead of template-like."
+        : pageType === "sales" || pageType === "checkout"
+          ? "Sales posture: make the offer feel expensive in structure, proof-led in sequencing, and commercially confident without gimmicks."
+          : pageType === "application"
+            ? "Application posture: make selectivity, fit, and value feel intentional and high-trust rather than bureaucratic or generic."
+            : pageType === "webinar"
+              ? "Webinar posture: make the event promise feel sharp, current, and credible without relying on stale webinar-template tropes."
+              : "Design posture: the page should feel intentionally composed for this business, not like a safe default shell with minor styling."
+;
+
+  const performanceLine = [
+    "Performance rule: push style as far as it can go without harming first-screen clarity, load discipline, or interaction speed.",
+    "Use richer media, motion, or atmospheric backgrounds only when they materially improve the page and still keep non-critical assets defer-friendly.",
+    "Treat above-the-fold media priority as a deliberate choice, not a default for every decorative asset.",
+  ].join(" ");
+
+  return ["DESIGN_DISCIPLINE:", `- ${businessFitLine}`, `- ${specificityLine}`, `- ${pageTypeLine}`, `- ${performanceLine}`].join("\n");
+}
+
+function buildStructuralDisciplineBlock() {
+  return [
+    "STRUCTURAL_DISCIPLINE:",
+    "- Structural quality is non-negotiable. Never generate placeholder sections, default layouts, or empty structural elements.",
+    "- Before adding or preserving any section, decide its purpose, the user state it addresses, and the action or movement it creates. If those are unclear, remove, merge, or rework the section instead of padding the page.",
+    "- Every section must have a clear purpose, defined content, intentional hierarchy and spacing, and must move the visitor forward in the funnel.",
+    "- Layout style may vary, but hierarchy, alignment, and structural intent cannot become generic or underdeveloped.",
+    "- Header rule: if a header exists, it must intentionally serve navigation, conversion support, trust reinforcement, brand presence, or a deliberate combination. A logo-only header or a header that does not help the page goal is invalid.",
+    "- Removal test: if removing a section would improve clarity, that section should not exist in the output.",
+  ].join("\n");
+}
+
+function buildConversionBlueprintBlock(input: FunnelPromptSynthesisInput) {
+  const intent = input.intentProfile;
+  const brief = input.funnelBrief;
+  const pageType = cleanText(intent?.pageType, 40).toLowerCase();
+  const audience = cleanText(intent?.audience || brief?.audienceSummary, 220);
+  const offer = cleanText(intent?.offer || brief?.offerSummary, 220);
+  const primaryCta = cleanText(intent?.primaryCta, 160);
+  const routingDestination = cleanText(intent?.routingDestination || brief?.routingDestination, 220);
+  const formStrategy = cleanText(intent?.formStrategy, 80).toLowerCase();
+  const hasBookingMotion = pageType === "booking" || formStrategy === "booking" || /\b(book|schedule|appointment|consultation|calendar)\b/i.test(`${primaryCta} ${offer} ${routingDestination}`);
+  const stageLine = hasBookingMotion
+    ? "Lock the core page flow to attention -> belief -> proof -> booking handoff -> reassurance -> action."
+    : "Lock the core page flow to attention -> belief -> proof -> action, and only add an extra handoff section when the funnel logic truly needs it.";
+  const headlineLine = audience || offer
+    ? `Auto-write the headline direction from the offer and audience. Use ${offer || "the offer"} to make the promise specific${audience ? ` for ${audience}` : ""}; do not wait for the user to provide finished hero copy.`
+    : "Auto-write the headline direction from the conversion goal and business context; do not wait for the user to provide finished hero copy.";
+  const ctaLine = primaryCta
+    ? `Treat '${primaryCta}' as the dominant CTA path, but improve the visible phrasing, dominance, and placement if the current wording is weak.`
+    : "Generate the dominant CTA language yourself from the conversion action and keep it specific, high-intent, and easy to act on.";
+  const proofLine = hasBookingMotion
+    ? "Proof rule: attach proof beside the first CTA and repeat reassurance at the booking handoff so the scheduler feels earned, native, and safe."
+    : "Proof rule: attach proof beside or immediately after the first CTA beat, then restage trust before the final action so belief does not collapse at the ask.";
+  const operatorLine = "Operator-first rule: default to 80% completion with minimal edits required. Infer layout, section ordering, CTA copy, proof placement, and conversion framing automatically instead of asking the user to design.";
+  const designerLine = "Designer override rule: allow later section overrides or art-direction refinements, but do not weaken the default operator-first completeness of the initial output.";
+  const layoutLine = "Visual discipline: avoid generic stacked-card SaaS shells, repetitive boxed sections, and border-heavy scaffolds. Prefer full-width composition, decisive hierarchy, clean spacing, restrained contrast shifts, and a curated visual rhythm.";
+  const decisionLine = hasBookingMotion
+    ? "Deliver a full conversion-ready booking layout with the booking flow embedded as part of the page, not as a detached widget or vague CTA promise."
+    : "Deliver a full conversion-ready funnel layout with proof and CTA already staged in the right places, not a flexible page skeleton that still needs structural design work.";
+
+  return [
+    "CONVERSION_BLUEPRINT:",
+    `- ${operatorLine}`,
+    `- ${stageLine}`,
+    `- ${headlineLine}`,
+    `- ${ctaLine}`,
+    `- ${proofLine}`,
+    `- ${decisionLine}`,
+    `- ${layoutLine}`,
+    `- ${designerLine}`,
+    "- User-input discipline: the user should only need to supply the offer, brand tone, and optional creative direction. Infer the rest from business context, page type, CTA path, and funnel intent.",
+  ].join("\n");
+}
+
+function buildDesignTokenDisciplineBlock() {
+  return buildDesignTokenContractBlock("DESIGN_TOKEN_DISCIPLINE:");
+}
+
+function buildFunctionalComponentDisciplineBlock() {
+  return [
+    "FUNCTIONAL_COMPONENT_DISCIPLINE:",
+    "- Treat calendars, forms, dashboards, chat handoffs, checkout modules, and other functional UI as classified funnel surfaces, not raw embeds pasted into the page.",
+    "- Decide the role first: booking handoff, qualification step, proof-backed application step, dashboard proof surface, product comparison, or support utility. Then wrap the component in a section that explains why it exists and what the visitor should do next.",
+    "- Functional UI must live inside a deliberate frame: heading, expectation-setting copy, adjacent reassurance or proof, and container styling that makes the component feel native to the funnel rather than borrowed app chrome.",
+    "- Booking calendars need booking-specific framing around what happens next, who the call is for, and why scheduling now is safe. Do not drop a bare calendar widget under generic copy.",
+    "- Clamp layout intentionally: main content should generally read inside a 1100-1200px frame, tighter copy or form stacks should sit around 680-900px, and embedded components must never exceed their container width.",
+    "- Keep spacing rhythmic: roughly 72-120px between major sections, 24-48px inside framed sections or cards, and 12-20px for tight copy-to-control spacing.",
+    "- Pick one alignment system per functional section and hold it consistently. Avoid equal-weight panels, flat repeated cards, or dashboard-like density that fights the funnel hierarchy.",
   ].join("\n");
 }
 
@@ -252,6 +405,12 @@ function fallbackPrompt(input: FunnelPromptSynthesisInput, options: FallbackProm
     .filter(Boolean)
     .slice(0, 6);
   const continuity = buildContinuityContext(input);
+  const adaptiveDesignDisciplineBlock = buildAdaptiveDesignDisciplineBlock(input);
+  const structuralDisciplineBlock = buildStructuralDisciplineBlock();
+  const conversionBlueprintBlock = buildConversionBlueprintBlock(input);
+  const designTokenDisciplineBlock = buildDesignTokenDisciplineBlock();
+  const functionalComponentDisciplineBlock = buildFunctionalComponentDisciplineBlock();
+  const designContextBlock = buildFunnelDesignContextPromptBlock(input.designContext);
   const surfaceInstruction =
     input.surface === "page-html"
       ? cleanText(input.currentHtml, 40)
@@ -301,18 +460,27 @@ function fallbackPrompt(input: FunnelPromptSynthesisInput, options: FallbackProm
     contextKeys.length ? `Prefer these context elements when relevant: ${contextKeys.join(", ")}.` : "",
     mediaNames.length ? `Use these available assets when helpful: ${mediaNames.join(", ")}.` : "",
     compactParagraph(input.businessContext, 1200) ? `Business context: ${compactParagraph(input.businessContext, 1200)}` : "",
+    designContextBlock,
     requestInterpretationBlock,
+    adaptiveDesignDisciplineBlock,
+    structuralDisciplineBlock,
+    conversionBlueprintBlock,
+    designTokenDisciplineBlock,
+    functionalComponentDisciplineBlock,
     bookingDirective,
     surfaceInstruction,
     "Continuity rule: if the latest turns imply something was still missing or insufficient last time, correct that gap directly instead of drifting into a parallel redesign.",
     "Turn the fragmented steering into one coherent, impactful direction. Do not wait for every missing detail; make strong reasonable assumptions the user can refine later.",
-    "Aim for an elevated first draft with intentional hierarchy, proof placement, restrained brand use, and a shell strong enough to iterate from.",
+    "Aim for a near-complete operator-ready funnel draft with intentional hierarchy, embedded conversion flow, proof already placed, restrained brand use, adaptive sophistication, and minimal required user edits.",
   ]
     .filter(Boolean)
     .join("\n");
 }
 
-export async function synthesizeFunnelGenerationPrompt(input: FunnelPromptSynthesisInput): Promise<FunnelPromptSynthesisResult> {
+export async function synthesizeFunnelGenerationPrompt(
+  input: FunnelPromptSynthesisInput,
+  options: FunnelPromptSynthesisOptions = {},
+): Promise<FunnelPromptSynthesisResult> {
   const requestPrompt = cleanText(input.requestPrompt, 2400);
   const routeLabel = cleanText(input.routeLabel, 160) || "/page";
   const funnelName = cleanText(input.funnelName, 160) || "this funnel";
@@ -339,33 +507,43 @@ export async function synthesizeFunnelGenerationPrompt(input: FunnelPromptSynthe
     .filter((item) => item.url)
     .slice(0, 6);
   const continuity = buildContinuityContext(input);
+  const designContextBlock = buildFunnelDesignContextPromptBlock(input.designContext);
+  const structuralDisciplineBlock = buildStructuralDisciplineBlock();
+  const conversionBlueprintBlock = buildConversionBlueprintBlock(input);
+  const designTokenDisciplineBlock = buildDesignTokenDisciplineBlock();
+  const functionalComponentDisciplineBlock = buildFunctionalComponentDisciplineBlock();
 
   if (!requestPrompt && !intent && !brief) {
     return { prompt: fallbackPrompt(input), usedAi: false, exhibitAdvisory: null };
   }
 
-  const exhibitAdvisory = await getExhibitDesignAdvisory({
-    requestPrompt,
-    routeLabel,
-    funnelName,
-    pageTitle,
-    pageType: intent?.pageType,
-    pageGoal: intent?.pageGoal,
-    primaryCta: intent?.primaryCta,
-    audience: intent?.audience || brief?.audienceSummary,
-    offer: intent?.offer || brief?.offerSummary,
-    conditionalLogic: intent?.conditionalLogic || brief?.conditionalLogic,
-    taggingPlan: intent?.taggingPlan || brief?.taggingPlan,
-    automationPlan: intent?.automationPlan || brief?.automationPlan,
-    shellFrameId: foundation.shellFrameId,
-    shellFrameLabel: foundation.shellFrameLabel,
-    shellFrameSummary: foundation.frameSummary,
-    shellConcept: intent?.shellConcept || foundation.shellConcept,
-    sectionPlan: intent?.sectionPlan || foundation.sectionPlanItems.join(" -> "),
-    businessContext: input.businessContext,
-    recentChatHistory: continuity.recentChatHistory,
-    recentIterationMemory: continuity.recentIterationMemory,
-  });
+  let exhibitAdvisory: Awaited<ReturnType<typeof getExhibitDesignAdvisory>> | null = null;
+  try {
+    exhibitAdvisory = await getExhibitDesignAdvisory({
+      requestPrompt,
+      routeLabel,
+      funnelName,
+      pageTitle,
+      pageType: intent?.pageType,
+      pageGoal: intent?.pageGoal,
+      primaryCta: intent?.primaryCta,
+      audience: intent?.audience || brief?.audienceSummary,
+      offer: intent?.offer || brief?.offerSummary,
+      conditionalLogic: intent?.conditionalLogic || brief?.conditionalLogic,
+      taggingPlan: intent?.taggingPlan || brief?.taggingPlan,
+      automationPlan: intent?.automationPlan || brief?.automationPlan,
+      shellFrameId: foundation.shellFrameId,
+      shellFrameLabel: foundation.shellFrameLabel,
+      shellFrameSummary: foundation.frameSummary,
+      shellConcept: intent?.shellConcept || foundation.shellConcept,
+      sectionPlan: intent?.sectionPlan || foundation.sectionPlanItems.join(" -> "),
+      businessContext: input.businessContext,
+      recentChatHistory: continuity.recentChatHistory,
+      recentIterationMemory: continuity.recentIterationMemory,
+    });
+  } catch {
+    exhibitAdvisory = null;
+  }
 
   const fallback = fallbackPrompt(input, { exhibitAdvisory });
 
@@ -389,7 +567,18 @@ export async function synthesizeFunnelGenerationPrompt(input: FunnelPromptSynthe
     "If the prior assistant move did not satisfy the user, explicitly correct that miss in the next prompt instead of summarizing it neutrally.",
     "If pricing, packaging, proof, or offer specifics are still incomplete, do not stall. Frame the best workable assumption so generation can move forward and the user can refine later.",
     "Keep the prompt concise enough for another model to act on, but rich enough to shape tone, hierarchy, proof, and conversion logic.",
+    "Default to operator-first funnel generation. The downstream model should produce a near-complete, production-ready funnel layout rather than a customizable starter page.",
+    "Lock section order around attention, belief, proof, and action. Add handoff-specific sections like booking or checkout only when the funnel logic requires them.",
+    "Auto-fill headline direction, CTA language, proof placement, and layout structure from the business type, audience, offer, and conversion path. Do not make the user do design work the system can infer.",
+    "The brief must bias toward 80% completion with minimal edits required while still leaving room for later designer overrides.",
+    "Avoid generic layouts, stacked-card sameness, boxed-everywhere shells, and border-heavy SaaS scaffolds unless the business context truly calls for them.",
+    "Structural quality is mandatory. Do not authorize placeholder sections, decorative empty shells, generic default layouts, or sections that exist without a defined role in the funnel.",
+    "Any section you propose must earn its place through purpose, visitor-state relevance, and forward movement. If that case is weak, cut or merge the section.",
+    "Any header in the brief must justify itself through navigation, conversion support, trust reinforcement, brand presence, or an intentional combination. A floating logo header is not acceptable.",
     "The output must feel design-led, not questionnaire-led. Favor strong shells, persuasive sequencing, and visual intention over generic page-builder filler.",
+    "Choose the level and style of sophistication from the business, audience, offer, page type, and latest user direction. Do not force one house aesthetic.",
+    "Default away from generic template output. The brief should push toward a commercially mature, intentionally art-directed result that still fits the business.",
+    "Premium does not mean heavy by default. Stronger visual ambition must preserve first-screen clarity, load discipline, and defer-friendly handling for non-critical media.",
     "Use stored brand colors calmly and selectively. Treat them as accent inputs, not permission to flood the page with brand color.",
     "Never echo or quote the user's phrasing back verbatim in the final prompt.",
     "Abstract the request into clean directive language and do not reuse long phrases from the raw request unless they are exact content that must survive unchanged, such as a CTA label, product name, brand name, or legal wording.",
@@ -398,12 +587,17 @@ export async function synthesizeFunnelGenerationPrompt(input: FunnelPromptSynthe
   const user = [
     `SURFACE: ${input.surface === "page-html" ? "Whole-page hosted funnel generation" : "Custom code block generation"}`,
     `CURRENT_STATE: ${hasCurrent ? "Editing existing implementation" : "Creating first implementation"}`,
-    regionLabel ? `FOCUS_REGION: ${regionLabel}${regionSummary ? ` — ${regionSummary}` : ""}` : "",
+    regionLabel ? `FOCUS_REGION: ${regionLabel}${regionSummary ? ` - ${regionSummary}` : ""}` : "",
     `ROUTE: ${routeLabel}`,
     `FUNNEL: ${funnelName}`,
     `PAGE: ${pageTitle}`,
     requestPrompt ? `USER_REQUEST_TO_INTERPRET:\n${requestPrompt}` : "",
     compactParagraph(input.businessContext, 1600) ? `BUSINESS_CONTEXT:\n${compactParagraph(input.businessContext, 1600)}` : "",
+    designContextBlock,
+    structuralDisciplineBlock,
+    conversionBlueprintBlock,
+    designTokenDisciplineBlock,
+    functionalComponentDisciplineBlock,
     brief
       ? [
           "FUNNEL_BRIEF:",
@@ -488,7 +682,8 @@ export async function synthesizeFunnelGenerationPrompt(input: FunnelPromptSynthe
     .join("\n\n");
 
   try {
-    const raw = await generateText({ system, user, temperature: 0.35 });
+    const runGenerateText = options.generateTextImpl ?? generateText;
+    const raw = await runGenerateText({ system, user, temperature: 0.35 });
     const parsedPrompt = parseJsonPrompt(raw);
     if (!parsedPrompt) return { prompt: fallback, usedAi: false, exhibitAdvisory };
     return { prompt: parsedPrompt, usedAi: true, exhibitAdvisory };

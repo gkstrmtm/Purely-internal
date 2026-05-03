@@ -122,7 +122,7 @@ export function PortalMediaPickerModal({
         <div
           className={classNames(
             "fixed left-0 right-0 top-0 flex items-start justify-center px-4",
-            "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+var(--pa-portal-embed-footer-offset,0px)+1rem)]",
+            "pa-modal-safe-pad-footer-offset",
             "sm:items-center",
           )}
           style={{ zIndex: baseZ + 10 }}

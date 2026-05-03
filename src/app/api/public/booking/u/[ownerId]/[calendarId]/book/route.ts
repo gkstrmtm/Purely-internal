@@ -16,6 +16,7 @@ import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { sendEmail as sendOutboundEmail } from "@/lib/leadOutbound";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { BookingMeetingIntegrationError, createNativeBookingMeeting } from "@/lib/bookingMeetingIntegrations.server";
 import { createConnectRoom } from "@/lib/connectRoomCreate";
 
 export const dynamic = "force-dynamic";
@@ -162,6 +163,13 @@ export async function POST(
   }
 
   const durationMinutes = cal.durationMinutes ?? site.durationMinutes;
+  const minimumNoticeMinutes = cal.minimumNoticeMinutes ?? 0;
+  if (minimumNoticeMinutes > 0 && startAt.getTime() < Date.now() + minimumNoticeMinutes * 60_000) {
+    const leadTimeLabel = minimumNoticeMinutes % 60 === 0
+      ? `${minimumNoticeMinutes / 60} hour${minimumNoticeMinutes === 60 ? "" : "s"}`
+      : `${minimumNoticeMinutes} minutes`;
+    return NextResponse.json({ error: `This calendar requires at least ${leadTimeLabel} notice. Please choose a later time.` }, { status: 409 });
+  }
   const endAt = new Date(startAt.getTime() + durationMinutes * 60_000);
 
   const coverage = await findAvailabilityCoverage({ userId: site.ownerId, startAt, endAt, calendarId });
@@ -221,6 +229,7 @@ export async function POST(
 
   // Purely Connect Meeting Logic (per-calendar booking)
   let purelyConnectJoinUrl: string | null = null;
+  let nativeMeetingLabel: string | null = null;
   let effectiveLocation: string | null =
     cal.meetingLocation ?? (meeting as any)?.meetingLocation ?? null;
 
@@ -242,8 +251,23 @@ export async function POST(
 
       // Override the location with the unique Purely Connect link
       effectiveLocation = purelyConnectJoinUrl;
+    } else if (setupData.meetingPlatform === "ZOOM" || setupData.meetingPlatform === "GOOGLE_MEET") {
+      const nativeMeeting = await createNativeBookingMeeting({
+        ownerId: String(ownerId),
+        provider: setupData.meetingPlatform === "ZOOM" ? "zoom" : "google_meet",
+        title: `Booking: ${cal.title}`,
+        startAt,
+        endAt,
+        timeZone: site.timeZone,
+        attendeeName: parsed.data.contactName,
+      });
+      effectiveLocation = nativeMeeting.joinUrl;
+      nativeMeetingLabel = setupData.meetingPlatform === "ZOOM" ? "Zoom" : "Google Meet";
     }
   } catch (err) {
+    if (err instanceof BookingMeetingIntegrationError) {
+      return NextResponse.json({ error: err.message }, { status: err.statusCode });
+    }
     console.error("Failed to setup Purely Connect meeting for calendar booking", err);
   }
 
@@ -251,6 +275,9 @@ export async function POST(
   let finalNotes = combinedNotes;
   if (purelyConnectJoinUrl) {
     const prefix = `[Purely Connect Meeting]\n${purelyConnectJoinUrl}\n\n`;
+    finalNotes = finalNotes ? prefix + finalNotes : prefix.trim();
+  } else if (nativeMeetingLabel && effectiveLocation) {
+    const prefix = `[${nativeMeetingLabel} Meeting]\n${effectiveLocation}\n\n`;
     finalNotes = finalNotes ? prefix + finalNotes : prefix.trim();
   }
 
@@ -457,5 +484,5 @@ export async function POST(
     // ignore
   }
 
-  return NextResponse.json({ ok: true, booking, rescheduleUrl });
+  return NextResponse.json({ ok: true, booking, rescheduleUrl, meetingLocation: effectiveLocation });
 }

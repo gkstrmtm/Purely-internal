@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 function wrapCommandForPlatform(cmd, args) {
@@ -19,13 +21,31 @@ function wrapCommandForPlatform(cmd, args) {
 function run(cmd, args, opts = {}) {
   const platformCommand = wrapCommandForPlatform(cmd, args);
   const res = spawnSync(platformCommand.cmd, platformCommand.args, {
-    stdio: "inherit",
+    stdio: opts.captureOutput ? ["inherit", "pipe", "pipe"] : "inherit",
     shell: false,
     timeout: opts.timeoutMs,
     env: opts.env ?? process.env,
+    encoding: opts.captureOutput ? "utf8" : undefined,
   });
+  if (opts.captureOutput) {
+    if (res.stdout) process.stdout.write(res.stdout);
+    if (res.stderr) process.stderr.write(res.stderr);
+  }
   if (res.error) {
     console.error(`[prebuild] Failed to launch ${cmd}: ${res.error.message}`);
+  }
+  if (opts.allowWindowsEngineRenameFailure && res.status !== 0 && process.platform === "win32") {
+    const output = `${res.stdout || ""}\n${res.stderr || ""}`;
+    const engineFile = path.join(process.cwd(), "node_modules", ".prisma", "client", "query_engine-windows.dll.node");
+    const windowsEngineRenameFailure =
+      output.includes("EPERM: operation not permitted, rename") &&
+      output.includes("query_engine-windows.dll.node.tmp") &&
+      output.includes("query_engine-windows.dll.node");
+
+    if (windowsEngineRenameFailure && fs.existsSync(engineFile)) {
+      console.warn("[prebuild] Prisma generate hit a locked Windows engine rename, but an existing engine is already present. Continuing build.");
+      return res;
+    }
   }
   if (res.status !== 0 && !opts.allowFailure) process.exit(res.status ?? 1);
   return res;
@@ -50,7 +70,11 @@ const databaseUrl = process.env.DATABASE_URL;
 // `prisma generate` does not require a live database connection.
 // We always run it so local builds don't break when schema changes.
 console.log("[prebuild] Running prisma generate...");
-run("npx", ["prisma", "generate"], { timeoutMs: 180_000 });
+run("npx", ["prisma", "generate"], {
+  timeoutMs: 180_000,
+  captureOutput: true,
+  allowWindowsEngineRenameFailure: true,
+});
 
 if (!shouldRunMigrations) {
   console.log("[prebuild] Skipping prisma migrate deploy. Set RUN_PRISMA_MIGRATIONS=1 to run migrations.");

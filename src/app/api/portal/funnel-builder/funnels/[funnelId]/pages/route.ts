@@ -139,6 +139,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
     ...p,
     seo: readFunnelPageSeo(settings?.dataJson ?? null, p.id),
     brief: readFunnelPageBrief(settings?.dataJson ?? null, p.id),
+    trackingSettings: (() => readCreditFunnelTrackingSettings(settings?.dataJson ?? null, funnelId, p.id))(),
     executionSummary: (() => {
       const tracking = readCreditFunnelTrackingSettings(settings?.dataJson ?? null, funnelId, p.id);
       const metrics =

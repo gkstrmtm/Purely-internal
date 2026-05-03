@@ -19,6 +19,7 @@ export function computeAvailableSlots(params: {
   startAt?: string | null;
   days: number;
   durationMinutes: number;
+  minimumNoticeMinutes?: number;
   limit: number;
   coverageBlocks: Interval[];
   existing: Interval[];
@@ -26,7 +27,9 @@ export function computeAvailableSlots(params: {
   const now = new Date();
   const base = params.startAt ? new Date(params.startAt) : now;
   const rangeStart = Number.isNaN(base.getTime()) ? now : base;
-  const safeStart = rangeStart < now ? now : rangeStart;
+  const minimumNoticeMs = Math.max(0, Math.floor((params.minimumNoticeMinutes ?? 0) * 60_000));
+  const earliestAllowedStart = new Date(now.getTime() + minimumNoticeMs);
+  const safeStart = rangeStart < earliestAllowedStart ? earliestAllowedStart : rangeStart;
   const alignedStart = alignToNextHalfHour(safeStart);
   const rangeEnd = new Date(alignedStart.getTime() + params.days * 24 * 60 * 60_000);
 

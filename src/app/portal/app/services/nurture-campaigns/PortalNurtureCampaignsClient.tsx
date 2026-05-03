@@ -995,7 +995,7 @@ export function PortalNurtureCampaignsClient() {
                 </div>
 
                 {templateOpen ? (
-                  <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-3 pt-[calc(var(--pa-modal-safe-top)+0.75rem)] pb-[calc(var(--pa-modal-safe-bottom)+0.75rem)] sm:items-center">
+                  <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-3 pa-modal-safe-pad-tight sm:items-center">
                     <div className="flex max-h-[calc(100dvh-var(--pa-modal-safe-top)-var(--pa-modal-safe-bottom)-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -1611,7 +1611,7 @@ function StepCard(props: {
 
       {aiModalOpen ? (
         <div
-          className="fixed inset-0 z-9999 flex items-end justify-center bg-black/40 px-3 pt-[calc(var(--pa-modal-safe-top)+0.75rem)] pb-[calc(var(--pa-modal-safe-bottom)+0.75rem)] sm:items-center"
+          className="fixed inset-0 z-9999 flex items-end justify-center bg-black/40 px-3 pa-modal-safe-pad-tight sm:items-center"
           onMouseDown={() => !aiBusy && setAiModalOpen(false)}
         >
           <div

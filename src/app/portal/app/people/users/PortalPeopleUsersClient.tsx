@@ -355,7 +355,7 @@ export function PortalPeopleUsersClient() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl pb-[calc(var(--pa-portal-embed-footer-offset,0px)+96px+var(--pa-portal-floating-tools-reserve,0px))]">
+    <div className="mx-auto w-full max-w-6xl pa-portal-footer-reserve">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">People</h1>
@@ -712,7 +712,7 @@ export function PortalPeopleUsersClient() {
       ) : null}
 
       {editingMember && memberPermissions ? (
-        <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+        <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-4 pa-modal-safe-pad sm:items-center">
           <div className="w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -867,7 +867,7 @@ export function PortalPeopleUsersClient() {
       ) : null}
 
       {demoteConfirmOpen ? (
-        <div className="fixed inset-0 z-9999 flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+        <div className="fixed inset-0 z-9999 flex items-end justify-center bg-black/30 px-4 pa-modal-safe-pad sm:items-center">
           <div className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
             <div className="text-base font-semibold text-zinc-900">Demote admin?</div>
             <div className="mt-2 text-sm text-zinc-600">

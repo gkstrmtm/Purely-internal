@@ -128,14 +128,14 @@ export function getFunnelEditorWorkflowViewModel(opts: {
     : selectedPageDirty
       ? customCodeModeActive
         ? "Save draft"
-        : "Save live"
+        : "Update live page"
       : customCodeModeActive
         ? "Draft saved"
-        : "Live saved";
+        : "Live up to date";
   const saveButtonTitle = customCodeModeActive
     ? "Save the current page as draft. Draft changes do not go live until you publish."
-    : "Save the current block page. Saving updates the live hosted version immediately.";
-  const publishButtonLabel = publishingPage ? "Publishing" : selectedPageDirty ? "Save + publish" : "Publish live";
+    : "Save the current block page and update the public page immediately.";
+  const publishButtonLabel = publishingPage ? "Publishing" : selectedPageDirty ? "Save draft and publish" : "Publish draft";
   const workflowStatusTone = !selectedPage
     ? "muted"
     : selectedPageDirty
@@ -157,24 +157,24 @@ export function getFunnelEditorWorkflowViewModel(opts: {
     ? "No page selected"
     : selectedPageDirty
       ? customCodeModeActive
-        ? "Unsaved draft changes"
-        : "Unsaved live changes"
+        ? "Draft changes not saved"
+        : "Live update not saved"
       : customCodeModeActive
         ? hasFunnelPageDraft(selectedPage)
           ? "Draft ready to publish"
-          : "Live matches published page"
+          : "Live page"
         : "Live on save";
   const workflowSummary = !selectedPage
     ? "Choose a page to edit."
     : customCodeModeActive
       ? selectedPageDirty
-        ? "You are editing the page directly here. Save the draft first, then publish when you want it live."
+        ? "You are editing a private draft. Preview and Source stay on that draft here. Save draft to keep it, then publish when you want the public page replaced."
         : hasFunnelPageDraft(selectedPage)
-          ? "A saved draft is ready. Publish when you want this version to replace the live page."
-          : "You are looking at the current live page version. New edits stay in draft until you publish them."
+          ? "You are looking at the saved draft for this page. The public page stays unchanged until you publish this draft."
+          : "You are looking at the current public page. Your next edit creates a draft here first."
       : selectedPageDirty
-        ? "You are editing the current draft. Preview and source stay on this draft here, and saving pushes this version to the hosted page."
-        : "Layout view is the live draft workspace for sections, text, buttons, forms, and media. Saving pushes that draft to the hosted page right away.";
+        ? "You are editing the next live version. Preview shows those changes here, and saving updates the public page immediately."
+        : "Layout view edits the live hosted page directly. Saving updates the public page immediately.";
   const liveLinkLabel = selectedPageIsEntryPage ? "Open live" : "Open live page";
   const liveLinkHint = selectedPageIsEntryPage
     ? "Open the public version of this funnel in a new tab."
@@ -182,7 +182,7 @@ export function getFunnelEditorWorkflowViewModel(opts: {
   const leavePageSummary = customCodeModeActive
     ? "You have unsaved full-page changes. Save them now if you want to keep this draft before switching pages."
     : "You have unsaved block changes. Save now if you want them to update the live page before you switch.";
-  const leavePageConfirmLabel = customCodeModeActive ? "Save draft and continue" : "Save live and continue";
+  const leavePageConfirmLabel = customCodeModeActive ? "Save draft and continue" : "Update live page and continue";
 
   return {
     hasDeployableDraft,

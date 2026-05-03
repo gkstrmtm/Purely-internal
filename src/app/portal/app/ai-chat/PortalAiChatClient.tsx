@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -11,9 +11,10 @@ import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { useToast } from "@/components/ToastProvider";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { IconChevron, IconCopy, IconEdit, IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
-import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { PURA_AI_PROFILE_OPTIONS, normalizePuraAiProfile, type PuraAiProfile } from "@/lib/puraAiProfile";
+import { PURA_WELCOME_PROMPT_LIBRARY as WELCOME_PROMPT_LIBRARY, type PromptChipDefinition } from "@/lib/puraWelcomePrompts";
 import { buildPortalAiChatThreadHref, parsePortalAiChatThreadRef } from "@/lib/portalAiChatThreadRefs";
 import { usePuraCanvasUiBridgeClient, type PuraCanvasUiAction } from "@/lib/puraCanvasUiBridge.client";
 
@@ -124,6 +125,28 @@ function compareThreadsForSidebar(a: Thread, b: Thread): number {
   return threadTimestampValue(b.updatedAt) - threadTimestampValue(a.updatedAt);
 }
 
+function extractClipboardImageFiles(data: DataTransfer | null | undefined) {
+  const deduped = new Map<string, File>();
+
+  for (const file of Array.from(data?.files || [])) {
+    if (!(file instanceof File)) continue;
+    if (!String(file.type || "").toLowerCase().startsWith("image/")) continue;
+    const key = `${file.name}:${file.size}:${file.type}`;
+    deduped.set(key, file);
+  }
+
+  for (const item of Array.from(data?.items || [])) {
+    if (!item || item.kind !== "file") continue;
+    if (!String(item.type || "").toLowerCase().startsWith("image/")) continue;
+    const file = item.getAsFile();
+    if (!(file instanceof File)) continue;
+    const key = `${file.name}:${file.size}:${file.type}`;
+    deduped.set(key, file);
+  }
+
+  return Array.from(deduped.values());
+}
+
 function readStoredDraftChatMode(): ChatMode {
   if (typeof window === "undefined") return "plan";
   try {
@@ -140,6 +163,52 @@ function readStoredDraftResponseProfile(): PuraAiProfile {
   } catch {
     return "balanced";
   }
+}
+
+function readStoredWelcomePromptHistory(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(PURA_CHAT_WELCOME_PROMPT_HISTORY_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const value of parsed) {
+      const id = typeof value === "string" ? value.trim().slice(0, 80) : "";
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+      if (ids.length >= 18) break;
+    }
+    return ids;
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredWelcomePromptHistory(ids: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PURA_CHAT_WELCOME_PROMPT_HISTORY_STORAGE_KEY, JSON.stringify(ids.slice(0, 18)));
+  } catch {}
+}
+
+function readStoredWelcomePromptRotation(): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = window.localStorage.getItem(PURA_CHAT_WELCOME_PROMPT_ROTATION_STORAGE_KEY);
+    const parsed = Number.parseInt(String(raw || "0"), 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeStoredWelcomePromptRotation(value: number) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PURA_CHAT_WELCOME_PROMPT_ROTATION_STORAGE_KEY, String(Math.max(0, Math.floor(value))));
+  } catch {}
 }
 
 function decodeBase64AudioBlob(base64: string, contentType: string): Blob {
@@ -159,6 +228,11 @@ type Attachment = {
   mimeType?: string;
   fileSize?: number;
   url: string;
+};
+
+type VisibleContextBadge = {
+  kind: "service" | "page";
+  label: string;
 };
 
 function looksLikeImageAttachment(a: any): boolean {
@@ -232,6 +306,8 @@ type RunLedgerEntry = {
   workTitle?: string | null;
   canvasUrl?: string | null;
   summaryText?: string | null;
+  aiSummaryText?: string | null;
+  aiSummaryGeneratedAt?: string | null;
   assistantMessageId?: string | null;
   scheduledMessageId?: string | null;
   createdAt: string;
@@ -261,6 +337,7 @@ type Message = {
   role: "user" | "assistant" | string;
   text: string;
   attachmentsJson: any;
+  visibleContextBadges?: VisibleContextBadge[];
   assistantActions?: AssistantAction[];
   runTrace?: RunTrace | null;
   followUpSuggestions?: string[];
@@ -280,6 +357,32 @@ type ThreadUiState = {
 type ThreadDraftState = {
   input: string;
   pendingAttachments: Attachment[];
+  contextServiceSlugs?: string[];
+};
+
+type ComposerPhraseMatch = {
+  phrase: string;
+  start: number;
+  end: number;
+  source: "title" | "slug" | "keyword";
+  priority: number;
+};
+
+type ComposerServiceSuggestion = {
+  service: PortalService;
+  matchedPhrase: string | null;
+  match: ComposerPhraseMatch | null;
+  score: number;
+};
+
+type ComposerScheduleSuggestion = {
+  matchedPhrase: string | null;
+  match: ComposerPhraseMatch | null;
+};
+
+type ComposerConnectedHighlight = {
+  service: PortalService;
+  match: ComposerPhraseMatch;
 };
 
 type DictationPlaybackState = {
@@ -294,6 +397,8 @@ type ChatMode = "plan" | "work";
 const DRAFT_THREAD_KEY = "__draft__";
 const PURA_CHAT_DEFAULT_MODE_STORAGE_KEY = "pura.chat.defaultMode";
 const PURA_CHAT_DEFAULT_PROFILE_STORAGE_KEY = "pura.chat.defaultProfile";
+const PURA_CHAT_WELCOME_PROMPT_HISTORY_STORAGE_KEY = "pura.chat.welcomePromptHistory";
+const PURA_CHAT_WELCOME_PROMPT_ROTATION_STORAGE_KEY = "pura.chat.welcomePromptRotation";
 
 function createEmptyThreadUiState(): ThreadUiState {
   return {
@@ -308,46 +413,499 @@ function createEmptyThreadDraftState(): ThreadDraftState {
   return {
     input: "",
     pendingAttachments: [],
+    contextServiceSlugs: [],
   };
 }
 
-type PromptChipDefinition = {
-  id: string;
-  prompt: string;
-  slugs?: string[];
-  keywords?: string[];
+const PORTAL_CONTEXT_SERVICES = PORTAL_SERVICES.filter((service) => !service.hidden);
+
+const COMPOSER_SERVICE_KEYWORDS: Record<string, string[]> = {
+  "funnel-builder": [
+    "funnel builder",
+    "funnel",
+    "landing page",
+    "checkout page",
+    "upsell page",
+    "downsell page",
+    "thank you page",
+    "page builder",
+    "website",
+    "website page",
+    "website settings",
+    "funnel settings",
+    "page settings",
+    "site",
+  ],
+  inbox: ["inbox", "sms", "text thread", "reply", "conversation", "email inbox", "email thread", "messages", "messaging", "inbox settings"],
+  newsletter: ["newsletter", "email campaign", "broadcast", "email blast", "email marketing", "campaign", "newsletter settings", "email settings", "audience"],
+  booking: ["booking", "calendar", "appointment", "availability", "scheduler", "booking settings", "calendar settings", "appointment settings", "bookings"],
+  "media-library": ["media library", "asset library", "image library", "video library", "upload", "uploads", "assets", "files", "photos", "videos"],
+  tasks: ["task", "to do", "todo", "follow up task", "reminder", "checklist", "action item", "follow-up reminder"],
+  automations: ["automation", "workflow", "sequence", "automated follow up", "trigger", "logic", "automation settings", "workflow settings"],
+  blogs: ["blog", "article", "seo blog", "blog post", "content", "seo content", "post"],
+  reviews: ["reviews", "review", "testimonial", "google review", "rating", "reputation", "trust", "social proof", "credibility", "customer feedback", "review settings"],
+  "ai-receptionist": ["ai receptionist", "missed call", "voicemail", "call handling", "phone", "incoming call", "calls", "receptionist", "answer calls", "phone settings"],
+  "ai-outbound-calls": ["outbound", "outbound call", "call", "calls", "call campaign", "dial", "dialing", "phone outreach", "cold call", "follow up call"],
+  "lead-scraping": ["lead scraping", "leads", "lead", "prospects", "prospect", "lead list", "prospect list", "target leads", "scrape leads"],
+  "nurture-campaigns": ["nurture campaigns", "nurture campaign", "nurture", "lead nurture", "drip campaign", "drip", "re-engagement", "long-term follow up", "follow-up campaign"],
+  reporting: ["reporting", "report", "reports", "analytics", "metrics", "dashboard", "performance", "tracking", "reporting settings"],
 };
 
-const WELCOME_PROMPT_LIBRARY: PromptChipDefinition[] = [
-  { id: "leads-priority", prompt: "Summarize the highest-priority leads I should follow up with today.", slugs: ["lead-scraping", "crm", "inbox", "ai-receptionist"], keywords: ["lead", "follow up", "priority"] },
-  { id: "marketing-week", prompt: "Plan three marketing tasks I can finish this week.", slugs: ["blogs", "newsletter", "funnel-builder", "media-library"], keywords: ["marketing", "campaign", "content"] },
-  { id: "automation-next", prompt: "Review what Pura can help automate next for this business.", slugs: ["automations", "tasks", "booking", "nurture-campaigns"], keywords: ["automate", "workflow", "system"] },
-  { id: "missed-calls", prompt: "Help me tighten our missed-call follow-up flow.", slugs: ["ai-receptionist", "missed-call-textback", "booking"], keywords: ["call", "missed", "text back"] },
-  { id: "newsletter-ideas", prompt: "Give me three newsletter ideas I can send this month.", slugs: ["newsletter", "blogs"], keywords: ["newsletter", "email", "audience"] },
-  { id: "booking-gaps", prompt: "Find weak spots in our booking flow and suggest fixes.", slugs: ["booking", "funnel-builder", "ai-receptionist"], keywords: ["book", "booking", "appointment"] },
-  { id: "task-cleanup", prompt: "Turn my open work into a clean action plan for today.", slugs: ["tasks", "automations"], keywords: ["task", "todo", "plan"] },
-  { id: "blog-seo", prompt: "Map out blog topics that could bring in better search traffic.", slugs: ["blogs", "funnel-builder"], keywords: ["blog", "seo", "search"] },
-  { id: "review-request", prompt: "Draft a smarter review request flow for recent customers.", slugs: ["reviews", "automations", "inbox"], keywords: ["review", "reputation", "customer"] },
-  { id: "nurture-refresh", prompt: "Refresh our nurture campaign so it feels more personal.", slugs: ["nurture-campaigns", "newsletter", "inbox"], keywords: ["nurture", "sequence", "personal"] },
-  { id: "reporting-summary", prompt: "Show me what the reporting data is saying we should fix first.", slugs: ["reporting", "automations", "booking"], keywords: ["report", "reporting", "numbers"] },
-  { id: "inbox-backlog", prompt: "Help me clear the inbox backlog with the fastest wins first.", slugs: ["inbox", "tasks", "ai-receptionist"], keywords: ["inbox", "reply", "backlog"] },
-  { id: "outbound-script", prompt: "Write a tighter outbound script for leads that went cold.", slugs: ["ai-outbound-calls", "lead-scraping", "inbox"], keywords: ["outbound", "cold", "script"] },
-  { id: "lead-list", prompt: "Suggest the best kind of leads to scrape next and why.", slugs: ["lead-scraping", "ai-outbound-calls", "reporting"], keywords: ["lead", "scrape", "prospect"] },
-  { id: "media-reuse", prompt: "Find ways we can reuse our existing media across more campaigns.", slugs: ["media-library", "newsletter", "blogs", "funnel-builder"], keywords: ["media", "asset", "creative"] },
-  { id: "funnel-conversion", prompt: "Audit our funnel and give me three conversion improvements.", slugs: ["funnel-builder", "booking", "reporting"], keywords: ["funnel", "conversion", "landing page"] },
-  { id: "appointment-reminders", prompt: "Draft a reminder sequence to reduce appointment no-shows.", slugs: ["booking", "follow-up", "automations"], keywords: ["reminder", "no-show", "appointment"] },
-  { id: "team-focus", prompt: "Tell me where my team should focus first this week.", slugs: ["tasks", "reporting", "automations"], keywords: ["team", "focus", "week"] },
-  { id: "followup-rewrite", prompt: "Rewrite our follow-up messaging so it gets more replies.", slugs: ["follow-up", "inbox", "newsletter"], keywords: ["follow-up", "reply", "message"] },
-  { id: "automation-builder", prompt: "Design an automation that saves the team the most manual work.", slugs: ["automations", "tasks", "inbox"], keywords: ["automation", "manual", "save time"] },
-  { id: "receptionist-script", prompt: "Improve our AI receptionist script for higher-quality leads.", slugs: ["ai-receptionist", "booking"], keywords: ["receptionist", "caller", "lead quality"] },
-  { id: "sales-story", prompt: "Explain our sales performance in plain English and what to do next.", slugs: ["reporting", "inbox", "booking"], keywords: ["sales", "pipeline", "performance"] },
-  { id: "content-calendar", prompt: "Build a simple content calendar around our best offers.", slugs: ["blogs", "newsletter", "media-library"], keywords: ["content", "calendar", "offer"] },
-  { id: "new-offer", prompt: "Help me turn one service into a stronger offer people actually respond to.", slugs: ["funnel-builder", "booking", "reporting"], keywords: ["offer", "service", "respond"] },
-  { id: "reactivation", prompt: "Create a reactivation plan for leads we have not touched in a while.", slugs: ["nurture-campaigns", "inbox", "ai-outbound-calls"], keywords: ["reactivation", "old leads", "win back"] },
-  { id: "reviews-replies", prompt: "Help me turn new reviews into follow-up opportunities.", slugs: ["reviews", "inbox", "tasks"], keywords: ["review", "reply", "opportunity"] },
-  { id: "default-systems", prompt: "What are the next three systems I should tighten up in the business?", keywords: ["systems", "business", "next"] },
-  { id: "default-team", prompt: "What should I delegate, automate, and personally handle this week?", keywords: ["delegate", "automate", "week"] },
+const COMPOSER_SCHEDULE_KEYWORDS = [
+  "schedule",
+  "scheduled",
+  "schedule task",
+  "remind me",
+  "set a reminder",
+  "every day",
+  "every week",
+  "every month",
+  "daily",
+  "weekly",
+  "monthly",
+  "recurring",
+  "repeat this",
+  "run this later",
+  "automatically every",
 ];
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeContextServiceSlugs(raw: unknown): string[] {
+  const allowed = new Set(PORTAL_CONTEXT_SERVICES.map((service) => service.slug));
+  const values = Array.isArray(raw) ? raw : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const slug = String(value || "").trim();
+    if (!slug || seen.has(slug) || !allowed.has(slug)) continue;
+    seen.add(slug);
+    out.push(slug);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+function findPortalContextService(slug: string): PortalService | null {
+  return PORTAL_CONTEXT_SERVICES.find((service) => service.slug === slug) || null;
+}
+
+function parseAttachedPortalSurface(raw: string | null | undefined): VisibleContextBadge | null {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value, ASSISTANT_LINK_ORIGIN);
+    const path = String(url.pathname || "").trim();
+    if (!path || path === "/portal/app/ai-chat") return null;
+
+    const hostedEditorMatch = /^\/portal\/app\/services\/(booking|newsletter|reviews|blogs)\/page-editor(?:\/|$)/i.exec(path);
+    if (hostedEditorMatch?.[1]) {
+      const service = `${hostedEditorMatch[1].slice(0, 1).toUpperCase()}${hostedEditorMatch[1].slice(1).toLowerCase()}`;
+      return { kind: "page", label: `${service} hosted page editor` };
+    }
+
+    if (/^\/portal\/app\/services\/funnel-builder\/funnels\/[^/]+\/edit(?:\/|$)/i.test(path)) {
+      return { kind: "page", label: "Funnel Builder editor" };
+    }
+
+    if (/^\/portal\/app\/services\/booking\/settings(?:\/|$)/i.test(path)) {
+      return { kind: "page", label: "Booking settings" };
+    }
+
+    const serviceMatch = /^\/portal\/app\/services\/([^/]+)(?:\/|$)/i.exec(path);
+    if (serviceMatch?.[1]) {
+      const service = findPortalContextService(String(serviceMatch[1]).trim());
+      if (service) return { kind: "page", label: `${service.title} workspace` };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function buildVisibleContextBadges(opts: {
+  text: string;
+  contextKeys: string[];
+  canvasUrl?: string | null;
+  pageUrl?: string | null;
+}): VisibleContextBadge[] {
+  const badges: VisibleContextBadge[] = [];
+  const seen = new Set<string>();
+
+  for (const slug of normalizeContextServiceSlugs(opts.contextKeys)) {
+    const service = findPortalContextService(slug);
+    if (!service) continue;
+    const label = String(service.title || "").trim();
+    const key = `service:${label.toLowerCase()}`;
+    if (!label || seen.has(key)) continue;
+    seen.add(key);
+    badges.push({ kind: "service", label });
+  }
+
+  const surfaceBadge = parseAttachedPortalSurface(opts.canvasUrl || opts.pageUrl || null);
+  if (surfaceBadge) {
+    const key = `${surfaceBadge.kind}:${surfaceBadge.label.toLowerCase()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      badges.push(surfaceBadge);
+    }
+  }
+
+  return badges.slice(0, 4);
+}
+
+function attachVisibleContextBadges(message: Message, badges: VisibleContextBadge[]): Message {
+  return badges.length ? { ...message, visibleContextBadges: badges } : message;
+}
+
+function mergeVisibleContextBadges(message: Message, fallback: Message | null | undefined, badges?: VisibleContextBadge[]): Message {
+  const nextBadges =
+    (Array.isArray(message.visibleContextBadges) && message.visibleContextBadges.length ? message.visibleContextBadges : null) ||
+    (fallback && Array.isArray(fallback.visibleContextBadges) && fallback.visibleContextBadges.length ? fallback.visibleContextBadges : null) ||
+    (Array.isArray(badges) && badges.length ? badges : null);
+  return nextBadges ? { ...message, visibleContextBadges: nextBadges } : message;
+}
+
+function formatVisibleContextBadgeLine(badges: VisibleContextBadge[] | null | undefined): string {
+  const items = Array.isArray(badges)
+    ? badges
+        .map((badge) => String(badge?.label || "").trim())
+        .filter(Boolean)
+        .slice(0, 4)
+    : [];
+  return items.length ? `Attached context: ${items.join(" G�� ")}` : "";
+}
+
+function findComposerPhraseMatch(inputRaw: string, phraseRaw: string): { phrase: string; start: number; end: number } | null {
+  const input = String(inputRaw || "");
+  const phrase = String(phraseRaw || "").trim();
+  if (!input.trim() || !phrase) return null;
+
+  const escaped = escapeRegExp(phrase).replace(/\s+/g, "\\s+");
+  const pattern = new RegExp(`(^|[^a-z0-9])(${escaped})(?=$|[^a-z0-9])`, "i");
+  const match = pattern.exec(input);
+  if (!match) return null;
+
+  const prefix = match[1] || "";
+  const body = match[2] || "";
+  const start = match.index + prefix.length;
+  const end = start + body.length;
+  return { phrase: input.slice(start, end), start, end };
+}
+
+function findComposerServiceMatch(inputRaw: string, service: PortalService): ComposerPhraseMatch | null {
+  const input = String(inputRaw || "");
+  if (!input.trim()) return null;
+
+  const candidatePhrases = [
+    { phrase: service.title, source: "title" as const, weight: 120 },
+    { phrase: service.slug.replace(/[-/]/g, " "), source: "slug" as const, weight: 96 },
+    ...(COMPOSER_SERVICE_KEYWORDS[service.slug] || []).map((phrase) => ({ phrase, source: "keyword" as const, weight: 72 })),
+  ];
+
+  const seen = new Set<string>();
+  const uniqueCandidates = candidatePhrases.filter((value) => {
+    const stable = value.phrase.toLowerCase();
+    if (!stable || seen.has(stable)) return false;
+    seen.add(stable);
+    return true;
+  });
+
+  let bestMatch: ComposerPhraseMatch | null = null;
+  for (const phrase of uniqueCandidates) {
+    const match = findComposerPhraseMatch(input, phrase.phrase);
+    if (!match) continue;
+    const priority = phrase.weight + phrase.phrase.length;
+    if (!bestMatch || priority > bestMatch.priority || (priority === bestMatch.priority && match.start < bestMatch.start)) {
+      bestMatch = {
+        phrase: match.phrase,
+        start: match.start,
+        end: match.end,
+        source: phrase.source,
+        priority,
+      };
+    }
+  }
+
+  return bestMatch;
+}
+
+function findComposerServiceMatchedPhrase(inputRaw: string, service: PortalService): string | null {
+  return findComposerServiceMatch(inputRaw, service)?.phrase?.trim() || null;
+}
+
+function findComposerKeywordSuggestion(inputRaw: string, phrases: string[], weight = 84): ComposerPhraseMatch | null {
+  const input = String(inputRaw || "");
+  if (!input.trim()) return null;
+
+  const uniquePhrases = Array.from(new Set(phrases.map((phrase) => String(phrase || "").trim().toLowerCase()).filter(Boolean)));
+  let bestMatch: ComposerPhraseMatch | null = null;
+  for (const phrase of uniquePhrases) {
+    const match = findComposerPhraseMatch(input, phrase);
+    if (!match) continue;
+    const priority = weight + phrase.length;
+    if (!bestMatch || priority > bestMatch.priority || (priority === bestMatch.priority && match.start < bestMatch.start)) {
+      bestMatch = {
+        phrase: match.phrase,
+        start: match.start,
+        end: match.end,
+        source: "keyword",
+        priority,
+      };
+    }
+  }
+  return bestMatch;
+}
+
+function findComposerScheduleSuggestion(inputRaw: string): ComposerScheduleSuggestion | null {
+  const match = findComposerKeywordSuggestion(inputRaw, COMPOSER_SCHEDULE_KEYWORDS, 90);
+  if (!match) return null;
+  return {
+    matchedPhrase: match.phrase.trim() || null,
+    match,
+  };
+}
+
+function measureComposerMatchAnchor(
+  composer: HTMLElement | HTMLTextAreaElement,
+  range?: { start: number; end: number } | null,
+) {
+  if (composer instanceof HTMLTextAreaElement) {
+    const value = composer.value || "";
+    const start = Math.max(0, Math.min(range?.start ?? 0, value.length));
+    const end = Math.max(start, Math.min(range?.end ?? start, value.length));
+    if (end <= start) {
+      return {
+        left: composer.clientWidth / 2,
+        top: 0,
+      };
+    }
+
+    const computed = window.getComputedStyle(composer);
+    const mirror = document.createElement("div");
+    mirror.setAttribute("aria-hidden", "true");
+    mirror.style.position = "fixed";
+    mirror.style.left = "-9999px";
+    mirror.style.top = "0";
+    mirror.style.visibility = "hidden";
+    mirror.style.pointerEvents = "none";
+    mirror.style.boxSizing = "border-box";
+    mirror.style.width = `${composer.clientWidth}px`;
+    mirror.style.padding = computed.padding;
+    mirror.style.border = "0";
+    mirror.style.font = computed.font;
+    mirror.style.fontKerning = computed.fontKerning;
+    mirror.style.fontFeatureSettings = computed.fontFeatureSettings;
+    mirror.style.fontVariationSettings = computed.fontVariationSettings;
+    mirror.style.letterSpacing = computed.letterSpacing;
+    mirror.style.lineHeight = computed.lineHeight;
+    mirror.style.textAlign = computed.textAlign;
+    mirror.style.textTransform = computed.textTransform;
+    mirror.style.textIndent = computed.textIndent;
+    mirror.style.tabSize = computed.tabSize;
+    mirror.style.whiteSpace = "pre-wrap";
+    mirror.style.overflowWrap = "break-word";
+
+    const before = document.createTextNode(value.slice(0, start));
+    const marker = document.createElement("span");
+    marker.textContent = value.slice(start, end) || "\u200b";
+    const after = document.createTextNode(value.slice(end) || "\u200b");
+    mirror.append(before, marker, after);
+    document.body.appendChild(mirror);
+
+    const left = marker.offsetLeft + marker.offsetWidth / 2 - composer.scrollLeft;
+    const top = marker.offsetTop - composer.scrollTop;
+
+    document.body.removeChild(mirror);
+    return { left, top };
+  }
+
+  const marker = composer.querySelector<HTMLElement>("[data-composer-match-anchor='true']");
+  if (!marker) {
+    return {
+      left: composer.clientWidth / 2,
+      top: 0,
+    };
+  }
+
+  const composerRect = composer.getBoundingClientRect();
+  const markerRect = marker.getBoundingClientRect();
+  return {
+    left: markerRect.left - composerRect.left + markerRect.width / 2 + composer.scrollLeft,
+    top: markerRect.top - composerRect.top + composer.scrollTop,
+  };
+}
+
+function normalizeComposerPlainText(value: string) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\u200b/g, "");
+}
+
+function getComposerSelectionOffsets(root: HTMLElement | HTMLTextAreaElement): { start: number; end: number } | null {
+  if (root instanceof HTMLTextAreaElement) {
+    return {
+      start: root.selectionStart ?? 0,
+      end: root.selectionEnd ?? root.selectionStart ?? 0,
+    };
+  }
+
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+
+  const startRange = document.createRange();
+  startRange.selectNodeContents(root);
+  startRange.setEnd(range.startContainer, range.startOffset);
+
+  const endRange = document.createRange();
+  endRange.selectNodeContents(root);
+  endRange.setEnd(range.endContainer, range.endOffset);
+
+  return {
+    start: normalizeComposerPlainText(startRange.toString()).length,
+    end: normalizeComposerPlainText(endRange.toString()).length,
+  };
+}
+
+function setComposerSelectionOffsets(root: HTMLElement | HTMLTextAreaElement, start: number, end = start) {
+  if (root instanceof HTMLTextAreaElement) {
+    root.setSelectionRange(start, end);
+    return;
+  }
+
+  const selection = window.getSelection();
+  if (!selection) return;
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let currentStart = 0;
+  let startNode: Node | null = null;
+  let endNode: Node | null = null;
+  let startOffset = 0;
+  let endOffset = 0;
+
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const textLength = normalizeComposerPlainText(node.textContent || "").length;
+    const nextEnd = currentStart + textLength;
+
+    if (!startNode && start <= nextEnd) {
+      startNode = node;
+      startOffset = Math.max(0, Math.min(start - currentStart, node.textContent?.length || 0));
+    }
+    if (!endNode && end <= nextEnd) {
+      endNode = node;
+      endOffset = Math.max(0, Math.min(end - currentStart, node.textContent?.length || 0));
+      break;
+    }
+
+    currentStart = nextEnd;
+  }
+
+  if (!startNode || !endNode) {
+    root.focus();
+    return;
+  }
+
+  const range = document.createRange();
+  range.setStart(startNode, startOffset);
+  range.setEnd(endNode, endOffset);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function renderComposerInlineText(
+  value: string,
+  ranges: Array<{
+    start: number;
+    end: number;
+    key: string;
+    isAnchor?: boolean;
+    interactive?: boolean;
+    className?: string;
+    style?: CSSProperties;
+    onClick?: () => void;
+  }>,
+) {
+  if (!value) return null;
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  ranges.forEach((range, index) => {
+    const start = Math.max(0, Math.min(range.start, value.length));
+    const end = Math.max(start, Math.min(range.end, value.length));
+    if (cursor < start) nodes.push(value.slice(cursor, start));
+    const text = value.slice(start, end);
+    const className = range.className || "text-brand-blue";
+    if (range.interactive) {
+      nodes.push(
+        <button
+          key={`${range.key}:${index}:${start}:${end}`}
+          type="button"
+          data-composer-match-anchor={range.isAnchor ? "true" : undefined}
+          className={`pointer-events-auto rounded-lg bg-transparent p-0 text-left align-baseline ${className}`}
+          style={range.style}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => range.onClick?.()}
+        >
+          {text}
+        </button>,
+      );
+    } else {
+      nodes.push(
+        <span
+          key={`${range.key}:${index}:${start}:${end}`}
+          data-composer-match-anchor={range.isAnchor ? "true" : undefined}
+          className={className}
+          style={range.style}
+        >
+          {text}
+        </span>,
+      );
+    }
+    cursor = end;
+  });
+  if (cursor < value.length) nodes.push(value.slice(cursor));
+  return nodes;
+}
+
+function inferComposerServiceSuggestions(opts: {
+  input: string;
+  canvasUrl?: string | null;
+  serviceUsageCounts: Record<string, number>;
+  selectedSlugs: string[];
+}): ComposerServiceSuggestion[] {
+  const haystack = `${String(opts.input || "")} ${String(opts.canvasUrl || "")}`.toLowerCase();
+  const selected = new Set(opts.selectedSlugs);
+  const ranked = PORTAL_CONTEXT_SERVICES.map((service) => {
+    if (selected.has(service.slug)) return { service, score: -1 };
+    const match = findComposerServiceMatch(opts.input, service);
+    let score = Number(opts.serviceUsageCounts[service.slug] || 0);
+    if (match?.source === "title") score += 8;
+    else if (match?.source === "slug") score += 7;
+    else if (match?.source === "keyword") score += 5;
+    const canvasPath = String(opts.canvasUrl || "").toLowerCase();
+    if (service.slug === "funnel-builder" && /\/funnel|\/funnels|\/website|\/builder/.test(canvasPath)) score += 5;
+    if (service.slug === "booking" && /\/booking|\/calendar/.test(canvasPath)) score += 5;
+    if (service.slug === "inbox" && /\/inbox/.test(canvasPath)) score += 5;
+    if (!match && !score) return { service, score: -1, match: null };
+    if (match && haystack.includes(match.phrase.toLowerCase())) score += Math.min(match.phrase.length, 12);
+    return { service, score, match };
+  })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => (b.score !== a.score ? b.score - a.score : a.service.title.localeCompare(b.service.title)));
+
+  return ranked.slice(0, 4).map((entry) => ({
+    service: entry.service,
+    matchedPhrase: entry.match?.phrase?.trim() || null,
+    match: entry.match || null,
+    score: entry.score,
+  }));
+}
 
 function seededHash(input: string) {
   let hash = 2166136261;
@@ -545,9 +1103,13 @@ function MessageBubble({
   const isThinking = msg.id.startsWith("optimistic-assistant-") && msg.role === "assistant";
   const actions = !isUser && !isThinking && Array.isArray(msg.assistantActions) ? msg.assistantActions : [];
   const scheduledEnv = tryParseScheduledEnvelopeForUi(msg.text);
+  const runTrace = msg.runTrace ?? null;
+  const runTraceSteps = runTrace?.steps ?? [];
+  const runTraceTone = runTraceSteps.length ? runTraceCardTone(runTraceSteps) : null;
 
   const bubble = (
     <div
+      data-message-role={isUser ? "user" : "assistant"}
       className={classNames(
         isUser ? "rounded-3xl bg-brand-blue px-4 py-3 text-sm leading-relaxed text-white" : "px-1 py-1 text-sm leading-relaxed text-zinc-900",
       )}
@@ -562,7 +1124,14 @@ function MessageBubble({
             ) : null}
           </div>
         ) : (
-          <div className="whitespace-pre-wrap">{msg.text}</div>
+          <div className="space-y-2">
+            {Array.isArray(msg.visibleContextBadges) && msg.visibleContextBadges.length ? (
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-white/80">
+                {formatVisibleContextBadgeLine(msg.visibleContextBadges)}
+              </div>
+            ) : null}
+            <div className="whitespace-pre-wrap">{msg.text}</div>
+          </div>
         )
       ) : isThinking ? (
         <ThinkingDots />
@@ -704,31 +1273,30 @@ function MessageBubble({
                 )}
                 title={a.confirmLabel ? `${a.title} - ${a.confirmLabel}` : a.title}
               >
-                <div className="truncate">{busy ? "Running…" : a.title}</div>
+                <div className="truncate">{busy ? "RunningGǪ" : a.title}</div>
               </button>
             );
           })}
         </div>
       ) : null}
 
-      {!isUser && !isThinking && msg.runTrace?.steps?.length ? (
-        <div
-          className="mt-3 rounded-2xl border border-zinc-200 bg-white/70 px-3 py-2 text-zinc-700"
-        >
-          <div className="flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-            <span>{msg.runTrace.workTitle || "Pura work trace"}</span>
-            <span>{msg.runTrace.steps.length} step{msg.runTrace.steps.length === 1 ? "" : "s"}</span>
+      {!isUser && !isThinking && runTrace && runTraceSteps.length && runTraceTone ? (
+        <div className={classNames("mt-3 rounded-2xl px-3 py-2", runTraceTone.cardClassName)}>
+          <div className={classNames("flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-wide", runTraceTone.headerClassName)}>
+            <span>{runTrace.workTitle || "Pura work trace"}</span>
+            <span>{runTraceSteps.length} step{runTraceSteps.length === 1 ? "" : "s"}</span>
           </div>
-          <div className="mt-2 space-y-1.5">
-            {msg.runTrace.steps.slice(0, 4).map((step, idx) => (
-              <div key={`${step.key}-${idx}`} className="flex items-start gap-2 text-[12px] leading-5">
-                <span className={classNames("mt-1.25 inline-block h-2 w-2 shrink-0 rounded-full", step.ok ? "bg-emerald-500" : "bg-amber-500")} />
-                <span className="text-zinc-700">{step.title || step.key}</span>
-              </div>
-            ))}
-            {msg.runTrace.steps.length > 4 ? (
-              <div className="pl-4 text-[11px] text-zinc-500">
-                +{msg.runTrace.steps.length - 4} more step{msg.runTrace.steps.length - 4 === 1 ? "" : "s"}
+          <div className="mt-2 space-y-2">
+            {runTraceSteps.slice(0, 4).map((step, idx) => {
+              return (
+                <div key={`${step.key}-${idx}`} className="rounded-2xl px-3 py-2.5 text-[12px] leading-5">
+                  <span className={classNames("block min-w-0 font-medium", runTraceTone.textClassName)}>{step.title || step.key}</span>
+                </div>
+              );
+            })}
+            {runTraceSteps.length > 4 ? (
+              <div className={classNames("pl-4 text-[11px]", runTraceTone.moreClassName)}>
+                +{runTraceSteps.length - 4} more step{runTraceSteps.length - 4 === 1 ? "" : "s"}
               </div>
             ) : null}
           </div>
@@ -1100,7 +1668,7 @@ function describeLiveStatusMeta(status: LiveStatus | null): string | null {
   if (typeof status.completedSteps === "number" && Number.isFinite(status.completedSteps) && status.completedSteps > 0) {
     parts.push(`${status.completedSteps} step${status.completedSteps === 1 ? "" : "s"} done`);
   }
-  return parts.length ? parts.join(" · ") : null;
+  return parts.length ? parts.join(" -+ ") : null;
 }
 
 function LiveProgressCard({ status, onInterrupt, interrupting }: { status: LiveStatus; onInterrupt?: (() => void) | null; interrupting?: boolean }) {
@@ -1120,7 +1688,7 @@ function LiveProgressCard({ status, onInterrupt, interrupting }: { status: LiveS
             onClick={onInterrupt}
             disabled={Boolean(interrupting)}
           >
-            {interrupting ? "Stopping…" : "Stop"}
+            {interrupting ? "StoppingGǪ" : "Stop"}
           </button>
         ) : null}
       </div>
@@ -1173,7 +1741,7 @@ function UnresolvedRunCard({ unresolvedRun, onContinue, onOpenCanvas, sending }:
         </div>
       </div>
       <div className="mt-2 text-sm font-semibold text-zinc-900">{needsInput ? `Need your input: ${title}` : title}</div>
-      {needsInput ? <div className="mt-1 text-xs font-medium text-orange-800">I paused and I’m waiting for the missing detail before doing anything else.</div> : null}
+      {needsInput ? <div className="mt-1 text-xs font-medium text-orange-800">I paused and IG��m waiting for the missing detail before doing anything else.</div> : null}
       {summary ? <div className="mt-1 text-sm leading-6 text-zinc-700">{summary}</div> : null}
       {unresolvedRun.lastCompletedTitle ? <div className="mt-2 text-xs text-zinc-600">Last completed: {unresolvedRun.lastCompletedTitle}</div> : null}
       <div className="mt-3 flex flex-wrap gap-2">
@@ -1188,7 +1756,7 @@ function UnresolvedRunCard({ unresolvedRun, onContinue, onOpenCanvas, sending }:
         {onOpenCanvas ? (
           <button
             type="button"
-            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+            className={classNames(frostedBlueButtonClassName(), "text-xs")}
             onClick={onOpenCanvas}
           >
             Open related page
@@ -1231,7 +1799,7 @@ function NextStepCard({ nextStepContext, onContinue, onOpenCanvas, sending }: { 
         {onOpenCanvas ? (
           <button
             type="button"
-            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+            className={classNames(frostedBlueButtonClassName(), "text-xs")}
             onClick={onOpenCanvas}
           >
             Open related page
@@ -1254,7 +1822,241 @@ function NextStepCard({ nextStepContext, onContinue, onOpenCanvas, sending }: { 
   );
 }
 
-function WorkingMemoryCard({
+type ActivityView =
+  | { kind: "list" }
+  | { kind: "run"; runId: string }
+  | { kind: "thread-memory" };
+
+function threadMemorySignature(memory: WorkingMemory | null | undefined): string {
+  if (!memory) return "";
+  const summary = String(memory.threadSummary || "").trim();
+  const updatedAt = String(memory.threadSummaryUpdatedAt || "").trim();
+  const runs = memory.recentRuns
+    .map((run) => [run.assistantMessageId || "", run.at || "", run.workTitle || "", run.steps.map((step) => `${step.key}:${step.title}:${step.ok ? 1 : 0}`).join("|")].join("::"))
+    .join("~~");
+  return `${updatedAt}##${summary}##${runs}`;
+}
+
+function activityStatusPillClass(statusRaw: string | null | undefined, active = false) {
+  if (active) return "bg-blue-50 text-brand-blue";
+  const status = String(statusRaw || "").trim().toLowerCase();
+  if (status === "running") return "bg-blue-50 text-brand-blue";
+  if (status === "completed") return "bg-emerald-50 text-emerald-800";
+  if (status === "interrupted") return "bg-zinc-100 text-zinc-700";
+  if (status === "partial" || status === "needs_input") return "bg-amber-50 text-amber-900";
+  return "bg-red-50 text-red-800";
+}
+
+function traceStepTone(ok: boolean) {
+  return ok
+    ? {
+        cardClassName: "bg-emerald-100 text-emerald-800",
+        textClassName: "text-emerald-900",
+      }
+    : {
+        cardClassName: "bg-red-50 text-red-800",
+        textClassName: "text-red-900",
+      };
+}
+
+function runTraceCardTone(steps: RunTraceStep[]) {
+  const total = steps.length;
+  const okCount = steps.filter((step) => step.ok).length;
+  if (!total || okCount === total) {
+    return {
+      cardClassName: "bg-emerald-100/95 text-emerald-900",
+      headerClassName: "text-emerald-800",
+      textClassName: "text-emerald-900",
+      moreClassName: "text-emerald-800/80",
+    };
+  }
+  if (!okCount) {
+    return {
+      cardClassName: "bg-red-50 text-red-900",
+      headerClassName: "text-red-800",
+      textClassName: "text-red-900",
+      moreClassName: "text-red-800/80",
+    };
+  }
+  return {
+    cardClassName: "bg-amber-50/95 text-amber-900",
+    headerClassName: "text-amber-800",
+    textClassName: "text-amber-900",
+    moreClassName: "text-amber-800/80",
+  };
+}
+
+function PuraMarkdownBlock({ text, className }: { text: string; className?: string }) {
+  const value = String(text || "").trim();
+  if (!value) return null;
+  return (
+    <div className={classNames("prose prose-sm max-w-none wrap-break-word prose-zinc prose-p:my-2 first:prose-p:mt-0 last:prose-p:mb-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-headings:mb-2 prose-headings:mt-3 prose-code:rounded prose-code:bg-white/70 prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.92em] prose-code:before:content-none prose-code:after:content-none prose-pre:rounded-2xl prose-pre:bg-zinc-950 prose-pre:text-zinc-50", className)}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a({ href, children }: { href?: string; children?: ReactNode }) {
+            const safe = safeHref(String(href || ""));
+            if (!safe) return <span>{children}</span>;
+            const external = /^https?:\/\//i.test(safe);
+            return (
+              <a
+                href={safe}
+                target={external ? "_blank" : undefined}
+                rel={external ? "noreferrer noopener" : undefined}
+                className="font-semibold text-brand-blue underline underline-offset-2"
+              >
+                {children}
+              </a>
+            );
+          },
+          p({ children }: { children?: ReactNode }) {
+            return <p className="my-2 first:mt-0 last:mb-0">{children}</p>;
+          },
+          ul({ children }: { children?: ReactNode }) {
+            return <ul className="my-2 list-disc pl-5">{children}</ul>;
+          },
+          ol({ children }: { children?: ReactNode }) {
+            return <ol className="my-2 list-decimal pl-5">{children}</ol>;
+          },
+          li({ children }: { children?: ReactNode }) {
+            return <li className="my-1">{children}</li>;
+          },
+          h1({ children }: { children?: ReactNode }) {
+            return <h1 className="text-base font-semibold text-zinc-900">{children}</h1>;
+          },
+          h2({ children }: { children?: ReactNode }) {
+            return <h2 className="text-sm font-semibold text-zinc-900">{children}</h2>;
+          },
+          h3({ children }: { children?: ReactNode }) {
+            return <h3 className="text-sm font-semibold text-zinc-900">{children}</h3>;
+          },
+        }}
+      >
+        {value}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function frostedBlueButtonClassName(size: "compact" | "regular" = "regular") {
+  return classNames(
+    "inline-flex items-center justify-center gap-1 rounded-2xl bg-[rgba(29,78,216,0.12)] text-brand-blue backdrop-blur-md shadow-[0_10px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]",
+    size === "compact" ? "px-2 py-1 text-[11px] font-semibold" : "px-3 py-2 text-sm font-semibold",
+  );
+}
+
+function conciseActivitySummary(raw: string | null | undefined): string | null {
+  const normalized = String(raw || "")
+    .replace(/\[[^\]]+\]\(([^)]+)\)/g, "$1")
+    .replace(/^[#>*\-\s]+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return null;
+
+  const firstSentence = normalized.match(/^(.{1,220}?[.!?])(\s|$)/)?.[1]?.trim() || normalized.slice(0, 220).trim();
+  return firstSentence || null;
+}
+
+function activityStepTone(statusRaw: string | null | undefined, ok: boolean) {
+  if (ok) {
+    return {
+      cardClassName: "bg-emerald-100 text-emerald-800 shadow-[0_8px_24px_rgba(16,185,129,0.08)]",
+      textClassName: "text-emerald-900",
+      pillClassName: "bg-white/55 text-emerald-800",
+      label: "OK",
+    };
+  }
+
+  const status = String(statusRaw || "").trim().toLowerCase();
+  if (status === "needs_input" || status === "interrupted" || status === "partial" || status === "running") {
+    return {
+      cardClassName: "bg-amber-50/95 text-amber-950 shadow-[0_8px_24px_rgba(245,158,11,0.12)]",
+      textClassName: "text-amber-900",
+      pillClassName: "bg-amber-600/10 text-amber-800",
+      label: status === "needs_input" ? "Needs input" : status === "running" ? "Working" : "Paused",
+    };
+  }
+
+  return {
+    cardClassName: "bg-red-50 text-red-800 shadow-[0_8px_24px_rgba(244,63,94,0.1)]",
+    textClassName: "text-red-900",
+    pillClassName: "bg-white/60 text-red-800",
+    label: "Failed",
+  };
+}
+
+function summarizeRunForActivity(run: RunLedgerEntry): string {
+  const aiSummary = String(run.aiSummaryText || "").trim();
+  if (aiSummary) return aiSummary;
+
+  const title = String(run.workTitle || "Pura run").trim() || "Pura run";
+  const recap = conciseActivitySummary(run.summaryText);
+  const totalSteps = run.steps.length;
+  const completedSteps = run.steps.filter((step) => step.ok).length;
+  const failedSteps = Math.max(0, totalSteps - completedSteps);
+  const topSteps = run.steps
+    .map((step) => String(step.title || step.key || "").trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const parts: string[] = [];
+  const status = String(run.status || "completed").trim().toLowerCase();
+  if (status === "completed") {
+    parts.push(recap && !textsLookEquivalent(recap, title) ? `All set. ${recap}` : `${title} is wrapped up.`);
+  } else if (status === "running") {
+    parts.push(`Still working on ${title}.`);
+  } else if (status === "needs_input") {
+    parts.push(`I got part of ${title} done, and I need one more detail to keep going.`);
+  } else if (status === "interrupted") {
+    parts.push(`I made progress on ${title}, then the run paused before it could finish.`);
+  } else if (status === "partial") {
+    parts.push(`I made a solid start on ${title}, and there is still a bit left to finish.`);
+  } else if (status === "failed") {
+    parts.push(`I hit a snag while working on ${title}.`);
+  } else {
+    parts.push(`${formatRunStatusLabel(run.status)}: ${title}.`);
+  }
+
+  if (recap && !textsLookEquivalent(recap, title) && status !== "completed") {
+    parts.push(recap);
+  }
+
+  if (totalSteps > 0) {
+    if (failedSteps > 0) {
+      parts.push(`${completedSteps} of ${totalSteps} step${totalSteps === 1 ? " is" : "s are"} done so far.`);
+    } else {
+      parts.push(`All ${totalSteps} step${totalSteps === 1 ? " is" : "s are"} complete.`);
+    }
+  }
+
+  if (topSteps.length) {
+    parts.push(`Main pieces: ${topSteps.join(", ")}.`);
+  }
+
+  return parts.join(" ");
+}
+
+function ThreadMemoryUpdatedCard({
+  memory,
+  onOpen,
+}: {
+  memory: WorkingMemory;
+  onOpen: () => void;
+}) {
+  const updatedLabel = memory.threadSummaryUpdatedAt ? formatLocalDateTime(new Date(memory.threadSummaryUpdatedAt)) : null;
+  return (
+    <button
+      type="button"
+      className="inline-flex max-w-fit items-center gap-3 rounded-3xl bg-[rgba(29,78,216,0.12)] px-4 py-3 text-left text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]"
+      onClick={onOpen}
+    >
+      <span className="text-sm font-semibold text-brand-blue">Thread Memory updated</span>
+      {updatedLabel ? <span className="text-[11px] font-medium text-brand-blue/70">{updatedLabel}</span> : null}
+    </button>
+  );
+}
+
+function ThreadMemoryDetail({
   memory,
   unresolvedRun,
   nextStepContext,
@@ -1273,25 +2075,27 @@ function WorkingMemoryCard({
   const updatedLabel = fmtShortTime(memory.threadSummaryUpdatedAt);
 
   return (
-    <div className="rounded-3xl border border-zinc-200 bg-white/90 px-4 py-3 text-zinc-800 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
+    <div className="rounded-3xl bg-[rgba(29,78,216,0.12)] px-4 py-4 text-zinc-800 shadow-[0_8px_24px_rgba(29,78,216,0.14)]">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
-          <ThinkingDots />
-          <span>Working memory</span>
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-brand-blue/80">
+          <span>Thread Memory</span>
         </div>
-        {updatedLabel ? <div className="text-[11px] font-medium text-zinc-400">Updated {updatedLabel}</div> : null}
+        {updatedLabel ? <div className="text-[11px] font-medium text-brand-blue/70">Updated {updatedLabel}</div> : null}
       </div>
-      {summary ? <div className="mt-2 text-sm leading-6 text-zinc-700">{summary}</div> : null}
-      {statusLine ? <div className="mt-2 text-xs font-medium text-zinc-600">{statusLine}</div> : null}
+      {summary ? <PuraMarkdownBlock text={summary} className="mt-2 text-zinc-800" /> : null}
+      {statusLine ? <div className="mt-2 text-xs font-medium text-brand-blue/80">{statusLine}</div> : null}
       {recentRuns.length ? (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-4 space-y-2">
           {recentRuns.map((run, index) => {
             const label = run.workTitle?.trim() || run.steps[run.steps.length - 1]?.title?.trim() || `Recent work ${index + 1}`;
             const subtitle = run.steps.length ? `${run.steps.length} step${run.steps.length === 1 ? "" : "s"}` : null;
             return (
-              <div key={`${run.assistantMessageId || run.at || index}:${label}`} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                <div className="text-xs font-semibold text-zinc-800">{label}</div>
-                {subtitle ? <div className="mt-0.5 text-[11px] text-zinc-500">{subtitle}</div> : null}
+              <div key={`${run.assistantMessageId || run.at || index}:${label}`} className="rounded-2xl bg-white/65 px-3 py-2.5">
+                <div className="text-xs font-semibold text-zinc-900">{label}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-600">
+                  {subtitle ? <span>{subtitle}</span> : null}
+                  {run.at ? <span>{fmtShortTime(run.at)}</span> : null}
+                </div>
               </div>
             );
           })}
@@ -1386,6 +2190,7 @@ export function PortalAiChatClient({
   }, [clientTimeZone]);
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingComposerSelectionRef = useRef<{ start: number; end: number } | null>(null);
 
   const resizeInput = useCallback(() => {
     const el = inputRef.current;
@@ -1398,13 +2203,30 @@ export function PortalAiChatClient({
       const maxLines = 5;
       const maxHeight = Math.ceil(lineHeight * maxLines + padTop + padBottom);
 
-      el.style.height = "0px";
+      el.style.height = "auto";
       const next = Math.min(el.scrollHeight, maxHeight);
       el.style.height = `${Math.max(next, 44)}px`;
       el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
     } catch {
       // ignore
     }
+  }, []);
+
+  const focusComposer = useCallback((selection: "end" | { start: number; end: number } = "end") => {
+    const composer = inputRef.current;
+    if (!composer) return;
+    composer.focus();
+    const nextSelection = selection === "end"
+      ? { start: normalizeComposerPlainText(composer.value || "").length, end: normalizeComposerPlainText(composer.value || "").length }
+      : selection;
+    pendingComposerSelectionRef.current = nextSelection;
+    setComposerSelectionSnapshot(nextSelection);
+    requestAnimationFrame(() => {
+      const currentComposer = inputRef.current;
+      const pendingSelection = pendingComposerSelectionRef.current;
+      if (!currentComposer || !pendingSelection) return;
+      setComposerSelectionOffsets(currentComposer, pendingSelection.start, pendingSelection.end);
+    });
   }, []);
 
   const openCanvasInNewTab = useCallback((url: string | null) => {
@@ -1523,6 +2345,8 @@ export function PortalAiChatClient({
   const [serviceUsageCounts, setServiceUsageCounts] = useState<Record<string, number>>({});
   // Must be stable for SSR + hydration. We randomize it after mount.
   const [welcomePromptSeed, setWelcomePromptSeed] = useState(() => "0");
+  const [welcomePromptRotationSnapshot, setWelcomePromptRotationSnapshot] = useState(0);
+  const [welcomePromptHistorySnapshot, setWelcomePromptHistorySnapshot] = useState<string[]>([]);
 
   const [threadDraftsById, setThreadDraftsById] = useState<Record<string, ThreadDraftState>>(() => ({
     [DRAFT_THREAD_KEY]: createEmptyThreadDraftState(),
@@ -1539,14 +2363,40 @@ export function PortalAiChatClient({
   const [responseProfile, setResponseProfile] = useState<PuraAiProfile>(() => readStoredDraftResponseProfile());
   const [modeControlsOpen, setModeControlsOpen] = useState(false);
   const [messageDisplayModesById, setMessageDisplayModesById] = useState<Record<string, ChatMode>>(() => ({}));
+  const welcomePromptRotationRef = useRef(0);
+  const welcomePromptHistoryRef = useRef<string[]>([]);
+  const lastWelcomePromptSelectionRef = useRef("");
 
   const [scheduleTaskOpen, setScheduleTaskOpen] = useState(false);
   const [scheduleTaskText, setScheduleTaskText] = useState("");
   const [uploading, setUploading] = useState(false);
 
+  useEffect(() => {
+    const storedRotation = readStoredWelcomePromptRotation();
+    const storedHistory = readStoredWelcomePromptHistory();
+    welcomePromptRotationRef.current = storedRotation;
+    welcomePromptHistoryRef.current = storedHistory;
+    setWelcomePromptRotationSnapshot(storedRotation);
+    setWelcomePromptHistorySnapshot(storedHistory.slice(0, 12));
+  }, []);
+
   const [attachMenu, setAttachMenu] = useState<FixedMenuStyle | null>(null);
   const [attachMenuAnchorRect, setAttachMenuAnchorRect] = useState<DOMRect | null>(null);
   const attachMenuRef = useRef<HTMLDivElement | null>(null);
+  const attachMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const composerTextareaWrapRef = useRef<HTMLDivElement | null>(null);
+  const composerSuggestionPopoverRef = useRef<HTMLDivElement | null>(null);
+  const composerDisconnectPopoverRef = useRef<HTMLDivElement | null>(null);
+  const [dismissedComposerPopoverSignatures, setDismissedComposerPopoverSignatures] = useState<string[]>([]);
+  const [composerSuggestionPopoverLayout, setComposerSuggestionPopoverLayout] = useState<{ left: number; arrowLeft: number } | null>(null);
+  const [composerDisconnectPopover, setComposerDisconnectPopover] = useState<{
+    slug: string;
+    title: string;
+    anchorLeft: number;
+  } | null>(null);
+  const [composerDisconnectPopoverLayout, setComposerDisconnectPopoverLayout] = useState<{ left: number; arrowLeft: number } | null>(null);
+  const [composerSelectionSnapshot, setComposerSelectionSnapshot] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
+  const [composerScrollSnapshot, setComposerScrollSnapshot] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
 
   const [threadMenu, setThreadMenu] = useState<FixedMenuStyle | null>(null);
   const [threadMenuAnchorRect, setThreadMenuAnchorRect] = useState<DOMRect | null>(null);
@@ -1628,8 +2478,10 @@ export function PortalAiChatClient({
   const [scheduledEditing, setScheduledEditing] = useState<Record<string, { sendAtLocal: string; repeatEvery: string; repeatUnit: RepeatUnit }>>({});
   const [scheduledSavingIds, setScheduledSavingIds] = useState<Set<string>>(() => new Set());
   const [runsOpen, setRunsOpen] = useState(false);
+  const [activityView, setActivityView] = useState<ActivityView>({ kind: "list" });
   const [runsLoading, setRunsLoading] = useState(false);
   const [runLedgerRows, setRunLedgerRows] = useState<RunLedgerEntry[]>([]);
+  const [acknowledgedThreadMemoryById, setAcknowledgedThreadMemoryById] = useState<Record<string, string>>(() => ({}));
 
   const [shareOpen, setShareOpen] = useState(false);
   const [shareThread, setShareThread] = useState<Thread | null>(null);
@@ -1644,7 +2496,10 @@ export function PortalAiChatClient({
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const forceScrollToBottomRef = useRef(false);
+  const pendingInitialThreadScrollRef = useRef<string | null>(null);
   const shouldStickToBottomRef = useRef(true);
+  const manualScrollHoldUntilRef = useRef(0);
+  const touchStartYRef = useRef<number | null>(null);
   const sendInFlightRef = useRef<Set<string>>(new Set());
   const activeThreadIdRef = useRef<string | null>(null);
   const pendingThreadIdsRef = useRef<Set<string>>(new Set());
@@ -1661,6 +2516,7 @@ export function PortalAiChatClient({
   const activeThreadKey = activeThreadId ?? DRAFT_THREAD_KEY;
   const activeThread = useMemo(() => (activeThreadId ? threads.find((thread) => thread.id === activeThreadId) ?? null : null), [activeThreadId, threads]);
   const messages = useMemo(() => messagesByThread[activeThreadKey] ?? [], [activeThreadKey, messagesByThread]);
+  const latestMessageId = useMemo(() => messages[messages.length - 1]?.id ?? null, [messages]);
   const activeLiveStatus = activeThreadId ? threadLiveStatusById[activeThreadId] ?? null : null;
   const activeUnresolvedRun = activeThreadId ? threadUnresolvedRunById[activeThreadId] ?? null : null;
   const activeNextStepContext = activeThreadId ? threadNextStepContextById[activeThreadId] ?? null : null;
@@ -1676,6 +2532,14 @@ export function PortalAiChatClient({
   const canvasUiResumeActions = activeThreadUiState.canvasUiResumeActions;
   const input = activeThreadDraft.input;
   const pendingAttachments = activeThreadDraft.pendingAttachments;
+  const selectedContextServiceSlugs = useMemo(
+    () => normalizeContextServiceSlugs(activeThreadDraft.contextServiceSlugs),
+    [activeThreadDraft.contextServiceSlugs],
+  );
+  const selectedContextServices = useMemo(
+    () => selectedContextServiceSlugs.map((slug) => findPortalContextService(slug)).filter(Boolean) as PortalService[],
+    [selectedContextServiceSlugs],
+  );
   const editingMessageId = editingMessageIdByThread[activeThreadKey] ?? null;
   const isEditing = Boolean(editingMessageId);
   const requestedThreadId = requestedThreadIdState;
@@ -1744,17 +2608,19 @@ export function PortalAiChatClient({
     if (!activeRunId) return null;
     return sortedRunLedgerRows.find((row) => row.runId === activeRunId) || null;
   }, [activeLiveStatus?.runId, sortedRunLedgerRows]);
+  const selectedActivityRun = useMemo(() => {
+    if (activityView.kind !== "run") return null;
+    return sortedRunLedgerRows.find((row) => row.id === activityView.runId) || null;
+  }, [activityView, sortedRunLedgerRows]);
   const showActiveLiveProgressCard = useMemo(() => {
     if (!activeThreadId || !activeLiveStatus) return false;
     return sending || hasThinkingMessage || regenerating || Boolean(runningActionKey) || Boolean(activeLiveStatus.label);
   }, [activeLiveStatus, activeThreadId, hasThinkingMessage, regenerating, runningActionKey, sending]);
-  const showWorkingMemoryCard = useMemo(() => {
-    if (!activeThreadId || !activeWorkingMemory) return false;
-    const hasSummary = Boolean(activeWorkingMemory.threadSummary?.trim());
-    const hasHistory = activeWorkingMemory.recentRuns.length >= 2;
-    if (activeUnresolvedRun || activeNextStepContext || showActiveLiveProgressCard) return false;
-    return messages.length >= 6 && (hasSummary || hasHistory);
-  }, [activeNextStepContext, activeThreadId, activeUnresolvedRun, activeWorkingMemory, messages.length, showActiveLiveProgressCard]);
+  const activeThreadMemorySignature = useMemo(() => threadMemorySignature(activeWorkingMemory), [activeWorkingMemory]);
+  const showThreadMemoryNotice = useMemo(() => {
+    if (!activeThreadId || !activeWorkingMemory || !activeThreadMemorySignature) return false;
+    return acknowledgedThreadMemoryById[activeThreadId] !== activeThreadMemorySignature;
+  }, [acknowledgedThreadMemoryById, activeThreadId, activeThreadMemorySignature, activeWorkingMemory]);
   const workStatusLabel = useMemo(() => {
     if (liveWorkStatusLabel) return liveWorkStatusLabel;
     if (regenerating && regeneratingTarget?.messageId) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Reworking that response" : "Redoing that response");
@@ -1762,6 +2628,30 @@ export function PortalAiChatClient({
     if (sending || hasThinkingMessage) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Working on it" : "Thinking it through");
     return null;
   }, [effectiveChatMode, hasThinkingMessage, inferredWorkStatusLabel, liveWorkStatusLabel, regenerating, regeneratingTarget?.messageId, runningActionKey, sending]);
+
+  const closeActivityModal = useCallback(() => {
+    setRunsOpen(false);
+    setActivityView({ kind: "list" });
+  }, []);
+
+  const acknowledgeActiveThreadMemory = useCallback(() => {
+    if (!activeThreadId || !activeThreadMemorySignature) return;
+    setAcknowledgedThreadMemoryById((prev) => {
+      if (prev[activeThreadId] === activeThreadMemorySignature) return prev;
+      return { ...prev, [activeThreadId]: activeThreadMemorySignature };
+    });
+  }, [activeThreadId, activeThreadMemorySignature]);
+
+  const openThreadMemoryActivity = useCallback(() => {
+    acknowledgeActiveThreadMemory();
+    setActivityView({ kind: "thread-memory" });
+    setRunsOpen(true);
+  }, [acknowledgeActiveThreadMemory]);
+
+  useEffect(() => {
+    if (runsOpen) return;
+    setActivityView({ kind: "list" });
+  }, [runsOpen]);
 
   const latestAssistantMessage = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -2009,7 +2899,8 @@ export function PortalAiChatClient({
       return true;
     }
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const shouldStick = distanceFromBottom <= 140;
+    const holdActive = typeof window !== "undefined" && manualScrollHoldUntilRef.current > window.performance.now();
+    const shouldStick = !holdActive && distanceFromBottom <= 48;
     shouldStickToBottomRef.current = shouldStick;
     return shouldStick;
   }, []);
@@ -2023,9 +2914,52 @@ export function PortalAiChatClient({
     el.scrollTo({ top: targetTop, behavior: "auto" });
   }, [syncShouldStickToBottom]);
 
+  const completeInitialThreadScroll = useCallback((threadId: string) => {
+    if (typeof window === "undefined") {
+      if (activeThreadIdRef.current === threadId) {
+        scrollToBottom(true);
+        pendingInitialThreadScrollRef.current = null;
+      }
+      return;
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (activeThreadIdRef.current !== threadId) return;
+        scrollToBottom(true);
+        pendingInitialThreadScrollRef.current = null;
+      });
+    });
+  }, [scrollToBottom]);
+
   const handleChatScroll = useCallback(() => {
     syncShouldStickToBottom();
   }, [syncShouldStickToBottom]);
+
+  const holdAutoStick = useCallback((ms = 900) => {
+    if (typeof window === "undefined") return;
+    manualScrollHoldUntilRef.current = window.performance.now() + ms;
+  }, []);
+
+  const handleChatWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY < 0) {
+      shouldStickToBottomRef.current = false;
+      holdAutoStick();
+    }
+  }, [holdAutoStick]);
+
+  const handleChatTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    touchStartYRef.current = event.touches[0]?.clientY ?? null;
+  }, []);
+
+  const handleChatTouchMove = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+    const startY = touchStartYRef.current;
+    const currentY = event.touches[0]?.clientY ?? null;
+    if (startY === null || currentY === null) return;
+    if (currentY > startY + 4) {
+      shouldStickToBottomRef.current = false;
+      holdAutoStick(1100);
+    }
+  }, [holdAutoStick]);
 
   useEffect(() => {
     if (!messages.length) return;
@@ -2128,12 +3062,20 @@ export function PortalAiChatClient({
         });
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Failed to load messages");
+        const cachedMessages = messagesByThreadRef.current[threadId] ?? [];
+        const cachedById = new Map(cachedMessages.map((message) => [message.id, message] as const));
         setMessagesByThread((prev) => {
           const next = {
             ...prev,
             [threadId]: Array.isArray(json.messages)
               ? applyRunTracesToMessages(
-                  (json.messages as Message[]).map((message) => applyAssistantDisplayMode(message, messageDisplayModesByIdRef.current[message.id])),
+                  (json.messages as Message[]).map((message) => {
+                    const merged = mergeVisibleContextBadges(
+                      message,
+                      cachedById.get(String(message.id || "")) || null,
+                    );
+                    return applyAssistantDisplayMode(merged, messageDisplayModesByIdRef.current[message.id]);
+                  }),
                   json?.threadContext?.runs,
                 )
               : [],
@@ -2144,6 +3086,10 @@ export function PortalAiChatClient({
         pendingThreadIdsRef.current.delete(threadId);
         applyThreadContextSnapshot(threadId, json?.threadContext);
         requestAnimationFrame(() => {
+          if (pendingInitialThreadScrollRef.current === threadId) {
+            completeInitialThreadScroll(threadId);
+            return;
+          }
           if (forceScrollToBottomRef.current || shouldStickToBottomRef.current) {
             scrollToBottom(forceScrollToBottomRef.current);
           }
@@ -2297,7 +3243,10 @@ export function PortalAiChatClient({
 
   const selectThread = useCallback(
     (threadId: string) => {
+      pendingInitialThreadScrollRef.current = threadId;
       forceScrollToBottomRef.current = true;
+      shouldStickToBottomRef.current = true;
+      manualScrollHoldUntilRef.current = 0;
       setThreadLoading(threadId, true);
       activeThreadIdRef.current = threadId;
       setActiveThreadId(threadId);
@@ -2312,9 +3261,14 @@ export function PortalAiChatClient({
   useEffect(() => {
     if (!forceScrollToBottomRef.current) return;
     if (messagesLoading) return;
+    if (!activeThreadId) return;
     forceScrollToBottomRef.current = false;
+    if (pendingInitialThreadScrollRef.current === activeThreadId) {
+      completeInitialThreadScroll(activeThreadId);
+      return;
+    }
     requestAnimationFrame(() => scrollToBottom(true));
-  }, [activeThreadId, messagesLoading, messages.length, scrollToBottom]);
+  }, [activeThreadId, completeInitialThreadScroll, messagesLoading, messages.length, scrollToBottom]);
 
   useEffect(() => {
     void loadThreads();
@@ -2547,7 +3501,7 @@ export function PortalAiChatClient({
     async (thread: Thread) => {
       const ok = await askConfirm({
         title: "Delete chat?",
-        message: `Delete “${thread.title || "New chat"}”? This cannot be undone.`,
+        message: `Delete Gǣ${thread.title || "New chat"}Gǥ? This cannot be undone.`,
         confirmLabel: "Delete",
         cancelLabel: "Cancel",
         destructive: true,
@@ -2588,13 +3542,14 @@ export function PortalAiChatClient({
   );
 
   const uploadFiles = useCallback(
-    async (files: FileList | null) => {
-      if (!files || !files.length) return;
+    async (files: FileList | File[] | null) => {
+      const list = Array.from(files || []).filter((file): file is File => file instanceof File);
+      if (!list.length) return;
       const threadKey = activeThreadIdRef.current ?? DRAFT_THREAD_KEY;
       setUploading(true);
       try {
         const form = new FormData();
-        for (const f of Array.from(files)) form.append("files", f);
+        for (const f of list) form.append("files", f);
 
         const res = await fetch("/api/portal/ai-chat/attachments", { method: "POST", body: form });
         const json = await res.json().catch(() => null);
@@ -2612,6 +3567,16 @@ export function PortalAiChatClient({
       }
     },
     [setThreadDraftState, toast],
+  );
+
+  const handleComposerPaste = useCallback(
+    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      const imageFiles = extractClipboardImageFiles(event.clipboardData);
+      if (!imageFiles.length) return;
+      event.preventDefault();
+      void uploadFiles(imageFiles);
+    },
+    [uploadFiles],
   );
 
   const addMediaAttachment = useCallback(
@@ -2737,6 +3702,13 @@ export function PortalAiChatClient({
       const draftAtSend = threadDraftsRef.current[initialThreadKey] ?? createEmptyThreadDraftState();
       const text = typeof overrideText === "string" ? overrideText : draftAtSend.input.trim();
       const attachments = draftAtSend.pendingAttachments;
+      const contextKeys = normalizeContextServiceSlugs(draftAtSend.contextServiceSlugs);
+      const visibleContextBadges = buildVisibleContextBadges({
+        text,
+        contextKeys,
+        canvasUrl,
+        pageUrl: typeof window !== "undefined" ? window.location.href : null,
+      });
       if (!text && !attachments.length && !choice) return;
 
       if (isEditSend) {
@@ -2817,13 +3789,14 @@ export function PortalAiChatClient({
           if (idx < 0) return prev;
           const head = prev.slice(0, idx);
           const current = prev[idx];
-          const updated: Message = { ...current, text };
+          const updated: Message = attachVisibleContextBadges({ ...current, text }, visibleContextBadges);
           return [...head, updated];
         });
 
         setThreadDraftState(draftRestoreKey, (prev) => ({
           input: typeof overrideText === "string" ? prev.input : "",
           pendingAttachments: [],
+          contextServiceSlugs: [],
         }));
         setThreadEditingMessageId(threadIdForSend, null);
         clearThreadUiState(threadIdForSend);
@@ -2839,6 +3812,7 @@ export function PortalAiChatClient({
               chatMode: modeAtSend,
               responseProfile: profileAtSend,
               ...(canvasUrl ? { canvasUrl } : {}),
+              ...(contextKeys.length ? { contextKeys } : {}),
               ...(clientTimeZone ? { clientTimeZone } : {}),
             }),
           });
@@ -2861,7 +3835,8 @@ export function PortalAiChatClient({
             updateThreadMessages(threadIdForSend, (prev) => {
               const next: Message[] = [...prev];
               if (json.userMessage) {
-                const um: Message = json.userMessage as Message;
+                const existing = next.find((message) => message.id === editingIdForSend) || null;
+                const um: Message = mergeVisibleContextBadges(json.userMessage as Message, existing, visibleContextBadges);
                 for (let i = 0; i < next.length; i++) {
                   if (next[i].id === um.id) {
                     next[i] = um;
@@ -2953,7 +3928,8 @@ export function PortalAiChatClient({
           updateThreadMessages(threadIdForSend, (prev) => {
             const next: Message[] = [...prev];
             if (json.userMessage) {
-              const um: Message = json.userMessage as Message;
+              const existing = next.find((message) => message.id === editingIdForSend) || null;
+              const um: Message = mergeVisibleContextBadges(json.userMessage as Message, existing, visibleContextBadges);
               for (let i = 0; i < next.length; i++) {
                 if (next[i].id === um.id) {
                   next[i] = um;
@@ -2986,6 +3962,7 @@ export function PortalAiChatClient({
             ...prev,
             input: typeof overrideText === "string" ? prev.input : text,
             pendingAttachments: [],
+            contextServiceSlugs: contextKeys,
           }));
           toast.error(e instanceof Error ? e.message : String(e));
         } finally {
@@ -3007,10 +3984,13 @@ export function PortalAiChatClient({
         sentAt: nowIso,
       };
 
-      updateThreadMessages(threadIdForSend, (prev) => [...prev, optimisticUser]);
+      const optimisticUserWithContext = attachVisibleContextBadges(optimisticUser, visibleContextBadges);
+
+      updateThreadMessages(threadIdForSend, (prev) => [...prev, optimisticUserWithContext]);
       setThreadDraftState(draftRestoreKey, (prev) => ({
         input: typeof overrideText === "string" ? prev.input : "",
         pendingAttachments: [],
+        contextServiceSlugs: [],
       }));
       clearThreadUiState(threadIdForSend);
 
@@ -3025,6 +4005,7 @@ export function PortalAiChatClient({
             responseProfile: profileAtSend,
             ...(canvasUrl ? { canvasUrl } : {}),
             attachments,
+            ...(contextKeys.length ? { contextKeys } : {}),
             ...(clientTimeZone ? { clientTimeZone } : {}),
             ...(choice ? { choice } : {}),
           }),
@@ -3051,7 +4032,7 @@ export function PortalAiChatClient({
           updateThreadMessages(threadIdForSend, (prev) => {
             const cleaned = prev.filter((m) => m.id !== optimisticUser.id);
             const next: Message[] = [...cleaned];
-            if (json.userMessage) next.push(json.userMessage);
+            if (json.userMessage) next.push(mergeVisibleContextBadges(json.userMessage as Message, optimisticUserWithContext, visibleContextBadges));
             if (json.assistantMessage) {
               const assistantMessage = attachFollowUpSuggestionsToMessage(
                 attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace),
@@ -3143,7 +4124,7 @@ export function PortalAiChatClient({
         updateThreadMessages(threadIdForSend, (prev) => {
           const cleaned = prev.filter((m) => m.id !== optimisticUser.id);
           const next: Message[] = [...cleaned];
-          if (json.userMessage) next.push(json.userMessage);
+          if (json.userMessage) next.push(mergeVisibleContextBadges(json.userMessage as Message, optimisticUserWithContext, visibleContextBadges));
           if (json.assistantMessage) {
             const am = attachFollowUpSuggestionsToMessage(
               attachRunTraceToMessage(applyAssistantDisplayMode(json.assistantMessage as Message, modeAtSend), (json as any).runTrace),
@@ -3167,6 +4148,7 @@ export function PortalAiChatClient({
           ...prev,
           input: typeof overrideText === "string" ? prev.input : text,
           pendingAttachments: attachments,
+          contextServiceSlugs: contextKeys,
         }));
 
         // If the first send failed right after creating a brand new thread,
@@ -3362,9 +4344,10 @@ export function PortalAiChatClient({
 
   const openInCanvas = useCallback(
     (href: string) => {
-      const safe = safeHref(href);
-      if (!safe || !safe.startsWith("/")) return;
-      setCanvasUrl(safe);
+      const internalPath = extractInternalAssistantPath(String(href || ""));
+      const safe = internalPath || safeHref(href);
+      if (!safe) return;
+      setCanvasUrl(internalPath || extractInternalAssistantPath(safe) || safe);
       setCanvasOpen(true);
       setCanvasModalOpen(false);
     },
@@ -3593,15 +4576,10 @@ export function PortalAiChatClient({
       setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: text, pendingAttachments: [] }));
       requestAnimationFrame(() => {
         resizeInput();
-        try {
-          inputRef.current?.focus();
-          inputRef.current?.setSelectionRange(text.length, text.length);
-        } catch {
-          // ignore
-        }
+        focusComposer({ start: text.length, end: text.length });
       });
     },
-    [activeThreadKey, resizeInput, setThreadDraftState, setThreadEditingMessageId],
+    [activeThreadKey, focusComposer, resizeInput, setThreadDraftState, setThreadEditingMessageId],
   );
 
   const left = useMemo(
@@ -3629,7 +4607,7 @@ export function PortalAiChatClient({
               aria-label="New chat"
               title="New chat"
             >
-              <span className="text-lg font-semibold leading-none">＋</span>
+              <span className="text-lg font-semibold leading-none">n+�</span>
             </button>
           </div>
         </div>
@@ -3637,7 +4615,7 @@ export function PortalAiChatClient({
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2">
         {threadsLoading ? (
-          <div className="p-3 text-sm text-zinc-500">Loading…</div>
+          <div className="p-3 text-sm text-zinc-500">LoadingGǪ</div>
         ) : !threads.length ? (
           <div className="p-3 text-sm text-zinc-500">No chats yet.</div>
         ) : (
@@ -3661,6 +4639,7 @@ export function PortalAiChatClient({
                 >
                   <button
                     type="button"
+                    data-thread-id={t.id}
                     onClick={() => {
                       selectThread(t.id);
                       navigateToThread(t, "push");
@@ -3676,7 +4655,7 @@ export function PortalAiChatClient({
                         {!isWorking && threadBadge ? (
                           <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
                             <span className={classNames("inline-flex h-2 w-2 rounded-full", threadBadge.dotClassName)} />
-                            <span className={classNames("rounded-full border px-2 py-0.5", threadBadge.badgeClassName)} title={threadBadge.title}>{threadBadge.label}</span>
+                            <span className={classNames("rounded-full px-2 py-0.5", threadBadge.badgeClassName)} title={threadBadge.title}>{threadBadge.label}</span>
                           </div>
                         ) : null}
                         {!isWorking && !threadBadge && continuityBadge ? (
@@ -3689,7 +4668,7 @@ export function PortalAiChatClient({
                           <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
                             <span className="inline-flex h-2 w-2 rounded-full bg-brand-blue animate-pulse" />
                             <span className="truncate">{threadLiveStatus?.label}</span>
-                            {threadLiveMeta ? <span className="hidden truncate text-zinc-500 md:inline">· {threadLiveMeta}</span> : null}
+                            {threadLiveMeta ? <span className="hidden truncate text-zinc-500 md:inline">-+ {threadLiveMeta}</span> : null}
                           </div>
                         ) : null}
                         {!isWorking && continuityPreview ? <div className="mt-1 truncate text-[11px] text-zinc-500">{continuityPreview}</div> : null}
@@ -3722,7 +4701,7 @@ export function PortalAiChatClient({
                       );
                     }}
                   >
-                    <span className="text-lg font-semibold leading-none">⋯</span>
+                    <span className="text-lg font-semibold leading-none">G�</span>
                   </button>
                 </div>
               );
@@ -3740,7 +4719,7 @@ export function PortalAiChatClient({
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
           {threadsLoading ? (
-            <div className="p-3 text-sm text-zinc-500">Loading…</div>
+            <div className="p-3 text-sm text-zinc-500">LoadingGǪ</div>
           ) : !threads.length ? (
             <div className="p-3 text-sm text-zinc-500">No chats yet.</div>
           ) : (
@@ -3764,6 +4743,7 @@ export function PortalAiChatClient({
                   >
                     <button
                       type="button"
+                      data-thread-id={t.id}
                       onClick={() => {
                         selectThread(t.id);
                         navigateToThread(t, "push");
@@ -3782,7 +4762,7 @@ export function PortalAiChatClient({
                           {!isWorking && threadBadge ? (
                             <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
                               <span className={classNames("inline-flex h-2 w-2 rounded-full", threadBadge.dotClassName)} />
-                              <span className={classNames("rounded-full border px-2 py-0.5", threadBadge.badgeClassName)} title={threadBadge.title}>{threadBadge.label}</span>
+                              <span className={classNames("rounded-full px-2 py-0.5", threadBadge.badgeClassName)} title={threadBadge.title}>{threadBadge.label}</span>
                             </div>
                           ) : null}
                           {!isWorking && !threadBadge && continuityBadge ? (
@@ -3795,7 +4775,7 @@ export function PortalAiChatClient({
                             <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
                               <span className="inline-flex h-2 w-2 rounded-full bg-brand-blue animate-pulse" />
                               <span className="truncate">{threadLiveStatus?.label}</span>
-                              {threadLiveMeta ? <span className="truncate text-zinc-500">· {threadLiveMeta}</span> : null}
+                              {threadLiveMeta ? <span className="truncate text-zinc-500">-+ {threadLiveMeta}</span> : null}
                             </div>
                           ) : null}
                           {!isWorking && continuityPreview ? <div className="mt-1 truncate text-[11px] text-zinc-500">{continuityPreview}</div> : null}
@@ -3827,7 +4807,7 @@ export function PortalAiChatClient({
                         );
                       }}
                     >
-                      <span className="text-lg font-semibold leading-none">⋯</span>
+                      <span className="text-lg font-semibold leading-none">G�</span>
                     </button>
                   </div>
                 );
@@ -3999,15 +4979,18 @@ export function PortalAiChatClient({
     const h = el.getBoundingClientRect().height;
     if (!Number.isFinite(h) || h <= 0) return;
 
+    const liveAnchorRect = attachMenuButtonRef.current?.getBoundingClientRect() || attachMenuAnchorRect;
+
     const next = computeFixedMenuStyle({
-      rect: attachMenuAnchorRect,
+      rect: liveAnchorRect,
       width: 260,
       estHeight: h,
       alignX: "left",
       minHeight: 120,
-      gapPx: 4,
+      gapPx: 12,
     });
     if (Math.abs(next.top - attachMenu.top) > 2 || Math.abs(next.left - attachMenu.left) > 2) {
+      setAttachMenuAnchorRect(liveAnchorRect);
       setAttachMenu(next);
     }
   }, [attachMenu, attachMenuAnchorRect]);
@@ -4100,17 +5083,303 @@ export function PortalAiChatClient({
 
   const showWelcomeComposer = !requestedThreadId && !activeThreadId && !messagesLoading && messages.length === 0;
 
+  const composerServiceSuggestions = useMemo(
+    () =>
+      inferComposerServiceSuggestions({
+        input,
+        canvasUrl,
+        serviceUsageCounts,
+        selectedSlugs: selectedContextServiceSlugs,
+      }),
+    [canvasUrl, input, selectedContextServiceSlugs, serviceUsageCounts],
+  );
+
+  const composerSuggestedContextEntries = useMemo(
+    () => composerServiceSuggestions.filter((entry) => Boolean(entry.match)).slice(0, 3),
+    [composerServiceSuggestions],
+  );
+
+  const composerScheduleSuggestion = useMemo(() => findComposerScheduleSuggestion(input), [input]);
+
+  const composerCaretOffset = useMemo(
+    () => Math.max(0, Math.min(composerSelectionSnapshot.end ?? 0, input.length)),
+    [composerSelectionSnapshot.end, input.length],
+  );
+
+  const composerScheduleSuggestionSignature = useMemo(() => {
+    const phrase = String(composerScheduleSuggestion?.matchedPhrase || "").trim().toLowerCase();
+    return phrase ? `schedule:${phrase}` : null;
+  }, [composerScheduleSuggestion]);
+
+  const composerSuggestedContextEntriesWithSignature = useMemo(
+    () => composerSuggestedContextEntries.map((entry) => ({
+      ...entry,
+      signature: `suggested:${entry.service.slug}:${String(entry.matchedPhrase || entry.service.title || "").trim().toLowerCase()}`,
+    })),
+    [composerSuggestedContextEntries],
+  );
+
+  const composerActiveTrigger = useMemo(() => {
+    const candidates = [
+      ...composerSuggestedContextEntriesWithSignature.map((entry) => ({
+        kind: "service" as const,
+        signature: entry.signature,
+        start: entry.match?.start ?? -1,
+        end: entry.match?.end ?? -1,
+        priority: entry.match?.priority ?? 0,
+      })),
+      ...(composerScheduleSuggestion && composerScheduleSuggestionSignature
+        ? [{
+            kind: "schedule" as const,
+            signature: composerScheduleSuggestionSignature,
+            start: composerScheduleSuggestion.match?.start ?? -1,
+            end: composerScheduleSuggestion.match?.end ?? -1,
+            priority: composerScheduleSuggestion.match?.priority ?? 0,
+          }]
+        : []),
+    ].filter((entry) => entry.start >= 0 && entry.end > entry.start);
+
+    if (!candidates.length) return null;
+
+    const ranked = [...candidates]
+      .map((entry) => {
+        const distance = composerCaretOffset < entry.start
+          ? entry.start - composerCaretOffset
+          : composerCaretOffset > entry.end
+            ? composerCaretOffset - entry.end
+            : 0;
+        return { ...entry, distance };
+      })
+      .filter((entry) => entry.distance <= 1)
+      .sort((a, b) => {
+        if (a.distance !== b.distance) return a.distance - b.distance;
+        if (b.priority !== a.priority) return b.priority - a.priority;
+        if (a.start !== b.start) return a.start - b.start;
+        return a.end - b.end;
+      });
+
+    return ranked[0] ?? null;
+  }, [composerCaretOffset, composerScheduleSuggestion, composerScheduleSuggestionSignature, composerSuggestedContextEntriesWithSignature]);
+
+  const composerConnectedHighlights = useMemo(() => {
+    const matches = selectedContextServices
+      .map((service) => ({ service, match: findComposerServiceMatch(input, service) }))
+      .filter((entry): entry is ComposerConnectedHighlight => Boolean(entry.match))
+      .sort((a, b) => {
+        if (a.match.start !== b.match.start) return a.match.start - b.match.start;
+        if (b.match.end !== a.match.end) return b.match.end - a.match.end;
+        return b.match.priority - a.match.priority;
+      });
+
+    const accepted: ComposerConnectedHighlight[] = [];
+    let lastEnd = -1;
+    matches.forEach((entry) => {
+      if (entry.match.start < lastEnd) return;
+      accepted.push(entry);
+      lastEnd = entry.match.end;
+    });
+    return accepted;
+  }, [input, selectedContextServices]);
+
+  const visibleComposerSuggestedContextEntries = useMemo(
+    () => composerSuggestedContextEntriesWithSignature.filter((entry) => {
+      if (!composerActiveTrigger || composerActiveTrigger.kind !== "service") return false;
+      if (dismissedComposerPopoverSignatures.includes(entry.signature)) return false;
+      return entry.match?.start === composerActiveTrigger.start && entry.match?.end === composerActiveTrigger.end;
+    }),
+    [composerActiveTrigger, composerSuggestedContextEntriesWithSignature, dismissedComposerPopoverSignatures],
+  );
+
+  const visibleComposerScheduleSuggestion = useMemo(() => {
+    if (!composerScheduleSuggestion) return null;
+    if (!composerActiveTrigger || composerActiveTrigger.kind !== "schedule") return null;
+    if (composerScheduleSuggestion.match?.start !== composerActiveTrigger.start || composerScheduleSuggestion.match?.end !== composerActiveTrigger.end) return null;
+    if (composerScheduleSuggestionSignature && dismissedComposerPopoverSignatures.includes(composerScheduleSuggestionSignature)) return null;
+    return composerScheduleSuggestion;
+  }, [composerActiveTrigger, composerScheduleSuggestion, composerScheduleSuggestionSignature, dismissedComposerPopoverSignatures]);
+
+  const activeComposerPopoverSignatures = useMemo(() => {
+    const next = visibleComposerSuggestedContextEntries.map((entry) => entry.signature);
+    if (composerScheduleSuggestionSignature && visibleComposerScheduleSuggestion) next.unshift(composerScheduleSuggestionSignature);
+    return next;
+  }, [composerScheduleSuggestionSignature, visibleComposerScheduleSuggestion, visibleComposerSuggestedContextEntries]);
+
+  const composerTriggerHighlightRanges = useMemo(() => {
+    const matches = [
+      ...visibleComposerSuggestedContextEntries.map(({ service, match }) => ({
+        key: service.slug,
+        start: match?.start ?? -1,
+        end: match?.end ?? -1,
+        priority: match?.priority ?? 0,
+      })),
+      ...(visibleComposerScheduleSuggestion?.match
+        ? [
+            {
+              key: "schedule-task",
+              start: visibleComposerScheduleSuggestion.match.start,
+              end: visibleComposerScheduleSuggestion.match.end,
+              priority: visibleComposerScheduleSuggestion.match.priority,
+            },
+          ]
+        : []),
+    ]
+      .filter((entry) => entry.start >= 0 && entry.end > entry.start)
+      .sort((a, b) => {
+        if (a.start !== b.start) return a.start - b.start;
+        if (b.end !== a.end) return b.end - a.end;
+        return b.priority - a.priority;
+      });
+
+    const accepted: Array<{ key: string; start: number; end: number; isAnchor?: boolean }> = [];
+    let lastEnd = -1;
+    matches.forEach((item) => {
+      if (item.start < lastEnd) return;
+      accepted.push({
+        key: item.key,
+        start: item.start,
+        end: item.end,
+        isAnchor: accepted.length === 0,
+      });
+      lastEnd = item.end;
+    });
+    return accepted;
+  }, [visibleComposerScheduleSuggestion, visibleComposerSuggestedContextEntries]);
+
+  const composerContextPopoverSignature = useMemo(() => {
+    const suggestedSignature = visibleComposerSuggestedContextEntries.map(({ signature }) => signature);
+    const scheduleSignature = composerScheduleSuggestionSignature && visibleComposerScheduleSuggestion ? [composerScheduleSuggestionSignature] : [];
+    return [...scheduleSignature, ...suggestedSignature].join("|");
+  }, [composerScheduleSuggestionSignature, visibleComposerScheduleSuggestion, visibleComposerSuggestedContextEntries]);
+
+  const showComposerContextPopover = Boolean(
+    !isEditing &&
+      composerContextPopoverSignature &&
+      activeComposerPopoverSignatures.length &&
+      !composerDisconnectPopover,
+  );
+
+  const attachMenuServiceOptions = useMemo(() => {
+    const bySlug = new Map<string, PortalService>();
+    for (const service of selectedContextServices) bySlug.set(service.slug, service);
+    for (const suggestion of composerServiceSuggestions) bySlug.set(suggestion.service.slug, suggestion.service);
+    const remainingServices = [...PORTAL_CONTEXT_SERVICES].sort((a, b) => {
+      if (a.slug === "funnel-builder") return 1;
+      if (b.slug === "funnel-builder") return -1;
+      return a.title.localeCompare(b.title);
+    });
+    for (const service of remainingServices) {
+      bySlug.set(service.slug, service);
+    }
+    return Array.from(bySlug.values());
+  }, [composerServiceSuggestions, selectedContextServices]);
+
+  useLayoutEffect(() => {
+    if (!showComposerContextPopover || !composerTriggerHighlightRanges.length) {
+      setComposerSuggestionPopoverLayout(null);
+      return;
+    }
+
+    const anchorRange = composerTriggerHighlightRanges.find((range) => range.isAnchor) || composerTriggerHighlightRanges[0];
+
+    const measure = () => {
+      const composer = inputRef.current;
+      const wrap = composerTextareaWrapRef.current;
+      const popover = composerSuggestionPopoverRef.current;
+      if (!composer || !wrap) return;
+
+      const anchor = measureComposerMatchAnchor(composer, anchorRange);
+      const wrapRect = wrap.getBoundingClientRect();
+      const popoverWidth = popover?.getBoundingClientRect().width || 240;
+      const left = Math.max(8, Math.min(anchor.left - popoverWidth / 2, wrapRect.width - popoverWidth - 8));
+      const arrowLeft = Math.max(18, Math.min(anchor.left - left, popoverWidth - 18));
+      setComposerSuggestionPopoverLayout({ left, arrowLeft });
+    };
+
+    const rafId = window.requestAnimationFrame(measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", measure);
+    };
+  }, [composerSuggestedContextEntries, composerTriggerHighlightRanges, input, showComposerContextPopover]);
+
+  useLayoutEffect(() => {
+    if (!composerDisconnectPopover) {
+      setComposerDisconnectPopoverLayout(null);
+      return;
+    }
+
+    const measure = () => {
+      const wrap = composerTextareaWrapRef.current;
+      const popover = composerDisconnectPopoverRef.current;
+      if (!wrap) return;
+      const wrapRect = wrap.getBoundingClientRect();
+      const popoverWidth = popover?.getBoundingClientRect().width || 240;
+      const left = Math.max(8, Math.min(composerDisconnectPopover.anchorLeft - popoverWidth / 2, wrapRect.width - popoverWidth - 8));
+      const arrowLeft = Math.max(18, Math.min(composerDisconnectPopover.anchorLeft - left, popoverWidth - 18));
+      setComposerDisconnectPopoverLayout({ left, arrowLeft });
+    };
+
+    const rafId = window.requestAnimationFrame(measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", measure);
+    };
+  }, [composerDisconnectPopover]);
+
+  useEffect(() => {
+    if (!composerDisconnectPopover) return;
+    const stillVisible = composerConnectedHighlights.some((entry) => entry.service.slug === composerDisconnectPopover.slug);
+    if (!stillVisible) setComposerDisconnectPopover(null);
+  }, [composerConnectedHighlights, composerDisconnectPopover]);
+
+  useEffect(() => {
+    setDismissedComposerPopoverSignatures((prev) => {
+      if (!prev.length) return prev;
+      const active = new Set([
+        ...composerSuggestedContextEntriesWithSignature.map((entry) => entry.signature),
+        ...(composerScheduleSuggestionSignature ? [composerScheduleSuggestionSignature] : []),
+      ]);
+      const next = prev.filter((signature) => active.has(signature));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [composerScheduleSuggestionSignature, composerSuggestedContextEntriesWithSignature]);
+
   useEffect(() => {
     if (!showWelcomeComposer) return;
+    const nextRotation = welcomePromptRotationRef.current + 1;
+    welcomePromptRotationRef.current = nextRotation;
+    writeStoredWelcomePromptRotation(nextRotation);
+    setWelcomePromptRotationSnapshot(nextRotation);
+    setWelcomePromptHistorySnapshot(welcomePromptHistoryRef.current.slice(0, 12));
     setWelcomePromptSeed(`${Date.now()}-${Math.random()}-${activeThreadId || "new"}`);
   }, [activeThreadId, showWelcomeComposer]);
 
-  const welcomePromptChips = useMemo(() => {
+  useLayoutEffect(() => {
+    const composer = inputRef.current;
+    if (!composer) return;
+    const domValue = normalizeComposerPlainText(composer.value || "");
+    if (domValue !== input) {
+      composer.value = input;
+    }
+    resizeInput();
+    const pendingSelection = pendingComposerSelectionRef.current;
+    if (pendingSelection && document.activeElement === composer) {
+      setComposerSelectionOffsets(composer, pendingSelection.start, pendingSelection.end);
+    }
+  }, [input, resizeInput]);
+
+  const welcomePromptChipEntries = useMemo(() => {
     const serviceWeights = inferPromptServiceWeights(threads, serviceUsageCounts);
     const threadText = threads
       .slice(0, 18)
       .map((thread) => `${thread.title || ""}`.toLowerCase())
       .join(" \n ");
+    const historyPenaltyById = new Map<string, number>();
+    welcomePromptHistorySnapshot.forEach((id, index) => {
+      historyPenaltyById.set(id, Math.max(1, 12 - index));
+    });
 
     const ranked = WELCOME_PROMPT_LIBRARY.map((item) => {
       let score = 0;
@@ -4118,37 +5387,122 @@ export function PortalAiChatClient({
       for (const keyword of item.keywords || []) {
         if (threadText.includes(keyword.toLowerCase())) score += 2;
       }
+      const recentPenalty = historyPenaltyById.get(item.id) || 0;
       const jitter = (seededHash(`${welcomePromptSeed}:${item.id}`) % 1000) / 1000;
-      return { item, score, jitter };
-    }).sort((a, b) => (b.score !== a.score ? b.score - a.score : b.jitter - a.jitter));
+      const effectiveScore = score - recentPenalty * 3 + jitter * 0.35;
+      return { item, score, jitter, effectiveScore };
+    }).sort((a, b) => (b.effectiveScore !== a.effectiveScore ? b.effectiveScore - a.effectiveScore : b.score !== a.score ? b.score - a.score : b.jitter - a.jitter));
 
-    const selected: string[] = [];
-    for (const entry of ranked) {
-      if (selected.length >= 3) break;
-      if (selected.includes(entry.item.prompt)) continue;
-      if (selected.length < 3 && (entry.score > 0 || entry.jitter > 0)) {
-        selected.push(entry.item.prompt);
-      }
+    const selected: PromptChipDefinition[] = [];
+    const selectedIds = new Set<string>();
+    const recentIds = new Set(welcomePromptHistorySnapshot.slice(0, 6));
+    const prioritizedPool = ranked.filter((entry) => entry.score > 0).slice(0, Math.max(6, Math.min(12, ranked.length)));
+    const selectionPool = (prioritizedPool.length >= 3 ? prioritizedPool : ranked).slice(0, Math.min(12, ranked.length));
+    const startIndex = selectionPool.length ? welcomePromptRotationSnapshot % selectionPool.length : 0;
+
+    const pushEntry = (entry: (typeof ranked)[number] | undefined) => {
+      if (!entry || selectedIds.has(entry.item.id)) return;
+      selected.push(entry.item);
+      selectedIds.add(entry.item.id);
+    };
+
+    for (let offset = 0; offset < selectionPool.length && selected.length < 3; offset += 1) {
+      const entry = selectionPool[(startIndex + offset) % selectionPool.length];
+      if (recentIds.has(entry.item.id)) continue;
+      pushEntry(entry);
+    }
+
+    for (let offset = 0; offset < selectionPool.length && selected.length < 3; offset += 1) {
+      pushEntry(selectionPool[(startIndex + offset) % selectionPool.length]);
     }
 
     if (selected.length < 3) {
       const fallback = [...WELCOME_PROMPT_LIBRARY]
         .sort((a, b) => seededHash(`${welcomePromptSeed}:${a.id}`) - seededHash(`${welcomePromptSeed}:${b.id}`))
-        .map((item) => item.prompt);
+        .map((item) => item);
       for (const prompt of fallback) {
         if (selected.length >= 3) break;
-        if (!selected.includes(prompt)) selected.push(prompt);
+        if (!selectedIds.has(prompt.id)) selected.push(prompt);
       }
     }
 
     return selected.slice(0, 3);
-  }, [serviceUsageCounts, threads, welcomePromptSeed]);
+  }, [serviceUsageCounts, threads, welcomePromptHistorySnapshot, welcomePromptRotationSnapshot, welcomePromptSeed]);
+
+  useEffect(() => {
+    if (!showWelcomeComposer || !welcomePromptChipEntries.length) return;
+    const shownIds = welcomePromptChipEntries.map((entry) => entry.id);
+    const signature = shownIds.join("|");
+    if (!signature || lastWelcomePromptSelectionRef.current === signature) return;
+    lastWelcomePromptSelectionRef.current = signature;
+    const nextHistory = [...shownIds, ...welcomePromptHistoryRef.current.filter((id) => !shownIds.includes(id))].slice(0, 18);
+    welcomePromptHistoryRef.current = nextHistory;
+    writeStoredWelcomePromptHistory(nextHistory);
+  }, [showWelcomeComposer, welcomePromptChipEntries]);
 
   const composerControlButtonClass =
     "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-all duration-100 hover:border-zinc-300 hover:bg-zinc-50";
 
-  const composerTextareaClass =
-    "min-h-11 flex-1 resize-none rounded-3xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[rgba(29,78,216,0.25)]";
+  const composerTextareaShellClass =
+    "min-h-11 rounded-3xl border border-zinc-200 bg-white focus-within:outline-none focus-within:ring-2 focus-within:ring-[rgba(29,78,216,0.25)]";
+
+  const composerPlaceholder = uploading
+    ? "UploadingGǪ"
+    : isEditing
+      ? "Edit message"
+      : showWelcomeComposer
+        ? "Tell Pura what you want handled."
+        : "Message";
+
+  const composerInputClass =
+    "relative z-10 min-h-11 w-full min-w-0 overflow-y-auto rounded-3xl bg-transparent px-4 py-3 text-sm leading-5 text-transparent caret-zinc-900 focus:outline-none whitespace-pre-wrap break-words";
+
+  const canSendComposerMessage = Boolean((input || "").trim() || pendingAttachments.length) && !sending;
+
+  const toggleDraftServiceContext = useCallback(
+    (slug: string) => {
+      const normalizedSlug = String(slug || "").trim();
+      if (!normalizedSlug || !findPortalContextService(normalizedSlug)) return;
+      setComposerDisconnectPopover((current) => (current?.slug === normalizedSlug ? null : current));
+      setThreadDraftState(activeThreadKey, (prev) => {
+        const next = new Set(normalizeContextServiceSlugs(prev.contextServiceSlugs));
+        const adding = !next.has(normalizedSlug);
+        if (adding) next.add(normalizedSlug);
+        else next.delete(normalizedSlug);
+        const nextSlugs = Array.from(next).slice(0, 6);
+        if (adding) {
+          setServiceUsageCounts((current) => {
+            const updated = { ...current, [normalizedSlug]: Math.max(1, Number(current[normalizedSlug] || 0) + 1) };
+            try {
+              window.localStorage.setItem("pa.portal.serviceUsageCounts", JSON.stringify(updated));
+            } catch {
+              // ignore
+            }
+            return updated;
+          });
+        }
+        return { ...prev, contextServiceSlugs: nextSlugs };
+      });
+    },
+    [activeThreadKey, setThreadDraftState],
+  );
+
+  const openComposerDisconnectPopover = useCallback((highlight: ComposerConnectedHighlight) => {
+    const composer = inputRef.current;
+    if (!composer) return;
+    const anchor = measureComposerMatchAnchor(composer, { start: highlight.match.start, end: highlight.match.end });
+    setComposerDisconnectPopover({
+      slug: highlight.service.slug,
+      title: highlight.service.title,
+      anchorLeft: anchor.left,
+    });
+  }, []);
+
+  const openScheduleTaskFromComposer = useCallback(() => {
+    setDismissedComposerPopoverSignatures((prev) => Array.from(new Set([...prev, ...activeComposerPopoverSignatures])));
+    setScheduleTaskText(String(input || "").trim());
+    setScheduleTaskOpen(true);
+  }, [activeComposerPopoverSignatures, input]);
 
   const composerInner = (
     <>
@@ -4196,16 +5550,18 @@ export function PortalAiChatClient({
                 aria-label="Remove attachment"
                 title="Remove"
               >
-                ×
+                +�
               </button>
             </div>
           ))}
         </div>
       ) : null}
 
-      <div className="flex items-end gap-2">
+      <div className="relative">
+        <div className="flex items-end gap-2">
         <div className="relative">
           <button
+            ref={attachMenuButtonRef}
             type="button"
             className={classNames(
               composerControlButtonClass,
@@ -4220,12 +5576,12 @@ export function PortalAiChatClient({
               }
               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
               setAttachMenuAnchorRect(rect);
-              setAttachMenu(computeFixedMenuStyle({ rect, width: 260, estHeight: 140, alignX: "left", minHeight: 120, gapPx: 4 }));
+              setAttachMenu(computeFixedMenuStyle({ rect, width: 280, estHeight: 264, alignX: "left", minHeight: 204, gapPx: 12 }));
             }}
             aria-label="Add attachment"
             title="Add attachment"
           >
-            <span className="text-lg font-semibold">＋</span>
+            <span className="text-lg font-semibold">n+�</span>
           </button>
         </div>
 
@@ -4241,45 +5597,268 @@ export function PortalAiChatClient({
           }}
         />
 
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(e) => {
-            const nextValue = e.target.value;
-            setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: nextValue }));
-            requestAnimationFrame(() => resizeInput());
-          }}
-          rows={1}
-          placeholder={uploading ? "Uploading…" : isEditing ? "Edit message" : showWelcomeComposer ? "Tell Pura what you want handled." : "Message"}
-          className={composerTextareaClass}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-          disabled={false}
-        />
+        <div ref={composerTextareaWrapRef} className="relative min-w-0 flex-1">
+          {showComposerContextPopover ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-[calc(100%+14px)] z-30" data-composer-context-popover>
+              <div
+                ref={composerSuggestionPopoverRef}
+                className="absolute bottom-0 max-w-[calc(100%-12px)]"
+                style={{ left: composerSuggestionPopoverLayout?.left ?? 6 }}
+              >
+                <GlassSurface
+                  width="fit-content"
+                  height="auto"
+                  borderRadius={24}
+                  borderWidth={0.04}
+                  blur={7}
+                  displace={0.22}
+                  distortionScale={-72}
+                  redOffset={0}
+                  greenOffset={2}
+                  blueOffset={6}
+                  backgroundOpacity={0.16}
+                  saturation={1.05}
+                  brightness={46}
+                  opacity={0.985}
+                  mixBlendMode="soft-light"
+                  className="pointer-events-auto rounded-3xl"
+                  style={{ background: "rgba(219,234,254,0.46)", boxShadow: "none" }}
+                >
+                  <div className="flex min-w-0 items-center gap-1.5 rounded-[22px] bg-[rgba(219,234,254,0.62)] px-1.5 py-1 backdrop-blur-[2px]">
+                    {visibleComposerScheduleSuggestion ? (
+                      <button
+                        key="schedule-task"
+                        type="button"
+                        className="inline-flex items-center rounded-2xl bg-transparent px-2.5 py-1.5 text-xs font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
+                        onClick={openScheduleTaskFromComposer}
+                        title="Schedule this task"
+                        aria-label={`Schedule ${visibleComposerScheduleSuggestion.matchedPhrase || "this task"}`}
+                      >
+                        Schedule this task
+                      </button>
+                    ) : null}
+                    {visibleComposerSuggestedContextEntries.map(({ service }) => (
+                      <button
+                        key={service.slug}
+                        type="button"
+                        className="inline-flex items-center rounded-2xl bg-transparent px-2.5 py-1.5 text-xs font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
+                        onClick={() => toggleDraftServiceContext(service.slug)}
+                        title={`Connect ${service.title}`}
+                        aria-label={`Connect ${service.title}`}
+                      >
+                        {`Connect ${service.title}?`}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-2xl bg-transparent text-sm font-semibold text-zinc-500 transition-opacity duration-150 hover:opacity-80"
+                      onClick={() => setDismissedComposerPopoverSignatures((prev) => Array.from(new Set([...prev, ...activeComposerPopoverSignatures])))}
+                      aria-label="Dismiss connect popover"
+                      title="Dismiss"
+                    >
+                      +�
+                    </button>
+                  </div>
+                </GlassSurface>
+                <div
+                  className="pointer-events-none absolute top-full z-10 -translate-y-[30%] drop-shadow-[0_10px_24px_rgba(37,99,235,0.16)]"
+                  style={{ left: composerSuggestionPopoverLayout?.arrowLeft ?? 28 }}
+                >
+                  <GlassSurface
+                    width={18}
+                    height={18}
+                    borderRadius={4}
+                    borderWidth={0.04}
+                    blur={7}
+                    displace={0.22}
+                    distortionScale={-72}
+                    redOffset={0}
+                    greenOffset={2}
+                    blueOffset={6}
+                    backgroundOpacity={0.16}
+                    saturation={1.05}
+                    brightness={46}
+                    opacity={0.985}
+                    mixBlendMode="soft-light"
+                    className="rounded-sm rotate-45 opacity-[0.88] ring-1 ring-[rgba(191,219,254,0.65)]"
+                    style={{ background: "rgba(219,234,254,0.46)", boxShadow: "none" }}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {composerDisconnectPopover ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-[calc(100%+14px)] z-40">
+              <div
+                ref={composerDisconnectPopoverRef}
+                className="absolute bottom-0 max-w-[calc(100%-12px)]"
+                style={{ left: composerDisconnectPopoverLayout?.left ?? Math.max(6, composerDisconnectPopover.anchorLeft - 120) }}
+              >
+                <GlassSurface
+                  width="fit-content"
+                  height="auto"
+                  borderRadius={24}
+                  borderWidth={0.04}
+                  blur={7}
+                  displace={0.22}
+                  distortionScale={-72}
+                  redOffset={0}
+                  greenOffset={2}
+                  blueOffset={6}
+                  backgroundOpacity={0.16}
+                  saturation={1.05}
+                  brightness={46}
+                  opacity={0.985}
+                  mixBlendMode="soft-light"
+                  className="pointer-events-auto rounded-3xl"
+                  style={{ background: "rgba(219,234,254,0.46)", boxShadow: "none" }}
+                >
+                  <div className="flex min-w-0 items-center gap-1.5 rounded-[22px] bg-[rgba(219,234,254,0.62)] px-1.5 py-1 backdrop-blur-[2px]">
+                    <button
+                      type="button"
+                      className="inline-flex items-center rounded-2xl bg-transparent px-2.5 py-1.5 text-xs font-semibold text-brand-blue transition-opacity duration-150 hover:opacity-80"
+                      onClick={() => {
+                        toggleDraftServiceContext(composerDisconnectPopover.slug);
+                        setComposerDisconnectPopover(null);
+                      }}
+                      title={`Disconnect ${composerDisconnectPopover.title}`}
+                      aria-label={`Disconnect ${composerDisconnectPopover.title}`}
+                    >
+                      {`Disconnect ${composerDisconnectPopover.title}?`}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-2xl bg-transparent text-sm font-semibold text-zinc-500 transition-opacity duration-150 hover:opacity-80"
+                      onClick={() => setComposerDisconnectPopover(null)}
+                      aria-label="Dismiss disconnect popover"
+                      title="Dismiss"
+                    >
+                      +�
+                    </button>
+                  </div>
+                </GlassSurface>
+                <div
+                  className="pointer-events-none absolute top-full z-10 -translate-y-[30%] drop-shadow-[0_10px_24px_rgba(37,99,235,0.16)]"
+                  style={{ left: composerDisconnectPopoverLayout?.arrowLeft ?? 28 }}
+                >
+                  <GlassSurface
+                    width={18}
+                    height={18}
+                    borderRadius={4}
+                    borderWidth={0.04}
+                    blur={7}
+                    displace={0.22}
+                    distortionScale={-72}
+                    redOffset={0}
+                    greenOffset={2}
+                    blueOffset={6}
+                    backgroundOpacity={0.16}
+                    saturation={1.05}
+                    brightness={46}
+                    opacity={0.985}
+                    mixBlendMode="soft-light"
+                    className="rounded-sm rotate-45 opacity-[0.88] ring-1 ring-[rgba(191,219,254,0.65)]"
+                    style={{ background: "rgba(219,234,254,0.46)", boxShadow: "none" }}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <div className={composerTextareaShellClass}>
+            {!input ? (
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-0 px-4 py-3 text-sm leading-5 text-zinc-400">{composerPlaceholder}</div>
+            ) : null}
+            {input ? (
+              <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden rounded-3xl">
+                <div
+                  className="px-4 py-3 text-sm leading-5 text-zinc-900 whitespace-pre-wrap wrap-break-word"
+                  style={{ transform: `translate(${-composerScrollSnapshot.left}px, ${-composerScrollSnapshot.top}px)` }}
+                >
+                  {renderComposerInlineText(
+                    input,
+                    composerConnectedHighlights.map((highlight, index) => ({
+                      key: `connected:${highlight.service.slug}:${index}`,
+                      start: highlight.match.start,
+                      end: highlight.match.end,
+                      interactive: true,
+                      className: "text-brand-blue underline underline-offset-[0.16em] hover:bg-[rgba(191,219,254,0.32)]",
+                      style: { textShadow: "0.0125em 0 0 currentColor, -0.0125em 0 0 currentColor" },
+                      onClick: () => openComposerDisconnectPopover(highlight),
+                    })),
+                  )}
+                </div>
+              </div>
+            ) : null}
+            <textarea
+              ref={inputRef}
+              role="textbox"
+              aria-label={isEditing ? "Edit message" : "Message Pura"}
+              aria-multiline="true"
+              data-composer-input="true"
+              className={composerInputClass}
+              value={input}
+              disabled={sending}
+              rows={1}
+              onChange={(e) => {
+                const nextValue = normalizeComposerPlainText(e.currentTarget.value || "");
+                const nextSelection = getComposerSelectionOffsets(e.currentTarget) || { start: 0, end: 0 };
+                pendingComposerSelectionRef.current = nextSelection;
+                setComposerSelectionSnapshot(nextSelection);
+                setComposerDisconnectPopover(null);
+                setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: nextValue }));
+                requestAnimationFrame(() => {
+                  resizeInput();
+                });
+              }}
+              onSelect={(e) => {
+                const nextSelection = getComposerSelectionOffsets(e.currentTarget) || { start: 0, end: 0 };
+                pendingComposerSelectionRef.current = nextSelection;
+                setComposerSelectionSnapshot(nextSelection);
+                setComposerDisconnectPopover(null);
+              }}
+              onClick={() => setComposerDisconnectPopover(null)}
+              onScroll={(e) => {
+                setComposerScrollSnapshot({ left: e.currentTarget.scrollLeft, top: e.currentTarget.scrollTop });
+              }}
+              onPaste={handleComposerPaste}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+              spellCheck
+              style={{ resize: "none" }}
+            />
+          </div>
+        </div>
 
         <button
           type="button"
           className={classNames(
-            "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white transition-all duration-100 hover:opacity-95",
+            "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white transition-all duration-100",
             showWelcomeComposer ? "shadow-none" : "",
-            (!input.trim() && !pendingAttachments.length) || sending ? "opacity-60" : "",
+            canSendComposerMessage ? "group hover:opacity-95" : "cursor-default opacity-60",
           )}
           onClick={() => void send()}
-          disabled={(!input.trim() && !pendingAttachments.length) || sending}
+          disabled={!canSendComposerMessage}
           aria-label={isEditing ? "Save edit" : "Send"}
           title={isEditing ? "Save edit" : "Send"}
         >
-          <span className="group-hover:hidden">
+          {canSendComposerMessage ? (
+            <>
+              <span className="group-hover:hidden">
+                <IconSend />
+              </span>
+              <span className="hidden group-hover:inline">
+                <IconSendHover />
+              </span>
+            </>
+          ) : (
             <IconSend />
-          </span>
-          <span className="hidden group-hover:inline">
-            <IconSendHover />
-          </span>
+          )}
         </button>
+      </div>
       </div>
     </>
   );
@@ -4303,7 +5882,7 @@ export function PortalAiChatClient({
           aria-label="New chat"
           title="New chat"
         >
-          <span className="text-lg font-semibold leading-none">＋</span>
+          <span className="text-lg font-semibold leading-none">n+�</span>
         </button>
       </div>
 
@@ -4325,95 +5904,162 @@ export function PortalAiChatClient({
       {attachMenu ? (
         <div
           ref={attachMenuRef}
-          className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+          className="fixed z-12045"
           style={{ left: attachMenu.left, top: attachMenu.top, width: attachMenu.width, maxHeight: attachMenu.maxHeight }}
           onMouseDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
         >
-          <button
-            type="button"
-            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-            onClick={() => {
-              setAttachMenu(null);
-              fileInputRef.current?.click();
-            }}
+          <GlassSurface
+            width="100%"
+            height="auto"
+            borderRadius={26}
+            borderWidth={0.04}
+            blur={8}
+            displace={0.22}
+            distortionScale={-72}
+            redOffset={0}
+            greenOffset={2}
+            blueOffset={6}
+            backgroundOpacity={0.2}
+            saturation={1.05}
+            brightness={46}
+            opacity={0.985}
+            mixBlendMode="soft-light"
+            className="rounded-3xl border border-[rgba(96,165,250,0.2)] shadow-[0_18px_44px_rgba(37,99,235,0.16),0_10px_28px_rgba(15,23,42,0.14)]"
+            style={{ background: "rgba(219,234,254,0.56)", boxShadow: "none" }}
           >
-            Upload from device
-          </button>
-          <button
-            type="button"
-            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-            onClick={() => {
-              setAttachMenu(null);
-              setMediaPickerOpen(true);
-            }}
-          >
-            Add from media library
-          </button>
-          <button
-            type="button"
-            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-            onClick={() => {
-              setAttachMenu(null);
-              setScheduleTaskText("");
-              setScheduleTaskOpen(true);
-            }}
-          >
-            Schedule task
-          </button>
+            <div
+              className="overflow-auto rounded-3xl bg-[linear-gradient(180deg,rgba(239,246,255,0.5),rgba(255,255,255,0.24))] p-1.5 backdrop-blur-[2px]"
+              style={{ maxHeight: attachMenu.maxHeight }}
+            >
+              <button
+                type="button"
+                className="w-full rounded-xl px-3 py-3 text-left text-sm font-semibold text-brand-ink transition-colors hover:bg-[rgba(219,234,254,0.5)]"
+                onClick={() => {
+                  setAttachMenu(null);
+                  fileInputRef.current?.click();
+                }}
+              >
+                Upload from device
+              </button>
+              <button
+                type="button"
+                className="mt-1 w-full rounded-xl px-3 py-3 text-left text-sm font-semibold text-brand-ink transition-colors hover:bg-[rgba(219,234,254,0.5)]"
+                onClick={() => {
+                  setAttachMenu(null);
+                  setMediaPickerOpen(true);
+                }}
+              >
+                Add from media library
+              </button>
+              <button
+                type="button"
+                className="mt-1 w-full rounded-xl px-3 py-3 text-left text-sm font-semibold text-brand-ink transition-colors hover:bg-[rgba(219,234,254,0.5)]"
+                onClick={() => {
+                  setAttachMenu(null);
+                  setScheduleTaskText("");
+                  setScheduleTaskOpen(true);
+                }}
+              >
+                Schedule task
+              </button>
+              <div className="mt-2 border-t border-[rgba(191,219,254,0.7)] px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Connect</div>
+              {attachMenuServiceOptions.map((service) => {
+                const selected = selectedContextServiceSlugs.includes(service.slug);
+                return (
+                  <button
+                    key={service.slug}
+                    type="button"
+                    className={classNames(
+                      "mt-1 w-full rounded-xl px-3 py-3 text-left text-sm font-semibold transition-colors",
+                      selected
+                        ? "bg-[rgba(29,78,216,0.22)] text-brand-blue"
+                        : "text-brand-ink hover:bg-[rgba(219,234,254,0.5)]",
+                    )}
+                    onClick={() => {
+                      toggleDraftServiceContext(service.slug);
+                    }}
+                    aria-pressed={selected}
+                  >
+                    <span className="block min-w-0 truncate">{service.title}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </GlassSurface>
         </div>
       ) : null}
 
       {scheduleTaskOpen ? (
         <div
-          className="fixed inset-0 z-12060 flex items-end justify-center bg-black/30 p-4 sm:items-center"
+          className="fixed inset-0 z-12060 flex items-end justify-center bg-[rgba(15,23,42,0.22)] p-4 sm:items-center"
           onMouseDown={() => setScheduleTaskOpen(false)}
           onTouchStart={() => setScheduleTaskOpen(false)}
           aria-hidden
         >
-          <div
-            className="w-full max-w-xl rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl"
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Schedule task"
+          <GlassSurface
+            width="min(100%, 40rem)"
+            height="auto"
+            borderRadius={28}
+            borderWidth={0}
+            blur={8}
+            displace={0.24}
+            distortionScale={-78}
+            redOffset={0}
+            greenOffset={2}
+            blueOffset={6}
+            backgroundOpacity={0.18}
+            saturation={1.06}
+            brightness={48}
+            opacity={0.99}
+            mixBlendMode="soft-light"
+            className="w-full max-w-xl rounded-[28px]"
+            style={{ background: "rgba(219,234,254,0.42)", boxShadow: "none" }}
           >
-            <div className="text-base font-semibold text-zinc-900">Schedule task</div>
-            <div className="mt-1 text-sm text-zinc-600">Describe what should run and when (plain English).</div>
+            <div
+              className="w-full rounded-[28px] bg-[linear-gradient(180deg,rgba(239,246,255,0.58),rgba(255,255,255,0.32))] p-4"
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Schedule task"
+            >
+              <div className="text-base font-semibold text-zinc-900">Schedule task</div>
+              <div className="mt-1 text-sm text-zinc-600">Describe what should run and when.</div>
 
-            <textarea
-              className="mt-3 h-28 w-full resize-none rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
-              placeholder="Example: Every day Monday through Friday at 9am, send a text to the contact Chester with a unique good-morning message to get started."
-              value={scheduleTaskText}
-              onChange={(e) => setScheduleTaskText(e.target.value)}
-              autoFocus
-            />
+              <textarea
+                className="mt-3 h-28 w-full resize-none rounded-2xl border border-[rgba(191,219,254,0.72)] bg-[rgba(255,255,255,0.72)] px-3 py-2 text-sm text-zinc-900 outline-none backdrop-blur-[2px] focus:border-[rgba(29,78,216,0.28)] focus:ring-2 focus:ring-[rgba(29,78,216,0.14)]"
+                placeholder="Example: Every weekday at 9am, send Chester a unique good-morning text to get the conversation started."
+                value={scheduleTaskText}
+                onChange={(e) => setScheduleTaskText(e.target.value)}
+                autoFocus
+              />
 
-            <div className="mt-3 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                onClick={() => setScheduleTaskOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
-                disabled={!scheduleTaskText.trim() || sending}
-                onClick={() => {
-                  const t = scheduleTaskText.trim();
-                  setScheduleTaskOpen(false);
-                  if (!t) return;
-                  setScheduledOpen(true);
-                  void send(t).then(() => loadScheduled());
-                }}
-              >
-                Schedule
-              </button>
+              <div className="mt-3 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-2xl border border-[rgba(191,219,254,0.7)] bg-[rgba(255,255,255,0.72)] px-3 py-2 text-sm font-semibold text-zinc-800 backdrop-blur-[2px] hover:bg-[rgba(255,255,255,0.84)]"
+                  onClick={() => setScheduleTaskOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded-2xl bg-[rgba(29,78,216,0.92)] px-3 py-2 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(29,78,216,0.18)] hover:bg-[rgba(29,78,216,0.98)] disabled:opacity-50"
+                  disabled={!scheduleTaskText.trim() || sending}
+                  onClick={() => {
+                    const t = scheduleTaskText.trim();
+                    setScheduleTaskOpen(false);
+                    if (!t) return;
+                    setScheduledOpen(true);
+                    void send(t).then(() => loadScheduled());
+                  }}
+                >
+                  Schedule
+                </button>
+              </div>
             </div>
-          </div>
+          </GlassSurface>
         </div>
       ) : null}
 
@@ -4583,7 +6229,7 @@ export function PortalAiChatClient({
                     onClick={() => void interruptActiveRun()}
                     disabled={interruptingThreadIds.has(activeThreadId)}
                   >
-                    {interruptingThreadIds.has(activeThreadId) ? "Stopping…" : "Stop"}
+                    {interruptingThreadIds.has(activeThreadId) ? "StoppingGǪ" : "Stop"}
                   </button>
                 ) : null}
 
@@ -4598,7 +6244,14 @@ export function PortalAiChatClient({
             </div>
           </div>
 
-          <div ref={scrollerRef} className={chatScrollerClassName} onScroll={handleChatScroll}>
+          <div
+            ref={scrollerRef}
+            className={chatScrollerClassName}
+            onScroll={handleChatScroll}
+            onWheelCapture={handleChatWheel}
+            onTouchStart={handleChatTouchStart}
+            onTouchMove={handleChatTouchMove}
+          >
 
           <div className="relative z-10 mx-auto w-full max-w-5xl space-y-3 px-3 pb-16 pt-24 sm:px-4 sm:pb-18 sm:pt-24">
             {messagesLoading && !messages.length ? (
@@ -4680,7 +6333,7 @@ export function PortalAiChatClient({
                                     !canDictate
                                       ? "Nothing to dictate"
                                       : dictating && dictatingMessageId === m.id
-                                      ? "Dictating…"
+                                      ? "DictatingGǪ"
                                       : dictationPlayingMessageId === m.id
                                         ? "Stop dictation"
                                         : "Dictate"
@@ -4689,7 +6342,7 @@ export function PortalAiChatClient({
                                   {dictating && dictatingMessageId === m.id ? (
                                     <IconSpinner size={16} />
                                   ) : dictationPlayingMessageId === m.id ? (
-                                    <span className="text-[14px] font-bold leading-none">■</span>
+                                    <span className="text-[14px] font-bold leading-none">G��</span>
                                   ) : (
                                     <IconVolumeGlyph size={16} />
                                   )}
@@ -4705,7 +6358,7 @@ export function PortalAiChatClient({
                                   onClick={() => void redoAssistantMessage(m.id)}
                                   disabled={!canRedo || dictating || regenerating || sending}
                                   aria-label="Redo assistant response"
-                                  title={isRedoTarget ? "Redoing…" : "Redo from here"}
+                                  title={isRedoTarget ? "RedoingGǪ" : "Redo from here"}
                                 >
                                   {isRedoTarget ? <IconSpinner size={16} /> : <IconRedoGlyph size={16} />}
                                 </button>
@@ -4804,7 +6457,7 @@ export function PortalAiChatClient({
                             </div>
                           </div>
                         )}
-                        {m.role === "assistant" && Array.isArray(m.followUpSuggestions) && m.followUpSuggestions.length ? (
+                        {m.role === "assistant" && m.id === latestMessageId && Array.isArray(m.followUpSuggestions) && m.followUpSuggestions.length ? (
                           <div className="mt-2 flex flex-wrap gap-2">
                             {m.followUpSuggestions.map((suggestion) => (
                               <button
@@ -4832,9 +6485,9 @@ export function PortalAiChatClient({
                     />
                   </div>
                 ) : null}
-                {showWorkingMemoryCard && activeWorkingMemory ? (
+                {showThreadMemoryNotice && activeWorkingMemory ? (
                   <div className="mt-3">
-                    <WorkingMemoryCard memory={activeWorkingMemory} unresolvedRun={activeUnresolvedRun} nextStepContext={activeNextStepContext} />
+                    <ThreadMemoryUpdatedCard memory={activeWorkingMemory} onOpen={openThreadMemoryActivity} />
                   </div>
                 ) : null}
                 {!showActiveLiveProgressCard && activeUnresolvedRun ? (
@@ -4867,23 +6520,25 @@ export function PortalAiChatClient({
                     <div className="mt-2 text-sm leading-relaxed text-zinc-500">Start with a question, a task, or the next workflow you want off your plate.</div>
                   </div>
                   <div className="mb-4 hidden grid-cols-1 gap-3 md:grid md:grid-cols-3">
-                    {welcomePromptChips.map((prompt) => (
-                      <button
-                        key={prompt}
-                        type="button"
-                        className="flex min-h-28 items-start rounded-3xl border border-zinc-200 bg-white p-4 text-left text-sm font-semibold text-zinc-800 shadow-[0_10px_30px_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-1 hover:border-zinc-300 hover:bg-zinc-50"
-                        onClick={() => {
-                          setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: prompt }));
-                          requestAnimationFrame(() => {
-                            resizeInput();
-                            inputRef.current?.focus();
-                            inputRef.current?.setSelectionRange(prompt.length, prompt.length);
-                          });
-                        }}
-                      >
-                        <span className="block leading-relaxed">{prompt}</span>
-                      </button>
-                    ))}
+                    {welcomePromptChipEntries.map((entry) => {
+                      const prompt = entry.prompt;
+                      return (
+                        <button
+                          key={entry.id}
+                          type="button"
+                          className="flex min-h-28 items-start rounded-3xl border border-zinc-200 bg-white p-4 text-left text-sm font-semibold text-zinc-800 shadow-[0_10px_30px_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-1 hover:border-zinc-300 hover:bg-zinc-50"
+                          onClick={() => {
+                            setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: prompt }));
+                            requestAnimationFrame(() => {
+                              resizeInput();
+                              focusComposer({ start: prompt.length, end: prompt.length });
+                            });
+                          }}
+                        >
+                          <span className="block leading-relaxed">{prompt}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                   <div className="rounded-[28px] bg-transparent p-0 shadow-none sm:rounded-3xl sm:bg-transparent sm:p-0 sm:shadow-none">
                     {composerInner}
@@ -4898,6 +6553,56 @@ export function PortalAiChatClient({
 
         {!showWelcomeComposer ? (
           <div className="relative z-20 shrink-0 border-t border-zinc-200 bg-white px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
+            <div className="pointer-events-none absolute inset-x-0 bottom-full mb-2 px-3 sm:px-4">
+              <div className="mx-auto flex w-full max-w-5xl justify-end">
+                <div className="pointer-events-auto flex flex-col items-end gap-2">
+                  {!canvasOpen && Boolean(canvasUrl) ? (
+                    <button
+                      className={classNames(frostedBlueButtonClassName(), "h-10 px-3 py-2 text-xs font-bold lg:hidden")}
+                      title="Open canvas"
+                      onClick={() => openLatestCanvas({ modal: false })}
+                    >
+                      <span className="leading-none">Open work</span>
+                      <span className="text-base leading-none">G��</span>
+                    </button>
+                  ) : null}
+
+                  {activeThreadId ? (
+                    <GlassSurface
+                      width="fit-content"
+                      height="auto"
+                      borderRadius={20}
+                      borderWidth={0.04}
+                      blur={7}
+                      displace={0.22}
+                      distortionScale={-72}
+                      redOffset={0}
+                      greenOffset={2}
+                      blueOffset={6}
+                      backgroundOpacity={0.16}
+                      saturation={1.05}
+                      brightness={46}
+                      opacity={0.985}
+                      mixBlendMode="soft-light"
+                      className="rounded-2xl"
+                      style={{ background: "rgba(255,255,255,0.46)", boxShadow: "none" }}
+                    >
+                      <button
+                        type="button"
+                        className="inline-flex h-10 items-center rounded-2xl bg-[rgba(255,255,255,0.62)] px-3 text-xs font-semibold text-zinc-700 backdrop-blur-[2px] hover:bg-[rgba(255,255,255,0.72)]"
+                        onClick={() => {
+                          setActivityView({ kind: "list" });
+                          setRunsOpen(true);
+                        }}
+                      >
+                        Activity
+                      </button>
+                    </GlassSurface>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
             {canvasOpen && canvasUrl ? (
               <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 lg:hidden relative">
                 <div className="min-w-0 truncate">
@@ -4905,7 +6610,7 @@ export function PortalAiChatClient({
                 </div>
                 <button
                   type="button"
-                  className="shrink-0 rounded-xl border border-brand-blue/20 bg-brand-blue px-2 py-1 font-semibold text-white hover:opacity-95"
+                  className={classNames(frostedBlueButtonClassName("compact"), "shrink-0")}
                   onClick={() => openCanvasInNewTab(canvasUrl)}
                 >
                   Open
@@ -4920,7 +6625,7 @@ export function PortalAiChatClient({
                     setCanvasModalOpen(false);
                   }}
                 >
-                  ×
+                  +�
                 </button>
               </div>
             ) : null}
@@ -4929,63 +6634,14 @@ export function PortalAiChatClient({
           </div>
         ) : null}
 
-        {!showWelcomeComposer ? (
-          <div className="pointer-events-none absolute inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4.65rem)] z-30 px-3 sm:px-4">
-            <div className="mx-auto flex w-full max-w-5xl justify-end">
-              <div className="pointer-events-auto flex flex-col items-end gap-2">
-                {!canvasOpen && Boolean(canvasUrl) ? (
-                  <button
-                    className="inline-flex h-10 items-center gap-1 rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white shadow-[0_10px_24px_rgba(0,0,0,0.12)] hover:opacity-95 lg:hidden"
-                    title="Open canvas"
-                    onClick={() => openLatestCanvas({ modal: false })}
-                  >
-                    <span className="leading-none">Open work</span>
-                    <span className="text-base leading-none">↗</span>
-                  </button>
-                ) : null}
-
-                {activeThreadId ? (
-                  <GlassSurface
-                    width="fit-content"
-                    height="auto"
-                    borderRadius={20}
-                    borderWidth={0.04}
-                    blur={7}
-                    displace={0.22}
-                    distortionScale={-72}
-                    redOffset={0}
-                    greenOffset={2}
-                    blueOffset={6}
-                    backgroundOpacity={0.16}
-                    saturation={1.05}
-                    brightness={46}
-                    opacity={0.985}
-                    mixBlendMode="soft-light"
-                    className="rounded-2xl"
-                    style={{ background: "rgba(255,255,255,0.46)", boxShadow: "none" }}
-                  >
-                    <button
-                      type="button"
-                      className="inline-flex h-10 items-center rounded-2xl bg-[rgba(255,255,255,0.62)] px-3 text-xs font-semibold text-zinc-700 backdrop-blur-[2px] hover:bg-[rgba(255,255,255,0.72)]"
-                      onClick={() => setRunsOpen(true)}
-                    >
-                      Activity
-                    </button>
-                  </GlassSurface>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        ) : null}
-
         {!canvasOpen && Boolean(canvasUrl) ? (
           <button
-            className="hidden lg:absolute lg:right-0 lg:top-32 lg:z-30 lg:inline-flex lg:h-10 lg:items-center lg:gap-1 lg:rounded-l-2xl lg:rounded-r-none lg:border lg:border-brand-blue/20 lg:bg-brand-blue lg:px-3 lg:py-2 lg:text-xs lg:font-bold lg:text-white lg:shadow-[0_10px_24px_rgba(0,0,0,0.12)] hover:opacity-95"
+            className="hidden lg:absolute lg:right-0 lg:top-32 lg:z-30 lg:inline-flex lg:h-10 lg:items-center lg:gap-1 lg:rounded-l-2xl lg:rounded-r-none lg:border lg:border-[rgba(29,78,216,0.18)] lg:bg-[rgba(29,78,216,0.12)] lg:px-3 lg:py-2 lg:text-xs lg:font-bold lg:text-brand-blue lg:backdrop-blur-md lg:shadow-[0_10px_24px_rgba(29,78,216,0.14)] lg:hover:bg-[rgba(29,78,216,0.18)]"
             title="Open canvas"
             onClick={() => openLatestCanvas({ modal: false })}
           >
             <span className="leading-none">Open work</span>
-            <span className="text-base leading-none">‹</span>
+            <span className="text-base leading-none">GǦ</span>
           </button>
         ) : null}
         </div>
@@ -5016,7 +6672,7 @@ export function PortalAiChatClient({
                   <div className="flex items-center gap-2">
                     <a
                       href={canvasUrl}
-                      className="rounded-xl border border-brand-blue/20 bg-brand-blue px-2 py-1 text-xs font-semibold text-white hover:opacity-95"
+                      className={frostedBlueButtonClassName("compact")}
                       target="_blank"
                       rel="noreferrer noopener"
                     >
@@ -5033,7 +6689,7 @@ export function PortalAiChatClient({
                       aria-label="Close canvas"
                       title="Close"
                     >
-                      ×
+                      +�
                     </button>
                   </div>
                 </div>
@@ -5065,129 +6721,184 @@ export function PortalAiChatClient({
 
       <AppModal
         open={runsOpen}
-        title="Recent runs"
-        description="Inspect recent work Pura completed for this chat."
-        onClose={() => setRunsOpen(false)}
+        title="Activity"
+        description="Inspect recent work and thread memory for this chat."
+        onClose={closeActivityModal}
+        headerActions={
+          <>
+            {activityView.kind !== "list" ? (
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-white text-lg font-semibold text-zinc-700 shadow-[0_8px_24px_rgba(15,23,42,0.08)] transition-colors duration-150 hover:bg-zinc-50"
+                aria-label="Back"
+                onClick={() => setActivityView({ kind: "list" })}
+              >
+                G��
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]"
+              onClick={() => {
+                acknowledgeActiveThreadMemory();
+                setActivityView({ kind: "thread-memory" });
+              }}
+            >
+              Thread Memory
+            </button>
+          </>
+        }
         widthClassName="w-[min(900px,calc(100vw-32px))]"
         closeVariant="x"
         hideHeaderDivider
       >
         {runsLoading ? (
-          <div className="text-sm text-zinc-600">Loading…</div>
-        ) : !sortedRunLedgerRows.length ? (
-          <div className="text-sm text-zinc-600">No runs yet for this chat.</div>
+          <div className="text-sm text-zinc-600">LoadingGǪ</div>
         ) : (
-          <div className="space-y-3">
-            {sortedRunLedgerRows.map((run) => {
-              const isActiveRun = Boolean(activeRunLedgerRow && activeRunLedgerRow.id === run.id);
-              return (
-              <div key={run.id} className={classNames("rounded-3xl border bg-white p-4", isActiveRun ? "border-brand-blue/30 shadow-[0_0_0_1px_rgba(37,99,235,0.08)]" : "border-zinc-200")}>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-zinc-900">{run.workTitle || "Pura run"}</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                      {isActiveRun ? <span className="rounded-full border border-brand-blue/20 bg-blue-50 px-2 py-0.5 font-semibold text-brand-blue">Active</span> : null}
-                      <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(run.triggerKind)}</span>
-                      <span className={classNames(
-                        "rounded-full border px-2 py-0.5",
-                        run.status === "running"
-                          ? "border-brand-blue/20 bg-blue-50 text-brand-blue"
-                          : run.status === "completed"
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                          : run.status === "interrupted"
-                            ? "border-zinc-300 bg-zinc-100 text-zinc-700"
-                          : run.status === "partial" || run.status === "needs_input"
-                            ? "border-amber-200 bg-amber-50 text-amber-900"
-                            : "border-red-200 bg-red-50 text-red-800",
-                      )}>
-                        {formatRunStatusLabel(run.status)}
-                      </span>
-                      <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Started: {formatLocalDateTime(new Date(run.createdAt))}</span>
-                      {run.completedAt ? (
-                        <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Completed: {formatLocalDateTime(new Date(run.completedAt))}</span>
-                      ) : null}
+          <div>
+            {activityView.kind === "thread-memory" ? (
+              activeWorkingMemory ? (
+                <ThreadMemoryDetail memory={activeWorkingMemory} unresolvedRun={activeUnresolvedRun} nextStepContext={activeNextStepContext} />
+              ) : (
+                <div className="text-sm text-zinc-600">No thread memory yet. Keep chatting to form a thread memory.</div>
+              )
+            ) : activityView.kind === "run" ? (
+              selectedActivityRun ? (
+                <div className="rounded-3xl border border-brand-blue/20 bg-white p-4 shadow-[0_0_0_1px_rgba(37,99,235,0.08)]">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-900">{selectedActivityRun.workTitle || "Pura run"}</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                        {Boolean(activeRunLedgerRow && activeRunLedgerRow.id === selectedActivityRun.id) ? <span className={classNames("rounded-full px-2 py-0.5 font-semibold", activityStatusPillClass("running", true))}>Active</span> : null}
+                        <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(selectedActivityRun.triggerKind)}</span>
+                        <span className={classNames("rounded-full px-2 py-0.5", activityStatusPillClass(selectedActivityRun.status))}>{formatRunStatusLabel(selectedActivityRun.status)}</span>
+                        <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Started: {formatLocalDateTime(new Date(selectedActivityRun.createdAt))}</span>
+                        {selectedActivityRun.completedAt ? <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Completed: {formatLocalDateTime(new Date(selectedActivityRun.completedAt))}</span> : null}
+                      </div>
                     </div>
-                    {run.summaryText ? <div className="mt-2 line-clamp-3 text-sm text-zinc-600">{run.summaryText}</div> : null}
-                  </div>
-                  {run.canvasUrl ? (
-                    <div className="shrink-0">
+                    {selectedActivityRun.canvasUrl ? (
                       <button
                         type="button"
-                        className="rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
-                        onClick={() => openInCanvas(run.canvasUrl!)}
+                        className={frostedBlueButtonClassName()}
+                        onClick={() => openInCanvas(selectedActivityRun.canvasUrl!)}
                       >
                         Open work
                       </button>
+                    ) : null}
+                  </div>
+
+                  {selectedActivityRun.summaryText || selectedActivityRun.steps.length || selectedActivityRun.workTitle ? (
+                    <div className="mt-4 rounded-2xl bg-zinc-50 px-4 py-3">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Summary</div>
+                      <PuraMarkdownBlock text={summarizeRunForActivity(selectedActivityRun)} className="text-zinc-700" />
+                    </div>
+                  ) : null}
+
+                  {selectedActivityRun.steps.length ? (
+                    <div className="mt-4 rounded-2xl bg-zinc-50 px-4 py-3">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Steps</div>
+                      <div className="space-y-3">
+                        {selectedActivityRun.steps.map((step, idx) => {
+                          const tone = activityStepTone(selectedActivityRun.status, step.ok);
+                          return (
+                            <div key={`${selectedActivityRun.id}:${step.key}:${idx}`} className={classNames("flex items-start justify-between gap-3 rounded-2xl px-3 py-3", tone.cardClassName)}>
+                              <div className={classNames("min-w-0 flex-1 text-sm", tone.textClassName)}>
+                                <PuraMarkdownBlock text={step.title || step.key} className={tone.textClassName} />
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <span className={classNames("rounded-full px-2 py-0.5 text-[11px] font-semibold", tone.pillClassName)}>{tone.label}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {selectedActivityRun.followUpSuggestions?.length ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {selectedActivityRun.followUpSuggestions.map((suggestion) => (
+                        <button
+                          key={`${selectedActivityRun.id}:${suggestion}`}
+                          type="button"
+                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                          onClick={() => {
+                            closeActivityModal();
+                            void send(suggestion);
+                          }}
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {selectedActivityRun.status === "needs_input" || selectedActivityRun.status === "interrupted" || selectedActivityRun.status === "failed" ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {(selectedActivityRun.status === "needs_input" || selectedActivityRun.status === "interrupted") ? (
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-brand-blue/20 bg-blue-50 px-3 py-2 text-xs font-semibold text-brand-blue hover:bg-blue-100"
+                          onClick={() => {
+                            closeActivityModal();
+                            void send(selectedActivityRun.status === "needs_input" ? "Continue this chat and ask me only for the missing input you actually need." : "Continue this chat from where you left off and finish the remaining work.");
+                          }}
+                        >
+                          {selectedActivityRun.status === "needs_input" ? "Continue" : "Resume"}
+                        </button>
+                      ) : null}
+                      {selectedActivityRun.status === "failed" ? (
+                        <button
+                          type="button"
+                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                          onClick={() => {
+                            closeActivityModal();
+                            void send("Retry the last failed work in this chat, fix the issue, and keep going until it is done.");
+                          }}
+                        >
+                          Retry
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
-                {run.steps.length ? (
-                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
-                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Steps</div>
-                    <div className="space-y-2">
-                      {run.steps.slice(0, 8).map((step, idx) => (
-                        <div key={`${run.id}:${step.key}:${idx}`} className="flex items-center justify-between gap-3 text-sm">
-                          <div className="min-w-0 truncate text-zinc-700">{step.title || step.key}</div>
-                          <div className="flex items-center gap-2">
-                            <span className={classNames("rounded-full px-2 py-0.5 text-[11px] font-semibold", step.ok ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-700")}>{step.ok ? "OK" : "Failed"}</span>
-                            {step.linkUrl ? (
-                              <button type="button" className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-100" onClick={() => openInCanvas(step.linkUrl!)}>
-                                Open
-                              </button>
-                            ) : null}
-                          </div>
+              ) : (
+                <div className="text-sm text-zinc-600">That run is no longer available.</div>
+              )
+            ) : !sortedRunLedgerRows.length ? (
+              <div className="text-sm text-zinc-600">No runs yet for this chat.</div>
+            ) : (
+              <div className="space-y-3">
+                {sortedRunLedgerRows.map((run) => {
+                  const isActiveRun = Boolean(activeRunLedgerRow && activeRunLedgerRow.id === run.id);
+                  const stepsPreview = run.steps.length ? `${run.steps.length} step${run.steps.length === 1 ? "" : "s"}` : null;
+                  return (
+                    <button
+                      key={run.id}
+                      type="button"
+                      className={classNames("block w-full rounded-3xl border bg-white p-4 text-left transition-colors hover:bg-zinc-50", isActiveRun ? "border-brand-blue/30 shadow-[0_0_0_1px_rgba(37,99,235,0.08)]" : "border-zinc-200")}
+                      onClick={() => setActivityView({ kind: "run", runId: run.id })}
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-zinc-900">{run.workTitle || "Pura run"}</div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                          {isActiveRun ? <span className={classNames("rounded-full px-2 py-0.5 font-semibold", activityStatusPillClass("running", true))}>Active</span> : null}
+                          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{formatRunTriggerLabel(run.triggerKind)}</span>
+                          <span className={classNames("rounded-full px-2 py-0.5", activityStatusPillClass(run.status))}>{formatRunStatusLabel(run.status)}</span>
+                          {stepsPreview ? <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">{stepsPreview}</span> : null}
+                          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Started: {formatLocalDateTime(new Date(run.createdAt))}</span>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                {run.followUpSuggestions?.length ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {run.followUpSuggestions.map((suggestion) => (
-                      <button
-                        key={`${run.id}:${suggestion}`}
-                        type="button"
-                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
-                        onClick={() => {
-                          setRunsOpen(false);
-                          void send(suggestion);
-                        }}
-                      >
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                {run.status === "needs_input" || run.status === "interrupted" || run.status === "failed" ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {(run.status === "needs_input" || run.status === "interrupted") ? (
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-brand-blue/20 bg-blue-50 px-3 py-2 text-xs font-semibold text-brand-blue hover:bg-blue-100"
-                        onClick={() => {
-                          setRunsOpen(false);
-                          void send(run.status === "needs_input" ? "Continue this chat and ask me only for the missing input you actually need." : "Continue this chat from where you left off and finish the remaining work.");
-                        }}
-                      >
-                        {run.status === "needs_input" ? "Continue" : "Resume"}
-                      </button>
-                    ) : null}
-                    {run.status === "failed" ? (
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
-                        onClick={() => {
-                          setRunsOpen(false);
-                          void send("Retry the last failed work in this chat, fix the issue, and keep going until it is done.");
-                        }}
-                      >
-                        Retry
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
+                        {run.summaryText || run.steps.length || run.workTitle ? (
+                          <div className="mt-3 max-h-24 overflow-hidden text-sm text-zinc-600">
+                            <PuraMarkdownBlock text={summarizeRunForActivity(run)} className="text-zinc-600" />
+                          </div>
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
-            );})}
+            )}
           </div>
         )}
       </AppModal>
@@ -5202,7 +6913,7 @@ export function PortalAiChatClient({
         hideHeaderDivider
       >
         {scheduledLoading ? (
-          <div className="text-sm text-zinc-600">Loading…</div>
+          <div className="text-sm text-zinc-600">LoadingGǪ</div>
         ) : !scheduledRows.length ? (
           <div className="text-sm text-zinc-600">No scheduled tasks.</div>
         ) : (
@@ -5326,7 +7037,7 @@ export function PortalAiChatClient({
                         onClick={() => void saveScheduledRow(r.id)}
                         disabled={!isDirty || saving}
                       >
-                        {saving ? "Saving…" : "Save"}
+                        {saving ? "SavingGǪ" : "Save"}
                       </button>
                     </div>
                   </div>
@@ -5354,13 +7065,13 @@ export function PortalAiChatClient({
               onClick={() => void saveShare()}
               disabled={shareLoading || shareSaving}
             >
-              {shareSaving ? "Saving…" : "Save"}
+              {shareSaving ? "SavingGǪ" : "Save"}
             </button>
           </div>
         }
       >
         {shareLoading ? (
-          <div className="text-sm text-zinc-600">Loading…</div>
+          <div className="text-sm text-zinc-600">LoadingGǪ</div>
         ) : (
           (() => {
             const q = shareQuery.trim().toLowerCase();
@@ -5417,7 +7128,7 @@ export function PortalAiChatClient({
                               )}
                               aria-hidden
                             >
-                              ✓
+                              G��
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="truncate text-sm font-semibold text-zinc-900">{m.name || m.email}</div>

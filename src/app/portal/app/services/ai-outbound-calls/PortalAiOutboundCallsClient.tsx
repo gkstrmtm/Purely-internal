@@ -5166,7 +5166,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       {createOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
+          className="fixed inset-0 z-50 flex items-center justify-center px-4 pa-modal-safe-pad"
           role="dialog"
           aria-modal="true"
           aria-label="Create campaign"

@@ -284,11 +284,16 @@
 		{
 			"label": "Audit: funnel edit targeted",
 			"type": "shell",
-			"command": "sh",
+			"command": "npm",
 			"args": [
-				"-c",
-				"PURA_SCENARIO_FILTER=01-edit-existing-funnel node tmp/portal-qa/capture_pura_audit.mjs"
+				"run",
+				"funnel:scorecard"
 			],
+			"options": {
+				"env": {
+					"FUNNEL_SCORECARD_OUT": "tmp/funnel_edit_targeted_scorecard.json"
+				}
+			},
 			"isBackground": false
 		},
 		{
@@ -358,11 +363,16 @@
 		{
 			"label": "Audit: funnel edit targeted after patch",
 			"type": "shell",
-			"command": "sh",
+			"command": "npm",
 			"args": [
-				"-c",
-				"PURA_SCENARIO_FILTER=01-edit-existing-funnel node tmp/portal-qa/capture_pura_audit.mjs"
+				"run",
+				"funnel:scorecard"
 			],
+			"options": {
+				"env": {
+					"FUNNEL_SCORECARD_OUT": "tmp/funnel_edit_after_patch_scorecard.json"
+				}
+			},
 			"isBackground": false
 		},
 		{
@@ -460,11 +470,16 @@
 		{
 			"label": "Audit: funnel edit targeted final",
 			"type": "shell",
-			"command": "sh",
+			"command": "npm",
 			"args": [
-				"-c",
-				"PURA_SCENARIO_FILTER=01-edit-existing-funnel node tmp/portal-qa/capture_pura_audit.mjs"
+				"run",
+				"funnel:scorecard"
 			],
+			"options": {
+				"env": {
+					"FUNNEL_SCORECARD_OUT": "tmp/funnel_edit_final_scorecard.json"
+				}
+			},
 			"isBackground": false
 		},
 		{
@@ -481,10 +496,16 @@
 		{
 			"label": "Audit: full Pura suite",
 			"type": "shell",
-			"command": "node",
+			"command": "npm",
 			"args": [
-				"tmp/portal-qa/capture_pura_audit.mjs"
+				"run",
+				"funnel:scorecard"
 			],
+			"options": {
+				"env": {
+					"FUNNEL_SCORECARD_OUT": "tmp/full_pura_suite_scorecard.json"
+				}
+			},
 			"isBackground": false
 		},
 		{

@@ -15,27 +15,27 @@ export function getPuraDirectPrerequisiteMessage(opts: {
   const threadContext = safeContext(opts.threadContext);
 
   if (signals.shouldCreateLandingPage && !threadContext.lastFunnel?.id) {
-    return "I cannot create that landing page yet because there is not a successfully created funnel in this thread to attach it to.";
+    return "I can create that landing page as soon as we have a funnel to attach it to. If you want, ask me to create the funnel first and I will continue from there.";
   }
 
   if (signals.shouldGenerateLandingLayout && (!threadContext.lastFunnel?.id || !threadContext.lastFunnelPage?.id)) {
-    return "I cannot generate that page layout yet because there is not a saved funnel page in this thread to design.";
+    return "I can generate that layout as soon as there is a saved funnel page to design. If you want, ask me to create the page first and I will keep going from there.";
   }
 
   if (signals.shouldSendLatestNewsletter && !threadContext.lastNewsletter?.id) {
-    return "I cannot send that newsletter yet because there is not a successfully created newsletter in this thread.";
+    return "I can send that newsletter as soon as there is a newsletter draft in this thread. If you want, I can create the draft first and then send it.";
   }
 
   if (signals.shouldPublishLatestBlog && !threadContext.lastBlogPost?.id) {
-    return "I cannot publish that blog post yet because there is not a successfully created blog draft in this thread.";
+    return "I can publish that blog post as soon as there is a blog draft in this thread. If you want, I can create the draft first and then publish it.";
   }
 
   if (signals.nurtureStepIntent && !threadContext.lastNurtureCampaign?.id) {
-    return "I cannot add that nurture step yet because there is not a successfully created nurture campaign in this thread.";
+    return "I can add that nurture step as soon as there is a nurture campaign to put it into. If you want, ask me to create the campaign first and I will continue from there.";
   }
 
   if (signals.shouldListLatestMediaFolder && !threadContext.lastMediaFolder?.id) {
-    return "I cannot list that folder yet because there is not a media folder from this thread to inspect.";
+    return "I can list that folder as soon as we have a media folder to inspect. If you want, ask me to create or pick the folder first and I will continue from there.";
   }
 
   return null;

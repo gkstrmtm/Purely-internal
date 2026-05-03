@@ -14,6 +14,7 @@ import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { sendEmail as sendOutboundEmail } from "@/lib/leadOutbound";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { BookingMeetingIntegrationError, createNativeBookingMeeting } from "@/lib/bookingMeetingIntegrations.server";
 import { createConnectRoom } from "@/lib/connectRoomCreate";
 
 export const dynamic = "force-dynamic";
@@ -258,6 +259,7 @@ export async function POST(
 
   // Purely Connect Meeting Logic
   let purelyConnectJoinUrl: string | null = null;
+  let nativeMeetingLabel: string | null = null;
   let effectiveLocation = (site as any).meetingLocation ?? null;
 
   try {
@@ -278,8 +280,23 @@ export async function POST(
       
       // Override the location with generating a unique meeting link
       effectiveLocation = purelyConnectJoinUrl;
+    } else if (setupData.meetingPlatform === "ZOOM" || setupData.meetingPlatform === "GOOGLE_MEET") {
+      const nativeMeeting = await createNativeBookingMeeting({
+        ownerId: String(site.ownerId),
+        provider: setupData.meetingPlatform === "ZOOM" ? "zoom" : "google_meet",
+        title: `Booking: ${site.title}`,
+        startAt,
+        endAt,
+        timeZone: site.timeZone,
+        attendeeName: parsed.data.contactName,
+      });
+      effectiveLocation = nativeMeeting.joinUrl;
+      nativeMeetingLabel = setupData.meetingPlatform === "ZOOM" ? "Zoom" : "Google Meet";
     }
   } catch (err) {
+    if (err instanceof BookingMeetingIntegrationError) {
+      return NextResponse.json({ error: err.message }, { status: err.statusCode });
+    }
     console.error("Failed to setup Purely Connect meeting for booking", err);
   }
 
@@ -287,6 +304,9 @@ export async function POST(
   let finalNotes = combinedNotes;
   if (purelyConnectJoinUrl) {
     const prefix = `[Purely Connect Meeting]\n${purelyConnectJoinUrl}\n\n`;
+    finalNotes = finalNotes ? prefix + finalNotes : prefix.trim();
+  } else if (nativeMeetingLabel && effectiveLocation) {
+    const prefix = `[${nativeMeetingLabel} Meeting]\n${effectiveLocation}\n\n`;
     finalNotes = finalNotes ? prefix + finalNotes : prefix.trim();
   }
 
@@ -476,5 +496,5 @@ export async function POST(
     // ignore
   }
 
-  return NextResponse.json({ ok: true, booking, rescheduleUrl });
+  return NextResponse.json({ ok: true, booking, rescheduleUrl, meetingLocation: effectiveLocation });
 }

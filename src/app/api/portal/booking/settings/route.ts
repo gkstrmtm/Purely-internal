@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { getBookingMeetingIntegrationStatus } from "@/lib/bookingMeetingIntegrations.server";
 import { prisma } from "@/lib/db";
 import { slugify } from "@/lib/slugify";
 import { hasPublicColumn } from "@/lib/dbSchema";
@@ -121,12 +122,13 @@ export async function GET() {
   const ownerId = auth.session.user.id;
   const flags = await getBookingColumnFlags();
 
-  const [siteRaw, serviceSetup] = await Promise.all([
+  const [siteRaw, serviceSetup, meetingIntegrations] = await Promise.all([
     ensureSite(ownerId, flags),
     prisma.portalServiceSetup.findUnique({
       where: { ownerId_serviceSlug: { ownerId, serviceSlug: "booking" } },
       select: { dataJson: true },
     }),
+    getBookingMeetingIntegrationStatus(ownerId).catch(() => null),
   ]);
   const site = siteRaw as any;
   const setupData = (serviceSetup?.dataJson as any) || {};
@@ -148,6 +150,7 @@ export async function GET() {
       toneDirection: flags.toneDirection ? (site.toneDirection ?? null) : null,
       notificationEmails: flags.notificationEmails ? ((site.notificationEmails as unknown) ?? null) : null,
       meetingPlatform: typeof setupData.meetingPlatform === "string" ? setupData.meetingPlatform : "OTHER",
+      meetingIntegrations,
       updatedAt: site.updatedAt,
     },
   });
@@ -258,6 +261,8 @@ export async function PUT(req: Request) {
   });
   const setupData = (serviceSetup?.dataJson as any) || {};
 
+  const meetingIntegrations = await getBookingMeetingIntegrationStatus(ownerId).catch(() => null);
+
   return NextResponse.json({
     ok: true,
     site: {
@@ -275,6 +280,7 @@ export async function PUT(req: Request) {
       toneDirection: flags.toneDirection ? ((updated as any).toneDirection ?? null) : null,
       notificationEmails: flags.notificationEmails ? (((updated as any).notificationEmails as unknown) ?? null) : null,
       meetingPlatform: typeof setupData.meetingPlatform === "string" ? setupData.meetingPlatform : "OTHER",
+      meetingIntegrations,
       updatedAt: updated.updatedAt,
     },
   });

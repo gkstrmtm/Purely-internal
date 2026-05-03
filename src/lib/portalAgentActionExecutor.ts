@@ -9,8 +9,6 @@ import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 
 import { z } from "zod";
 
-import type { FunnelHeaderNavItem } from "@/components/funnel/FunnelHeaderNav";
-
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { groupPortalServices } from "@/app/portal/services/categories";
 import { getCreditFunnelBuilderSettings, mutateCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSettingsStore";
@@ -65,6 +63,7 @@ import { ensureNewsletterSiteForOwner, sendNewsletterToAudience, uniqueNewslette
 import { normalizeNewsletterFontKey, stripLegacyNewsletterFontWrapper } from "@/lib/portalNewsletterFonts";
 import { slugify } from "@/lib/slugify";
 import { getBookingCalendarsConfig, setBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { ensureFunnelBookingCalendar } from "@/lib/funnelBookingCalendars";
 import { getBookingFormConfig, setBookingFormConfig } from "@/lib/bookingForm";
 import { computeAvailableSlots } from "@/lib/bookingSlots";
 import { getBlogAppearance, setBlogAppearance } from "@/lib/blogAppearance";
@@ -218,6 +217,7 @@ import { getOrCreatePortalReferralCode, getPortalReferralStats, rotatePortalRefe
 import { normalizePortalAiChatRunRecord } from "@/lib/portalAiChatRunLedger";
 import { buildSuggestedSetupPreviewForOwner } from "@/lib/suggestedSetup/server";
 import { applySuggestedSetupActions } from "@/lib/suggestedSetup/executor";
+import { buildFunnelInitializationScaffold } from "@/lib/funnelStencilRegistry.server";
 import { renderTextToPdfBytes } from "@/lib/simplePdf";
 import { provisionTwilioSmsWebhooksForFromNumber } from "@/lib/twilioProvisioning";
 
@@ -4494,8 +4494,6 @@ async function runDirectAction(opts: {
       const slug = normalizeSlug(args.slug) || suggestedNaming.slug;
       const name = nameRaw || suggestedNaming.name;
 
-      const wantsBookingFlow = (args?.pageType ? args.pageType === "booking" : false) || /\b(book|booking|appointment|schedule)\b/i.test(`${name} ${slug}`);
-
       if (!slug) return { status: 400, json: { ok: false, error: "Invalid slug" } };
       if (!name || name.length > 120) return { status: 400, json: { ok: false, error: "Invalid name" } };
 
@@ -4520,24 +4518,42 @@ async function runDirectAction(opts: {
 
       const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
       const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
-
-      const newBlockId = (prefix = "b") => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-      const navItems: FunnelHeaderNavItem[] = [{ id: "home", label: "Home", kind: "page", pageSlug: "home" }];
-      if (wantsBookingFlow) navItems.push({ id: "book", label: "Book", kind: "page", pageSlug: "book" });
-      navItems.push({ id: "thank", label: "Thank You", kind: "page", pageSlug: "thank-you" });
-      const headerNavBlock: CreditFunnelBlock = {
-        id: newBlockId("nav"),
-        type: "headerNav",
-        props: {
-          sticky: true,
-          transparent: false,
-          size: "md",
-          desktopMode: "inline",
-          mobileMode: "dropdown",
-          logoAlt: "Logo",
-          items: navItems,
+      const firstPageIntent = inferFunnelPageIntentProfile({
+        pageType: args?.pageType,
+        pageGoal: args?.pageGoal,
+        audience: args?.audience,
+        offer: args?.offer,
+        primaryCta: args?.primaryCta,
+        companyContext: args?.companyContext,
+        qualificationFields: args?.qualificationFields,
+        routingDestination: args?.routingDestination,
+        formStrategy: args?.formStrategy,
+        heroAssetMode: args?.heroAssetMode,
+        shellFrameId: args?.shellFrameId,
+        shellConcept: args?.shellConcept,
+        sectionPlan: args?.sectionPlan,
+        askClarifyingQuestions: args?.askClarifyingQuestions,
+      });
+      const initializationScaffold = await buildFunnelInitializationScaffold({
+        funnelName: name,
+        pageType: firstPageIntent.pageType,
+        pageGoal: firstPageIntent.pageGoal,
+        primaryCta: firstPageIntent.primaryCta,
+        offer: firstPageIntent.offer,
+        preferCustomMode: args?.preferCustomMode === true,
+        shellConcept: firstPageIntent.shellConcept,
+        sectionPlan: firstPageIntent.sectionPlan,
+        decisionInput: {
+          pageType: args?.pageType,
+          funnelGoal: args?.funnelGoal,
+          offer: args?.offer,
+          audience: args?.audience,
+          primaryCta: args?.primaryCta,
+          name,
+          slug,
+          preferCustomMode: args?.preferCustomMode,
         },
-      };
+      });
 
       const seedWarnings: Array<{ slug: string; step: string; error: string }> = [];
       const summarizeError = (err: unknown, maxLen = 600) => {
@@ -4545,31 +4561,15 @@ async function runDirectAction(opts: {
         return msg.replace(/\s+/g, " ").trim().slice(0, maxLen);
       };
 
-      const seedPage = async (opts: { slug: string; title: string; sortOrder: number; heading: string; paragraph: string }) => {
-        const blocks: CreditFunnelBlock[] = [
-          headerNavBlock,
-          {
-            id: newBlockId("section"),
-            type: "section",
-            props: {
-              layout: "one",
-              style: { align: "center" },
-              children: [
-                { id: newBlockId("h"), type: "heading", props: { level: 1, text: opts.heading, style: { align: "center" } } },
-                { id: newBlockId("p"), type: "paragraph", props: { text: opts.paragraph, style: { align: "center" } } },
-              ],
-            },
-          },
-        ];
-
+      const seedPage = async (seed: { slug: string; title: string; sortOrder: number; blocksJson: CreditFunnelBlock[] }) => {
         const created = await prisma.creditFunnelPage.create({
           data: {
             funnelId: funnel.id,
-            slug: opts.slug,
-            title: opts.title,
-            sortOrder: opts.sortOrder,
+            slug: seed.slug,
+            title: seed.title,
+            sortOrder: seed.sortOrder,
             editorMode: "BLOCKS",
-            blocksJson: blocks as any,
+            blocksJson: seed.blocksJson as any,
             contentMarkdown: "",
           },
           select: { id: true, funnelId: true, slug: true, title: true, sortOrder: true, editorMode: true, blocksJson: true, customHtml: true, draftHtml: true },
@@ -4579,7 +4579,7 @@ async function runDirectAction(opts: {
           return await prisma.creditFunnelPage.update({
             where: { id: created.id },
             data: createFunnelPageBlockSnapshotUpdate({
-              blocks,
+              blocks: seed.blocksJson,
               pageId: created.id,
               ownerId,
               basePath,
@@ -4602,44 +4602,16 @@ async function runDirectAction(opts: {
             },
           });
         } catch (err) {
-          seedWarnings.push({ slug: opts.slug, step: "html_snapshot", error: summarizeError(err) });
+          seedWarnings.push({ slug: seed.slug, step: "html_snapshot", error: summarizeError(err) });
           return created as any;
         }
       };
 
       let pages: any[] = [];
       try {
-        pages.push(
-          await seedPage({
-            slug: "home",
-            title: funnel.name || "Home",
-            sortOrder: 0,
-            heading: funnel.name || "Welcome",
-            paragraph: "This funnel is ready to edit. Add blocks and a call-to-action to start capturing leads.",
-          }),
-        );
-
-        if (wantsBookingFlow) {
-          pages.push(
-            await seedPage({
-              slug: "book",
-              title: "Book",
-              sortOrder: 1,
-              heading: "Book your appointment",
-              paragraph: "Pick a time that works best for you.",
-            }),
-          );
+        for (const seed of initializationScaffold.seeds) {
+          pages.push(await seedPage(seed));
         }
-
-        pages.push(
-          await seedPage({
-            slug: "thank-you",
-            title: "Thank You",
-            sortOrder: wantsBookingFlow ? 2 : 1,
-            heading: "Thanks - we got it!",
-            paragraph: "We will reach out shortly.",
-          }),
-        );
       } catch (err) {
         // Best-effort only: funnel creation should succeed even if page seeding fails.
         seedWarnings.push({ slug: "(seed)", step: "seed_pages", error: summarizeError(err) });
@@ -4668,7 +4640,7 @@ async function runDirectAction(opts: {
         .catch(() => null);
       if (Array.isArray(pagesFromDb)) pages = pagesFromDb as any[];
 
-      const expectedPages = wantsBookingFlow ? 3 : 2;
+      const expectedPages = initializationScaffold.seeds.length;
       const seedOk = pages.length >= expectedPages && seedWarnings.length === 0;
 
       try {
@@ -4681,27 +4653,39 @@ async function runDirectAction(opts: {
           funnelName: funnel.name,
           funnelSlug: funnel.slug,
         });
-        const homePage = pages.find((page) => String(page?.slug || "") === "home") || pages[0] || null;
-        const seededPageBrief = homePage
-          ? inferFunnelPageIntentProfile({
-              funnelBrief: seededBrief,
-              funnelName: funnel.name,
-              funnelSlug: funnel.slug,
-              pageTitle: homePage.title,
-              pageSlug: homePage.slug,
-              pageType: args?.pageType,
-              audience: args?.audience,
-              offer: args?.offer,
-              primaryCta: args?.primaryCta,
-              heroAssetMode: args?.heroAssetMode,
-              shellFrameId: args?.shellFrameId,
-            })
-          : null;
+        const briefsBySlug = new Map(initializationScaffold.seeds.map((seed) => [seed.slug, seed.briefSeed] as const));
 
         await mutateCreditFunnelBuilderSettings(ownerId, (current) => ({
-          next: seededPageBrief && homePage
-            ? writeFunnelPageBrief(writeFunnelBrief(current, funnel.id, seededBrief), homePage.id, seededPageBrief)
-            : writeFunnelBrief(current, funnel.id, seededBrief),
+          next: (() => {
+            let nextSettings = writeFunnelBrief(current, funnel.id, seededBrief);
+            for (const createdPage of pages) {
+              const briefSeed = briefsBySlug.get(String(createdPage?.slug || ""));
+              if (!briefSeed) continue;
+              const nextBrief = inferFunnelPageIntentProfile({
+                funnelBrief: seededBrief,
+                funnelName: funnel.name,
+                funnelSlug: funnel.slug,
+                pageTitle: createdPage.title,
+                pageSlug: createdPage.slug,
+                pageType: briefSeed.pageType,
+                pageGoal: briefSeed.pageGoal,
+                audience: args?.audience,
+                offer: args?.offer,
+                primaryCta: args?.primaryCta,
+                companyContext: args?.companyContext,
+                qualificationFields: args?.qualificationFields,
+                routingDestination: args?.routingDestination,
+                formStrategy: args?.formStrategy,
+                heroAssetMode: args?.heroAssetMode,
+                shellFrameId: args?.shellFrameId,
+                shellConcept: briefSeed.shellConcept,
+                sectionPlan: briefSeed.sectionPlan,
+                askClarifyingQuestions: briefSeed.askClarifyingQuestions,
+              });
+              nextSettings = writeFunnelPageBrief(nextSettings, createdPage.id, nextBrief);
+            }
+            return nextSettings;
+          })(),
           value: null,
         }));
       } catch {
@@ -4720,6 +4704,7 @@ async function runDirectAction(opts: {
             actualPages: pages.length,
             warnings: seedWarnings.slice(0, 6),
           },
+          initialization: initializationScaffold.summary,
         },
       };
     }
@@ -6770,43 +6755,21 @@ async function runDirectAction(opts: {
         let calendarId =
           requestedCalendarId && enabledCalendars.some((c: any) => String(c?.id || "").trim() === requestedCalendarId)
             ? requestedCalendarId
-            : enabledCalendars[0]?.id
-              ? String(enabledCalendars[0].id).trim().slice(0, 50)
-              : "";
+            : "";
+        let calendarProvisionError: string | null = null;
 
-        // If the user asked for a calendar block but none are configured/enabled, do the sensible thing:
-        // enable the first existing calendar, or create a default one (charging the normal booking calendar credit).
         if (intent.wantsCalendar && !calendarId) {
-          try {
-            if (allCalendars.length > 0) {
-              const next = {
-                version: 1 as const,
-                calendars: allCalendars.map((c: any, idx: number) => ({ ...c, enabled: idx === 0 ? true : (c as any).enabled !== false })),
-              };
-              const saved = await setBookingCalendarsConfig(ownerId, next as any).catch(() => null);
-              if (saved && Array.isArray((saved as any).calendars)) {
-                enabledCalendars = (saved as any).calendars.filter((c: any) => c && typeof c === "object" && (c as any).enabled !== false);
-                calendarId = enabledCalendars[0]?.id ? String(enabledCalendars[0].id).trim().slice(0, 50) : "";
-              }
-            } else {
-              const needCredits = PORTAL_CREDIT_COSTS.bookingCalendarCreate;
-              const charged = await consumeCredits(ownerId, needCredits);
-              if (charged.ok) {
-                const existingIds = new Set(allCalendars.map((c: any) => String(c?.id || "").trim()).filter(Boolean));
-                let id = "appointments";
-                if (existingIds.has(id)) id = `appointments-${Date.now().toString(36).slice(-4)}`;
-                const created = await setBookingCalendarsConfig(ownerId, {
-                  version: 1,
-                  calendars: [{ id, enabled: true, title: "Appointments", description: "Default booking calendar" }],
-                } as any).catch(() => null);
-                if (created && Array.isArray((created as any).calendars)) {
-                  enabledCalendars = (created as any).calendars.filter((c: any) => c && typeof c === "object" && (c as any).enabled !== false);
-                  calendarId = enabledCalendars[0]?.id ? String(enabledCalendars[0].id).trim().slice(0, 50) : "";
-                }
-              }
-            }
-          } catch {
-            // ignore and fall back to the missing-calendar question below
+          const ensuredCalendar = await ensureFunnelBookingCalendar({
+            ownerId,
+            funnelId: page.funnel.id,
+            funnelName: page.funnel.name,
+            pageTitle: page.title,
+          });
+          if (ensuredCalendar.ok) {
+            enabledCalendars = ensuredCalendar.config.calendars.filter((c) => c && typeof c === "object" && c.enabled !== false);
+            calendarId = String(ensuredCalendar.calendar.id || "").trim().slice(0, 50);
+          } else {
+            calendarProvisionError = ensuredCalendar.error;
           }
         }
 
@@ -6842,6 +6805,7 @@ async function runDirectAction(opts: {
                   missingChatbot,
                   stripeProductsCount: purchasable.length,
                   bookingCalendarConfigured: Boolean(calendarId),
+                  calendarProvisionError,
                   chatAgentConfigured: Boolean(chatAgentId),
                   intent,
                   funnel: { name: page.funnel.name, slug: page.funnel.slug },
@@ -22905,6 +22869,10 @@ async function runDirectAction(opts: {
         title,
         description: typeof args.description === "string" ? args.description.trim().slice(0, 400) : undefined,
         durationMinutes: typeof args.durationMinutes === "number" && Number.isFinite(args.durationMinutes) ? Math.min(180, Math.max(10, Math.floor(args.durationMinutes))) : undefined,
+        minimumNoticeMinutes:
+          typeof args.minimumNoticeMinutes === "number" && Number.isFinite(args.minimumNoticeMinutes)
+            ? Math.min(60 * 24 * 14, Math.max(0, Math.floor(args.minimumNoticeMinutes)))
+            : undefined,
         meetingLocation: typeof args.meetingLocation === "string" ? args.meetingLocation.trim().slice(0, 120) : undefined,
         meetingDetails: typeof args.meetingDetails === "string" ? args.meetingDetails.trim().slice(0, 600) : undefined,
         notificationEmails: Array.isArray(args.notificationEmails) ? args.notificationEmails.filter((x: any) => typeof x === "string").map((x: string) => x.trim()).filter(Boolean).slice(0, 20) : undefined,
@@ -22968,6 +22936,9 @@ async function runDirectAction(opts: {
       if (typeof (args as any).description === "string") next.description = String((args as any).description).trim().slice(0, 400);
       if (typeof (args as any).durationMinutes === "number" && Number.isFinite((args as any).durationMinutes)) {
         next.durationMinutes = Math.min(180, Math.max(10, Math.floor((args as any).durationMinutes)));
+      }
+      if (typeof (args as any).minimumNoticeMinutes === "number" && Number.isFinite((args as any).minimumNoticeMinutes)) {
+        next.minimumNoticeMinutes = Math.min(60 * 24 * 14, Math.max(0, Math.floor((args as any).minimumNoticeMinutes)));
       }
       if (typeof (args as any).meetingLocation === "string") next.meetingLocation = String((args as any).meetingLocation).trim().slice(0, 120);
       if (typeof (args as any).meetingDetails === "string") next.meetingDetails = String((args as any).meetingDetails).trim().slice(0, 600);

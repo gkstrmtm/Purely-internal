@@ -3140,7 +3140,7 @@ export function PortalLeadScrapingClient() {
       )}
 
       {leadOpen && activeLead ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 pa-modal-safe-pad sm:items-center">
           <button
             type="button"
             className="absolute inset-0"

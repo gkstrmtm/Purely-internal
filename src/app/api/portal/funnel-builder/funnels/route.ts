@@ -7,8 +7,10 @@ import { buildCreditFunnelPagesFromTemplateAndTheme, coerceCreditFunnelTemplateK
 import { coerceCreditFunnelThemeKey, getCreditFunnelTheme } from "@/lib/creditFunnelThemes";
 import { mutateCreditFunnelBuilderSettingsTx } from "@/lib/creditFunnelBuilderSettingsStore";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
 import { applyDraftHtmlWriteCompat, dbHasCreditFunnelPageDraftHtmlColumn } from "@/lib/funnelPageDbCompat";
 import { buildSuggestedFunnelNaming, buildSuggestedPageNaming, inferFunnelBriefProfile, inferFunnelPageIntentProfile, writeFunnelBrief, writeFunnelPageBrief } from "@/lib/funnelPageIntent";
+import { buildFunnelInitializationScaffold } from "@/lib/funnelStencilRegistry.server";
 import { createFunnelPageMirroredHtmlUpdate } from "@/lib/funnelPageState";
 import { consumeCredits } from "@/lib/credits";
 import { addCredits } from "@/lib/credits";
@@ -109,6 +111,7 @@ export async function POST(req: Request) {
     }
 
     const ownerId = auth.session.user.id;
+  const basePath = auth.variant === "credit" ? "/credit" : "";
 
     const body = (await req.json().catch(() => null)) as any;
     const explicitSlugRaw = typeof body?.slug === "string" ? body.slug : "";
@@ -129,7 +132,7 @@ export async function POST(req: Request) {
     const name = explicitName || suggestedNaming.name;
 
     if (explicitSlugRaw.trim() && !explicitSlug) {
-      return NextResponse.json({ ok: false, error: "Invalid slug — use letters, numbers, and dashes (2–60 characters)." }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Invalid slug - use letters, numbers, and dashes (2-60 characters)." }, { status: 400 });
     }
 
     if (!slug) {
@@ -150,6 +153,44 @@ export async function POST(req: Request) {
       offer: body?.offerSummary ?? body?.offer,
       fallbackSlug: "home",
     });
+    const firstPageIntent = inferFunnelPageIntentProfile({
+      pageType: body?.pageType,
+      pageGoal: body?.pageGoal,
+      audience: body?.audience,
+      offer: body?.offerSummary ?? body?.offer,
+      primaryCta: body?.primaryCta,
+      companyContext: body?.companyContext,
+      qualificationFields: body?.qualificationFields,
+      routingDestination: body?.routingDestination,
+      formStrategy: body?.formStrategy,
+      heroAssetMode: body?.heroAssetMode,
+      shellFrameId: body?.shellFrameId,
+      shellConcept: body?.shellConcept,
+      sectionPlan: body?.sectionPlan,
+      askClarifyingQuestions: body?.askClarifyingQuestions,
+    });
+    const initializationScaffold = template
+      ? null
+      : await buildFunnelInitializationScaffold({
+          funnelName: name,
+          pageType: firstPageIntent.pageType,
+          pageGoal: firstPageIntent.pageGoal,
+          primaryCta: firstPageIntent.primaryCta,
+          offer: firstPageIntent.offer,
+          preferCustomMode: body?.preferCustomMode === true,
+          shellConcept: firstPageIntent.shellConcept,
+          sectionPlan: firstPageIntent.sectionPlan,
+          decisionInput: {
+            pageType: body?.pageType,
+            funnelGoal: body?.funnelGoal,
+            offer: body?.offerSummary ?? body?.offer,
+            audience: body?.audienceSummary ?? body?.audience,
+            primaryCta: body?.primaryCta,
+            name,
+            slug,
+            preferCustomMode: body?.preferCustomMode,
+          },
+        });
 
     const pageTemplates = template && theme ? buildCreditFunnelPagesFromTemplateAndTheme(template, theme) : null;
     const pagesCreate = pageTemplates
@@ -165,17 +206,27 @@ export async function POST(req: Request) {
             ? { customChatJson: p.customChatJson as unknown as Prisma.InputJsonValue }
             : {}),
         }))
-      : [
-          {
-            slug: "home",
-            title: blankPageNaming.title || name,
-            sortOrder: 0,
-            editorMode: "BLOCKS" as const,
-            contentMarkdown: "",
-            blocksJson: [] as unknown as Prisma.InputJsonValue,
-            ...applyDraftHtmlWriteCompat(createFunnelPageMirroredHtmlUpdate(""), hasDraftHtml),
-          },
-        ];
+      : initializationScaffold
+        ? initializationScaffold.seeds.map((seed) => ({
+            slug: seed.slug,
+            title: seed.title,
+            sortOrder: seed.sortOrder,
+            editorMode: seed.editorMode,
+            contentMarkdown: seed.contentMarkdown,
+            blocksJson: seed.blocksJson as unknown as Prisma.InputJsonValue,
+            ...applyDraftHtmlWriteCompat(createFunnelPageMirroredHtmlUpdate(seed.customHtml || ""), hasDraftHtml),
+          }))
+        : [
+            {
+              slug: "home",
+              title: blankPageNaming.title || name,
+              sortOrder: 0,
+              editorMode: "BLOCKS" as const,
+              contentMarkdown: "",
+              blocksJson: [] as unknown as Prisma.InputJsonValue,
+              ...applyDraftHtmlWriteCompat(createFunnelPageMirroredHtmlUpdate(""), hasDraftHtml),
+            },
+          ];
 
     const existingBySlug = await prisma.creditFunnel.findFirst({
       where: { ownerId, slug },
@@ -232,6 +283,30 @@ export async function POST(req: Request) {
             orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
             select: { id: true, slug: true, title: true },
           });
+          const createdPages = await tx.creditFunnelPage.findMany({
+            where: { funnelId: created.id },
+            orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+            select: { id: true, slug: true, title: true, blocksJson: true, editorMode: true },
+          });
+
+          if (initializationScaffold) {
+            for (const createdPage of createdPages) {
+              const blocks = Array.isArray(createdPage.blocksJson) ? createdPage.blocksJson : [];
+              if (!blocks.length || createdPage.editorMode !== "BLOCKS") continue;
+              const mirroredHtml = blocksToCustomHtmlDocument({
+                blocks: blocks as any,
+                pageId: createdPage.id,
+                ownerId,
+                basePath,
+                title: createdPage.title || created.name || "Funnel page",
+              });
+              await tx.creditFunnelPage.update({
+                where: { id: createdPage.id },
+                data: applyDraftHtmlWriteCompat(createFunnelPageMirroredHtmlUpdate(mirroredHtml), hasDraftHtml),
+                select: { id: true },
+              });
+            }
+          }
 
           const seededPageBrief = !pageTemplates && starterPage
             ? inferFunnelPageIntentProfile({
@@ -256,11 +331,48 @@ export async function POST(req: Request) {
                 askClarifyingQuestions: body?.askClarifyingQuestions,
               })
             : null;
+          const scaffoldBriefsBySlug = new Map(
+            (initializationScaffold?.seeds || []).map((seed) => [seed.slug, seed.briefSeed] as const),
+          );
 
           await mutateCreditFunnelBuilderSettingsTx(tx, ownerId, (current) => ({
-            next: seededPageBrief && starterPage
-              ? writeFunnelPageBrief(writeFunnelBrief(current, created.id, seededBrief), starterPage.id, seededPageBrief)
-              : writeFunnelBrief(current, created.id, seededBrief),
+            next: (() => {
+              let nextSettings = writeFunnelBrief(current, created.id, seededBrief);
+              if (pageTemplates) return nextSettings;
+              if (initializationScaffold) {
+                for (const createdPage of createdPages) {
+                  const briefSeed = scaffoldBriefsBySlug.get(createdPage.slug);
+                  if (!briefSeed) continue;
+                  const nextBrief = inferFunnelPageIntentProfile({
+                    funnelBrief: seededBrief,
+                    funnelName: created.name,
+                    funnelSlug: created.slug,
+                    pageTitle: createdPage.title,
+                    pageSlug: createdPage.slug,
+                    pageType: briefSeed.pageType,
+                    pageGoal: briefSeed.pageGoal,
+                    audience: body?.audience,
+                    offer: body?.offerSummary ?? body?.offer,
+                    primaryCta: body?.primaryCta,
+                    companyContext: body?.companyContext,
+                    qualificationFields: body?.qualificationFields,
+                    routingDestination: body?.routingDestination,
+                    formStrategy: body?.formStrategy,
+                    heroAssetMode: body?.heroAssetMode,
+                    shellFrameId: body?.shellFrameId,
+                    shellConcept: briefSeed.shellConcept,
+                    sectionPlan: briefSeed.sectionPlan,
+                    askClarifyingQuestions: briefSeed.askClarifyingQuestions,
+                  });
+                  nextSettings = writeFunnelPageBrief(nextSettings, createdPage.id, nextBrief);
+                }
+                return nextSettings;
+              }
+              if (seededPageBrief && starterPage) {
+                return writeFunnelPageBrief(nextSettings, starterPage.id, seededPageBrief);
+              }
+              return nextSettings;
+            })(),
             value: null,
           }));
 
@@ -280,7 +392,20 @@ export async function POST(req: Request) {
       throw e;
     }
 
-    return NextResponse.json({ ok: true, funnel });
+    return NextResponse.json({
+      ok: true,
+      funnel,
+      initialization: template
+        ? {
+            mode: "template",
+            confidence: "high",
+            label: template.label,
+            summary: `Loaded the ${template.label.toLowerCase()} template.`,
+            pageCount: pageTemplates?.length || 0,
+            pageTitles: (pageTemplates || []).map((page) => page.title),
+          }
+        : initializationScaffold?.summary || null,
+    });
   } catch (e) {
     console.error("[funnel POST error]", e);
     return NextResponse.json({ ok: false, error: "Failed to create funnel. Please try again." }, { status: 500 });

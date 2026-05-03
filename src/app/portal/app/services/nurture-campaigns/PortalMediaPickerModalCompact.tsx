@@ -121,7 +121,7 @@ export function PortalMediaPickerModalCompact({
         <div
           className={classNames(
             "fixed inset-0 flex items-start justify-center px-4",
-            "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
+            "pa-modal-safe-pad",
             "sm:items-center",
           )}
           style={{ zIndex: baseZ + 10 }}

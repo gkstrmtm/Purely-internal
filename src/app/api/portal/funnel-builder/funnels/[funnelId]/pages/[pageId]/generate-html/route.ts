@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server";
 
 import { getCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSettingsStore";
+import { consumeCredits } from "@/lib/credits";
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import { generateText, generateTextWithImages } from "@/lib/ai";
 import type { CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { ensureFunnelBookingCalendar } from "@/lib/funnelBookingCalendars";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
+import { assessDesignTokenDiscipline, buildDesignTokenContractBlock } from "@/lib/funnelDesignTokenGuard";
+import { buildFunnelDesignContextPromptBlock, sanitizeFunnelDesignContext } from "@/lib/funnelDesignContext";
 import { synthesizeFunnelGenerationPrompt } from "@/lib/funnelPromptSynthesizer";
-import { readFunnelBookingRouting, resolveFunnelBookingCalendarId } from "@/lib/funnelBookingRouting";
+import { readFunnelBookingRouting, resolveFunnelBookingCalendarId, writeFunnelBookingRouting } from "@/lib/funnelBookingRouting";
 import {
   buildFunnelBriefPromptBlock,
   buildFunnelPageIntentPromptBlock,
@@ -41,6 +45,13 @@ import {
   createFunnelPageMirroredHtmlUpdate,
   getFunnelPageCurrentHtml,
 } from "@/lib/funnelPageState";
+import {
+  buildSourceActionPlanPromptBlock,
+  mergeSourceActionPlans,
+  sanitizeSourceActionPlan,
+  type SourceActionPlan,
+} from "@/lib/funnelSourceActionPlan";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { assessFunnelSceneQuality, buildFragmentSceneAnatomy } from "@/lib/funnelSceneQuality";
 import { buildFunnelVisualWhyBlock } from "@/lib/funnelVisualWhy";
 
@@ -51,6 +62,65 @@ export const revalidate = 0;
 function clampText(s: string, maxLen: number) {
   if (s.length <= maxLen) return s;
   return s.slice(0, maxLen) + "\n<!-- truncated -->";
+}
+
+/**
+ * Extracts a structural outline of an HTML document: every element with an id,
+ * every heading, and every semantic section boundary - each with a short text
+ * preview. Used to give the AI a full-page anatomy map when the raw HTML is
+ * too large to send in full.
+ */
+function extractHtmlStructureOutline(html: string): string {
+  const raw = String(html || "");
+  if (!raw.trim()) return "";
+  const lines: string[] = [];
+  const tagPattern = /<(h[1-4]|section|header|footer|nav|main|article|div|aside)\b([^>]*)>([\s\S]{0,400}?)<\/\1>/gi;
+  let match: RegExpExecArray | null;
+  const seen = new Set<string>();
+  while ((match = tagPattern.exec(raw)) !== null) {
+    const tag = match[1].toLowerCase();
+    const attrs = match[2] || "";
+    const inner = match[3] || "";
+    const idMatch = /\bid=["']([^"']+)["']/.exec(attrs);
+    const id = idMatch ? idMatch[1] : "";
+    const classMatch = /\bclass=["']([^"']+)["']/.exec(attrs);
+    const classes = classMatch ? classMatch[1].trim().split(/\s+/).slice(0, 2).join(" ") : "";
+    const textSnippet = inner
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120);
+    const label = id ? `#${id}` : classes ? `.${classes.replace(/\s+/g, ".")}` : tag;
+    const dedupeKey = `${tag}:${id}:${textSnippet.slice(0, 40)}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    const isHeading = /^h[1-4]$/.test(tag);
+    const isSemantic = ["section", "header", "footer", "nav", "main", "article", "aside"].includes(tag);
+    const isIdAnchored = Boolean(id);
+    if (!isHeading && !isSemantic && !isIdAnchored) continue;
+    lines.push(`<${tag} ${label}> ${textSnippet ? `"${textSnippet}"` : "(no text)"}`);
+    if (lines.length >= 80) break;
+  }
+  return lines.length ? lines.join("\n") : "";
+}
+
+/**
+ * Splices updatedRegionHtml back into the full page HTML in place of the
+ * original region, matched by element id. Returns the original if no match.
+ */
+function spliceRegionHtml(fullHtml: string, regionId: string, updatedRegionHtml: string): string {
+  if (!fullHtml || !regionId || !updatedRegionHtml) return fullHtml;
+  const escaped = regionId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(
+    `(<(?:section|div|article|main|header|footer|aside)\\b[^>]*\\bid=["']${escaped}["'][^>]*>[\\s\\S]*?<\\/(?:section|div|article|main|header|footer|aside)>)`,
+    "i",
+  );
+  const m = pattern.exec(fullHtml);
+  if (!m) return fullHtml;
+  return fullHtml.slice(0, m.index) + updatedRegionHtml + fullHtml.slice(m.index + m[0].length);
 }
 
 function extractHtml(raw: string): string {
@@ -125,6 +195,166 @@ function extractJsonObjectRecord(raw: string): Record<string, unknown> | null {
   return parsed as Record<string, unknown>;
 }
 
+function extractPrimaryCtaCopyEditRequest(prompt: string): string | null {
+  const text = String(prompt || "").trim();
+  if (!text) return null;
+  const directMatch = text.match(/\bchange\s+only\s+the\s+primary\s+cta\s+copy\s+to\s+['"]?([^'".\n]+?)['"]?(?:\s+and\b|[.?!]|$)/i);
+  if (directMatch?.[1]) return directMatch[1].trim().slice(0, 160);
+  const buttonMatch = text.match(/\b(?:change|update|rename)\s+(?:only\s+)?(?:the\s+)?(?:primary\s+)?(?:cta|button)\s+(?:copy|text|label)\s+to\s+['"]?([^'".\n]+?)['"]?(?:\s+and\b|[.?!]|$)/i);
+  if (buttonMatch?.[1]) return buttonMatch[1].trim().slice(0, 160);
+  return null;
+}
+
+function decodeHtmlEntities(value: string): string {
+  return String(value || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function normalizeCtaText(value: string): string {
+  return decodeHtmlEntities(String(value || "").replace(/<[^>]+>/g, " "))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractHtmlAttribute(attrs: string, name: string): string {
+  const match = String(attrs || "").match(new RegExp(`${name}\\s*=\\s*(["'])(.*?)\\1`, "i"));
+  return match?.[2] ? String(match[2]).trim() : "";
+}
+
+function addHtmlAttribute(tagHtml: string, attrName: string, attrValue: string) {
+  const source = String(tagHtml || "");
+  if (!source || new RegExp(`\\b${attrName}\\s*=`, "i").test(source)) return source;
+  const closeIndex = source.indexOf(">");
+  if (closeIndex === -1) return source;
+  return `${source.slice(0, closeIndex)} ${attrName}="${escapeHtml(attrValue)}"${source.slice(closeIndex)}`;
+}
+
+function replaceHtmlClassToken(tagHtml: string, fromToken: string, toToken: string) {
+  return String(tagHtml || "").replace(
+    new RegExp(`(class\\s*=\\s*["'][^"']*?)\\b${escapeRegExp(fromToken)}\\b`, "gi"),
+    `$1${toToken}`,
+  );
+}
+
+function replaceTagInnerText(tagHtml: string, nextText: string) {
+  return String(tagHtml || "").replace(/>([\s\S]*?)<\/([a-z0-9-]+)>$/i, `>${escapeHtml(nextText)}</$2>`);
+}
+
+function looksLikePrimaryCtaTag(attrs: string, text: string): boolean {
+  const attrBlob = String(attrs || "").toLowerCase();
+  const normalizedText = normalizeCtaText(text).toLowerCase();
+  return /primary|cta|button|book|schedule|consult|call-to-action/.test(attrBlob)
+    || /\b(book|schedule|call|consult|apply|get started|get a demo|start now|buy now)\b/.test(normalizedText);
+}
+
+function applyDeterministicPrimaryCtaCopyEdit(html: string, nextCopy: string) {
+  const source = String(html || "");
+  const updatedLabel = String(nextCopy || "").trim();
+  if (!source || !updatedLabel) {
+    return { changed: false, html: source, updatedCount: 0, originalLabel: "" };
+  }
+
+  const tagPattern = /<(a|button)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+  const matches: Array<{
+    full: string;
+    tag: string;
+    attrs: string;
+    inner: string;
+    text: string;
+    index: number;
+  }> = [];
+  let match: RegExpExecArray | null = null;
+  while ((match = tagPattern.exec(source))) {
+    matches.push({
+      full: match[0],
+      tag: match[1],
+      attrs: match[2],
+      inner: match[3],
+      text: normalizeCtaText(match[3]),
+      index: match.index,
+    });
+  }
+
+  const primaryCandidate = matches.find((entry) => entry.text && looksLikePrimaryCtaTag(entry.attrs, entry.inner));
+  if (!primaryCandidate) {
+    return { changed: false, html: source, updatedCount: 0, originalLabel: "" };
+  }
+
+  const originalLabel = primaryCandidate.text;
+  if (!originalLabel || originalLabel === updatedLabel) {
+    return { changed: false, html: source, updatedCount: 0, originalLabel };
+  }
+
+  const replacement = `<${primaryCandidate.tag}${primaryCandidate.attrs}>${escapeHtml(updatedLabel)}</${primaryCandidate.tag}>`;
+  const replacedHtml =
+    source.slice(0, primaryCandidate.index) +
+    replacement +
+    source.slice(primaryCandidate.index + primaryCandidate.full.length);
+
+  return {
+    changed: replacedHtml !== source,
+    html: replacedHtml,
+    updatedCount: replacedHtml !== source ? 1 : 0,
+    originalLabel,
+  };
+}
+
+function buildBookingDesignContractBlock(mode: "plan" | "build") {
+  const heading = mode === "plan" ? "BOOKING_DESIGN_CONTRACT:" : "BOOKING_OUTPUT_CONTRACT:";
+  return [
+    heading,
+    "- Build one dominant above-the-fold decision cluster: promise, fit qualifier, primary CTA, and adjacent proof in one scan.",
+    "- Make the primary CTA unmistakably dominant with a filled button treatment, strong contrast against its surrounding surface, and enough size/spacing to read as the obvious next step.",
+    "- Keep the booking path predominantly single-column. Use side-by-side layout only for tightly related proof or reassurance micro-elements, not for the main intake or CTA logic.",
+    "- Put a visibly strong proof module directly adjacent to the first CTA. Do not save all trust signals for lower sections.",
+    "- Stage reassurance again at the scheduling handoff so the calendar or booking ask feels like a continuation of the case, not a sudden widget drop.",
+    "- Use a calm premium visual system: restrained accent use, clear section contrast, deliberate containers, and typography hierarchy that feels intentional without becoming flashy.",
+    "- Prefer contextual value cues such as decision support, outcomes, workflow framing, or client proof over decorative gradients or generic startup filler.",
+    "- Keep one dominant CTA above the fold. Secondary actions, if any, must be visually demoted and must not compete with the booking ask.",
+    "- Enforce spatial discipline: no text overlap, no horizontal bleed, no CTA or proof content hanging outside its container, and no edge-to-edge text slabs without a readable clamp.",
+    "- Clamp headline, body, proof, and booking copy to readable measures. Large headlines still need a max-width and wrapping behavior so they do not collide with cards, CTAs, or modal edges.",
+    "- Every major section needs intentional inner padding and container bounds. Do not rely on negative margins, off-canvas offsets, or absolute positioning for core text and CTA content.",
+    "- Avoid these anti-patterns: centered generic hero shell, flat repeated section cards at one visual temperature, proof buried in later sections, ornamental FAQ clutter, and multi-column booking forms.",
+  ].join("\n");
+}
+
+function buildStructuralQualityContractBlock(mode: "plan" | "build") {
+  const heading = mode === "plan" ? "STRUCTURAL_PLAN_CONTRACT:" : "STRUCTURAL_OUTPUT_CONTRACT:";
+  return [
+    heading,
+    "- Never generate placeholder sections, default layouts, or empty structural elements.",
+    "- Before introducing or preserving any section, determine its purpose, the user state it addresses, and the action or movement it creates. If that justification is weak, remove, merge, or rework the section.",
+    "- Every section must have defined content, intentional hierarchy, deliberate spacing/alignment, and a visible contribution to forward movement in the funnel.",
+    "- Variation in visual style is allowed. Variation in structural quality is not. Do not let any section feel generic, underdeveloped, or like a safe default block.",
+    "- If removing a section improves clarity, the section should not exist. Tight pages beat padded pages.",
+    "- Header rule: if a header is present, it must intentionally serve navigation, conversion support, trust reinforcement, brand presence, or a deliberate combination. A logo-only header or a header that does not guide user behavior is invalid.",
+  ].join("\n");
+}
+
+function buildDesignTokenPageContractBlock(mode: "plan" | "build") {
+  const heading = mode === "plan" ? "DESIGN_TOKEN_PLAN_CONTRACT:" : "DESIGN_TOKEN_OUTPUT_CONTRACT:";
+  return buildDesignTokenContractBlock(heading);
+}
+
+function buildFunctionalSurfaceContractBlock(mode: "plan" | "build") {
+  const heading = mode === "plan" ? "FUNCTIONAL_SURFACE_PLAN_CONTRACT:" : "FUNCTIONAL_SURFACE_OUTPUT_CONTRACT:";
+  return [
+    heading,
+    "- Treat calendars, forms, dashboards, chat handoffs, checkout modules, and other functional UI as funnel sections with a defined job, not as raw app surfaces dropped into the page.",
+    "- Classify the functional surface before styling it: booking handoff, qualification step, proof-backed application step, dashboard proof surface, commerce handoff, or support utility. Its surrounding copy and layout must match that role.",
+    "- Wrap functional UI in a clear frame with a heading, expectation-setting copy, adjacent reassurance or proof, and containment that makes the component feel native to the funnel.",
+    "- Booking calendars need booking-specific framing: what happens on the call, who it is for, and why scheduling now is safe. Never render a bare calendar under generic filler copy.",
+    "- Clamp layout intentionally: keep the main frame around 1100-1200px, tighter reading or form stacks around 680-900px, and embedded components at 100% width of their clamped container with no overflow.",
+    "- Keep rhythm intentional: use roughly 72-120px between major section beats, 24-48px of inner section or card spacing, and 12-20px for tight micro-spacing between related copy and controls.",
+    "- Choose one alignment system per functional section and keep it consistent. Avoid equal-weight panels, flat repeated section cards, or dense dashboard chrome that overwhelms the funnel hierarchy.",
+  ].join("\n");
+}
+
 function buildGenerationPlanPrompt(input: {
   wantsBookingPage: boolean;
   pageTitle: string;
@@ -142,6 +372,7 @@ function buildGenerationPlanPrompt(input: {
   exhibitPlannerContractBlock: string;
   strategicPrompt: string;
   pageEditContextBlock: string;
+  preservedSourceActionPlanBlock: string;
   prompt: string;
 }) {
   return [
@@ -155,11 +386,20 @@ function buildGenerationPlanPrompt(input: {
     input.pageSectionsBlock,
     input.selectedRegionBlock,
     input.recentIterationMemoryBlock,
+    input.preservedSourceActionPlanBlock,
+    buildStructuralQualityContractBlock("plan"),
+    buildDesignTokenPageContractBlock("plan"),
+    buildFunctionalSurfaceContractBlock("plan"),
+    input.wantsBookingPage ? buildBookingDesignContractBlock("plan") : "",
     "PLAN_TASK:",
     "Return only one ```json block describing the page plan before any HTML is written.",
     "The JSON must follow this shape:",
     "{",
     '  "summary": "one sentence about the intended upgrade",',
+    '  "designIntent": { "funnelType": "...", "audienceSophistication": "basic | premium", "conversionUrgency": "soft | aggressive", "brandTone": "neutral | premium | technical | editorial | other" },',
+    '  "styleIntensity": "low | medium | high",',
+    '  "exhibitMode": "off | assist | full",',
+    '  "fontSystem": { "families": ["Manrope | Inter | Plus Jakarta Sans | General Sans | other justified choice"], "reason": "credibility/readability/tone rationale" },',
     '  "openingPosture": "attached-proof-rail | proof-strip-under-cta | single-column-cluster",',
     '  "heroApproach": "how the opening frame should work",',
     '  "openingCluster": { "promise": "...", "qualifier": "...", "primaryCta": "...", "adjacentProof": "...", "supportRole": "proof rail | proof strip | reassurance stack" },',
@@ -167,11 +407,18 @@ function buildGenerationPlanPrompt(input: {
     '  "proofStrategy": "where proof lands relative to the CTA and handoff",',
     '  "bookingHandoff": { "sectionType": "embedded booking section or direct handoff", "reassurance": "...", "repeatProof": "..." },',
     '  "contentDiscipline": ["what to omit so the page stays tight and CTA-dominant"],',
+    '  "surfaceSystem": { "baseTone": "...", "secondarySurface": "...", "accentUse": "...", "contrastStrategy": "..." },',
+    '  "proofObjects": ["actual visual proof elements to render, such as testimonial cards, metrics, logos, or founder credibility objects"],',
+    '  "visualAnchors": ["real visual elements the page should use so it does not collapse into text-only slabs"],',
+    '  "artDirection": { "mood": "...", "pointOfView": "...", "competitionBar": "business-premium | award-caliber" },',
+    '  "spatialDiscipline": { "contentClamp": "how text widths are bounded", "componentClamp": "how functional embeds stay inside 680-900px inner frames and never overflow", "paddingStrategy": "how section and card padding scale", "alignmentSystem": "how headings, proof, and functional UI line up", "overflowPolicy": "how overlap, bleed, and breakout are prevented" },',
+    '  "sectionRhythm": [{ "id": "hero", "tone": "contrast beat | calm support beat | conversion handoff", "surfaceRole": "...", "reason": "..." }],',
     '  "foundationRules": ["specific non-negotiable visual-system or layout rules to obey"],',
     '  "referenceAnchors": ["relevant design-system or component anchors to emulate structurally"],',
     '  "antiPatterns": ["specific design mistakes the page must avoid"] ,',
     '  "visualSystem": ["3-6 short bullets about layout, hierarchy, mood, and media treatment"],',
-    '  "sections": [{ "id": "hero", "goal": "...", "mustInclude": ["..."] }],',
+    '  "sourceActionPlan": { "summary": "one sentence describing the intended source upgrade", "moves": [{ "key": "hero-cluster", "target": "hero", "change": "...", "why": "...", "priority": "primary|secondary|optional", "executionMode": "deterministic|guided-generation", "selectorHint": ".hero" }], "watchouts": ["short failure modes to avoid"] },',
+    '  "sections": [{ "id": "hero", "goal": "...", "userState": "confusion | doubt | readiness | objection | other", "movement": "what this section causes the visitor to do or believe next", "mustInclude": ["..."], "existenceTest": "why this section deserves to exist instead of being removed" }],',
     '  "risks": ["short list of likely failure modes to avoid"]',
     "}",
     input.wantsBookingPage
@@ -181,6 +428,20 @@ function buildGenerationPlanPrompt(input: {
     input.exhibitPlannerContractBlock
       ? "If EXHIBIT_PLANNER_CONTRACT is present, translate it into explicit foundationRules, referenceAnchors, and antiPatterns entries instead of burying it in prose."
       : "",
+    "Choose design intent before styling. Identify funnel type, audience sophistication, conversion urgency, and brand tone first, then set styleIntensity and exhibitMode deliberately.",
+    "Default styleIntensity to medium unless the request clearly justifies low or high. Do not default to high.",
+    "Default exhibitMode to assist. Use Exhibit for sections/components only unless the request clearly justifies full Exhibit layout plus styling. Exhibit is a tool, not the source of truth.",
+    "Font rules: use one or two font families max. Choose for credibility, readability, and tone alignment. Prefer Manrope, Inter, Plus Jakarta Sans, or General Sans. Use a display serif such as Fraunces only when the brand tone is clearly premium or editorial and the page benefits from it.",
+    "Design restrictions: do not flood the page with gradients, overuse shadows, round every container, or stack panels without hierarchy. Create contrast intentionally, vary layout structure instead of centering everything, and make the CTA dominant rather than decorative.",
+    "Failure condition: if the page direction feels generic, over-styled, or disconnected from the conversion goal, reduce styling intensity and rebalance toward restraint.",
+    "If the request touches color or background treatment, make the plan explicit about surface roles. Use a 60/30/10 style split: dominant base surface, supporting secondary surfaces, and restrained accent reserved for CTA and proof emphasis.",
+    "When the user asks for a lighter, cleaner, or whiter look, actively rebalance the page toward white or near-white content surfaces, dark readable text, and tighter accent usage instead of waiting for per-element instructions.",
+    "Use exactly five semantic color tokens in the built page: primary, background, text, muted, and accent. The plan should explain how those five roles power CTA, cards, support copy, and contrast beats without inventing extra palette branches.",
+    "Use proofObjects and visualAnchors for real designed elements, not copy notes. If you name testimonial cards, metrics, screenshots, portraits, logo clouds, or proof panels there, the later HTML build must visibly render them.",
+    "Use sectionRhythm to stop the page from becoming one repeated slab treatment. Call at least one section a contrast beat, at least one section a calmer support beat, and make the booking or CTA handoff visually distinct.",
+    "In the sections array, include only sections that survive a structural justification test. Each section must state the userState it addresses, the movement it creates, and why it deserves to exist.",
+    "If any section contains functional UI such as a calendar, form, dashboard excerpt, checkout surface, or chat handoff, describe its framing, proof or reassurance support, and clamp strategy explicitly instead of treating the component as self-explanatory.",
+    "If the current page looks flat, generic, or text-heavy, the plan must explain which surfaces gain depth, which proof objects carry the trust load, and what breaks the page out of a plain paragraph stack.",
     "Do not return HTML in this step.",
     "",
     "DIRECTION_RULE:",
@@ -226,6 +487,9 @@ function buildExhibitPlannerContractBlock(input: {
     input.source ? `- Advisory source: ${String(input.source).trim()}` : "",
     input.designProfileId ? `- Design profile: ${String(input.designProfileId).trim()}` : "",
     input.categories?.length ? `- Suggested categories: ${input.categories.join(", ")}` : "",
+    "- Use Exhibit selectively. Extract only the sections, layout ideas, or components that serve the funnel goal.",
+    "- Default Exhibit mode to assist, not full. Do not blindly apply the full Exhibit styling system.",
+    "- If the resulting direction feels generic, over-styled, or disconnected from the conversion job, reduce styling and keep the layout logic only.",
     foundationRules.length ? "- Foundation rules:" : "",
     ...foundationRules.map((line) => `  - ${line.replace(/^Exhibit [^:]+:\s*/i, "")}`),
     referenceAnchors.length ? "- Reference anchors:" : "",
@@ -307,6 +571,198 @@ function sanitizeGeneratedHtmlVisualAssets(html: string): string {
   return out;
 }
 
+function applyBookingSectionRhythmEnhancement(html: string): string {
+  const text = String(html || "");
+  if (!text || /id=["']pa-booking-rhythm-enhancer["']/i.test(text)) return text;
+
+  const rhythmCss = [
+    "<style id=\"pa-booking-rhythm-enhancer\">",
+    ".hero{grid-template-columns:minmax(0,1.08fr) minmax(290px,0.92fr) !important;gap:18px !important;align-items:start !important;}",
+    ".hero-copy{display:flex !important;flex-direction:column !important;gap:14px !important;}",
+    ".hero-copy h1{margin:0 !important;max-width:11ch !important;line-height:0.98 !important;}",
+    ".hero-copy .lede{max-width:58ch !important;}",
+    ".cta-row{margin-top:10px !important;align-items:flex-start !important;}",
+    ".micro-proof{margin-top:0 !important;background:var(--color-background) !important;border-color:var(--color-accent) !important;box-shadow:none !important;color:var(--color-text) !important;}",
+    ".hero-proof{gap:14px !important;background:var(--color-background) !important;border-color:var(--color-accent) !important;box-shadow:none !important;color:var(--color-text) !important;}",
+    ".hero-proof-label{color:var(--color-accent) !important;letter-spacing:0.18em !important;}",
+    ".band{background:var(--color-background) !important;border-color:var(--color-muted) !important;}",
+    ".details{background:var(--color-background) !important;border-color:var(--color-muted) !important;}",
+    ".details .detail-step{background:var(--color-background) !important;border-color:var(--color-muted) !important;}",
+    ".faq{background:var(--color-background) !important;border-color:var(--color-muted) !important;}",
+    ".booking{background:var(--color-background) !important;border-color:var(--color-primary) !important;color:var(--color-text) !important;box-shadow:none !important;}",
+    ".booking h2,.booking h3,.booking strong{color:var(--color-text) !important;}",
+    ".booking .section-kicker,.booking .lede,.booking p,.booking li,.booking .booking-note{color:var(--color-muted) !important;}",
+    ".booking .micro-proof{background:var(--color-background) !important;border-color:var(--color-accent) !important;color:var(--color-text) !important;box-shadow:none !important;}",
+    ".booking .booking-panel{background:var(--color-background) !important;border-color:var(--color-muted) !important;box-shadow:none !important;}",
+    ".booking .booking-panel,.booking .booking-panel p,.booking .booking-panel .hero-proof-label,.booking .booking-panel .booking-note{color:var(--color-text) !important;}",
+    "</style>",
+  ].join("");
+
+  if (/<\/head>/i.test(text)) {
+    return text.replace(/<\/head>/i, `${rhythmCss}</head>`);
+  }
+
+  return `${rhythmCss}${text}`;
+}
+
+function applyBookingPrimaryGuardrails(html: string, primaryCta?: string | null): string {
+  const text = String(html || "")
+    .replace(/<style id=["']pa-booking-primary-guardrails["']>[\s\S]*?<\/style>/gi, "")
+    .replace(/\sdata-pa-booking-primary=["'][^"']*["']/gi, "")
+    .replace(/\sdata-pa-booking-secondary=["'][^"']*["']/gi, "")
+    .replace(/<div class="pa-booking-proof-cluster" data-pa-booking-proof="true">[\s\S]*?<\/div>/gi, "");
+  if (!text) return text;
+
+  const normalizedPrimaryCta = normalizeCtaText(String(primaryCta || "Book a call")).toLowerCase();
+  const tagPattern = /<(a|button)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+  const bookingMatches: Array<{ full: string; attrs: string; index: number; text: string; href: string }> = [];
+  let match: RegExpExecArray | null = null;
+  while ((match = tagPattern.exec(text))) {
+    const attrs = String(match[2] || "");
+    const inner = String(match[3] || "");
+    const label = normalizeCtaText(inner).toLowerCase();
+    const href = extractHtmlAttribute(attrs, "href");
+    const bookingLike =
+      /\b(book|schedule|consult|call|apply)\b/i.test(label) ||
+      /\/book\//i.test(href) ||
+      (normalizedPrimaryCta && label === normalizedPrimaryCta);
+    if (!bookingLike) continue;
+    bookingMatches.push({
+      full: match[0],
+      attrs,
+      index: match.index,
+      text: label,
+      href,
+    });
+  }
+
+  if (!bookingMatches.length) return text;
+
+  const firstBooking = bookingMatches[0];
+  const immediateWindow = text.slice(
+    Math.max(0, firstBooking.index - 220),
+    Math.min(text.length, firstBooking.index + firstBooking.full.length + 520),
+  );
+  const needsAttachedProof = !hasStrongProofSurface(immediateWindow);
+  const proofClusterMarkup = needsAttachedProof
+    ? '<div class="pa-booking-proof-cluster" data-pa-booking-proof="true"><strong>Decision support</strong><span>Clear recommendation, visible tradeoffs, and the next step framed before the scheduler opens.</span></div>'
+    : "";
+
+  let bookingOrdinal = 0;
+  const transformed = text.replace(tagPattern, (full, _tag, attrs, inner) => {
+    const label = normalizeCtaText(inner).toLowerCase();
+    const href = extractHtmlAttribute(attrs, "href");
+    const bookingLike =
+      /\b(book|schedule|consult|call|apply)\b/i.test(label) ||
+      /\/book\//i.test(href) ||
+      (normalizedPrimaryCta && label === normalizedPrimaryCta);
+    if (!bookingLike) return full;
+
+    bookingOrdinal += 1;
+    if (bookingOrdinal === 1) {
+      const primaryTag = addHtmlAttribute(full, "data-pa-booking-primary", "true");
+      const primaryCluster = [
+        '<div class="pa-booking-primary-stack">',
+        primaryTag,
+        '<div class="pa-booking-primary-note">Focused consultation. Clear next step.</div>',
+        proofClusterMarkup,
+        '</div>',
+      ].join("");
+      return primaryCluster;
+    }
+
+    if (bookingOrdinal <= 3 && (label === firstBooking.text || /\/book\//i.test(href))) {
+      let secondaryTag = addHtmlAttribute(full, "data-pa-booking-secondary", "true");
+      secondaryTag = replaceHtmlClassToken(secondaryTag, "pa-btn-primary", "pa-btn-secondary");
+      secondaryTag = replaceHtmlClassToken(secondaryTag, "cta-primary", "cta-secondary");
+      secondaryTag = replaceHtmlClassToken(secondaryTag, "btn-primary", "btn-secondary");
+      secondaryTag = replaceHtmlClassToken(secondaryTag, "button-primary", "button-secondary");
+      if (label === firstBooking.text || (normalizedPrimaryCta && label === normalizedPrimaryCta)) {
+        secondaryTag = replaceTagInnerText(secondaryTag, "See available times");
+      }
+      return secondaryTag;
+    }
+
+    return full;
+  });
+
+  const guardrailCss = [
+    '<style id="pa-booking-primary-guardrails">',
+    '.pa-booking-primary-stack{display:grid;justify-items:start;gap:10px;max-width:min(30rem,100%);padding:14px 16px 16px;border-radius:24px;background:var(--color-background);border:1px solid var(--color-accent);box-shadow:none;}',
+    '.pa-booking-primary-note{font-size:13px;line-height:1.5;color:var(--color-muted);}',
+    '[data-pa-booking-primary="true"]{position:relative;isolation:isolate;display:inline-flex !important;align-items:center;justify-content:center;min-height:62px;min-width:min(19rem,100%);padding:0 32px;border-radius:999px;background:var(--color-primary) !important;color:var(--color-background) !important;font-size:1.04rem !important;font-weight:800 !important;letter-spacing:0.01em !important;border:1px solid var(--color-primary) !important;box-shadow:none !important;text-decoration:none !important;transform:translateY(-1px);}',
+    '.cta-row > a:not([data-pa-booking-primary="true"]),.cta-row > button:not([data-pa-booking-primary="true"]),.booking-flow > a:not([data-pa-booking-primary="true"]),.booking-flow > button:not([data-pa-booking-primary="true"]),.hero [data-pa-booking-primary="true"] ~ a,.hero [data-pa-booking-primary="true"] ~ button{background:transparent !important;color:var(--color-muted) !important;border-color:transparent !important;box-shadow:none !important;text-decoration:underline !important;text-underline-offset:0.18em !important;min-height:auto !important;padding:6px 0 !important;opacity:0.72 !important;}',
+    '.pa-btn-secondary,.cta-secondary,.btn-secondary,.button-secondary{background:transparent !important;color:currentColor !important;opacity:0.72 !important;border:0 !important;box-shadow:none !important;text-decoration:underline !important;text-underline-offset:0.18em !important;min-height:auto !important;padding:4px 0 !important;}',
+    '[data-pa-booking-secondary="true"]{background:transparent !important;color:currentColor !important;opacity:0.72 !important;border:0 !important;box-shadow:none !important;text-decoration:underline !important;text-underline-offset:0.18em !important;min-height:auto !important;padding:4px 0 !important;}',
+    '.pa-booking-proof-cluster{margin-top:14px;max-width:min(34rem,100%);display:grid;gap:6px;padding:14px 16px;border-radius:18px;background:var(--color-background);border:1px solid var(--color-accent);box-shadow:none;color:var(--color-text);}',
+    '.pa-booking-proof-cluster strong{display:block;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:var(--color-accent);}',
+    '.pa-booking-proof-cluster span{font-size:14px;line-height:1.6;color:var(--color-text);}',
+    '</style>',
+  ].join('');
+
+  if (/<\/head>/i.test(transformed)) {
+    return transformed.replace(/<\/head>/i, `${guardrailCss}</head>`);
+  }
+
+  return `${guardrailCss}${transformed}`;
+}
+
+function applyDesignTokenFoundation(html: string): string {
+  const source = String(html || "");
+  if (!source.trim() || /<style\b[^>]*id=["']pa-design-token-foundation["']/i.test(source) || /--color-primary\s*:/i.test(source)) {
+    return source;
+  }
+
+  const tokenCss = [
+    '<style id="pa-design-token-foundation">',
+    ':root{--color-primary:#1846d8;--color-background:#ffffff;--color-text:#162033;--color-muted:#64748b;--color-accent:#2456ff;}',
+    '</style>',
+  ].join('');
+
+  if (/<\/head>/i.test(source)) {
+    return source.replace(/<\/head>/i, `${tokenCss}</head>`);
+  }
+
+  return `${tokenCss}${source}`;
+}
+
+function postProcessGeneratedPageHtml(html: string, pageType?: string | null, primaryCta?: string | null): string {
+  let out = sanitizeGeneratedHtmlVisualAssets(html);
+  out = applyDesignTokenFoundation(out);
+  out = applyLayoutSafetyGuardrails(out);
+  if (String(pageType || "").toLowerCase() === "booking") {
+    out = applyBookingPrimaryGuardrails(out, primaryCta);
+    if (hasUniformPrimarySectionStyling(out)) {
+      out = applyBookingSectionRhythmEnhancement(out);
+    }
+  }
+  return out;
+}
+
+function applyLayoutSafetyGuardrails(html: string): string {
+  const source = String(html || "");
+  if (!source.trim() || /<style\b[^>]*id=["']pa-layout-safety-guardrails["']/i.test(source)) return source;
+
+  const guardrailCss = [
+    '<style id="pa-layout-safety-guardrails">',
+    'html,body{max-width:100%;overflow-x:hidden;}',
+    '*,*::before,*::after{box-sizing:border-box;min-width:0;}',
+    'body :where(main,section,article,aside,header,footer,div,form){max-width:100%;}',
+    'body :where(h1,h2,h3,h4,h5,h6,p,li,blockquote,a,button,label,span){max-inline-size:100%;overflow-wrap:anywhere;word-break:normal;}',
+    'body :where(img,svg,video,canvas,iframe){display:block;max-width:100%;height:auto;}',
+    'body :where(pre,code){max-width:100%;white-space:pre-wrap;word-break:break-word;}',
+    'body :where(button,a,input,textarea,select){max-width:100%;}',
+    'body :where(.page,.container,.wrap,.wrapper,.panel,.card,.band,.hero,.booking,.details,.fit-grid,.booking-panel,.booking-modal-panel,.booking-overlay-panel){max-width:min(100%,var(--pa-safe-max,100%));}',
+    '</style>',
+  ].join('');
+
+  if (/<\/head>/i.test(source)) {
+    return source.replace(/<\/head>/i, `${guardrailCss}</head>`);
+  }
+
+  return `${guardrailCss}${source}`;
+}
+
 function extractQualityText(html: string): string {
   return String(html || "")
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
@@ -348,8 +804,61 @@ function hasProofSurface(fragment: string) {
   return proofKeywordSignals || proofContainerSignals || proofStatSignals;
 }
 
+function hasStrongProofSurface(fragment: string) {
+  const html = String(fragment || "");
+  const text = extractQualityText(html);
+  const proofContainerCount = countPatternMatches(
+    html,
+    /<(div|section|aside|ul)\b[^>]*(class|id)=["'][^"']*(proof|testimonial|review|results?|outcomes?|stats?|metrics?|logos?|trust|credibility)[^"']*["'][^>]*>/gi,
+  );
+  const listItemCount = countPatternMatches(html, /<li\b/gi);
+  const explicitProofCount = countPatternMatches(
+    text,
+    /\b(testimonial|testimonials|case stud|review|reviews|trusted by|client stories|client outcomes?|saved \d+|increased|reduced|founder|ceo|director|team at)\b/gi,
+  );
+  const numericProofSignals =
+    countPatternMatches(text, /\b\d{1,3}%\b/g) >= 1 ||
+    countPatternMatches(text, /\b\d+\s*(min|minute|minutes|hour|hours|day|days|week|weeks|x)\b/gi) >= 2;
+  const compactProofModule =
+    proofContainerCount >= 1 &&
+    /<strong>[^<]{4,80}<\/strong>\s*[^<]{32,}/i.test(html);
+
+  return explicitProofCount >= 1 || numericProofSignals || compactProofModule || (proofContainerCount >= 1 && listItemCount >= 2);
+}
+
 function countPatternMatches(value: string, pattern: RegExp) {
   return (String(value || "").match(pattern) || []).length;
+}
+
+function buildBookingCtaAudit(html: string) {
+  const source = String(html || "");
+  const openingSlice = source.slice(0, Math.max(1400, Math.floor(source.length * 0.22)));
+  const openingActions = countPatternMatches(openingSlice, /<(a|button)\b/gi);
+  const bookingActionLabels = countPatternMatches(
+    openingSlice,
+    /\b(book a call|book now|schedule|schedule now|schedule a call|request a consultation|apply now|start application)\b/gi,
+  );
+  const competingActionLabels = countPatternMatches(
+    openingSlice,
+    /\b(learn more|see how|view details|read more|explore|watch demo|get started)\b/gi,
+  );
+  const primaryHintInAction = /<(a|button)\b[^>]*(class|id|data-[^=]+)=['"][^'"]*(cta|primary|book|schedule|apply)[^'"]*['"]/i.test(
+    openingSlice,
+  );
+  const primaryStyleHint =
+    /\.(?:cta|button|btn|link)[-_a-z0-9]*(primary|book|schedule|apply)[^{]*\{[^}]*?(background\s*:|box-shadow\s*:|font-weight\s*:\s*(?:700|800)|border-radius\s*:\s*999)/i.test(
+      source,
+    ) ||
+    /<(a|button)\b[^>]*style=['"][^'"]*(background\s*:|box-shadow\s*:|font-weight\s*:\s*(?:700|800)|border-radius\s*:\s*999)/i.test(
+      openingSlice,
+    );
+
+  return {
+    openingActions,
+    bookingActionLabels,
+    competingActionLabels,
+    primaryDominanceLikely: primaryHintInAction || primaryStyleHint,
+  };
 }
 
 function parseScenePlanItems(value: unknown) {
@@ -387,9 +896,82 @@ function buildSceneRepairBlock(
   ].join("\n");
 }
 
+function assessSourceActionPlanAdherence(html: string, plan: SourceActionPlan | null) {
+  if (!plan || !plan.moves.length) {
+    return {
+      matchedMoves: 0,
+      totalMoves: 0,
+      unmetPrimaryMoves: [] as Array<{ target: string; change: string }>,
+      issues: [] as string[],
+    };
+  }
+
+  const body = extractBodyHtml(html);
+  const text = extractQualityText(body);
+  const sectionCount = countPatternMatches(body, /<section\b/gi);
+  const actionCount = countPatternMatches(body, /<(a|button|form|input|textarea|select)\b/gi);
+  const heroSignals = /<h1\b|class=["'][^"']*hero|id=["'][^"']*hero/i.test(body);
+  const bookingSignals = /class=["'][^"']*booking|id=["'][^"']*book|calendar|schedule|book a call|book now/i.test(body);
+  const proofSignals = hasProofSurface(body);
+
+  const unmetPrimaryMoves: Array<{ target: string; change: string }> = [];
+  let matchedMoves = 0;
+
+  for (const move of plan.moves) {
+    const signalBlob = `${move.key} ${move.target} ${move.change} ${move.why} ${move.selectorHint || ""}`.toLowerCase();
+    let satisfied = false;
+
+    if (/(hero|opening|first screen)/.test(signalBlob)) {
+      satisfied = heroSignals && actionCount >= 1;
+    }
+    if (!satisfied && /(proof|trust|testimonial|review|credibility|authority)/.test(signalBlob)) {
+      satisfied = proofSignals;
+    }
+    if (!satisfied && /(cta|action|button|handoff)/.test(signalBlob)) {
+      satisfied = actionCount >= 2 || (actionCount >= 1 && bookingSignals);
+    }
+    if (!satisfied && /(booking|schedule|calendar)/.test(signalBlob)) {
+      satisfied = bookingSignals;
+    }
+    if (!satisfied && /(section|cadence|rhythm|flow|sequence)/.test(signalBlob)) {
+      satisfied = sectionCount >= 3;
+    }
+    if (!satisfied && move.selectorHint) {
+      const selectorToken = String(move.selectorHint).replace(/^[.#]/, "").toLowerCase();
+      if (selectorToken) satisfied = text.includes(selectorToken) || body.toLowerCase().includes(selectorToken);
+    }
+    if (!satisfied) {
+      const keywords = String(move.change || "")
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((token) => token.length >= 5)
+        .slice(0, 3);
+      if (keywords.length >= 2) satisfied = keywords.every((token) => text.includes(token));
+    }
+
+    if (satisfied) matchedMoves += 1;
+    else if (move.priority === "primary") unmetPrimaryMoves.push({ target: move.target, change: move.change });
+  }
+
+  const issues: string[] = [];
+  if (!matchedMoves) {
+    issues.push("The output does not clearly implement the declared source-action plan. It needs to make the promised structural moves visible in the page source.");
+  }
+  for (const move of unmetPrimaryMoves.slice(0, 2)) {
+    issues.push(`The output still does not clearly implement the planned move for ${move.target}: ${move.change}`);
+  }
+
+  return {
+    matchedMoves,
+    totalMoves: plan.moves.length,
+    unmetPrimaryMoves,
+    issues,
+  };
+}
+
 function hasBookingClusterFailure(issues: string[]) {
   return issues.some((issue) =>
-    /(first screen|first serious ask|trust cue|adjacent trust surface|proof is still under-staged|decision cluster|booking handoff|hero and booking block|middle support beat)/i.test(
+    /(first screen|first serious ask|first CTA|primary CTA|trust cue|adjacent trust surface|strong proof module|proof is still under-staged|decision cluster|booking handoff|hero and booking block|middle support beat|dominant treatment|CTA dominance is diluted)/i.test(
       issue,
     ),
   );
@@ -397,10 +979,58 @@ function hasBookingClusterFailure(issues: string[]) {
 
 function hasBookingGenericOutputFailure(issues: string[]) {
   return issues.some((issue) =>
-    /generic starter template|generic enterprise filler|invented or generic proof|placeholder faq scaffolding|ornamental fact clutter|CTA dominance is diluted/i.test(
+    /generic starter template|generic consultation shell|generic enterprise filler|invented or generic proof|placeholder faq scaffolding|ornamental fact clutter|CTA dominance is diluted|familiar AI booking mockup|overused Inter\/Space Grotesk pairing/i.test(
       issue,
     ),
   );
+}
+
+function countTextSlabSections(html: string) {
+  const matches = Array.from(String(html || "").matchAll(/<section\b[^>]*>([\s\S]*?)<\/section>/gi)).slice(0, 14);
+  let count = 0;
+
+  for (const match of matches) {
+    const sectionHtml = String(match[1] || "");
+    if (!sectionHtml.trim()) continue;
+
+    const sectionText = extractQualityText(sectionHtml);
+    const headingCount = countPatternMatches(sectionHtml, /<h[1-6]\b/gi);
+    const actionCount = countPatternMatches(sectionHtml, /<(a|button)\b/gi);
+    const paragraphCount = countPatternMatches(sectionHtml, /<(p|li)\b/gi);
+    const richStructureSignals =
+      /<(blockquote|details|dl|dt|dd|ul|ol|figure|img|svg|aside|article|form|input|textarea|iframe|video)\b/i.test(sectionHtml) ||
+      /(class|id)=["'][^"']*(card|panel|grid|rail|proof|testimonial|results?|outcomes?|stats?|metrics?|benefits?|features?|faq|comparison|process|steps?|timeline|logos?|trust|cluster)[^"']*["']/i.test(sectionHtml);
+
+    if (richStructureSignals) continue;
+    if (headingCount === 0) continue;
+    if (sectionText.length < 80 || sectionText.length > 420) continue;
+    if (paragraphCount === 0) continue;
+    if (actionCount > 1) continue;
+
+    count += 1;
+  }
+
+  return count;
+}
+
+function hasWeakStandaloneCtaBand(html: string) {
+  const matches = Array.from(String(html || "").matchAll(/<section\b[^>]*>([\s\S]*?)<\/section>/gi)).slice(0, 14);
+  for (const match of matches) {
+    const sectionHtml = String(match[1] || "");
+    const sectionText = extractQualityText(sectionHtml);
+    if (!/\b(book|schedule|consultation|consult|call|appointment|get started)\b/i.test(sectionText)) continue;
+
+    const actionCount = countPatternMatches(sectionHtml, /<(a|button)\b/gi);
+    const proofSignals = hasProofSurface(sectionHtml);
+    const structuralSignals =
+      /<(blockquote|details|dl|dt|dd|ul|ol|figure|img|svg|aside|article|form|iframe|video)\b/i.test(sectionHtml) ||
+      /(class|id)=["'][^"']*(card|panel|grid|rail|proof|testimonial|results?|outcomes?|stats?|metrics?|benefits?|features?|faq|comparison|process|steps?|timeline|logos?|trust|cluster)[^"']*["']/i.test(sectionHtml);
+
+    if (actionCount <= 1 && !proofSignals && !structuralSignals && sectionText.length <= 220) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function readPlanString(record: Record<string, unknown> | null, key: string, fallback = "") {
@@ -411,6 +1041,10 @@ function readPlanString(record: Record<string, unknown> | null, key: string, fal
 function readPlanObject(record: Record<string, unknown> | null, key: string) {
   const value = record?.[key];
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function readPlanSourceActionPlan(record: Record<string, unknown> | null) {
+  return sanitizeSourceActionPlan(readPlanObject(record, "sourceActionPlan"));
 }
 
 function pickFallbackAudienceCopy(value: string, fallback: string) {
@@ -433,6 +1067,41 @@ function pickFallbackAudienceCopy(value: string, fallback: string) {
   return text;
 }
 
+function stripLeadingArticle(value: string) {
+  return String(value || "").replace(/^(?:a|an|the)\s+/i, "").trim();
+}
+
+function capitalizeSentence(value: string) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function isGenericConsultationShellText(value: string) {
+  const text = String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+  if (!text) return false;
+  return /\b(book your consultation|book your automation consultation|why book this consultation|why choose this session|what you'll gain|outcome focus|trust and transparency|ready to take action|a premium session designed to clarify your automation decisions|our premium session is designed to clarify your automation decisions|expect a clear, structured session that addresses your automation needs|your path to clarity starts here)\b/i.test(text);
+}
+
+function isPlannerMetaText(value: string) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  return /^(the hero will|the page will|this page will|proof should be|proof must be|the booking section|the booking path|the first screen|the opening cluster|use a split composition|keep proof beside|place proof|attach reassurance)/i.test(text);
+}
+
+function pickNonGenericFallbackCopy(value: string, fallback: string) {
+  const text = pickFallbackAudienceCopy(value, fallback);
+  return isGenericConsultationShellText(text) || isPlannerMetaText(text) ? fallback : text;
+}
+
+function pickFallbackCtaText(value: string, fallback: string) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return fallback;
+  if (/^\//.test(text) || /^https?:\/\//i.test(text)) return fallback;
+  if (text.length > 40) return fallback;
+  return text;
+}
+
 function buildBookingFallbackHtmlFromPlan(input: {
   funnelName: string;
   pageTitle: string;
@@ -440,53 +1109,92 @@ function buildBookingFallbackHtmlFromPlan(input: {
   primaryCta: string;
   bookingHref: string;
   bookingSectionId: string;
+  audience?: string | null;
+  offer?: string | null;
+  companyContext?: string | null;
+  pageGoal?: string | null;
   generationPlan: Record<string, unknown> | null;
 }) {
   const openingCluster = readPlanObject(input.generationPlan, "openingCluster");
   const ctaSystem = readPlanObject(input.generationPlan, "ctaSystem");
   const bookingHandoff = readPlanObject(input.generationPlan, "bookingHandoff");
-  const promiseText = pickFallbackAudienceCopy(
-    readPlanString(openingCluster, "promise", "Book your consultation"),
-    "Book your consultation",
+  const audience = pickFallbackAudienceCopy(
+    String(input.audience || ""),
+    "operators and founders with a live decision to make",
   );
-  const qualifier = pickFallbackAudienceCopy(
-    readPlanString(openingCluster, "qualifier", "Private working session for operators who need the next move clear"),
-    "Private working session for operators who need the next move clear",
+  const offer = pickFallbackAudienceCopy(
+    String(input.offer || ""),
+    "a private strategy consultation",
   );
-  const adjacentProof = pickFallbackAudienceCopy(
+  const companyContext = pickFallbackAudienceCopy(String(input.companyContext || ""), "");
+  const pageGoal = pickFallbackAudienceCopy(
+    String(input.pageGoal || ""),
+    "clarify the next move without burning time on vague discovery",
+  );
+  const cleanOffer = stripLeadingArticle(offer) || "strategy consultation";
+  const fallbackPromise = /consultation|session|audit|strategy|review|diagnostic|call/i.test(cleanOffer)
+    ? `Book the ${cleanOffer}`
+    : `Book the ${cleanOffer} session`;
+  const promiseText = pickNonGenericFallbackCopy(
+    readPlanString(openingCluster, "promise", fallbackPromise),
+    fallbackPromise,
+  );
+  const qualifier = pickNonGenericFallbackCopy(
+    readPlanString(openingCluster, "qualifier", `Built for ${audience}`),
+    `Built for ${audience}`,
+  );
+  const adjacentProof = pickNonGenericFallbackCopy(
     readPlanString(openingCluster, "adjacentProof", ""),
-    "A structured consultation with a clear recommendation, visible tradeoffs, and enough decision support to act without a second vague discovery call.",
+    `A structured ${cleanOffer} with a clear recommendation, visible tradeoffs, and enough decision support to act without a second vague discovery call.`,
   );
   const supportRole = readPlanString(openingCluster, "supportRole", "proof rail");
-  const summary = pickFallbackAudienceCopy(
+  const summary = pickNonGenericFallbackCopy(
     readPlanString(input.generationPlan, "summary", ""),
-    "A premium consultation page that moves from fit and proof into one decisive booking handoff.",
+    `${capitalizeSentence(cleanOffer)} for ${audience} that turns live operational pressure into a clear next move.`,
   );
-  const heroApproach = pickFallbackAudienceCopy(
+  const heroApproach = pickNonGenericFallbackCopy(
     readPlanString(input.generationPlan, "heroApproach", ""),
-    "Lead with the decision the visitor is trying to make, keep the consultation visibly valuable, and attach reassurance to the first booking action.",
+    `Lead with the decision ${audience} is trying to make, keep the ${cleanOffer} visibly valuable, and attach reassurance to the first booking action.`,
   );
-  const proofStrategy = pickFallbackAudienceCopy(
+  const proofStrategy = pickNonGenericFallbackCopy(
     readPlanString(input.generationPlan, "proofStrategy", ""),
     "Keep proof beside the first CTA, then restage reassurance again inside the booking handoff so the page never asks in a vacuum.",
   );
   const handoffType = readPlanString(bookingHandoff, "sectionType", "direct booking handoff");
-  const handoffReassurance = pickFallbackAudienceCopy(
+  const handoffReassurance = pickNonGenericFallbackCopy(
     readPlanString(bookingHandoff, "reassurance", ""),
     "You leave knowing what to do next, what to ignore, and whether implementation support actually makes sense right now.",
   );
-  const handoffProof = pickFallbackAudienceCopy(
+  const handoffProof = pickNonGenericFallbackCopy(
     readPlanString(bookingHandoff, "repeatProof", ""),
     "Proof and reassurance stay attached to the handoff so the booking step feels earned instead of premature.",
   );
-  const ctaText = readPlanString(ctaSystem, "dominantCta", input.primaryCta || "Book a call");
+  const ctaText = pickFallbackCtaText(
+    readPlanString(ctaSystem, "dominantCta", input.primaryCta || "Book a call"),
+    input.primaryCta || "Book a call",
+  );
   const bookingHref = input.bookingHref || `#${input.bookingSectionId}`;
+  const canEmbedBooking = !/^#/.test(bookingHref);
   const supportLabel = /proof\s+(rail|strip)/i.test(supportRole) ? "Decision support" : supportRole || "Decision support";
   const handoffLead = /embedded booking section/i.test(handoffType)
     ? "The booking section stays embedded and low-friction."
     : /direct booking handoff/i.test(handoffType)
       ? "The booking path stays direct and low-friction."
       : `${handoffType.charAt(0).toUpperCase()}${handoffType.slice(1)}.`;
+  const contextLine = companyContext
+    ? `${capitalizeSentence(companyContext)}.`
+    : `This page is tuned for ${audience}, with the offer framed around ${cleanOffer}.`;
+  const bestUsedWhen = `You are weighing ${cleanOffer} because the current bottleneck, handoff, or operating gap needs a real decision now.`;
+  const leaveWith = `You leave with a clearer recommendation, a tighter sense of fit, and a next move grounded in ${pageGoal}.`;
+  const proofAtAsk = handoffProof || `Proof and reassurance stay attached to the booking step so the handoff into ${cleanOffer} feels earned.`;
+  const bookingTriggerAttrs = canEmbedBooking
+    ? ` data-booking-modal-trigger="true" data-booking-cta-label="${escapeHtml(ctaText)}"`
+    : "";
+  const bookingStatusReady = canEmbedBooking ? "true" : "false";
+  const bookingStatusLabel = canEmbedBooking ? "Scheduler ready" : "Calendar connection pending";
+  const bookingStatusCopy = canEmbedBooking
+    ? "The selected calendar stays attached to this routing path, so the scheduler opens without dropping the visitor out of the page context."
+    : "Connect a live booking calendar to replace this placeholder handoff with an in-page scheduler.";
   return [
     "<!DOCTYPE html>",
     '<html lang="en">',
@@ -494,108 +1202,227 @@ function buildBookingFallbackHtmlFromPlan(input: {
     '  <meta charset="UTF-8" />',
     '  <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
     `  <title>${escapeHtml(input.pageTitle || input.funnelName || "Booking page")}</title>`,
+    '  <link rel="preconnect" href="https://fonts.googleapis.com" />',
+    '  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />',
+    '  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />',
     "  <style>",
-    "    :root { color-scheme: light; --bg: #f5f1ea; --ink: #172033; --muted: #5b6472; --panel: rgba(255, 253, 250, 0.88); --panel-strong: #fffdfa; --line: rgba(23, 32, 51, 0.12); --accent: #1f5eff; --accent-ink: #ffffff; --warm: #efe5d8; --shadow: 0 24px 70px rgba(18, 26, 41, 0.12); }",
+    "    :root { color-scheme: light; --color-primary: #1846d8; --color-background: #f7f4ee; --color-text: #162033; --color-muted: #5b6577; --color-accent: #eef2f8; }",
     "    * { box-sizing: border-box; }",
-    "    body { margin: 0; font-family: 'Inter', 'Segoe UI', sans-serif; background: radial-gradient(circle at top, #fbf8f2 0%, var(--bg) 48%, #ece1d1 100%); color: var(--ink); }",
-    "    h1, h2, h3 { font-family: 'Space Grotesk', 'Segoe UI', sans-serif; }",
+    "    body { margin: 0; font-family: 'Manrope', 'Avenir Next', 'Trebuchet MS', sans-serif; background: var(--color-background); color: var(--color-text); }",
+    "    h1, h2, h3 { font-family: 'Plus Jakarta Sans', 'Manrope', 'Avenir Next', sans-serif; font-weight: 800; }",
     "    a { color: inherit; text-decoration: none; }",
     "    .page { max-width: 1120px; margin: 0 auto; padding: 32px 20px 88px; }",
-    "    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 8px 0 24px; color: var(--muted); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }",
+    "    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 8px 0 24px; color: var(--color-muted); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }",
     "    .hero { display: grid; grid-template-columns: minmax(0, 1.18fr) minmax(300px, 0.82fr); gap: 24px; align-items: stretch; }",
-    "    .hero-copy, .hero-proof, .band, .details, .fit-grid, .booking { background: var(--panel); backdrop-filter: blur(10px); border: 1px solid var(--line); border-radius: 28px; box-shadow: var(--shadow); }",
-    "    .hero-copy { padding: 38px; }",
-    "    .eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: var(--warm); color: #6e5130; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; }",
+    "    .hero-copy, .hero-proof, .band, .details, .fit-grid, .booking { border: 1px solid color-mix(in srgb, var(--color-text) 10%, transparent); border-radius: 24px; box-shadow: 0 18px 42px color-mix(in srgb, var(--color-muted) 16%, transparent); }",
+    "    .hero-copy { padding: 38px; background: color-mix(in srgb, var(--color-background) 88%, var(--color-accent)); }",
+    "    .eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: color-mix(in srgb, var(--color-accent) 82%, var(--color-background)); color: var(--color-primary); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; }",
     "    h1 { margin: 18px 0 14px; font-size: clamp(2.8rem, 5vw, 4.8rem); line-height: 0.95; letter-spacing: -0.04em; max-width: 10ch; }",
-    "    .lede { margin: 0; font-size: 18px; line-height: 1.7; color: var(--muted); max-width: 62ch; }",
-    "    .cta-row { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 28px; align-items: center; }",
-    "    .cta-primary { min-height: 54px; padding: 0 26px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; letter-spacing: 0.01em; background: var(--accent); color: var(--accent-ink); box-shadow: 0 16px 32px rgba(31, 94, 255, 0.22); }",
-    "    .micro-proof { margin-top: 22px; padding: 18px 20px; border-radius: 22px; background: linear-gradient(135deg, rgba(31, 94, 255, 0.16), rgba(255,255,255,0.96)); border: 1px solid rgba(31, 94, 255, 0.2); box-shadow: 0 18px 34px rgba(31, 94, 255, 0.12); }",
+    "    .lede { margin: 0; font-size: 18px; line-height: 1.7; color: var(--color-muted); max-width: 62ch; }",
+    "    .cta-row { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 28px; align-items: flex-start; }",
+    "    .cta-inline-proof { min-width: min(100%, 260px); max-width: 360px; padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--color-background) 90%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); color: var(--color-text); box-shadow: 0 8px 18px color-mix(in srgb, var(--color-muted) 12%, transparent); }",
+    "    .cta-inline-proof strong { display: block; margin-bottom: 6px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }",
+    "    .cta-primary { min-height: 62px; padding: 0 32px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; letter-spacing: 0.01em; background: var(--color-primary); color: var(--color-background); border: 1px solid color-mix(in srgb, var(--color-primary) 76%, var(--color-text)); box-shadow: 0 14px 28px color-mix(in srgb, var(--color-primary) 22%, transparent); }",
+    "    .cta-primary[data-booking-state='opening'] { background: color-mix(in srgb, var(--color-primary) 72%, var(--color-text)); box-shadow: 0 20px 38px color-mix(in srgb, var(--color-text) 18%, transparent); }",
+    "    .cta-secondary { min-height: auto; padding: 2px 0; border-radius: 0; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; letter-spacing: 0.01em; background: transparent; color: var(--color-muted); border: 0; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.18em; }",
+    "    .cta-proof-rail { margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }",
+    "    .cta-proof-chip { padding: 12px 14px; border-radius: 16px; background: color-mix(in srgb, var(--color-background) 86%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); color: var(--color-text); box-shadow: 0 8px 16px color-mix(in srgb, var(--color-muted) 10%, transparent); }",
+    "    .cta-proof-chip strong { display: block; margin-bottom: 4px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }",
+    "    .cta-note { margin-top: 12px; font-size: 13px; line-height: 1.6; color: var(--color-muted); }",
+    "    .micro-proof { margin-top: 22px; padding: 18px 20px; border-radius: 20px; background: color-mix(in srgb, var(--color-background) 92%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); box-shadow: 0 10px 20px color-mix(in srgb, var(--color-muted) 12%, transparent); }",
     "    .micro-proof strong { display: block; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px; }",
-    "    .hero-proof { padding: 28px; display: flex; flex-direction: column; justify-content: space-between; gap: 18px; background: linear-gradient(160deg, #152033 0%, #233b63 100%); color: #eef4ff; border-color: rgba(21, 32, 51, 0.18); }",
-    "    .hero-proof-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(238, 244, 255, 0.72); font-weight: 700; }",
-    "    .hero-proof-quote { font-size: 24px; line-height: 1.3; letter-spacing: -0.03em; color: #ffffff; }",
+    "    .hero-proof { padding: 28px; display: flex; flex-direction: column; justify-content: space-between; gap: 18px; background: var(--color-text); color: var(--color-background); border-color: color-mix(in srgb, var(--color-text) 86%, var(--color-accent)); }",
+    "    .hero-proof-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: color-mix(in srgb, var(--color-background) 72%, var(--color-accent)); font-weight: 700; }",
+    "    .hero-proof-quote { font-size: 24px; line-height: 1.3; letter-spacing: -0.03em; color: var(--color-background); }",
     "    .hero-proof-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }",
-    "    .hero-proof-list li { padding: 14px 16px; border-radius: 18px; background: rgba(255, 255, 255, 0.09); border: 1px solid rgba(255, 255, 255, 0.12); color: rgba(238, 244, 255, 0.86); }",
-    "    .band { margin-top: 22px; padding: 18px 22px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }",
-    "    .band-card { padding: 14px 16px; border-radius: 18px; background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(245,248,255,0.82)); border: 1px solid rgba(31, 94, 255, 0.12); box-shadow: 0 10px 26px rgba(18, 26, 41, 0.08); }",
+    "    .hero-proof-list li { padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--color-text) 82%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-background) 12%, var(--color-text)); color: color-mix(in srgb, var(--color-background) 88%, var(--color-accent)); }",
+    "    .band { margin-top: 22px; padding: 18px 22px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; background: color-mix(in srgb, var(--color-background) 78%, var(--color-accent)); }",
+    "    .band-card { padding: 14px 16px; border-radius: 16px; background: color-mix(in srgb, var(--color-background) 90%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); box-shadow: 0 8px 18px color-mix(in srgb, var(--color-muted) 12%, transparent); }",
     "    .band-card strong { display: block; margin-bottom: 6px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }",
     "    .details, .fit-grid, .booking { margin-top: 22px; padding: 28px; }",
-    "    .section-kicker { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; margin-bottom: 10px; }",
+    "    .details { background: color-mix(in srgb, var(--color-background) 92%, var(--color-accent)); }",
+    "    .section-kicker { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-muted); font-weight: 700; margin-bottom: 10px; }",
     "    h2 { margin: 0 0 12px; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.02; letter-spacing: -0.03em; }",
     "    .detail-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }",
-    "    .detail-step { padding: 18px 18px 20px; border-radius: 20px; background: rgba(23, 32, 51, 0.04); border: 1px solid rgba(23, 32, 51, 0.06); }",
+    "    .detail-step { padding: 18px 18px 20px; border-radius: 20px; background: color-mix(in srgb, var(--color-background) 84%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); }",
     "    .detail-step strong { display: block; margin: 12px 0 8px; font-size: 15px; }",
-    "    .detail-step-index { width: 42px; height: 42px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: rgba(31, 94, 255, 0.12); color: #173d9f; font-weight: 800; }",
-    "    .fit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }",
-    "    .fit-card { padding: 20px 22px; border-radius: 22px; background: rgba(255,255,255,0.74); border: 1px solid var(--line); }",
-    "    .fit-card ul { margin: 14px 0 0; padding-left: 18px; color: var(--muted); line-height: 1.75; }",
+    "    .detail-step-index { width: 42px; height: 42px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--color-accent) 76%, var(--color-background)); color: var(--color-text); font-weight: 800; }",
+    "    .fit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; background: color-mix(in srgb, var(--color-accent) 68%, var(--color-background)); }",
+    "    .fit-card { padding: 20px 22px; border-radius: 18px; background: color-mix(in srgb, var(--color-background) 90%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 10%, transparent); }",
+    "    .fit-card-heading { font-size: clamp(1.6rem, 3vw, 2.2rem); }",
+    "    .fit-card ul { margin: 14px 0 0; padding-left: 18px; color: var(--color-muted); line-height: 1.75; }",
     "    .booking { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 20px; align-items: start; }",
-    "    .booking-panel { padding: 20px; border-radius: 22px; background: linear-gradient(180deg, rgba(31, 94, 255, 0.08), rgba(255,255,255,0.86)); border: 1px solid rgba(31, 94, 255, 0.14); }",
-    "    .booking-note { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; line-height: 1.65; }",
+    "    .booking-panel { padding: 20px; border-radius: 18px; background: color-mix(in srgb, var(--color-background) 92%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); }",
+    "    .booking-panel-copy { margin: 12px 0 18px; color: var(--color-muted); }",
+    "    .booking-flow { display: grid; gap: 12px; }",
+    "    .booking-status { margin-top: 16px; padding: 12px 14px; border-radius: 18px; display: grid; gap: 6px; background: color-mix(in srgb, var(--color-accent) 76%, var(--color-background)); border: 1px solid color-mix(in srgb, var(--color-primary) 16%, transparent); }",
+    "    .booking-status[data-booking-ready='false'] { background: color-mix(in srgb, var(--color-background) 82%, var(--color-accent)); border-color: color-mix(in srgb, var(--color-text) 10%, transparent); }",
+    "    .booking-status-label { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-primary); }",
+    "    .booking-status[data-booking-ready='false'] .booking-status-label { color: var(--color-text); }",
+    "    .booking-status-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--color-primary); box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-primary) 14%, transparent); }",
+    "    .booking-status[data-booking-ready='false'] .booking-status-dot { background: var(--color-muted); box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-muted) 14%, transparent); }",
+    "    .booking-status-copy { color: var(--color-muted); font-size: 14px; line-height: 1.65; }",
+    "    .booking-note { margin-top: 16px; padding-top: 16px; border-top: 1px solid color-mix(in srgb, var(--color-text) 10%, transparent); color: var(--color-muted); font-size: 14px; line-height: 1.65; }",
+    "    body.booking-modal-open { overflow: hidden; }",
+    "    .booking-modal[hidden] { display: none !important; }",
+    "    .booking-modal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; background: color-mix(in srgb, var(--color-text) 50%, transparent); backdrop-filter: blur(8px); }",
+    "    .booking-modal-panel { width: min(980px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 22px; border-radius: 24px; background: color-mix(in srgb, var(--color-background) 90%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-background) 72%, var(--color-text)); box-shadow: 0 26px 72px color-mix(in srgb, var(--color-muted) 18%, transparent); }",
+    "    .booking-modal-header { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }",
+    "    .booking-modal-header p { margin: 10px 0 0; max-width: 60ch; color: var(--color-muted); }",
+    "    .booking-modal-title { font-size: clamp(1.8rem, 3vw, 2.5rem); margin-bottom: 8px; }",
+    "    .booking-modal-close { min-height: 46px; padding: 0 18px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--color-text) 12%, transparent); background: color-mix(in srgb, var(--color-background) 90%, var(--color-accent)); color: var(--color-text); font-weight: 700; }",
+    "    .booking-modal-frame { width: 100%; min-height: min(68vh, 720px); border: 0; border-radius: 24px; background: var(--color-background); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 8%, transparent); }",
     "    @media (max-width: 900px) { .hero, .booking, .band, .detail-list, .fit-grid { grid-template-columns: 1fr; } .hero-copy, .hero-proof, .details, .fit-grid, .booking { padding: 22px; } h1 { max-width: 100%; } }",
+    "    @media (max-width: 720px) { .booking-modal { padding: 14px; } .booking-modal-panel { padding: 18px; border-radius: 24px; } .booking-modal-frame { min-height: 72vh; } }",
     "  </style>",
     "</head>",
     "<body>",
     '  <main class="page">',
-    '    <div class="topbar"><span>' + escapeHtml(input.funnelName || "Consultation funnel") + '</span><span>private consultation</span></div>',
+    '    <div class="topbar"><span>' + escapeHtml(input.funnelName || "Consultation funnel") + '</span><span>' + escapeHtml(cleanOffer) + '</span></div>',
     '    <section class="hero">',
     '      <div class="hero-copy">',
     '        <div class="eyebrow">' + escapeHtml(qualifier) + '</div>',
     '        <h1>' + escapeHtml(promiseText) + '</h1>',
     '        <p class="lede">' + escapeHtml(heroApproach || summary) + '</p>',
     '        <div class="cta-row">',
-    '          <a class="cta-primary" href="' + escapeHtml(bookingHref) + '">' + escapeHtml(ctaText) + '</a>',
+    '          <a class="cta-primary" href="' + escapeHtml(bookingHref) + '"' + bookingTriggerAttrs + '>' + escapeHtml(ctaText) + '</a>',
+    '          <div class="cta-inline-proof"><strong>Decision support</strong>Clear recommendation, visible tradeoffs, and a next step framed before the scheduler opens.</div>',
     "        </div>",
+    '        <div class="cta-proof-rail"><div class="cta-proof-chip"><strong>Decision support</strong>One working recommendation tied to the real operating pressure.</div><div class="cta-proof-chip"><strong>Session outcome</strong>Leave with a clearer path, next steps, and the tradeoffs called out.</div></div>',
+    '        <div class="cta-note">' + escapeHtml(bookingStatusCopy) + '</div>',
     '        <div class="micro-proof"><strong>' + escapeHtml(supportLabel) + '</strong>' + escapeHtml(adjacentProof) + '</div>',
     "      </div>",
     '      <aside class="hero-proof">',
     '        <div class="hero-proof-label">Why this is worth booking</div>',
     '        <div class="hero-proof-quote">' + escapeHtml(summary) + '</div>',
     '        <ul class="hero-proof-list">',
-    '          <li><strong>Decision quality</strong>The page keeps the consultation, the trust cue, and the booking action in the same opening read so the ask never feels detached.</li>',
+    '          <li><strong>Decision quality</strong>' + escapeHtml(contextLine) + '</li>',
     '          <li><strong>Proof strategy</strong>' + escapeHtml(proofStrategy) + '</li>',
     '          <li><strong>What the session produces</strong>' + escapeHtml(handoffReassurance) + '</li>',
     "        </ul>",
     "      </aside>",
     "    </section>",
     '    <section class="band" aria-label="Proof strip">',
-    '      <div class="band-card"><strong>Best used when</strong>You are weighing a real automation decision, not casually browsing ideas you may or may not act on.</div>',
-    '      <div class="band-card"><strong>What you leave with</strong>A clearer recommendation, a tighter sense of fit, and a next move you can explain internally.</div>',
-    '      <div class="band-card"><strong>Proof at the ask</strong>' + escapeHtml(handoffProof) + '</div>',
+    '      <div class="band-card"><strong>Best used when</strong>' + escapeHtml(bestUsedWhen) + '</div>',
+    '      <div class="band-card"><strong>What you leave with</strong>' + escapeHtml(leaveWith) + '</div>',
+    '      <div class="band-card"><strong>Proof at the ask</strong>' + escapeHtml(proofAtAsk) + '</div>',
     "    </section>",
     '    <section class="details" id="details">',
-    '      <div class="section-kicker">What the consultation actually does</div>',
+    '      <div class="section-kicker">What the session actually does</div>',
     '      <h2>One decisive path from pressure to recommendation</h2>',
     '      <p class="lede">' + escapeHtml(summary) + '</p>',
     '      <div class="detail-list">',
-    '        <div class="detail-step"><div class="detail-step-index">1</div><strong>Clarify the real decision</strong><div>The session starts with the live constraint, the current workflow, and the choice that actually matters now.</div></div>',
-    '        <div class="detail-step"><div class="detail-step-index">2</div><strong>Pressure-test the path</strong><div>Tradeoffs, timing, delivery risk, and implementation posture get translated into something concrete instead of abstract automation talk.</div></div>',
-    '        <div class="detail-step"><div class="detail-step-index">3</div><strong>Leave with a next move</strong><div>You leave with a recommendation, a clearer sense of fit, and a next step that can survive internal scrutiny.</div></div>',
+    '        <div class="detail-step"><div class="detail-step-index">1</div><strong>Clarify the live pressure</strong><div>Start with the real workflow constraint, handoff gap, or delivery pressure behind the booking request instead of speaking in generic improvement language.</div></div>',
+    '        <div class="detail-step"><div class="detail-step-index">2</div><strong>Pressure-test the path</strong><div>Translate timing, delivery risk, tradeoffs, and implementation posture into a recommendation that matches ' + escapeHtml(audience) + '.</div></div>',
+    '        <div class="detail-step"><div class="detail-step-index">3</div><strong>Leave with a next move</strong><div>You leave with a recommendation, a clearer sense of fit, and a next step built around ' + escapeHtml(pageGoal) + '.</div></div>',
     "      </div>",
     "    </section>",
     '    <section class="fit-grid" aria-label="Fit and expectations">',
-    '      <div class="fit-card"><div class="section-kicker">Best fit</div><h2 style="font-size:clamp(1.6rem,3vw,2.2rem);">This works best for teams who need clarity fast</h2><ul><li>You are deciding what to automate, what to leave alone, or what to tackle first.</li><li>You want the recommendation to feel grounded in workflow reality, not generic automation language.</li><li>You want the booking step to lead to a useful working session, not a vague sales call.</li></ul></div>',
-    '      <div class="fit-card"><div class="section-kicker">Session posture</div><h2 style="font-size:clamp(1.6rem,3vw,2.2rem);">The handoff stays calm, specific, and credible</h2><ul><li>The page keeps proof close to the ask so trust does not disappear when the booking section arrives.</li><li>The consultation is framed as a decision tool, not as ornamental discovery theater.</li><li>The CTA stays dominant without turning the page into a noisy hard-sell.</li></ul></div>',
+    '      <div class="fit-card"><div class="section-kicker">Best fit</div><h2 class="fit-card-heading">Built for visitors who need operational clarity fast</h2><ul><li>You are deciding whether ' + escapeHtml(cleanOffer) + ' is the right next move.</li><li>You want the recommendation to feel grounded in workflow reality, not generic automation language.</li><li>You want the booking step to lead to a useful working session, not a vague sales call.</li></ul></div>',
+    '      <div class="fit-card"><div class="section-kicker">Session posture</div><h2 class="fit-card-heading">The handoff stays calm, specific, and credible</h2><ul><li>The page keeps proof close to the ask so trust does not disappear when the booking section arrives.</li><li>The offer is framed around ' + escapeHtml(pageGoal) + ' rather than ornamental discovery theater.</li><li>The CTA stays dominant without turning the page into a noisy hard-sell.</li></ul></div>',
     "    </section>",
     '    <section class="booking" id="' + escapeHtml(input.bookingSectionId) + '">',
     '      <div>',
     '        <div class="section-kicker">Booking handoff</div>',
-    '        <h2>Book the consultation while the case for it is still visible</h2>',
+    '        <h2>Book the session while the case for it is still visible</h2>',
     '        <p class="lede">' + escapeHtml(handoffLead + " " + handoffReassurance) + '</p>',
     '        <div class="micro-proof"><strong>Reassurance at the handoff</strong>' + escapeHtml(handoffProof) + '</div>',
     "      </div>",
     '      <div class="booking-panel">',
     '        <div class="hero-proof-label">Primary booking path</div>',
-    '        <p style="margin:12px 0 18px;color:var(--muted);">Choose a time that works, confirm the call, and move into the session with the context already anchored.</p>',
-    '        <a class="cta-primary" href="' + escapeHtml(bookingHref) + '">' + escapeHtml(ctaText) + '</a>',
-    '        <div class="booking-note">The page keeps proof, expectations, and the booking ask tied together so the handoff feels like the next logical move, not an abrupt leap.</div>',
+    '        <p class="booking-panel-copy">Choose a time that works, confirm the session, and move into the conversation with the context already anchored around ' + escapeHtml(pageGoal) + '.</p>',
+    '        <div class="booking-flow">',
+    '          <a class="cta-primary" href="' + escapeHtml(bookingHref) + '"' + bookingTriggerAttrs + '>' + escapeHtml(ctaText) + '</a>',
+    '          <a class="cta-secondary" href="' + escapeHtml(bookingHref) + '" target="_blank" rel="noopener noreferrer">Open the booking page directly</a>',
+    "        </div>",
+    '        <div class="booking-status" data-booking-status="true" data-booking-ready="' + bookingStatusReady + '"><div class="booking-status-label"><span class="booking-status-dot"></span><span data-booking-status-label="true">' + escapeHtml(bookingStatusLabel) + '</span></div><div class="booking-status-copy">' + escapeHtml(bookingStatusCopy) + '</div></div>',
+    '        <div class="booking-note">The page keeps proof, expectations, and the booking ask tied together so the handoff into ' + escapeHtml(cleanOffer) + ' feels like the next logical move, not an abrupt leap.</div>',
     "      </div>",
     "    </section>",
+    canEmbedBooking
+      ? '    <div class="booking-modal" data-booking-modal="true" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="booking-modal-title"><div class="booking-modal-panel"><div class="booking-modal-header"><div><div class="section-kicker">Scheduling overlay</div><h2 id="booking-modal-title" class="booking-modal-title">Choose a time without losing the funnel context</h2><p>The selected calendar stays attached to this route, so visitors can schedule the session while the promise, proof, and next-step framing stay visible in memory.</p></div><button type="button" class="booking-modal-close" data-booking-modal-close="true">Close scheduler</button></div><iframe class="booking-modal-frame" src="' + escapeHtml(bookingHref) + '" loading="lazy" title="Booking scheduler"></iframe></div></div>'
+      : "",
     "  </main>",
+    canEmbedBooking
+      ? "  <script>(function(){var modal=document.querySelector('[data-booking-modal]');if(!modal)return;var triggers=Array.prototype.slice.call(document.querySelectorAll('[data-booking-modal-trigger=\"true\"]'));if(!triggers.length)return;var statusLabel=document.querySelector('[data-booking-status-label]');var statusCard=document.querySelector('[data-booking-status]');var frame=modal.querySelector('iframe');var setTriggerState=function(state){triggers.forEach(function(trigger){if(!(trigger instanceof HTMLElement))return;var baseLabel=trigger.getAttribute('data-booking-cta-label')||'Open scheduler';trigger.setAttribute('data-booking-state',state);trigger.textContent=state==='opening'?'Opening scheduler...':baseLabel;});};var openModal=function(){modal.hidden=false;modal.setAttribute('aria-hidden','false');document.body.classList.add('booking-modal-open');setTriggerState('opening');};var closeModal=function(){modal.hidden=true;modal.setAttribute('aria-hidden','true');document.body.classList.remove('booking-modal-open');setTriggerState('idle');};triggers.forEach(function(trigger){trigger.addEventListener('click',function(event){event.preventDefault();openModal();});});Array.prototype.slice.call(document.querySelectorAll('[data-booking-modal-close=\"true\"]')).forEach(function(button){button.addEventListener('click',closeModal);});modal.addEventListener('click',function(event){if(event.target===modal)closeModal();});document.addEventListener('keydown',function(event){if(event.key==='Escape'&&!modal.hidden)closeModal();});if(frame instanceof HTMLIFrameElement){frame.addEventListener('load',function(){setTriggerState('ready');if(statusCard instanceof HTMLElement){statusCard.setAttribute('data-booking-ready','true');}if(statusLabel instanceof HTMLElement){statusLabel.textContent='Scheduler loaded';}});}})();</script>"
+      : "",
     "</body>",
     "</html>",
   ].join("\n");
+}
+
+function escapeRegExp(value: string) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function enhanceBookingSchedulingExperience(input: {
+  html: string;
+  bookingHref?: string | null;
+  ctaText?: string | null;
+}) {
+  const rawHtml = String(input.html || "");
+  const bookingHref = String(input.bookingHref || "").trim();
+  if (!rawHtml || !bookingHref || /^#/.test(bookingHref) || /data-booking-modal=/i.test(rawHtml)) return rawHtml;
+
+  const ctaLabel = escapeHtml(String(input.ctaText || "Open scheduler").trim() || "Open scheduler");
+  const bookingHrefPattern = new RegExp(`(<a\\b[^>]*href=["'])${escapeRegExp(bookingHref)}(["'][^>]*)(>)`, "gi");
+  let triggerCount = 0;
+  let html = rawHtml.replace(bookingHrefPattern, (match, prefix, href, suffix, end) => {
+    if (/data-booking-modal-trigger=/i.test(match) || triggerCount >= 2) return match;
+    triggerCount += 1;
+    return `${prefix}${href}${suffix} data-booking-modal-trigger="true" data-booking-cta-label="${ctaLabel}" data-booking-state="idle"${end}`;
+  });
+
+  if (!triggerCount) return rawHtml;
+
+  html = html.replace(
+    /(<a\b[^>]*data-booking-modal-trigger="true"[^>]*>[\s\S]*?<\/a>)/i,
+    `$1<div class="booking-inline-status" data-booking-status="true" data-booking-ready="true"><div class="booking-inline-status-label"><span class="booking-inline-status-dot"></span><span data-booking-status-label="true">Selected calendar ready</span></div><div class="booking-inline-status-copy">Open the scheduler without dropping the page context or losing the active booking route.</div></div>`,
+  );
+
+  const styleBlock = [
+    "<style data-booking-overlay=\"true\">",
+    "  body.booking-modal-open { overflow: hidden; }",
+    "  .booking-inline-status { margin-top: 14px; display: grid; gap: 6px; padding: 12px 14px; border-radius: 18px; background: rgba(24, 70, 216, 0.08); border: 1px solid rgba(24, 70, 216, 0.12); max-width: min(32rem, 100%); }",
+    "  .booking-inline-status-label { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #173d9f; }",
+    "  .booking-inline-status-dot { width: 10px; height: 10px; border-radius: 999px; background: #1846d8; box-shadow: 0 0 0 6px rgba(24, 70, 216, 0.12); }",
+    "  .booking-inline-status-copy { color: rgba(22, 32, 51, 0.78); font-size: 14px; line-height: 1.6; }",
+    "  .booking-overlay-modal[hidden] { display: none !important; }",
+    "  .booking-overlay-modal { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(12, 18, 29, 0.58); backdrop-filter: blur(12px); }",
+    "  .booking-overlay-panel { width: min(980px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 22px; border-radius: 30px; background: linear-gradient(180deg, rgba(252,249,243,0.98), rgba(244,238,228,0.96)); border: 1px solid rgba(255,255,255,0.7); box-shadow: 0 42px 120px rgba(15,23,42,0.28); }",
+    "  .booking-overlay-header { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }",
+    "  .booking-overlay-header p { margin: 10px 0 0; max-width: 60ch; color: rgba(22, 32, 51, 0.72); line-height: 1.7; }",
+    "  .booking-overlay-kicker { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(22, 32, 51, 0.64); font-weight: 700; }",
+    "  .booking-overlay-title { margin: 8px 0 0; font-size: clamp(1.8rem, 3vw, 2.5rem); line-height: 1.04; letter-spacing: -0.03em; }",
+    "  .booking-overlay-close, .booking-overlay-direct { min-height: 46px; padding: 0 18px; border-radius: 999px; border: 1px solid rgba(22,32,51,0.12); background: rgba(255,255,255,0.82); color: #162033; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }",
+    "  .booking-overlay-actions { display: flex; flex-wrap: wrap; gap: 10px; }",
+    "  .booking-overlay-frame { width: 100%; min-height: min(68vh, 720px); border: 0; border-radius: 24px; background: #ffffff; box-shadow: inset 0 0 0 1px rgba(22,32,51,0.08); }",
+    "  @media (max-width: 720px) { .booking-overlay-modal { padding: 14px; } .booking-overlay-panel { padding: 18px; border-radius: 24px; } .booking-overlay-frame { min-height: 72vh; } }",
+    "</style>",
+  ].join("\n");
+  const modalMarkup = [
+    '<div class="booking-overlay-modal" data-booking-modal="true" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="booking-overlay-title">',
+    '  <div class="booking-overlay-panel">',
+    '    <div class="booking-overlay-header">',
+    '      <div>',
+    '        <div class="booking-overlay-kicker">Scheduling overlay</div>',
+    '        <h2 id="booking-overlay-title" class="booking-overlay-title">Choose a time without losing your place</h2>',
+    '        <p>The selected calendar stays attached to this routing path, so visitors can schedule the session while the surrounding promise and proof remain in view.</p>',
+    "      </div>",
+    '      <div class="booking-overlay-actions">',
+    '        <a class="booking-overlay-direct" href="' + escapeHtml(bookingHref) + '" target="_blank" rel="noopener noreferrer">Open booking page directly</a>',
+    '        <button type="button" class="booking-overlay-close" data-booking-modal-close="true">Close scheduler</button>',
+    "      </div>",
+    "    </div>",
+    '    <iframe class="booking-overlay-frame" src="' + escapeHtml(bookingHref) + '" loading="lazy" title="Booking scheduler"></iframe>',
+    "  </div>",
+    "</div>",
+  ].join("\n");
+  const scriptBlock = "<script>(function(){var modal=document.querySelector('[data-booking-modal]');if(!modal)return;var triggers=Array.prototype.slice.call(document.querySelectorAll('[data-booking-modal-trigger=\"true\"]'));if(!triggers.length)return;var statusLabel=document.querySelector('[data-booking-status-label]');var frame=modal.querySelector('iframe');var setTriggerState=function(state){triggers.forEach(function(trigger){if(!(trigger instanceof HTMLElement))return;var baseLabel=trigger.getAttribute('data-booking-cta-label')||'Open scheduler';trigger.setAttribute('data-booking-state',state);if(state==='opening'){trigger.textContent='Opening scheduler...';}else{trigger.textContent=baseLabel;}});};var openModal=function(){modal.hidden=false;modal.setAttribute('aria-hidden','false');document.body.classList.add('booking-modal-open');setTriggerState('opening');};var closeModal=function(){modal.hidden=true;modal.setAttribute('aria-hidden','true');document.body.classList.remove('booking-modal-open');setTriggerState('idle');};triggers.forEach(function(trigger){trigger.addEventListener('click',function(event){event.preventDefault();openModal();});});Array.prototype.slice.call(document.querySelectorAll('[data-booking-modal-close=\"true\"]')).forEach(function(button){button.addEventListener('click',closeModal);});modal.addEventListener('click',function(event){if(event.target===modal)closeModal();});document.addEventListener('keydown',function(event){if(event.key==='Escape'&&!modal.hidden)closeModal();});if(frame instanceof HTMLIFrameElement){frame.addEventListener('load',function(){setTriggerState('ready');if(statusLabel instanceof HTMLElement){statusLabel.textContent='Scheduler loaded';}});}})();</script>";
+
+  html = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, `${styleBlock}\n</head>`) : `${styleBlock}\n${html}`;
+  html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${modalMarkup}\n${scriptBlock}\n</body>`) : `${html}\n${modalMarkup}\n${scriptBlock}`;
+  return html;
 }
 
 function hasGenericVisualSystem(html: string) {
@@ -604,6 +1431,7 @@ function hasGenericVisualSystem(html: string) {
     /font-family\s*:\s*(?:(?:['"]?(?:segoe ui|tahoma|geneva|verdana|arial|helvetica neue|helvetica)['"]?)\s*,\s*)+(?:['"]?(?:sans-serif|system-ui)['"]?)\s*[;}]/i.test(
       text,
     ) || /font-family\s*:\s*['"]?(?:segoe ui|tahoma|geneva|verdana|arial|helvetica neue|helvetica|sans-serif|system-ui)['"]?\s*[;}]/i.test(text);
+  const usesOverfamiliarAiFontPair = /font-family\s*:\s*['"]?inter['"]?/i.test(text) && /font-family\s*:\s*['"]?space grotesk['"]?/i.test(text);
   const usesViewportHeroShell = /height\s*:\s*(?:55|60|65|70|75|80)vh\s*[;}]/i.test(text);
   const hasFlatHeroShell =
     /<(section|div|header)\b[^>]*(class|id)=["'][^"']*hero[^"']*["'][^>]*>/i.test(text) &&
@@ -634,6 +1462,7 @@ function hasGenericVisualSystem(html: string) {
   );
   const starterTemplateSignals =
     (usesBasicFontStack ? 1 : 0) +
+    (usesOverfamiliarAiFontPair ? 1 : 0) +
     (usesViewportHeroShell ? 1 : 0) +
     (flatBackgroundSignals >= 3 ? 1 : 0) +
     (containedSectionSignals < 5 ? 1 : 0) +
@@ -644,10 +1473,64 @@ function hasGenericVisualSystem(html: string) {
   return (
     starterTemplateSignals >= 4 ||
     (usesBasicFontStack && structuredLayoutSignals < 6 && flatBackgroundSignals >= 2 && containedSectionSignals < 5) ||
+    (usesOverfamiliarAiFontPair && structuredLayoutSignals < 10 && containedSectionSignals < 6) ||
     (usesBasicFontStack && hasFlatHeroShell && layeredSurfaceSignals < 4) ||
     (hasFlatHeroShell && flatBackgroundSignals >= 3 && structuredLayoutSignals < 7) ||
     (usesCenteredHeroCardShell && flatBackgroundSignals >= 2 && premiumTypographySignals < 5)
   );
+}
+
+function hasUniformPrimarySectionStyling(html: string) {
+  const text = String(html || "");
+  const groupedUniformPanelRule = /\.(?:hero(?:-copy|-proof)?|band|details|booking|faq|fit-grid)(?:\s*,\s*\.(?:hero(?:-copy|-proof)?|band|details|booking|faq|fit-grid)){2,}\s*\{[^}]*background\s*:\s*(?:var\(--panel\)|rgba\([^)]*0\.8[^)]*\)|rgba\([^)]*0\.9[^)]*\))[^}]*\}/i.test(text);
+  const repeatedPanelBackgrounds = countPatternMatches(text, /background\s*:\s*var\(--panel\)\s*[;}]/gi);
+  const repeatedSharedContainers = countPatternMatches(text, /<(section|div)\b[^>]*(class|id)=['"][^'"]*(hero|band|details|booking|faq|fit-grid)[^'"]*['"][^>]*>/gi);
+  const distinctContrastBeats =
+    countPatternMatches(text, /linear-gradient\(/gi) +
+    countPatternMatches(text, /background\s*:\s*#(?:0[0-9a-f]{2}|1[0-9a-f]{2}|2[0-9a-f]{2})/gi) +
+    countPatternMatches(text, /rgba\([^)]*0\.[3-9]/gi);
+
+  return groupedUniformPanelRule || (repeatedSharedContainers >= 4 && repeatedPanelBackgrounds >= 3 && distinctContrastBeats < 2);
+}
+
+function hasOverstyledVisualSystem(html: string) {
+  const text = String(html || "");
+  const gradientSignals = countPatternMatches(text, /(linear-gradient\(|radial-gradient\()/gi);
+  const shadowSignals = countPatternMatches(text, /box-shadow\s*:/gi);
+  const roundedSignals = countPatternMatches(text, /border-radius\s*:\s*(?:999px|2[4-9]px|[3-9]\dpx)/gi);
+  const panelSignals = countPatternMatches(text, /(class|id)=["'][^"']*(panel|card|band|hero-proof|fit-card|booking-panel)[^"']*["']/gi);
+  const centeredShellSignals = countPatternMatches(text, /text-align\s*:\s*center/gi);
+
+  return gradientSignals >= 8 && shadowSignals >= 10 && roundedSignals >= 10 && panelSignals >= 6 && centeredShellSignals >= 2;
+}
+
+function analyzeSpatialDiscipline(html: string) {
+  const text = String(html || "");
+  const horizontalBleedSignals =
+    countPatternMatches(text, /(?:^|[;{\s])(width|min-width)\s*:\s*(?:1\d{2,}vw|calc\([^)]*100%[^)]*\+\s*(?:[1-9]\d|[2-9])px\)|(?:[2-9]\d{3,}|1\d{4,})px)/gi) +
+    countPatternMatches(text, /margin-(left|right)\s*:\s*-\d+/gi) +
+    countPatternMatches(text, /(?:left|right)\s*:\s*-\d+px/gi) +
+    countPatternMatches(text, /transform\s*:\s*translate(?:x|3d)?\(\s*-?(?:[4-9]\d|1\d{2,})px/gi);
+  const overlapSignals =
+    countPatternMatches(text, /position\s*:\s*(?:absolute|fixed)/gi) +
+    countPatternMatches(text, /z-index\s*:\s*(?:[2-9]\d|1\d{2,})/gi);
+  const nowrapSignals = countPatternMatches(text, /white-space\s*:\s*nowrap/gi);
+  const clampSignals =
+    countPatternMatches(text, /max-width\s*:\s*(?:min\(|clamp\(|(?:28|32|36|40|44|48|52|56|60)rem|100%)/gi) +
+    countPatternMatches(text, /overflow-wrap\s*:\s*anywhere/gi) +
+    countPatternMatches(text, /word-break\s*:\s*break-word/gi);
+  const paddingSignals = countPatternMatches(text, /padding\s*:\s*(?:1[2-9]|[2-9]\d)px/gi);
+
+  return {
+    horizontalBleedSignals,
+    overlapSignals,
+    nowrapSignals,
+    clampSignals,
+    paddingSignals,
+    hasBleedRisk: horizontalBleedSignals >= 1,
+    hasOverlapRisk: overlapSignals >= 5 && clampSignals < 4,
+    hasTextClampRisk: nowrapSignals >= 1 || clampSignals < 3 || paddingSignals < 4,
+  };
 }
 
 function assessGeneratedPageQuality(
@@ -707,17 +1590,33 @@ function assessGeneratedPageQuality(
   const immediateProofResolved = hasProofSurface(immediateCtaWindow);
   const openingProofResolved = hasProofSurface(firstCtaWindow);
   const bookingProofResolved = hasProofSurface(bookingWindow);
+  const strongImmediateProofResolved = hasStrongProofSurface(immediateCtaWindow);
+  const strongBookingProofResolved = hasStrongProofSurface(bookingWindow);
   const genericVisualSystem = hasGenericVisualSystem(html);
+  const overstyledVisualSystem = hasOverstyledVisualSystem(html);
+  const uniformPrimarySectionStyling = hasUniformPrimarySectionStyling(html);
+  const usesOverfamiliarAiFontPair = /font-family\s*:\s*['"]?inter['"]?/i.test(html) && /font-family\s*:\s*['"]?space grotesk['"]?/i.test(html);
+  const hasBasicSplitHeroShell = /grid-template-columns\s*:\s*1fr\s+1fr/i.test(html) && /class=["'][^"']*hero[^"']*["']/i.test(html);
   const sceneQuality = analyzeGeneratedSceneQuality(html, input);
+  const spatialDiscipline = analyzeSpatialDiscipline(html);
   const placeholderAssetSignals =
-    /\b(hero-image|placeholder|stock-photo|dummy-image|your-image|replace-me)\b/i.test(html) ||
-    /url\((['"]?)(?:https?:\/\/[^)'"\s]+\/)?(?:hero-image|placeholder|stock-photo|dummy-image|your-image|replace-me)[^)'"\s]*\1\)/i.test(html);
+    /<(img|source)\b[^>]*(src|srcset)=['"][^'"]*(?:hero-image|placeholder|stock-photo|dummy-image|your-image|replace-me)[^'"]*['"]/i.test(html) ||
+    /<meta\b[^>]*content=['"][^'"]*(?:hero-image|placeholder|stock-photo|dummy-image|your-image|replace-me)[^'"]*['"]/i.test(html) ||
+    /<(img|source)\b[^>]*(alt|aria-label)=['"][^'"]*(?:placeholder image|stock photo|dummy image|replace me|hero image goes here)[^'"]*['"]/i.test(html) ||
+    /url\((['"]?)(?:https?:\/\/[^)'"\s]+\/)?(?:hero-image|placeholder|stock-photo|dummy-image|your-image|replace-me)[^)'"\s]*\1\)/i.test(html) ||
+    /\b(?:placeholder image|stock photo|dummy image|replace me image|hero image goes here)\b/i.test(text);
   const webinarSignals = /\b(webinar|register|registration|reserve your seat|save your seat|join the session|join us live)\b/i.test(text);
   const agendaSignals = /\b(agenda|what you'll learn|what you will learn|what we'?ll cover|what we will cover|speaker|host|session breakdown)\b/i.test(text);
   const wrongDomainSignals = /\b(funeral|memorial|obituary|obituaries|cremation|cemetery|burial|grief|grieving|graveside|hospice|remembrance)\b/i.test(text);
   const genericEnterpriseCopySignals =
     countPatternMatches(text, /\b(transform your operations|elevate your business efficiency|tailored automation strategy|streamline your operations|unlock efficiency|optimize your business)\b/gi) +
     countPatternMatches(text, /\b(your trusted partner in automation strategy|your queries answered|have questions\? we've got answers)\b/gi);
+  const genericConsultationShellSignals =
+    countPatternMatches(
+      text,
+      /\b(book your consultation|book your automation consultation|why book this consultation|why choose this session|what you'll gain|outcome focus|trust and transparency|ready to take action|a premium session designed to clarify your automation decisions|our premium session is designed to clarify your automation decisions|expect a clear, structured session that addresses your automation needs|your path to clarity starts here)\b/gi,
+    ) +
+    countPatternMatches(text, /\b(best for:\s*teams deciding on their automation priorities|a clearer recommendation and next steps|proof is provided beside the ask for reassurance)\b/gi);
   const genericTrustClaimSignals = /\btrusted by over \d+\s+(businesses|brands|companies)\b/i.test(text);
   const specificProofSignals = /\b(testimonial|case stud|client stories|client outcomes?|review|results?|saved \d+|increased|reduced|founder|ceo|director|team at)\b/i.test(text);
   const placeholderFaqScaffold =
@@ -732,6 +1631,9 @@ function assessGeneratedPageQuality(
     !/<aside\b/i.test(bodyHtml) &&
     !/(class|id)=["'][^"']*hero-proof[^"']*["']/i.test(bodyHtml);
   const hasDedicatedMidPageSupportBeat = /(class|id)=["'][^"']*(details|process|fit|outcomes?|benefits?|results?|testimonials?|proof-strip|band|comparison|faq)[^"']*["']/i.test(bodyHtml);
+  const textSlabSectionCount = countTextSlabSections(bodyHtml);
+  const weakStandaloneCtaBand = hasWeakStandaloneCtaBand(bodyHtml);
+  const bookingCtaAudit = input.pageType === "booking" ? buildBookingCtaAudit(bodyHtml) : null;
 
   if (wrongDomainSignals) {
     issues.push("Remove wrong-domain language or themes that do not belong on this page.");
@@ -747,11 +1649,44 @@ function assessGeneratedPageQuality(
     issues.push("The page is still too thin. Add a fuller conversion structure with multiple real sections.");
   }
 
+  if (textSlabSectionCount >= 2) {
+    issues.push("Too many sections still read as plain text slabs. Convert them into stronger designed modules with clearer grouping, proof, or interaction.");
+  }
+
+  if (weakStandaloneCtaBand) {
+    issues.push("The CTA treatment is still too weak or isolated. Turn the ask into a real conversion module with stronger action styling and adjacent support.");
+  }
+
+  if (spatialDiscipline.hasBleedRisk) {
+    issues.push("The layout still risks horizontal bleed or container breakout. Clamp widths, remove negative-offset composition tricks, and keep text and media inside their containers at every breakpoint.");
+  }
+
+  if (spatialDiscipline.hasOverlapRisk) {
+    issues.push("The page still risks overlap from absolute or fixed-position content. Keep core text, proof, and CTA content in normal flow unless a bounded container guarantees no collisions.");
+  }
+
+  if (spatialDiscipline.hasTextClampRisk) {
+    issues.push("Spatial discipline is still weak. Clamp headline and body measures, add enough section padding, and let long text wrap cleanly instead of bleeding or colliding with nearby UI.");
+  }
+
   if (
     genericVisualSystem &&
-    (input.pageType === "booking" || input.pageType === "sales" || input.pageType === "lead-capture" || input.pageType === "landing")
+    (input.pageType === "booking" || input.pageType === "sales" || input.pageType === "lead-capture" || input.pageType === "landing" || input.pageType === "webinar")
   ) {
     issues.push("The page still reads like a generic starter template. Rebuild the visual system with stronger typography, contained sections, calmer premium surfaces, and a more intentional hero-to-proof composition.");
+  }
+
+  if (overstyledVisualSystem) {
+    issues.push("The page is over-styled for its conversion job. Reduce decorative gradients, shadows, and repeated rounded panels so the hierarchy feels intentional rather than template-driven.");
+  }
+
+  if (
+    genericVisualSystem &&
+    textSlabSectionCount >= 2 &&
+    sectionCount >= 4 &&
+    countPatternMatches(bodyHtml, /<(blockquote|details|figure|img|svg|aside|article|form|iframe)\b/gi) === 0
+  ) {
+    issues.push("The page is still too flat and text-heavy for a finished funnel. Add real proof objects, stronger section containers, and at least one visually distinct support module before accepting it.");
   }
 
   if (input.pageType === "booking") {
@@ -764,6 +1699,9 @@ function assessGeneratedPageQuality(
     if (/<(section|div|header)\b[^>]*(class|id)=["'][^"']*hero[^"']*["'][^>]*>/i.test(html) && /text-align\s*:\s*center/i.test(html) && /max-width\s*:\s*(?:720|760|800|840|880)px\s*[;}]/i.test(html)) {
       issues.push("Booking pages should not rely on a centered single-column hero card. Use a stronger decision cluster with adjacent proof or a split composition tied to the booking CTA.");
     }
+    if (uniformPrimarySectionStyling) {
+      issues.push("The page still styles too many primary sections at the same visual temperature. Add stronger section contrast, at least one distinct beat, and clearer rhythm so the scroll path does not read as one continuous panel stack.");
+    }
     if (!bookingSignals || (!bookingHref && !bookingAnchor && ctaLinkCount < 2)) {
       issues.push("Booking pages need a clear scheduling path with real booking CTA treatment, not generic buttons.");
     }
@@ -771,14 +1709,36 @@ function assessGeneratedPageQuality(
       issues.push("Booking pages need proof near the conversion path so the visitor trusts the handoff.");
     } else if (!immediateProofResolved) {
       issues.push("Booking pages need a trust cue directly adjacent to the first serious CTA, not just somewhere else in the opening layout.");
+    } else if (!strongImmediateProofResolved) {
+      issues.push("The first CTA still lacks a visibly strong proof module. Attach a compact testimonial, outcomes stack, or proof rail directly to the hero booking cluster.");
     } else if (!openingProofResolved || !bookingProofResolved) {
       issues.push("Booking pages need proof staged beside the first CTA and again near the scheduling handoff, not scattered far away.");
+    } else if (!strongBookingProofResolved) {
+      issues.push("The booking handoff still needs a stronger proof or reassurance module attached to the scheduling ask.");
     }
     if (openingActionCount > 1 && /see how|learn more|view details|explore|details/i.test(openingSlice)) {
       issues.push("CTA dominance is diluted in the first screen. Keep one dominant above-the-fold action and demote or remove secondary prompts.");
     }
+    if (bookingCtaAudit && bookingCtaAudit.bookingActionLabels >= 1 && !bookingCtaAudit.primaryDominanceLikely) {
+      issues.push("The primary CTA is present, but it still lacks a clearly dominant treatment. Give the main booking ask stronger contrast, size, or containment than anything around it.");
+    }
+    if (bookingCtaAudit && bookingCtaAudit.openingActions >= 2 && bookingCtaAudit.competingActionLabels >= 1) {
+      issues.push("The first screen is splitting attention across multiple actions. Demote exploratory links so the booking CTA remains the obvious next step.");
+    }
     if (genericEnterpriseCopySignals >= 2) {
       issues.push("The page still leans on generic enterprise filler instead of specific stakes, outcomes, and offer language for this booking flow.");
+    }
+    if (
+      genericConsultationShellSignals >= 2 ||
+      (/<h1\b[^>]*>\s*book\s+(?:your\s+)?consultation\s*<\/h1>/i.test(html) && genericConsultationShellSignals >= 1)
+    ) {
+      issues.push("The page still reads like a generic consultation shell. Replace stock headings and canned benefit labels with business-specific promise, stakes, and proof language.");
+    }
+    if (usesOverfamiliarAiFontPair && (hasBasicSplitHeroShell || genericConsultationShellSignals >= 1)) {
+      issues.push("The page still reads like a familiar AI booking mockup. Replace the Inter/Space Grotesk shell with a more intentional visual direction and stronger section styling.");
+    }
+    if (usesOverfamiliarAiFontPair) {
+      issues.push("The page still leans on the overused Inter/Space Grotesk pairing instead of a visual direction chosen for this offer.");
     }
     if (genericTrustClaimSignals && !specificProofSignals) {
       issues.push("The proof still reads invented or generic. Replace unsupported trust claims with a concrete testimonial, outcome, or truthful credibility mechanism.");
@@ -847,6 +1807,9 @@ function detectInteractiveIntent(text: string): {
   wantsCheckout: boolean;
   wantsCalendar: boolean;
   wantsChatbot: boolean;
+  wantsPricing: boolean;
+  wantsTestimonialGrid: boolean;
+  wantsSyncedReviews: boolean;
   any: boolean;
 } {
   const s = String(text || "").toLowerCase();
@@ -854,14 +1817,225 @@ function detectInteractiveIntent(text: string): {
   const shopNoun = /(shop|store|product|products|buy now|buy\b|cart|checkout|stripe|payment link|price id)/;
   const calendarNoun = /(calendar|scheduler|schedule|appointment|booking widget|booking calendar|calendar embed|book a meeting|book a call)/;
   const chatbotNoun = /(chatbot|chat bot|live chat|website chat|chat widget)/;
+  const pricingSurface = /\b(pricing (section|grid|cards?|table)|plan comparison|pricing tiers?|plans? section|packages? section)\b/;
+  const testimonialSurface = /\b(testimonials? (section|grid|cards?)|social proof section|proof section|case stud(?:y|ies) section)\b/;
+  const syncedReviewSurface = /\b(synced reviews?|live reviews?|real reviews?|reviews? (section|block|feed|grid)|customer reviews? section)\b/;
+  const designLedCue = /\b(design|redesign|restyle|style|styling|visual|layout|look|feel|vibe|tone|premium|polished|unique|brand|art direction|concept|hero)\b/;
   const pricingOnly = /\bpricing\b/.test(s) && !shopNoun.test(s.replace(/pricing/g, ""));
   const wantsShop = !pricingOnly && (embedVerb.test(s) && shopNoun.test(s) || /\b(add to cart|checkout|payment link|stripe checkout)\b/.test(s));
   const wantsCart = /\b(add to cart|cart)\b/.test(s) && (embedVerb.test(s) || /\bcheckout\b/.test(s));
   const wantsCheckout = /\b(checkout|purchase|pay now|stripe checkout)\b/.test(s) && (embedVerb.test(s) || /\bstripe\b/.test(s));
   const wantsCalendar = (embedVerb.test(s) && calendarNoun.test(s)) || /\bembed my calendar\b/.test(s);
   const wantsChatbot = (embedVerb.test(s) && chatbotNoun.test(s)) || /\bembed my chatbot\b/.test(s);
-  const any = wantsShop || wantsCart || wantsCheckout || wantsCalendar || wantsChatbot;
-  return { wantsShop, wantsCart, wantsCheckout, wantsCalendar, wantsChatbot, any };
+  const wantsPricing = pricingSurface.test(s) || (embedVerb.test(s) && /\bpricing\b/.test(s) && /\b(section|grid|cards?|table|plans?)\b/.test(s));
+  const wantsTestimonialGrid = testimonialSurface.test(s) || (embedVerb.test(s) && /\btestimonials?\b/.test(s));
+  const wantsSyncedReviews = syncedReviewSurface.test(s) || (embedVerb.test(s) && /\breviews?\b/.test(s));
+  const explicitRuntimeOnlyCue = /\b(just|only|simply|directly)\b/.test(s);
+  const designLedRequest = designLedCue.test(s) && !explicitRuntimeOnlyCue;
+  const any = !designLedRequest && (wantsShop || wantsCart || wantsCheckout || wantsCalendar || wantsChatbot || wantsPricing || wantsTestimonialGrid || wantsSyncedReviews);
+  return { wantsShop, wantsCart, wantsCheckout, wantsCalendar, wantsChatbot, wantsPricing, wantsTestimonialGrid, wantsSyncedReviews, any };
+}
+
+function joinHumanList(items: string[]): string {
+  const filtered = Array.from(new Set(items.map((item) => String(item || "").trim()).filter(Boolean)));
+  if (filtered.length === 0) return "";
+  if (filtered.length === 1) return filtered[0];
+  if (filtered.length === 2) return `${filtered[0]} and ${filtered[1]}`;
+  return `${filtered.slice(0, -1).join(", ")}, and ${filtered[filtered.length - 1]}`;
+}
+
+function formatMoneyLabel(unitAmount: number | null, currency: string): string {
+  if (typeof unitAmount !== "number" || !Number.isFinite(unitAmount)) return "Custom quote";
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: String(currency || "usd").toUpperCase(),
+      maximumFractionDigits: unitAmount % 100 === 0 ? 0 : 2,
+    }).format(unitAmount / 100);
+  } catch {
+    return `$${(unitAmount / 100).toFixed(unitAmount % 100 === 0 ? 0 : 2)}`;
+  }
+}
+
+function buildInteractiveHeroText(intent: ReturnType<typeof detectInteractiveIntent>): string {
+  const actions: string[] = [];
+  if (intent.wantsPricing) actions.push("compare the offer clearly");
+  if (intent.wantsTestimonialGrid) actions.push("scan curated proof");
+  if (intent.wantsSyncedReviews) actions.push("see live customer reviews");
+  if (intent.wantsShop || intent.wantsCart || intent.wantsCheckout) actions.push("browse the offer and checkout securely");
+  if (intent.wantsCalendar) actions.push("book a time to talk");
+  if (intent.wantsChatbot) actions.push("start a conversation without leaving the page");
+  if (!actions.length) return "Use this page to move visitors from interest to a clear next step.";
+  return `Use this page to ${joinHumanList(actions)}.`;
+}
+
+function buildPricingGridItems(stripeProducts: Array<{
+  id: string;
+  name: string;
+  description: string | null;
+  images: string[];
+  defaultPriceId: string;
+  unitAmount: number | null;
+  currency: string;
+}>): Array<Record<string, unknown>> {
+  const realProducts = stripeProducts
+    .filter((product) => product && product.defaultPriceId)
+    .slice(0, 3)
+    .map((product, index) => ({
+      name: product.name,
+      price: formatMoneyLabel(product.unitAmount, product.currency),
+      ...(product.description ? { description: String(product.description).slice(0, 220) } : {}),
+      ...(index === 1 ? { badge: "Most chosen", featured: true } : {}),
+      priceId: product.defaultPriceId,
+      ctaText: "Buy now",
+      features: [
+        "Clear next step built into the page",
+        "Simple offer presentation without extra back-and-forth",
+        "Ready for checkout directly from this section",
+      ],
+    }));
+
+  if (realProducts.length) return realProducts;
+
+  return [
+    {
+      name: "Starter",
+      price: "Custom quote",
+      description: "Use this slot for the lightest package or entry offer when exact pricing is not settled yet.",
+      ctaText: "Request details",
+      ctaHref: "#contact",
+      features: ["Best for simpler needs", "Fastest path to a first decision"],
+    },
+    {
+      name: "Signature",
+      price: "Custom quote",
+      description: "Use this slot for the core offer you want most people to choose.",
+      badge: "Recommended",
+      featured: true,
+      ctaText: "Request details",
+      ctaHref: "#contact",
+      features: ["Built for the main buyer path", "Best place to explain the real value"],
+    },
+    {
+      name: "Custom",
+      price: "Let’s scope it",
+      description: "Use this slot for buyers who need a tailored package, larger scope, or team rollout.",
+      ctaText: "Talk to us",
+      ctaHref: "#contact",
+      features: ["Flexible scope", "Best for custom requirements"],
+    },
+  ];
+}
+
+function buildTestimonialGridItems(): Array<Record<string, unknown>> {
+  return [
+    {
+      outcome: "Approved proof",
+      quote: "Replace this card with a concise client quote that names the result, the relief, or the reason this offer felt worth acting on.",
+      name: "Recent client",
+      role: "Replace with the customer role or business type",
+    },
+    {
+      outcome: "Decision confidence",
+      quote: "Use one quote that reduces hesitation and one that reinforces why choosing now made sense.",
+      name: "Verified customer",
+      role: "Replace with approved attribution",
+    },
+  ];
+}
+
+function blockTreeHasType(blocks: CreditFunnelBlock[], predicate: (block: CreditFunnelBlock) => boolean): boolean {
+  const walk = (arr: CreditFunnelBlock[]): boolean => {
+    for (const block of arr) {
+      if (!block || typeof block !== "object") continue;
+      if (predicate(block)) return true;
+      if (block.type === "section") {
+        const props: any = block.props as any;
+        if (walk(Array.isArray(props?.children) ? props.children : [])) return true;
+        if (walk(Array.isArray(props?.leftChildren) ? props.leftChildren : [])) return true;
+        if (walk(Array.isArray(props?.rightChildren) ? props.rightChildren : [])) return true;
+      }
+      if (block.type === "columns") {
+        const cols: any[] = Array.isArray((block.props as any)?.columns) ? ((block.props as any).columns as any[]) : [];
+        for (const col of cols) {
+          if (walk(Array.isArray((col as any)?.children) ? (col as any).children : [])) return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  return walk(blocks);
+}
+
+function buildInteractiveAssistantSummary(blocks: CreditFunnelBlock[]): string {
+  const families: string[] = [];
+  if (blockTreeHasType(blocks, (block) => block.type === "testimonialGrid")) families.push("a testimonial grid");
+  if (blockTreeHasType(blocks, (block) => block.type === "syncedReviews")) families.push("synced reviews");
+  if (blockTreeHasType(blocks, (block) => block.type === "pricingGrid")) families.push("a pricing grid");
+  if (blockTreeHasType(blocks, (block) => block.type === "calendarEmbed")) families.push("a booking calendar");
+  if (blockTreeHasType(blocks, (block) => block.type === "chatbot")) families.push("a chatbot");
+  if (blockTreeHasType(blocks, (block) => block.type === "addToCartButton" || block.type === "salesCheckoutButton" || block.type === "cartButton")) {
+    families.push("shop and checkout controls");
+  }
+
+  const describedFamilies = joinHumanList(families);
+  if (!describedFamilies) {
+    return "Done. I inserted working Funnel Builder blocks and kept the current page draft aligned for preview, editing, and hosted output.";
+  }
+
+  return `Done. I inserted ${describedFamilies} as real Funnel Builder blocks and kept the current page draft aligned for preview, editing, and hosted output.`;
+}
+
+function buildDynamicFunnelRuntimeBlock(input: {
+  intentProfile: {
+    pageType: string;
+    primaryCta: string;
+    formStrategy: string;
+    qualificationFields: string;
+    routingDestination: string;
+    conditionalLogic: string;
+    taggingPlan: string;
+    automationPlan: string;
+  };
+  funnelBrief: {
+    integrationPlan?: string;
+  } | null;
+  hasStripeProducts: boolean;
+  hasBookingRuntime: boolean;
+}) {
+  const lines = [
+    "DYNAMIC_FUNNEL_RUNTIME:",
+    `- Page type: ${input.intentProfile.pageType || "landing"}`,
+    `- Primary CTA: ${input.intentProfile.primaryCta || "not provided"}`,
+    `- Form strategy: ${input.intentProfile.formStrategy || "none"}`,
+    input.intentProfile.qualificationFields ? `- Qualification or intake details: ${input.intentProfile.qualificationFields}` : "",
+    input.intentProfile.routingDestination ? `- Routing destination: ${input.intentProfile.routingDestination}` : "",
+    input.intentProfile.conditionalLogic ? `- Conditional logic: ${input.intentProfile.conditionalLogic}` : "",
+    input.intentProfile.taggingPlan ? `- Tagging plan: ${input.intentProfile.taggingPlan}` : "",
+    input.intentProfile.automationPlan ? `- Automation handoff: ${input.intentProfile.automationPlan}` : "",
+    input.funnelBrief?.integrationPlan ? `- Integration plan: ${input.funnelBrief.integrationPlan}` : "",
+    input.intentProfile.routingDestination
+      ? "- The page should explicitly support the next step instead of ending in a generic CTA. The visible path should make sense for that routing destination."
+      : "",
+    input.intentProfile.qualificationFields
+      ? "- If the page qualifies or screens leads, reflect that in the copy, field framing, or booking expectations. Do not pretend the flow is simpler than it is."
+      : "",
+    input.intentProfile.conditionalLogic
+      ? "- Convert conditional logic into visible user guidance, branch-aware copy, or section logic. Do not leave routing rules as hidden planning notes."
+      : "",
+    input.intentProfile.taggingPlan || input.intentProfile.automationPlan
+      ? "- The conversion step should read like it belongs to a real backend flow: the CTA, form, or booking handoff should naturally feed the stated tagging and automation behavior."
+      : "",
+    input.hasStripeProducts
+      ? "- If pricing or checkout is shown, use the connected product and price data precisely. Do not invent alternate amounts or fake package pricing that disagrees with live Stripe data."
+      : "- If live pricing data is not connected, do not invent exact prices. Use truthful offer labels such as Custom quote, Consultation, or tailored plan instead.",
+    input.hasBookingRuntime
+      ? "- A real booking runtime exists. If this is a booking page, use that live handoff rather than a generic contact or learn-more button."
+      : "",
+  ];
+
+  return lines.filter(Boolean).join("\n");
 }
 
 function detectLocalStyleFixIntent(text: string): boolean {
@@ -940,6 +2114,28 @@ function buildAiResultMeta(opts: {
   contextKeyCount: number;
   contextMediaCount: number;
   changelog?: Record<string, unknown> | null;
+  planAdherenceIssues?: string[] | null;
+  run?: {
+    plannedMinSteps: number;
+    plannedMaxSteps: number;
+    executedSteps: number;
+    creditsCharged: number;
+    creditsRemaining: number | null;
+    stopReason: "completed" | "question-returned" | "credit-limit-hit" | "ai-step-failed" | "quality-check-failed";
+    usedPromptSynthesis: boolean;
+    usedGenerationPlan: boolean;
+    usedRepair: boolean;
+    usedFocusedBookingRepair: boolean;
+    usedRescueRedesign: boolean;
+    usedFallback: boolean;
+    steps: Array<{
+      label: string;
+      status: "completed" | "blocked" | "failed";
+      creditsCharged: number;
+      durationMs: number;
+      notes?: string;
+    }>;
+  } | null;
 }) {
   const warnings: string[] = [];
 
@@ -955,11 +2151,23 @@ function buildAiResultMeta(opts: {
     warnings.push("This was treated as a full redesign of the page HTML, not a small in-place patch.");
   }
 
+  if (opts.run?.stopReason === "credit-limit-hit") {
+    warnings.push("AI iteration stopped when this run hit the available credit budget.");
+  }
+
+  if (opts.run?.usedFallback) {
+    warnings.push("A deterministic fallback shell was used after the AI passes did not meet quality checks.");
+  }
+
+  if (opts.planAdherenceIssues?.length) {
+    warnings.push(...opts.planAdherenceIssues.slice(0, 2));
+  }
+
   const fallbackSummary =
     opts.mode === "question"
       ? "AI needs one missing detail before it can safely change the page."
       : opts.mode === "interactive-blocks"
-        ? "Inserted working builder blocks for the requested interactive features and refreshed the page HTML snapshot."
+        ? "Inserted working builder blocks for the requested interactive features and kept the current page draft aligned."
         : opts.hadCurrentHtml
           ? opts.wantsDesignRedesign
             ? "Reworked the current page into a fuller conversion-focused HTML document."
@@ -978,7 +2186,20 @@ function buildAiResultMeta(opts: {
     warnings,
     at: new Date().toISOString(),
     ...(opts.changelog ? { changelog: opts.changelog } : {}),
+    ...(opts.run ? { run: opts.run } : {}),
   };
+}
+
+class AiRunCreditError extends Error {
+  stepLabel: string;
+  creditsRemaining: number;
+
+  constructor(stepLabel: string, creditsRemaining: number) {
+    super(`Insufficient credits for ${stepLabel}.`);
+    this.name = "AiRunCreditError";
+    this.stepLabel = stepLabel;
+    this.creditsRemaining = creditsRemaining;
+  }
 }
 
 function buildShellFramePromptBlock(frame: ReturnType<typeof resolveFunnelShellFrame>) {
@@ -1056,6 +2277,28 @@ function buildInteractiveBlocks(opts: {
   intent: ReturnType<typeof detectInteractiveIntent>;
 }): CreditFunnelBlock[] {
   const blocks: CreditFunnelBlock[] = [];
+  const heroChildren: CreditFunnelBlock[] = [
+    {
+      id: newBlockId("h1"),
+      type: "heading",
+      props: { text: opts.pageTitle || opts.funnelName || "Welcome", level: 1 },
+    },
+    {
+      id: newBlockId("p"),
+      type: "paragraph",
+      props: {
+        text: buildInteractiveHeroText(opts.intent),
+      },
+    },
+  ];
+
+  if (opts.intent.wantsShop || opts.intent.wantsCart || opts.intent.wantsCheckout) {
+    heroChildren.push({
+      id: newBlockId("cart"),
+      type: "cartButton",
+      props: { text: "Cart" },
+    });
+  }
 
   blocks.push({ id: newBlockId("page"), type: "page", props: {} });
 
@@ -1073,28 +2316,58 @@ function buildInteractiveBlocks(opts: {
     id: newBlockId("hero"),
     type: "section",
     props: {
-      children: [
-        {
-          id: newBlockId("h1"),
-          type: "heading",
-          props: { text: opts.pageTitle || opts.funnelName || "Welcome", level: 1 },
-        },
-        {
-          id: newBlockId("p"),
-          type: "paragraph",
-          props: {
-            text:
-              "Explore what we offer below. Add items to your cart, checkout securely, or book a time to talk. You can do it all on this page.",
-          },
-        },
-        {
-          id: newBlockId("cart"),
-          type: "cartButton",
-          props: { text: "Cart" },
-        },
-      ],
+      children: heroChildren,
     },
   });
+
+  if (opts.intent.wantsSyncedReviews) {
+    blocks.push({
+      id: newBlockId("reviews"),
+      type: "syncedReviews",
+      props: {
+        eyebrow: "Live proof",
+        heading: "What recent customers are saying",
+        intro: "This section stays connected to your reviews inbox so the page can keep pulling in fresh proof without manually rebuilding cards.",
+        limit: 6,
+        minRating: 4,
+        columns: 3,
+        showBusinessReply: true,
+        includePhotos: false,
+      },
+    });
+  }
+
+  if (opts.intent.wantsTestimonialGrid) {
+    const items = buildTestimonialGridItems();
+    blocks.push({
+      id: newBlockId("testimonials"),
+      type: "testimonialGrid",
+      props: {
+        eyebrow: "Proof",
+        heading: "Curated client proof",
+        intro: "Use these cards for approved quotes that remove hesitation and reinforce why this offer is worth acting on now.",
+        columns: items.length >= 3 ? 3 : items.length === 2 ? 2 : 1,
+        items: items as any,
+      },
+    });
+  }
+
+  if (opts.intent.wantsPricing) {
+    const pricingItems = buildPricingGridItems(opts.stripeProducts);
+    blocks.push({
+      id: newBlockId("pricing"),
+      type: "pricingGrid",
+      props: {
+        eyebrow: "Pricing",
+        heading: "Choose the right fit",
+        intro: opts.intent.wantsShop || opts.intent.wantsCheckout
+          ? "Use this section to compare plans before visitors drop into checkout."
+          : "Use this section to compare plans or packages before the next step.",
+        columns: pricingItems.length >= 3 ? 3 : pricingItems.length === 2 ? 2 : 1,
+        items: pricingItems as any,
+      },
+    });
+  }
 
   if (opts.intent.wantsShop || opts.intent.wantsCart || opts.intent.wantsCheckout) {
     const purchasable = opts.stripeProducts
@@ -1227,7 +2500,7 @@ function buildChangelogAssistantMessage(changelog: Record<string, unknown>): str
         const what = typeof c.what === "string" ? c.what.trim() : "";
         const why = typeof c.why === "string" ? c.why.trim() : "";
         if (!section && !what) return null;
-        return why ? `**${section}**: ${what} — ${why}` : `**${section}**: ${what}`;
+        return why ? `**${section}**: ${what} - ${why}` : `**${section}**: ${what}`;
       })
       .filter(Boolean) as string[];
     if (lines.length) parts.push(`\n${lines.join("\n")}`);
@@ -1245,17 +2518,26 @@ function buildChangelogAssistantMessage(changelog: Record<string, unknown>): str
   return parts.join("").trim().slice(0, 1200) || "Page updated. Preview it and let me know what to change next.";
 }
 
-async function generatePageUpdatedAssistantText(opts: { pageTitle?: string; funnelName?: string }) {
-  const payload = {
-    pageTitle: String(opts.pageTitle || "").trim().slice(0, 160) || null,
-    funnelName: String(opts.funnelName || "").trim().slice(0, 160) || null,
-  };
+async function generatePageUpdatedAssistantText(opts: { pageTitle?: string; funnelName?: string; prompt?: string; changelog?: Record<string, unknown> | null }) {
+  const pageTitle = String(opts.pageTitle || "").trim().slice(0, 160) || null;
+  const funnelName = String(opts.funnelName || "").trim().slice(0, 160) || null;
+  const userPrompt = String(opts.prompt || "").trim().slice(0, 400) || null;
+  const changelogSummary = opts.changelog && typeof opts.changelog.summary === "string" ? String(opts.changelog.summary).trim().slice(0, 400) : null;
 
   const system =
-    "You are an assistant inside a funnel builder. The page has just been updated. Write a short, friendly confirmation message that invites the user to preview the page and tell you what to tweak next. Do not claim you can see their preview. Keep it to 1-3 sentences.";
+    "You are Pura, an AI design partner inside a funnel builder. The page was just rebuilt. Write a short 2-3 sentence summary of what changed and what the user should check next in preview. Be specific - reference what was actually done (from the context below). Do not use bullet points. Do not start with 'I'. Do not use filler phrases like 'Great news' or 'Sure thing'. Sound like a competent colleague, not a chatbot.";
+
+  const context = [
+    funnelName ? `Funnel: ${funnelName}` : null,
+    pageTitle ? `Page: ${pageTitle}` : null,
+    userPrompt ? `User's request: ${userPrompt}` : null,
+    changelogSummary ? `What was changed: ${changelogSummary}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   try {
-    return String(await generateText({ system, user: `Context (JSON):\n${JSON.stringify(payload, null, 2)}` })).trim();
+    return String(await generateText({ system, user: context || "Page was updated." })).trim();
   } catch {
     return "";
   }
@@ -1445,6 +2727,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const body = (await req.json().catch(() => null)) as any;
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt) return NextResponse.json({ ok: false, error: "Prompt is required" }, { status: 400 });
+  const requestedPrimaryCtaCopy = extractPrimaryCtaCopyEditRequest(prompt);
+  const displayPrompt = typeof body?.displayPrompt === "string" ? body.displayPrompt.trim().slice(0, 4000) : "";
+  const threadPrompt = displayPrompt || prompt;
+  const preservedSourceActionPlan = sanitizeSourceActionPlan(body?.sourceActionPlan);
+  let effectiveSourceActionPlan: SourceActionPlan | null = preservedSourceActionPlan;
 
   const currentHtmlFromClient = typeof body?.currentHtml === "string" ? body.currentHtml : null;
   const wasBlocksExport = body?.wasBlocksExport === true;
@@ -1460,6 +2747,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const attachments = coerceAttachments(body?.attachments);
   const contextKeys = coerceContextKeys(body?.contextKeys);
   const contextMedia = coerceContextMedia(body?.contextMedia);
+  const designContext = sanitizeFunnelDesignContext(body?.designContext);
   const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
   const allRegions: Array<{ key: string; label: string; summary: string }> = Array.isArray(body?.allRegions)
     ? (body.allRegions as any[])
@@ -1505,7 +2793,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       },
     })
     .catch(() => null);
-  const [settings, businessContext, bookingCalendars, bookingSite] = await Promise.all([
+  let [settings, businessContext, bookingCalendars, bookingSite] = await Promise.all([
     settingsPromise,
     businessContextPromise,
     bookingCalendarsPromise,
@@ -1532,6 +2820,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const shellFrame = resolveFunnelShellFrame({
     pageType: effectiveIntentProfile.pageType,
     formStrategy: effectiveIntentProfile.formStrategy,
+    audience: effectiveIntentProfile.audience,
+    offer: effectiveIntentProfile.offer,
+    companyContext: effectiveIntentProfile.companyContext || effectiveFunnelBrief?.companyContext || null,
+    pageGoal: effectiveIntentProfile.pageGoal,
+    primaryCta: effectiveIntentProfile.primaryCta,
   });
   const shellFrameBlock = buildShellFramePromptBlock(shellFrame);
   const storedExhibitArchetypePack = readFunnelExhibitArchetypePack(settings, normalizedPage.funnel.id);
@@ -1553,6 +2846,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     shellFrame,
     archetypes: relevantArchetypes,
   });
+  const interactiveIntent = detectInteractiveIntent(prompt);
+  let automaticCalendarProvisionError: string | null = null;
+  const shouldProvisionFunnelCalendar =
+    interactiveIntent.wantsCalendar || effectiveIntentProfile.pageType === "booking" || effectiveIntentProfile.formStrategy === "booking";
+  if (shouldProvisionFunnelCalendar) {
+    const ensuredCalendar = await ensureFunnelBookingCalendar({
+      ownerId,
+      funnelId: normalizedPage.funnel.id,
+      funnelName: normalizedPage.funnel.name,
+      pageTitle: normalizedPage.title,
+    });
+    if (ensuredCalendar.ok) {
+      bookingCalendars = ensuredCalendar.config;
+      settings = writeFunnelBookingRouting(settings ?? null, funnelId, { calendarId: ensuredCalendar.calendar.id });
+    } else {
+      automaticCalendarProvisionError = ensuredCalendar.error;
+    }
+  }
   const strategicBusinessContext = [businessContext, exhibitArchetypeBlock].filter(Boolean).join("\n\n");
   const enabledBookingCalendars = Array.isArray((bookingCalendars as any)?.calendars)
     ? ((bookingCalendars as any).calendars as any[])
@@ -1569,41 +2880,249 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       : bookingSiteSlug
         ? `${basePath}/book/${encodeURIComponent(bookingSiteSlug)}`
         : "";
+  const exportedCurrentHtmlFromBlocks =
+    !currentHtmlFromClient &&
+    normalizedPage.editorMode === "BLOCKS" &&
+    Array.isArray(normalizedPage.blocksJson) &&
+    normalizedPage.blocksJson.length
+      ? blocksToCustomHtmlDocument({
+          blocks: normalizedPage.blocksJson as any,
+          pageId: normalizedPage.id,
+          ownerId,
+          bookingSiteSlug: bookingSiteSlug || undefined,
+          defaultBookingCalendarId: defaultBookingCalendarId || undefined,
+          basePath,
+          title: normalizedPage.title || normalizedPage.funnel.name || "Funnel page",
+        })
+      : "";
   const effectiveCurrentHtml =
-    (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : getFunnelPageCurrentHtml(page)).trim();
-  const wantsDesignRedesign = /\b(hero|proof strip|credibility strip|benefits?|testimonials?|cta|call to action|layout|redesign|premium|modern|landing page|sales page)\b/i.test(prompt);
+    (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : exportedCurrentHtmlFromBlocks || getFunnelPageCurrentHtml(page)).trim();
+  const isPrimaryCtaCopyEdit = Boolean(requestedPrimaryCtaCopy && effectiveCurrentHtml);
+  const wantsDesignRedesign = /\b(header area|header|nav area|navigation|hero area|hero|above the fold|top of page|proof strip|credibility strip|benefits?|testimonials?|cta|call to action|layout|redesign|premium|modern|landing page|sales page|font|fonts|typography|vibe|vibes|mood|art direction|editorial|serif|sans)\b/i.test(prompt);
+  const explicitStructuralRebuild = /\b(rebuild|start over|from scratch|replace the whole page|replace the layout|new layout|different layout|new structure|restructure|overhaul)\b/i.test(prompt);
+  const allowsStructuralRebuild = !effectiveCurrentHtml || wasBlocksExport || wantsDesignRedesign || explicitStructuralRebuild;
   const prevChat = stripFunnelPageIntentMessages<Record<string, unknown>>(normalizedPage.customChatJson);
   const aiHistory = buildCondensedAiHistory(prevChat);
   const recentIterationNotes = buildRecentIterationNotes(prevChat);
 
-  const promptStrategyPromise = synthesizeFunnelGenerationPrompt({
-    surface: "page-html",
-    requestPrompt: prompt,
-    routeLabel,
-    funnelName: normalizedPage.funnel.name,
-    pageTitle: normalizedPage.title,
-    businessContext: strategicBusinessContext,
-    funnelBrief: effectiveFunnelBrief,
-    intentProfile: effectiveIntentProfile,
-    currentHtml: effectiveCurrentHtml,
-    selectedRegion: selectedRegion
-      ? {
-          label: selectedRegion.label,
-          summary: selectedRegion.summary,
-        }
-      : null,
-    contextKeys,
-    contextMedia,
-    recentChatHistory: aiHistory,
-    recentIterationMemory: recentIterationNotes,
-  });
+  const aiRun = {
+    plannedMinSteps: 2,
+    plannedMaxSteps: effectiveIntentProfile.pageType === "booking" ? 6 : 5,
+    executedSteps: 0,
+    creditsCharged: 0,
+    creditsRemaining: null as number | null,
+    stopReason: "completed" as "completed" | "question-returned" | "credit-limit-hit" | "ai-step-failed" | "quality-check-failed",
+    usedPromptSynthesis: false,
+    usedGenerationPlan: false,
+    usedRepair: false,
+    usedFocusedBookingRepair: false,
+    usedRescueRedesign: false,
+    usedFallback: false,
+    steps: [] as Array<{
+      label: string;
+      status: "completed" | "blocked" | "failed";
+      creditsCharged: number;
+      durationMs: number;
+      notes?: string;
+    }>,
+  };
 
-  const intent = detectInteractiveIntent(prompt);
+  const trackAiStep = async (
+    label: string,
+    runner: () => Promise<string>,
+    opts: { optional?: boolean; onSuccess?: () => void } = {},
+  ) => {
+    const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
+    if (!charged.ok) {
+      aiRun.creditsRemaining = charged.state.balance;
+      aiRun.stopReason = "credit-limit-hit";
+      aiRun.steps.push({
+        label,
+        status: "blocked",
+        creditsCharged: 0,
+        durationMs: 0,
+        notes: "Insufficient credits for this AI step.",
+      });
+      if (opts.optional) return null;
+      throw new AiRunCreditError(label, charged.state.balance);
+    }
+
+    const startedAt = Date.now();
+    try {
+      const result = await runner();
+      aiRun.executedSteps += 1;
+      aiRun.creditsCharged += PORTAL_CREDIT_COSTS.aiCallStepGenerate;
+      aiRun.creditsRemaining = charged.state.balance;
+      aiRun.steps.push({
+        label,
+        status: "completed",
+        creditsCharged: PORTAL_CREDIT_COSTS.aiCallStepGenerate,
+        durationMs: Date.now() - startedAt,
+      });
+      opts.onSuccess?.();
+      return result;
+    } catch (error) {
+      aiRun.executedSteps += 1;
+      aiRun.creditsCharged += PORTAL_CREDIT_COSTS.aiCallStepGenerate;
+      aiRun.creditsRemaining = charged.state.balance;
+      aiRun.stopReason = "ai-step-failed";
+      aiRun.steps.push({
+        label,
+        status: "failed",
+        creditsCharged: PORTAL_CREDIT_COSTS.aiCallStepGenerate,
+        durationMs: Date.now() - startedAt,
+        notes: error instanceof Error ? error.message.slice(0, 180) : String(error ?? "AI step failed").slice(0, 180),
+      });
+      throw error;
+    }
+  };
+
+  const trackRequiredAiStep = async (
+    label: string,
+    runner: () => Promise<string>,
+    opts: { onSuccess?: () => void } = {},
+  ) => {
+    const result = await trackAiStep(label, runner, opts);
+    if (result === null) {
+      throw new AiRunCreditError(label, aiRun.creditsRemaining ?? 0);
+    }
+    return result;
+  };
+
+  if (isPrimaryCtaCopyEdit && requestedPrimaryCtaCopy) {
+    const deterministicCtaEdit = applyDeterministicPrimaryCtaCopyEdit(effectiveCurrentHtml, requestedPrimaryCtaCopy);
+    if (deterministicCtaEdit.changed) {
+      const deterministicPlan: SourceActionPlan = {
+        summary: `Updated the primary CTA copy to '${requestedPrimaryCtaCopy}'.`,
+        moves: [
+          {
+            key: "cta-text",
+            target: "primary CTA",
+            change: `Change the primary CTA copy to '${requestedPrimaryCtaCopy}'.`,
+            why: "Honor the user's narrow copy request without changing the page structure.",
+            priority: "primary",
+            executionMode: "bounded-edit",
+            confidence: "high",
+          },
+        ],
+        watchouts: ["Keep layout, section order, and non-CTA copy unchanged."],
+      };
+      effectiveSourceActionPlan = mergeSourceActionPlans(deterministicPlan, preservedSourceActionPlan) ?? deterministicPlan;
+      const deterministicChangelog = {
+        summary: `Updated the primary CTA copy to '${requestedPrimaryCtaCopy}'.`,
+        changes: [
+          {
+            section: "primary CTA",
+            what: `Replaced '${deterministicCtaEdit.originalLabel}' with '${requestedPrimaryCtaCopy}'.`,
+            why: "To keep the edit local and preserve the current funnel structure.",
+          },
+        ],
+        preserved: [],
+        conversionNotes: [
+          `Kept the existing page structure intact and updated ${deterministicCtaEdit.updatedCount} CTA instance${deterministicCtaEdit.updatedCount === 1 ? "" : "s"}.`,
+        ],
+      };
+
+      const assistantMsg = {
+        role: "assistant" as const,
+        content: buildChangelogAssistantMessage(deterministicChangelog),
+        at: new Date().toISOString(),
+        sourceActionPlan: effectiveSourceActionPlan,
+      };
+      const userMsg = { role: "user" as const, content: threadPrompt, at: new Date().toISOString() };
+      const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+      const cleanHtml = sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(deterministicCtaEdit.html));
+
+      aiRun.plannedMinSteps = 0;
+      aiRun.plannedMaxSteps = 0;
+
+      const updated = await prisma.creditFunnelPage.update({
+        where: { id: normalizedPage.id },
+        data: applyDraftHtmlWriteCompat({
+          editorMode: "CUSTOM_HTML",
+          ...createFunnelPageDraftUpdate(cleanHtml),
+          customChatJson: nextChat as any,
+        }, hasDraftHtml),
+        select: withDraftHtmlSelect({
+          id: true,
+          slug: true,
+          title: true,
+          editorMode: true,
+          customHtml: true,
+          customChatJson: true,
+          updatedAt: true,
+        }, hasDraftHtml),
+      });
+
+      const normalizedUpdated = normalizeDraftHtml(updated);
+
+      return NextResponse.json({
+        ok: true,
+        html: getFunnelPageCurrentHtml(normalizedUpdated),
+        aiResult: buildAiResultMeta({
+          mode: "html-update",
+          hadCurrentHtml: true,
+          wantsDesignRedesign: false,
+          contextKeyCount: contextKeys.length,
+          contextMediaCount: contextMedia.length,
+          changelog: deterministicChangelog,
+          run: aiRun,
+        }),
+        sourceActionPlan: effectiveSourceActionPlan,
+        page: normalizedUpdated,
+      });
+    }
+  }
+
+  const promptStrategyPromise = synthesizeFunnelGenerationPrompt(
+    {
+      surface: "page-html",
+      requestPrompt: prompt,
+      routeLabel,
+      funnelName: normalizedPage.funnel.name,
+      pageTitle: normalizedPage.title,
+      businessContext: strategicBusinessContext,
+      funnelBrief: effectiveFunnelBrief,
+      intentProfile: effectiveIntentProfile,
+      currentHtml: effectiveCurrentHtml,
+      selectedRegion: selectedRegion
+        ? {
+            label: selectedRegion.label,
+            summary: selectedRegion.summary,
+          }
+        : null,
+      designContext,
+      contextKeys,
+      contextMedia,
+      recentChatHistory: aiHistory,
+      recentIterationMemory: recentIterationNotes,
+    },
+    {
+      generateTextImpl: (opts) =>
+        trackRequiredAiStep("Strategic prompt synthesis", () => generateText(opts), {
+          onSuccess: () => {
+            aiRun.usedPromptSynthesis = true;
+          },
+        }),
+    },
+  ).catch(() => ({
+    prompt,
+    usedAi: false,
+    exhibitAdvisory: null,
+  }));
+
+  const intent = interactiveIntent;
   if (intent.any) {
     const [promptStrategy, stripeProducts] = await Promise.all([promptStrategyPromise, stripeProductsPromise]);
-    const strategicPrompt = promptStrategy.prompt;
+    aiRun.plannedMinSteps = promptStrategy.usedAi ? 1 : 0;
+    aiRun.plannedMaxSteps = promptStrategy.usedAi ? 1 : 0;
     const enabledCalendars = enabledBookingCalendars;
-    const calendarId = resolveFunnelBookingCalendarId(settings ?? null, funnelId, enabledCalendars).slice(0, 50);
+    const linkedCalendarId =
+      selectedBookingRouting?.calendarId && enabledCalendars.some((calendar) => String(calendar?.id || "").trim() === selectedBookingRouting.calendarId)
+        ? selectedBookingRouting.calendarId
+        : "";
+    const calendarId = linkedCalendarId.slice(0, 50);
+    const calendarProvisionError: string | null = automaticCalendarProvisionError;
 
     const agentIds = await getOwnerChatAgentIds(ownerId).catch(() => [] as string[]);
     const chatAgentId = agentIds[0] ? String(agentIds[0]).trim() : "";
@@ -1619,12 +3138,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     if (missingShop || missingCalendar || missingChatbot) {
       const parts: string[] = [];
       if (missingShop) parts.push("I can add a working Shop/Cart/Checkout, but I don't see any Stripe products with default prices yet. Do you want to connect Stripe and add products first?");
-      if (missingCalendar) parts.push("I can embed a working booking calendar, but you don't have any booking calendars configured yet. Which calendar should I use (or should I create one in Booking settings first)?");
+      if (missingCalendar) parts.push(calendarProvisionError === "Insufficient credits"
+        ? "I can add a working booking calendar here, but this account does not have enough credits to create one right now."
+        : "I can add a working booking calendar here, but automatic funnel calendar setup did not finish. Create or link one in Booking first.");
       if (missingChatbot) parts.push("I can add a working chatbot widget, but I don't see an ElevenLabs chat agent ID for this account yet. What agent ID should I use?");
       const question = parts[0] ? parts[0].slice(0, 800) : "Which interactive block should I add (shop, calendar, or chatbot)?";
 
       const prevChat = Array.isArray(normalizedPage.customChatJson) ? (normalizedPage.customChatJson as any[]) : [];
-      const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
+      const userMsg = { role: "user", content: threadPrompt, at: new Date().toISOString() };
       const assistantMsg = { role: "assistant", content: question, at: new Date().toISOString() };
       const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
 
@@ -1654,7 +3175,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
           wantsDesignRedesign,
           contextKeyCount: contextKeys.length,
           contextMediaCount: contextMedia.length,
+          run: aiRun,
         }),
+        sourceActionPlan: effectiveSourceActionPlan,
         page: updated,
       });
     }
@@ -1669,12 +3192,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       intent,
     });
 
+    const assistantSummary = buildInteractiveAssistantSummary(blocks);
     const prevChat = Array.isArray(normalizedPage.customChatJson) ? (normalizedPage.customChatJson as any[]) : [];
-    const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
+    const userMsg = { role: "user", content: threadPrompt, at: new Date().toISOString() };
     const assistantMsg = {
       role: "assistant",
-      content:
-        "Done. I inserted real Funnel Builder blocks for the interactive parts (shop/cart/checkout/calendar/chatbot) so everything works in preview and on the hosted page. I also generated a full Custom code HTML snapshot of the page so you can switch to Custom code and keep the preview.",
+      content: assistantSummary,
       at: new Date().toISOString(),
     };
     const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
@@ -1717,7 +3240,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         wantsDesignRedesign,
         contextKeyCount: contextKeys.length,
         contextMediaCount: contextMedia.length,
+        changelog: { summary: assistantSummary },
+        run: aiRun,
       }),
+      sourceActionPlan: effectiveSourceActionPlan,
       page: normalizeDraftHtml(updated),
     });
   }
@@ -1729,9 +3255,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     select: { slug: true, name: true, status: true },
   });
   const [promptStrategy, stripeProducts, forms] = await Promise.all([promptStrategyPromise, stripeProductsPromise, formsPromise]);
+  aiRun.plannedMinSteps = promptStrategy.usedAi ? 3 : 2;
+  aiRun.plannedMaxSteps = (promptStrategy.usedAi ? 1 : 0) + 4 + (effectiveIntentProfile.pageType === "booking" ? 1 : 0);
   const strategicPrompt = promptStrategy.prompt;
   const exhibitPlannerContractBlock = buildExhibitPlannerContractBlock(promptStrategy.exhibitAdvisory);
   const wantsBookingPage = effectiveIntentProfile.pageType === "booking" || effectiveIntentProfile.formStrategy === "booking";
+  const bookingFallbackFastPathEligible = wantsBookingPage
+    && !currentHtmlFromClient.trim()
+    && (!effectiveCurrentHtml.trim() || Boolean(exportedCurrentHtmlFromBlocks))
+    && !selectedRegion
+    && attachments.length === 0
+    && contextMedia.length === 0
+    && !intent.any
+    && allowsStructuralRebuild
+    && prompt.split(/\s+/).filter(Boolean).length <= 32;
   const bookingRuntimeBlock = [
     "BOOKING_RUNTIME:",
     wantsBookingPage
@@ -1782,7 +3319,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "- If ONE critical detail is missing: only a ```json fenced block: { \"question\": \"...\" }",
     "OUTPUT ORDER when producing HTML: HTML fence first, then JSON change log second. Never output the JSON change log without the HTML fence preceding it.",
     "Do NOT output any other text.",
-    "CHANGE_LOG (include only when editing an existing page — omit on first-time generation):",
+    "CHANGE_LOG (include only when editing an existing page - omit on first-time generation):",
     "  ```json",
     "  {",
     "    \"summary\": \"One sentence (<120 chars) describing the highest-value user-facing change. Prefer conversion or hierarchy outcomes over generic spacing/color mentions.\",",
@@ -1818,6 +3355,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "- Avoid placeholder braces like {{var}} unless asked.",
     "- Avoid lorem ipsum, generic 'your company' copy, and weak filler sections.",
     "- Avoid stock UI font stacks and starter-template typography such as Arial, Helvetica, Segoe UI, Tahoma, Geneva, Verdana, or bare sans-serif-only styling unless the page already uses them intentionally and the user asked to preserve that exact system.",
+    "- Do not default to the common Inter body + Space Grotesk heading pairing or a soft-blue split-card consultation shell. Choose a visual direction that fits the actual business, audience, and offer.",
+    "- Before applying styling or Exhibit patterns, decide design intent: funnel type, audience sophistication, conversion urgency, and brand tone.",
+    "- Set style intensity deliberately: low for minimal styling, medium for clean spacing with controlled accents, high only when a strong visual identity is clearly justified. Default to medium.",
+    "- Set Exhibit mode deliberately: off for raw layout only, assist for selected components and section structure, full only when a full Exhibit design system is clearly justified. Default to assist.",
+    "- Font selection must be intentional. Use one or two families max. Prefer Manrope, Inter, Plus Jakarta Sans, or General Sans. Only use a display serif such as Fraunces when the tone is clearly premium or editorial.",
+    "- Do not apply gradients everywhere, overuse shadows, round every container, or stack repeated panels without hierarchy.",
+    "- Do create contrast intentionally, vary layout structure rather than centering every section, and make the CTA visually dominant without making it decorative noise.",
+    "- If the result feels generic, over-styled, or disconnected from purpose, reduce styling intensity and rebalance.",
     "- If no real image asset is available, do not invent placeholder hero image URLs or fake stock-image paths. Use an intentional layout, gradient, illustration-free composition, or uploaded asset instead.",
     "- If a baseline shell concept and section plan are provided, use them as the starting architecture for the first draft and for later retakes unless the user explicitly asks to replace that shell.",
     "- Recommendation-first behavior: synthesize the strongest coherent foundation from BUSINESS_PROFILE, FUNNEL_BRIEF, INTENT_PROFILE, route cues, and the user's request before falling back to questions.",
@@ -1830,11 +3375,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "- For booking pages with a native booking URL, an in-page anchor alone is not enough. Include at least one real booking link or embedded booking element that points to the provided runtime.",
     "- On the first take of a booking page, prefer embedding the native booking flow inside the booking section so the visitor can schedule without leaving the page unless the requested design clearly calls for a cleaner outbound handoff.",
     "- On booking pages, pair the first CTA with visible proof in the hero or the very next band: a testimonial excerpt, quantified result, trusted-by strip, or outcomes panel.",
+    "- On booking pages, the primary CTA must be visually dominant in the first screen: use one filled high-contrast action with stronger size, containment, and spacing than any nearby link or secondary prompt.",
+    "- On booking pages, do not give secondary actions the same visual weight as the booking CTA. Exploratory links should read as text-like support, not as competing buttons.",
     "- On booking pages, do not stack all trust-building proof below a long narrative section run. The visitor should see evidence before and at the booking handoff.",
     "- On booking pages, do not use a centered single-column hero card as the main above-the-fold structure. Use a split composition, attached proof panel, or another decision cluster that keeps the CTA and trust cue in one scan.",
+    "- On booking pages, do not style every major section with the same soft panel treatment. Create section rhythm with at least one stronger contrast beat, one calmer support beat, and a booking handoff that feels visually distinct from the earlier explanatory sections.",
+    "- When PAGE_INTENT or FUNNEL_BRIEF includes qualification details, routing rules, tagging, automation, or integration behavior, turn that into concrete page structure, CTA wording, and user guidance. Do not leave those instructions buried as hidden planning notes.",
+    "- If routing or conditional logic exists, the page should explain what happens next for the visitor and what qualifies or disqualifies them. Make the page feel connected to a real backend flow.",
+    "- If live pricing data exists, preserve exact price identity and price semantics. If live pricing is not connected, never fabricate exact amounts just to make the page feel finished.",
     "- FUNNEL_BRIEF, PAGE_INTENT, shell concept, and section plan are working guidance, not frozen truth.",
     "- When editing an existing page, CURRENT_HTML, the newest user instruction, RECENT_ITERATION_MEMORY, and concrete runtime blocks are fresher than older saved foundation text.",
     "- If older saved direction conflicts with the current page or the latest clearer context, update the stale direction instead of preserving it mechanically.",
+    "- Default to diff-based editing when CURRENT_HTML exists. Preserve the current section sequence, runtime wiring, CTA path, and conversion flow unless the user explicitly asks for a rebuild or structural replacement.",
+    "- Treat initialized funnel structure as stable. Edit, insert, or remove only the sections needed for the request before inventing a new page architecture.",
+    "- Do not change the funnel type, remove core handoff sections, or rebuild the page shell just because a cleaner style is possible.",
   ];
 
   const hasCurrentHtml = Boolean(effectiveCurrentHtml);
@@ -1850,22 +3404,46 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const allowBrandStyling = !wantsDesignQualityAudit && (wantsDesignRedesign || explicitBrandStylingIntent);
   const profileContext = splitBusinessProfileContext(businessContext);
 
+  // Region splice mode: page is too large to send in full + a specific region is targeted.
+  // In this mode the AI receives ONLY the selected region HTML and returns ONLY the
+  // updated region HTML, which we splice back into the original full page programmatically.
+  // This lets the AI make precise, contextual edits to any section regardless of total page length.
+  const isRegionSpliceMode = hasSelectedRegion
+    && effectiveCurrentHtml.length > 24000
+    && !wantsDesignRedesign
+    && !wantsDesignQualityAudit
+    && !wasBlocksExport
+    && !allowsStructuralRebuild;
+
   const system = [
     ...baseSystem,
     "When editing an existing page, treat CURRENT_HTML as the primary visual reference and preserve its overall visual system unless the user explicitly asks for broader redesign.",
+    "If a GENERATION_PLAN is provided in the prompt, treat its surfaceSystem, proofObjects, visualAnchors, and sectionRhythm fields as build requirements. Make them concrete in the HTML and CSS instead of collapsing them into generic text blocks.",
+    "If a GENERATION_PLAN is provided, also treat designIntent, styleIntensity, exhibitMode, and fontSystem as build requirements. Do not improvise a louder or more ornamental style than the plan selected.",
+    buildStructuralQualityContractBlock("build"),
+    buildDesignTokenPageContractBlock("build"),
+    buildFunctionalSurfaceContractBlock("build"),
+    allowsStructuralRebuild
+      ? "Structural rebuilds are allowed for this run because the user explicitly asked for redesign or replacement-level change."
+      : "Structural rebuilds are not allowed for this run. Keep the current page architecture stable and make the smallest effective diff that satisfies the request.",
+    "Avoid the generic consultation-template failure mode: one repeated card treatment across every section, shallow pastel split layouts, proof reduced to plain paragraphs, and typography that feels like a starter template instead of a business-specific page.",
     "If the user asks to fix contrast, readability, or visibility, solve that with the smallest effective local style changes first. Prefer changing text color, overlays, local backgrounds, borders, or section-specific styles before changing the whole page palette.",
+    "When the user asks for color cleanup, lighter surfaces, or a brighter background without specifying every element, make the visual call yourself: keep the dominant surface quiet, use supporting tints sparingly, and reserve accent color for CTA and proof emphasis.",
+    "Treat color distribution as a system, not isolated patches. A good default is a 60/30/10 style balance across base surfaces, secondary surfaces, and accent cues.",
     "Do not apply stored brand colors or fonts to the entire page, major section backgrounds, or core UI surfaces unless the user clearly asks for branding or redesign and that choice improves readability.",
     hasCurrentHtml
       ? wasBlocksExport
-        ? "Redesign mode: You will be given CURRENT_HTML auto-scaffolded from a block builder. Treat it only as a content and structure reference — ignore its default styling. Create a NEW, polished, fully-designed landing page from scratch that satisfies the user's request. Return the FULL HTML document."
+        ? "Redesign mode: You will be given CURRENT_HTML auto-scaffolded from a block builder. Treat it only as a content and structure reference - ignore its default styling. Create a NEW, polished, fully-designed landing page from scratch that satisfies the user's request. Return the FULL HTML document."
         : hasSelectedRegion
           ? wantsDesignQualityAudit
             ? "Region design-quality mode: You will be given CURRENT_HTML and SELECTED_REGION_HTML. Perform a design quality audit on SELECTED_REGION_HTML: fix ALL contrast failures, harmonize any colors that clash with the dominant page palette, make invisible or near-invisible text and elements legible, and ensure every CTA has clear contrast and a palette-compatible color. Preserve the region's layout and content. Return the FULL updated HTML document."
             : wantsDesignRedesign
             ? "Region redesign mode: You will be given CURRENT_HTML and SELECTED_REGION_HTML. Focus the redesign on SELECTED_REGION_HTML, keep the rest of CURRENT_HTML intact except for small supporting adjustments, and return the FULL updated HTML document."
+            : isRegionSpliceMode
+            ? "Region splice mode: The page is too large to send in full. You will be given CURRENT_HTML_STRUCTURE_OUTLINE (full page anatomy) and SELECTED_REGION_HTML (the exact section to edit). Apply the user's request to SELECTED_REGION_HTML only. Return ONLY the updated SELECTED_REGION HTML - a self-contained block starting with the opening tag and ending with its closing tag. Do not return the full page. Do not include <html>, <head>, or <body> wrappers."
             : "Region editing mode: You will be given CURRENT_HTML and SELECTED_REGION_HTML. Apply the user's request to SELECTED_REGION_HTML while preserving the rest of CURRENT_HTML unless a small surrounding adjustment is required. Return the FULL updated HTML document."
         : wantsDesignQualityAudit
-          ? "Design-quality mode: You will be given CURRENT_HTML. Perform a full design quality audit on the entire page. Fix ALL of the following issues you find: (1) any text/background combination with contrast below WCAG AA 4.5:1 for normal text or 3:1 for large text, (2) any button or CTA whose color clashes with the dominant page palette — identify the dominant palette and harmonize outliers, (3) any nav, header, label, link, or decorative text that is near-invisible due to low opacity, near-matching color, or missing color declaration, (4) any interactive element whose label has poor contrast against its own background. Preserve the page's layout, structure, content, and identity. Do not change copy, layout, or section order. Return the FULL updated HTML document."
+          ? "Design-quality mode: You will be given CURRENT_HTML. Perform a full design quality audit on the entire page. Fix ALL of the following issues you find: (1) any text/background combination with contrast below WCAG AA 4.5:1 for normal text or 3:1 for large text, (2) any button or CTA whose color clashes with the dominant page palette - identify the dominant palette and harmonize outliers, (3) any nav, header, label, link, or decorative text that is near-invisible due to low opacity, near-matching color, or missing color declaration, (4) any interactive element whose label has poor contrast against its own background. Preserve the page's layout, structure, content, and identity. Do not change copy, layout, or section order. Return the FULL updated HTML document."
         : wantsDesignRedesign
           ? "Redesign mode: You will be given CURRENT_HTML. Replace simplistic placeholder markup with a materially improved, polished landing page that fully satisfies the requested sections. Return the FULL updated HTML document."
           : "Editing mode: You will be given CURRENT_HTML. Apply the user's instruction as a minimal, precise change to CURRENT_HTML. Return the FULL updated HTML document."
@@ -1875,7 +3453,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       : "",
     hasCurrentHtml
       ? [
-          "FUNNEL_PRECISION_RULES — apply to every edit regardless of scope:",
+          "FUNNEL_PRECISION_RULES - apply to every edit regardless of scope:",
           "- ABOVE THE FOLD: headline + subheadline + primary CTA must all be visible without scrolling at 375px viewport width. If the current page fails this, fix it silently.",
           "- CTA DENSITY: one dominant CTA per viewport section. Repeat at logical decision points (after proof, after benefits, after objection handling). Never bury the only CTA below the fold.",
           "- SOCIAL PROOF PLACEMENT: testimonials, star ratings, and trust badges belong adjacent to the primary CTA or form, not only at the bottom.",
@@ -1925,6 +3503,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         "",
       ].join("\n")
     : "";
+  const designContextBlock = buildFunnelDesignContextPromptBlock(designContext);
 
   const stripeProductsBlock = stripeProducts.ok && stripeProducts.products.length
     ? [
@@ -1939,21 +3518,95 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       ].join("\n")
     : "\n\nSTRIPE_PRODUCTS: (none found or Stripe not connected)\n";
 
-  const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
+  const dynamicFunnelRuntimeBlock = buildDynamicFunnelRuntimeBlock({
+    intentProfile: {
+      pageType: effectiveIntentProfile.pageType,
+      primaryCta: effectiveIntentProfile.primaryCta,
+      formStrategy: effectiveIntentProfile.formStrategy,
+      qualificationFields: effectiveIntentProfile.qualificationFields,
+      routingDestination: effectiveIntentProfile.routingDestination,
+      conditionalLogic: effectiveIntentProfile.conditionalLogic,
+      taggingPlan: effectiveIntentProfile.taggingPlan,
+      automationPlan: effectiveIntentProfile.automationPlan,
+    },
+    funnelBrief: effectiveFunnelBrief,
+    hasStripeProducts: Boolean(stripeProducts.ok && stripeProducts.products.length),
+    hasBookingRuntime: Boolean(defaultBookingPublicUrl || defaultBookingCalendarId),
+  });
+
+  const userMsg = { role: "user", content: threadPrompt, at: new Date().toISOString() };
 
   let html = "";
   let question: string | null = null;
   let changelog: Record<string, unknown> | null = null;
   let generationPlan: Record<string, unknown> | null = null;
+  if (bookingFallbackFastPathEligible) {
+    aiRun.plannedMinSteps = promptStrategy.usedAi ? 1 : 0;
+    aiRun.plannedMaxSteps = promptStrategy.usedAi ? 1 : 0;
+    aiRun.usedFallback = true;
+    aiRun.stopReason = "completed";
+    html = buildBookingFallbackHtmlFromPlan({
+      funnelName: normalizedPage.funnel.name,
+      pageTitle: normalizedPage.title,
+      prompt: strategicPrompt || prompt,
+      primaryCta: effectiveIntentProfile.primaryCta || "Book a call",
+      bookingHref: defaultBookingPublicUrl || "#book",
+      bookingSectionId: "book",
+      audience: effectiveIntentProfile.audience,
+      offer: effectiveIntentProfile.offer,
+      companyContext: effectiveIntentProfile.companyContext || effectiveFunnelBrief?.companyContext || null,
+      pageGoal: effectiveIntentProfile.pageGoal,
+      generationPlan: null,
+    });
+    changelog = {
+      summary: "Rebuilt the page with a booking-safe fallback shell.",
+      changes: [
+        {
+          section: "hero",
+          what: "Reframed the opening around one clear booking CTA and attached proof.",
+          why: "To keep the first decision moment tight and credible.",
+        },
+        {
+          section: "booking",
+          what: "Restaged the booking handoff with reassurance and a real booking path.",
+          why: "To remove generic filler and preserve a truthful scheduling flow.",
+        },
+      ],
+      preserved: [],
+      conversionNotes: [
+        "Fast-path fallback shell was used for an empty booking draft so the first pass stays business-ready without paying for slow repair loops.",
+      ],
+    };
+  }
   try {
+    const pageStructureOutline = hasCurrentHtml ? extractHtmlStructureOutline(effectiveCurrentHtml) : "";
     const currentHtmlBlock = hasCurrentHtml
-      ? [
-          "CURRENT_HTML:",
-          "```html",
-          clampText(effectiveCurrentHtml, 24000),
-          "```",
-          "",
-        ].join("\n")
+      ? isRegionSpliceMode
+        // Splice mode: send the full-page structural outline instead of truncated raw HTML -
+        // the AI only needs to know the page anatomy, not the raw markup it can't see.
+        ? [
+          "CURRENT_HTML_STRUCTURE_OUTLINE (full page anatomy - use this to understand the page context around the selected region):",
+            pageStructureOutline || "(no outline available)",
+            "",
+          ].join("\n")
+        : effectiveCurrentHtml.length > 24000
+          ? [
+              "CURRENT_HTML:",
+              "```html",
+              clampText(effectiveCurrentHtml, 24000),
+              "```",
+              "",
+              "CURRENT_HTML_STRUCTURE_OUTLINE (full page anatomy - sections beyond the truncation point above):",
+              pageStructureOutline || "(no additional structure detected)",
+              "",
+            ].join("\n")
+          : [
+              "CURRENT_HTML:",
+              "```html",
+              effectiveCurrentHtml,
+              "```",
+              "",
+            ].join("\n")
       : "";
     const selectedRegionBlock = hasSelectedRegion
       ? [
@@ -1976,6 +3629,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
           "",
         ].join("\n")
       : "";
+    const preservedSourceActionPlanBlock = buildSourceActionPlanPromptBlock(
+      preservedSourceActionPlan,
+      "PRESERVED_SOURCE_ACTION_PLAN",
+    );
 
     const imageUrls = [
       ...attachments
@@ -2000,6 +3657,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       allowBrandStyling
         ? "- Business brand styling may be used selectively where it clearly improves the requested result without hurting readability."
         : "- Stored business brand colors are not active styling instructions for this run. Judge color choices by what works for the existing page, not by stored brand values.",
+      allowsStructuralRebuild
+        ? "- Structural rework is allowed, but only because this run explicitly calls for redesign or replacement-level change."
+        : "- Treat the current section order, funnel posture, runtime handoff, and CTA path as stable. Work diff-first: modify the existing structure before considering any new section or section move.",
+      allowsStructuralRebuild
+        ? "- If the existing structure is unusable, you may replace it, but keep the conversion logic and runtime integrations truthful."
+        : "- Do not replace the page shell, remove core conversion steps, or change funnel type unless the user explicitly asks for that structural change.",
+      "- If the user asks for lighter, cleaner, or whiter styling, do not wait for exact selectors. Rebalance the dominant surfaces toward white or near-white backgrounds, keep copy dark, and let accent color carry only CTA and proof emphasis.",
     ].join("\n");
 
     const businessContextBlock = [
@@ -2009,12 +3673,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       shellFrameBlock,
       visualWhyBlock,
       exhibitArchetypeBlock,
+      designContextBlock,
       allowBrandStyling ? profileContext.styling : "",
     ].filter(Boolean).join("\n\n");
 
     const userText = [
       businessContextBlock,
       bookingRuntimeBlock,
+      dynamicFunnelRuntimeBlock,
       stripeProductsBlock,
       pageEditContextBlock,
       `Funnel: ${normalizedPage.funnel.name} (slug: ${normalizedPage.funnel.slug})`,
@@ -2022,11 +3688,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       wantsDesignQualityAudit
         ? [
             "DESIGN_QUALITY_CHECKLIST (audit every item before writing output):",
-            "1. CONTRAST — Find every text/background pair. Fix any combination where the contrast ratio is below 4.5:1 for body text or 3:1 for headings/large text. This includes nav links, button labels, placeholder text, captions, and secondary/tertiary copy.",
-            "2. COLOR HARMONY — Identify the dominant palette from the existing page (e.g. if the hero and section backgrounds are warm brown/burgundy/earthy tones, that is the palette). Any buttons, links, or interactive elements using sharply contrasting hue families (e.g. bright purple buttons on a warm-tone page) must be replaced with a harmonious alternative that still has strong contrast and serves as a clear CTA.",
-            "3. INVISIBLE ELEMENTS — Find any nav items, header content, link text, labels, or decorative text that is near-invisible due to zero opacity, white-on-white, very light gray on white, or undeclared color inheriting a near-invisible ancestor color. Make every piece of UI text fully legible.",
-            "4. CTA LEGIBILITY — Every button and CTA must clearly read. Fix button text color if it does not contrast against the button's own background. Fix button background if it does not stand out enough from the section behind it.",
-            "5. SECTION BACKGROUNDS — Any section that currently has no background differentiation and uses default page background, where a subtle contrast would help structure the page, should receive a light background tint consistent with the existing palette.",
+            "1. CONTRAST - Find every text/background pair. Fix any combination where the contrast ratio is below 4.5:1 for body text or 3:1 for headings/large text. This includes nav links, button labels, placeholder text, captions, and secondary/tertiary copy.",
+            "2. COLOR HARMONY - Identify the dominant palette from the existing page (e.g. if the hero and section backgrounds are warm brown/burgundy/earthy tones, that is the palette). Any buttons, links, or interactive elements using sharply contrasting hue families (e.g. bright purple buttons on a warm-tone page) must be replaced with a harmonious alternative that still has strong contrast and serves as a clear CTA.",
+            "3. INVISIBLE ELEMENTS - Find any nav items, header content, link text, labels, or decorative text that is near-invisible due to zero opacity, white-on-white, very light gray on white, or undeclared color inheriting a near-invisible ancestor color. Make every piece of UI text fully legible.",
+            "4. CTA LEGIBILITY - Every button and CTA must clearly read. Fix button text color if it does not contrast against the button's own background. Fix button background if it does not stand out enough from the section behind it.",
+            "5. SECTION BACKGROUNDS - Any section that currently has no background differentiation and uses default page background, where a subtle contrast would help structure the page, should receive a light background tint consistent with the existing palette.",
+            "6. COLOR DISTRIBUTION - Rebalance the page like a system. Keep most large surfaces quiet and light, use a smaller amount of secondary tinting for structure, and reserve saturated accent mainly for CTA and proof emphasis.",
             "Apply all of the above silently. Do not explain the changes in comments. Just return the fixed page.",
           ].join("\n")
         : wantsDesignRedesign
@@ -2039,16 +3706,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
               ? "- Because this is a booking page, put proof adjacent to the hero CTA and again at the booking handoff. Do not leave all testimonials or results for the lower half of the page."
               : "",
             "- Use modern visual hierarchy, section backgrounds, cards, spacing, contrast, and polished buttons so the page feels intentionally designed.",
+            "- Build the color system intentionally: let the dominant surface carry most of the page, use a smaller amount of secondary tinting, and keep accent color concentrated around CTA and proof cues instead of washing the whole page in brand color.",
             "- Use business brand colors or fonts only where they fit the specific page and improve readability. Do not turn the whole page into a brand-color wash by default.",
             "- Make the above-the-fold section immediately credible and conversion-focused.",
             "- Ensure every CTA is clickable and points to a real destination.",
           ].filter(Boolean).join("\n")
         : "",
+          wantsBookingPage ? buildBookingDesignContractBlock("build") : "",
       "",
       currentHtmlBlock,
       pageSectionsBlock,
       selectedRegionBlock,
       recentIterationMemoryBlock,
+      preservedSourceActionPlanBlock,
       "DIRECTION_RULE:",
       "Follow the strategic build brief below and do not mirror the user's wording back verbatim.",
       "",
@@ -2059,6 +3729,48 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       attachmentsBlock,
     ].join("\n");
 
+      // ── REGION SPLICE MODE ───────────────────────────────────────────────────
+      // Page is too large to send in full AND a specific region is selected.
+      // We send only the selected region HTML + the structural outline of the
+      // full page so the AI knows context without receiving raw HTML it can't see.
+      // The AI returns ONLY the updated region block, which we splice back in.
+      if (isRegionSpliceMode && selectedRegion?.html) {
+        const spliceSystem = [
+          ...baseSystem,
+          `Region splice mode: The page is too large to send in full. You will be given CURRENT_HTML_STRUCTURE_OUTLINE (full page anatomy) and SELECTED_REGION_HTML (the exact section to edit). Apply the user's request to SELECTED_REGION_HTML only. Return ONLY the updated SELECTED_REGION HTML - a self-contained block starting with the opening tag and ending with its closing tag. Do not return the full page. Do not include <html>, <head>, or <body> wrappers.`,
+        ].join("\n");
+
+        const spliceUserText = [
+          currentHtmlBlock,
+          selectedRegionBlock,
+          preservedSourceActionPlanBlock,
+          "USER_REQUEST:",
+          strategicPrompt || prompt,
+        ].filter(Boolean).join("\n");
+
+        const spliceRaw = await trackRequiredAiStep("Region splice edit", () =>
+          imageUrls.length
+            ? generateTextWithImages({ system: spliceSystem, user: spliceUserText, imageUrls, history: aiHistory })
+            : generateText({ system: spliceSystem, user: spliceUserText, history: aiHistory }),
+        );
+
+        question = extractAiQuestion(spliceRaw);
+        if (!question) {
+          const regionHtml = extractHtml(spliceRaw);
+          if (regionHtml) {
+            const splicedFull = spliceRegionHtml(effectiveCurrentHtml, selectedRegion.key, regionHtml);
+            html = postProcessGeneratedPageHtml(
+              splicedFull || regionHtml,
+              effectiveIntentProfile.pageType,
+              requestedPrimaryCtaCopy || effectiveIntentProfile.primaryCta,
+            );
+            changelog = { splicedRegion: selectedRegion.key, mode: "region-splice" };
+          }
+        }
+      }
+      // ── END REGION SPLICE MODE ───────────────────────────────────────────────
+
+      if (!html && !question) {
     const planSystem = [
       ...baseSystem,
       "You are the planning pass for funnel page generation.",
@@ -2084,14 +3796,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       exhibitPlannerContractBlock,
       strategicPrompt,
       pageEditContextBlock,
+      preservedSourceActionPlanBlock,
       prompt,
     });
 
-    const planRaw = imageUrls.length
-      ? await generateTextWithImages({ system: planSystem, user: planUserText, imageUrls, history: aiHistory })
-      : await generateText({ system: planSystem, user: planUserText, history: aiHistory });
+    const planRaw = await trackRequiredAiStep(
+      "Whole-page generation plan",
+      () =>
+        imageUrls.length
+          ? generateTextWithImages({ system: planSystem, user: planUserText, imageUrls, history: aiHistory })
+          : generateText({ system: planSystem, user: planUserText, history: aiHistory }),
+      {
+        onSuccess: () => {
+          aiRun.usedGenerationPlan = true;
+        },
+      },
+    );
 
     generationPlan = extractJsonObjectRecord(planRaw);
+    effectiveSourceActionPlan = mergeSourceActionPlans(readPlanSourceActionPlan(generationPlan), preservedSourceActionPlan);
 
     const generationPlanBlock = generationPlan
       ? [
@@ -2100,8 +3823,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
           JSON.stringify(generationPlan, null, 2),
           "```",
           "",
-          "Treat this plan as a hard scaffold for the next build step. Do not collapse back into generic template markup.",
+          allowsStructuralRebuild
+            ? "Treat this plan as a hard scaffold for the next build step. Do not collapse back into generic template markup."
+            : "Treat this plan as a diff-based implementation scaffold inside the current page structure. Do not use it as permission to replace the page shell or reorder the conversion flow.",
           "Honor the openingPosture, openingCluster, and bookingHandoff fields as a layout contract.",
+          "Honor surfaceSystem, proofObjects, visualAnchors, and sectionRhythm as implementation contracts. Make them visible in the HTML as actual surfaces and designed elements, not as implied prose.",
+          "If sectionRhythm calls for contrast beats or calmer support beats, reflect that with distinct section treatments instead of reusing one panel style everywhere.",
+          "If proofObjects or visualAnchors mention testimonial cards, metrics, media, logos, portraits, screenshots, or proof panels, render those as real page elements rather than leaving proof as plain paragraphs.",
+          effectiveSourceActionPlan
+            ? "Honor sourceActionPlan as the implementation contract for the next build step. The HTML must make those moves visible in the page source."
+            : "",
           wantsBookingPage
             ? "In particular, keep the first screen as one dominant decision cluster: promise, fit qualifier, primary CTA, and adjacent proof in one scan. Do not separate proof into a later beat."
             : "",
@@ -2113,22 +3844,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
     const generationUserText = [userText, "", generationPlanBlock].filter(Boolean).join("\n");
 
-    const aiRaw = imageUrls.length
-      ? await generateTextWithImages({ system, user: generationUserText, imageUrls, history: aiHistory })
-      : await generateText({ system, user: generationUserText, history: aiHistory });
+    const aiRaw = await trackRequiredAiStep("Whole-page HTML build", () =>
+      imageUrls.length
+        ? generateTextWithImages({ system, user: generationUserText, imageUrls, history: aiHistory })
+        : generateText({ system, user: generationUserText, history: aiHistory }),
+    );
 
     question = extractAiQuestion(aiRaw);
     if (!question) {
       const extracted = extractHtmlAndChangelog(aiRaw);
-      html = sanitizeGeneratedHtmlVisualAssets(extracted.html);
+      html = postProcessGeneratedPageHtml(
+        extracted.html,
+        effectiveIntentProfile.pageType,
+        requestedPrimaryCtaCopy || effectiveIntentProfile.primaryCta,
+      );
       changelog = extracted.changelog;
 
-      const firstPassIssues = assessGeneratedPageQuality(html, {
-        pageType: effectiveIntentProfile.pageType,
-        primaryCta: effectiveIntentProfile.primaryCta,
-        sectionPlan: effectiveIntentProfile.sectionPlan || shellFrame?.sectionPlan || null,
-        proofModel: shellFrame?.proofModel || null,
-      });
+      const firstPassIssues = isPrimaryCtaCopyEdit && requestedPrimaryCtaCopy
+        ? (html.includes(requestedPrimaryCtaCopy) ? [] : [`Include the updated primary CTA label '${requestedPrimaryCtaCopy}' in the page.`])
+        : assessGeneratedPageQuality(html, {
+            pageType: effectiveIntentProfile.pageType,
+            primaryCta: effectiveIntentProfile.primaryCta,
+            sectionPlan: effectiveIntentProfile.sectionPlan || shellFrame?.sectionPlan || null,
+            proofModel: shellFrame?.proofModel || null,
+          });
 
       if (html && firstPassIssues.length) {
         const repairUserText = [
@@ -2155,22 +3894,47 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
           effectiveIntentProfile.pageType === "booking"
             ? "BOOKING_REPAIR_RULES: if the first screen fails, rewrite the opening cluster and booking handoff against the plan contract instead of preserving a weak hero. Keep one dominant text-and-CTA column and make any secondary zone a compact proof rail or reassurance strip."
             : "",
+          effectiveIntentProfile.pageType === "booking"
+            ? "BOOKING_REPAIR_RULES: the main booking CTA must visually outrank everything near it. Use a filled high-contrast button in a contained action stack, and demote any secondary action to a text-like link or quiet support treatment."
+            : "",
+          effectiveIntentProfile.pageType === "booking"
+            ? "BOOKING_REPAIR_RULES: create clearer section rhythm. Do not keep hero, proof strip, details, FAQ, and booking areas on the same soft panel treatment. Introduce at least one more forceful contrast beat or visual temperature shift so the page reads in chapters."
+            : "",
           "VISUAL_REPAIR_RULES: if the page still looks like a generic starter template, rebuild the hero, section containers, typography, and proof surfaces so the result feels deliberate and premium. Avoid stock UI font stacks such as Arial, Helvetica, Segoe UI, Tahoma, Geneva, Verdana, flat full-width color bands, viewport-height hero shells, and bare CTA rows with little containment.",
+          "VISUAL_REPAIR_RULES: do not keep or reintroduce the common Inter body + Space Grotesk heading pairing or the usual soft-blue consultation shell. Pick a stronger type and surface direction.",
           "VISUAL_REPAIR_RULES: use contained layouts with max-width wrappers, premium typography choices, layered surfaces or cards, and a proof module visually attached to the first serious CTA.",
           "VISUAL_REPAIR_RULES: for booking pages, do not keep or recreate a centered single-column hero card. Recompose the first screen so the promise, CTA, and trust cue land together.",
-          "VISUAL_REPAIR_RULES: do not keep the prior structure if it still reads like a stock starter page. Replace the weak hero and surrounding sections with a stronger composition instead of only restyling colors.",
+          allowsStructuralRebuild
+            ? "VISUAL_REPAIR_RULES: do not keep the prior structure if it still reads like a stock starter page. Replace the weak hero and surrounding sections with a stronger composition instead of only restyling colors."
+            : "VISUAL_REPAIR_RULES: resolve the issues inside the current section order. Strengthen containment, hierarchy, and proof staging without replacing the page shell.",
           "",
           "Repair the page so every validation issue is resolved. Return only a full ```html document, optionally followed by the JSON change log.",
         ].filter(Boolean).join("\n");
 
-        const repairRaw = imageUrls.length
-          ? await generateTextWithImages({ system, user: repairUserText, imageUrls, history: aiHistory })
-          : await generateText({ system, user: repairUserText, history: aiHistory });
+        const repairRaw = await trackAiStep(
+          "Validation repair pass",
+          () =>
+            imageUrls.length
+              ? generateTextWithImages({ system, user: repairUserText, imageUrls, history: aiHistory })
+              : generateText({ system, user: repairUserText, history: aiHistory }),
+          {
+            optional: true,
+            onSuccess: () => {
+              aiRun.usedRepair = true;
+            },
+          },
+        );
 
-        const repaired = extractHtmlAndChangelog(repairRaw);
-        if (repaired.html) {
-          html = sanitizeGeneratedHtmlVisualAssets(repaired.html);
-          changelog = repaired.changelog ?? changelog;
+        if (repairRaw) {
+          const repaired = extractHtmlAndChangelog(repairRaw);
+          if (repaired.html) {
+            html = postProcessGeneratedPageHtml(
+              repaired.html,
+              effectiveIntentProfile.pageType,
+              requestedPrimaryCtaCopy || effectiveIntentProfile.primaryCta,
+            );
+            changelog = repaired.changelog ?? changelog;
+          }
         }
 
         const rescueIssues = assessGeneratedPageQuality(html, {
@@ -2202,19 +3966,36 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
             "FOCUSED_BOOKING_CLUSTER_RULES:",
             "- Rewrite the opening cluster and booking handoff only. Keep any middle sections that are already structurally usable.",
             "- The first screen must read in one scan: promise, fit qualifier, primary CTA, and adjacent proof inside the same zone or attached proof rail.",
+            "- The booking CTA must be the most visually dominant object in that cluster. Use one filled high-contrast action and demote any secondary action to a quieter text link or subordinate treatment.",
             "- Do not leave proof as a later standalone section. Attach it directly to the hero CTA cluster, then repeat reassurance immediately above or inside the booking section.",
             "- Keep one dominant text-and-CTA column. Any secondary area must be a compact proof rail, proof strip, or reassurance stack, not decorative filler.",
             "- Return only a full ```html document, optionally followed by the JSON change log.",
           ].join("\n");
 
-          const focusedBookingRepairRaw = imageUrls.length
-            ? await generateTextWithImages({ system, user: focusedBookingRepairUserText, imageUrls, history: aiHistory })
-            : await generateText({ system, user: focusedBookingRepairUserText, history: aiHistory });
+          const focusedBookingRepairRaw = await trackAiStep(
+            "Focused booking repair pass",
+            () =>
+              imageUrls.length
+                ? generateTextWithImages({ system, user: focusedBookingRepairUserText, imageUrls, history: aiHistory })
+                : generateText({ system, user: focusedBookingRepairUserText, history: aiHistory }),
+            {
+              optional: true,
+              onSuccess: () => {
+                aiRun.usedFocusedBookingRepair = true;
+              },
+            },
+          );
 
-          const focusedBookingRepair = extractHtmlAndChangelog(focusedBookingRepairRaw);
-          if (focusedBookingRepair.html) {
-            html = sanitizeGeneratedHtmlVisualAssets(focusedBookingRepair.html);
-            changelog = focusedBookingRepair.changelog ?? changelog;
+          if (focusedBookingRepairRaw) {
+            const focusedBookingRepair = extractHtmlAndChangelog(focusedBookingRepairRaw);
+            if (focusedBookingRepair.html) {
+              html = postProcessGeneratedPageHtml(
+                focusedBookingRepair.html,
+                effectiveIntentProfile.pageType,
+                requestedPrimaryCtaCopy || effectiveIntentProfile.primaryCta,
+              );
+              changelog = focusedBookingRepair.changelog ?? changelog;
+            }
           }
         }
 
@@ -2238,32 +4019,73 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
             generationPlanBlock,
             "",
             "RESCUE_REDESIGN_RULES:",
-            "- Discard weak starter-template structure if needed. Replace it with a stronger composition rather than preserving a generic hero and flat stacked sections.",
+            allowsStructuralRebuild
+              ? "- Discard weak starter-template structure if needed. Replace it with a stronger composition rather than preserving a generic hero and flat stacked sections."
+              : "- Keep the existing section order and conversion flow intact. Rescue the page by strengthening hierarchy, surfaces, and proof staging inside that stable structure.",
             "- Use an intentional premium visual system: contained outer frame, layered surfaces, stronger typography hierarchy, and a proof cluster attached to the first serious CTA.",
             "- Avoid stock UI font stacks such as Arial, Helvetica, Segoe UI, Tahoma, Geneva, Verdana, along with plain centered hero boxes and flat full-width color bands.",
             effectiveIntentProfile.pageType === "booking"
               ? "- For booking pages, build one dominant decision cluster above the fold: promise, CTA, and trust cue in a single scan. Then repeat proof immediately before or inside the booking handoff section."
               : "- Above the fold, build one dominant decision cluster so the promise, CTA, and immediate credibility cue land together.",
             effectiveIntentProfile.pageType === "booking"
-              ? "- Respect the plan contract for openingPosture, openingCluster, and bookingHandoff. Rewrite the first screen if needed rather than trying to patch a weak composition."
+              ? allowsStructuralRebuild
+                ? "- Respect the plan contract for openingPosture, openingCluster, and bookingHandoff. Rewrite the first screen if needed rather than trying to patch a weak composition."
+                : "- Respect the plan contract for openingPosture, openingCluster, and bookingHandoff while keeping the current booking flow and section sequence intact."
               : "",
             "- Prefer asymmetry, cards, panels, or layered containers over bare full-width sections with only background-color changes.",
             "- Return only a full ```html document, optionally followed by the JSON change log.",
           ].filter(Boolean).join("\n");
 
-          const rescuedRaw = imageUrls.length
-            ? await generateTextWithImages({ system, user: rescueUserText, imageUrls, history: aiHistory })
-            : await generateText({ system, user: rescueUserText, history: aiHistory });
+          const rescuedRaw = await trackAiStep(
+            "Rescue redesign pass",
+            () =>
+              imageUrls.length
+                ? generateTextWithImages({ system, user: rescueUserText, imageUrls, history: aiHistory })
+                : generateText({ system, user: rescueUserText, history: aiHistory }),
+            {
+              optional: true,
+              onSuccess: () => {
+                aiRun.usedRescueRedesign = true;
+              },
+            },
+          );
 
-          const rescued = extractHtmlAndChangelog(rescuedRaw);
-          if (rescued.html) {
-            html = sanitizeGeneratedHtmlVisualAssets(rescued.html);
-            changelog = rescued.changelog ?? changelog;
+          if (rescuedRaw) {
+            const rescued = extractHtmlAndChangelog(rescuedRaw);
+            if (rescued.html) {
+              html = postProcessGeneratedPageHtml(
+                rescued.html,
+                effectiveIntentProfile.pageType,
+                requestedPrimaryCtaCopy || effectiveIntentProfile.primaryCta,
+              );
+              changelog = rescued.changelog ?? changelog;
+            }
           }
         }
       }
     }
+    } // end if (!html && !question)
   } catch (e) {
+    if (e instanceof AiRunCreditError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Insufficient credits to continue AI generation at ${e.stepLabel}.`,
+          creditsRemaining: e.creditsRemaining,
+          aiResult: buildAiResultMeta({
+            mode: question ? "question" : "html-update",
+            hadCurrentHtml: Boolean(effectiveCurrentHtml),
+            wantsDesignRedesign,
+            contextKeyCount: contextKeys.length,
+            contextMediaCount: contextMedia.length,
+            changelog,
+            run: aiRun,
+          }),
+        },
+        { status: 402 },
+      );
+    }
+
     return NextResponse.json(
       { ok: false, error: (e as any)?.message ? String((e as any).message) : "AI generation failed" },
       { status: 500 },
@@ -2271,6 +4093,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   }
 
   if (question) {
+    aiRun.stopReason = "question-returned";
     const assistantMsg = { role: "assistant", content: question, at: new Date().toISOString() };
     const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
 
@@ -2299,31 +4122,120 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         wantsDesignRedesign,
         contextKeyCount: contextKeys.length,
         contextMediaCount: contextMedia.length,
+        run: aiRun,
       }),
+      sourceActionPlan: effectiveSourceActionPlan,
       page: updated,
     });
   }
 
   if (!html) return NextResponse.json({ ok: false, error: "AI returned empty HTML" }, { status: 502 });
 
-  html = sanitizeGeneratedHtmlVisualAssets(sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html)));
-
-  let finalQualityIssues = assessGeneratedPageQuality(html, {
-    pageType: effectiveIntentProfile.pageType,
-    primaryCta: effectiveIntentProfile.primaryCta,
-    sectionPlan: effectiveIntentProfile.sectionPlan || shellFrame?.sectionPlan || null,
-    proofModel: shellFrame?.proofModel || null,
+  html = postProcessGeneratedPageHtml(
+    sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html)),
+    effectiveIntentProfile.pageType,
+    requestedPrimaryCtaCopy || effectiveIntentProfile.primaryCta,
+  );
+  html = enhanceBookingSchedulingExperience({
+    html,
+    bookingHref: effectiveIntentProfile.pageType === "booking" ? defaultBookingPublicUrl || null : null,
+    ctaText: effectiveIntentProfile.primaryCta || "Book a call",
   });
+
+  let designTokenIssues = assessDesignTokenDiscipline({ html });
+
+  if (html && designTokenIssues.length) {
+    const designTokenNormalizationUserText = [
+      "CURRENT_HTML:",
+      "```html",
+      clampText(html, 24000),
+      "```",
+      "",
+      generationPlan
+        ? [
+            "GENERATION_PLAN:",
+            "```json",
+            JSON.stringify(generationPlan, null, 2),
+            "```",
+          ].join("\n")
+        : "",
+      "",
+      "DESIGN_SYSTEM_NORMALIZATION_REQUIRED:",
+      ...designTokenIssues.map((issue) => `- ${issue}`),
+      buildDesignTokenPageContractBlock("build"),
+      "Normalize the page before returning. Preserve section order, copy intent, CTA destinations, booking/runtime wiring, and conversion flow, but unify buttons, cards, and typography under the shared five-token system.",
+      "Return only a full ```html document, optionally followed by the JSON change log.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const normalizationImageUrls = Array.from(
+      new Set(
+        contextMedia
+          .map((m) => toAbsoluteUrl(req, String(m?.url || "").trim()))
+          .filter(Boolean)
+          .slice(0, 8),
+      ),
+    ).slice(0, 6);
+
+    let designTokenNormalizedRaw: string | null = null;
+    try {
+      designTokenNormalizedRaw = await trackAiStep(
+        "Design token normalization pass",
+        () =>
+          normalizationImageUrls.length
+            ? generateTextWithImages({ system, user: designTokenNormalizationUserText, imageUrls: normalizationImageUrls, history: aiHistory })
+            : generateText({ system, user: designTokenNormalizationUserText, history: aiHistory }),
+        {
+          optional: true,
+        },
+      );
+    } catch {
+      designTokenNormalizedRaw = null;
+    }
+
+    if (designTokenNormalizedRaw) {
+      const normalizedDesignSystemHtml = extractHtmlAndChangelog(designTokenNormalizedRaw);
+      if (normalizedDesignSystemHtml.html) {
+        html = postProcessGeneratedPageHtml(
+          normalizedDesignSystemHtml.html,
+          effectiveIntentProfile.pageType,
+          requestedPrimaryCtaCopy || effectiveIntentProfile.primaryCta,
+        );
+        html = enhanceBookingSchedulingExperience({
+          html,
+          bookingHref: effectiveIntentProfile.pageType === "booking" ? defaultBookingPublicUrl || null : null,
+          ctaText: effectiveIntentProfile.primaryCta || "Book a call",
+        });
+        changelog = normalizedDesignSystemHtml.changelog ?? changelog;
+      }
+    }
+
+    designTokenIssues = assessDesignTokenDiscipline({ html });
+  }
+
+  let finalQualityIssues = isPrimaryCtaCopyEdit && requestedPrimaryCtaCopy
+    ? (html.includes(requestedPrimaryCtaCopy) ? [] : [`Include the updated primary CTA label '${requestedPrimaryCtaCopy}' in the page.`])
+    : assessGeneratedPageQuality(html, {
+        pageType: effectiveIntentProfile.pageType,
+        primaryCta: effectiveIntentProfile.primaryCta,
+        sectionPlan: effectiveIntentProfile.sectionPlan || shellFrame?.sectionPlan || null,
+        proofModel: shellFrame?.proofModel || null,
+      });
+  let planAdherence = assessSourceActionPlanAdherence(html, effectiveSourceActionPlan);
+
+  if (designTokenIssues.length) {
+    finalQualityIssues = [...finalQualityIssues, ...designTokenIssues];
+  }
 
   if (
     finalQualityIssues.length &&
+    !isPrimaryCtaCopyEdit &&
     effectiveIntentProfile.pageType === "booking" &&
-    (
-      hasBookingClusterFailure(finalQualityIssues) ||
-      hasBookingGenericOutputFailure(finalQualityIssues)
-    )
+    (hasBookingClusterFailure(finalQualityIssues) || hasBookingGenericOutputFailure(finalQualityIssues))
   ) {
-    const bookingFallbackPlan = hasBookingGenericOutputFailure(finalQualityIssues) ? null : generationPlan;
+    aiRun.usedFallback = true;
+    const bookingFallbackPlan = generationPlan;
     html = buildBookingFallbackHtmlFromPlan({
       funnelName: normalizedPage.funnel.name,
       pageTitle: normalizedPage.title,
@@ -2331,6 +4243,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       primaryCta: effectiveIntentProfile.primaryCta || "Book a call",
       bookingHref: defaultBookingPublicUrl || "#book",
       bookingSectionId: "book",
+      audience: effectiveIntentProfile.audience,
+      offer: effectiveIntentProfile.offer,
+      companyContext: effectiveIntentProfile.companyContext || effectiveFunnelBrief?.companyContext || null,
+      pageGoal: effectiveIntentProfile.pageGoal,
       generationPlan: bookingFallbackPlan,
     });
     changelog = {
@@ -2353,20 +4269,53 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       ],
     };
 
-    html = sanitizeGeneratedHtmlVisualAssets(sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html)));
+    html = postProcessGeneratedPageHtml(
+      sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html)),
+      effectiveIntentProfile.pageType,
+      requestedPrimaryCtaCopy || effectiveIntentProfile.primaryCta,
+    );
+    html = enhanceBookingSchedulingExperience({
+      html,
+      bookingHref: defaultBookingPublicUrl || null,
+      ctaText: effectiveIntentProfile.primaryCta || "Book a call",
+    });
     finalQualityIssues = assessGeneratedPageQuality(html, {
       pageType: effectiveIntentProfile.pageType,
       primaryCta: effectiveIntentProfile.primaryCta,
       sectionPlan: effectiveIntentProfile.sectionPlan || shellFrame?.sectionPlan || null,
       proofModel: shellFrame?.proofModel || null,
     });
+    planAdherence = assessSourceActionPlanAdherence(html, effectiveSourceActionPlan);
+  }
+
+  if (planAdherence.issues.length) {
+    finalQualityIssues = [...finalQualityIssues, ...planAdherence.issues];
   }
 
   if (finalQualityIssues.length) {
+    aiRun.stopReason = "quality-check-failed";
     return NextResponse.json(
-      { ok: false, error: `Generated page failed quality checks: ${finalQualityIssues.join(" ")}` },
+      {
+        ok: false,
+        error: `Generated page failed quality checks: ${finalQualityIssues.join(" ")}`,
+        aiResult: buildAiResultMeta({
+          mode: "html-update",
+          hadCurrentHtml: Boolean(effectiveCurrentHtml),
+          wantsDesignRedesign,
+          contextKeyCount: contextKeys.length,
+          contextMediaCount: contextMedia.length,
+          changelog,
+          planAdherenceIssues: planAdherence.issues,
+          run: aiRun,
+        }),
+        sourceActionPlan: effectiveSourceActionPlan,
+      },
       { status: 502 },
     );
+  }
+
+  if (aiRun.stopReason === "completed" && aiRun.usedFallback) {
+    aiRun.stopReason = "completed";
   }
 
   if (!/<!doctype\s+html|<html\b/i.test(html)) {
@@ -2388,23 +4337,32 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
   const pageUpdatedText = changelog?.summary
     ? buildChangelogAssistantMessage(changelog)
-    : await generatePageUpdatedAssistantText({ pageTitle: page.title, funnelName: page.funnel?.name });
+    : await generatePageUpdatedAssistantText({ pageTitle: page.title, funnelName: page.funnel?.name, prompt, changelog });
   const assistantMsg = pageUpdatedText.trim()
     ? {
         role: "assistant" as const,
         content: pageUpdatedText.trim(),
         at: new Date().toISOString(),
+        ...(effectiveSourceActionPlan ? { sourceActionPlan: effectiveSourceActionPlan } : {}),
       }
     : null;
   const nextChat = (assistantMsg ? [...prevChat, userMsg, assistantMsg] : [...prevChat, userMsg]).slice(-40);
 
-  const cleanHtml = sanitizeGeneratedHtmlVisualAssets(sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html)));
+  const cleanHtml = enhanceBookingSchedulingExperience({
+    html: postProcessGeneratedPageHtml(
+      sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html)),
+      effectiveIntentProfile.pageType,
+      requestedPrimaryCtaCopy || effectiveIntentProfile.primaryCta,
+    ),
+    bookingHref: effectiveIntentProfile.pageType === "booking" ? defaultBookingPublicUrl || null : null,
+    ctaText: effectiveIntentProfile.primaryCta || "Book a call",
+  });
 
   const updated = await prisma.creditFunnelPage.update({
     where: { id: normalizedPage.id },
     data: applyDraftHtmlWriteCompat({
       editorMode: "CUSTOM_HTML",
-      // Write AI output to draftHtml only — user must explicitly Publish to go live.
+      // Write AI output to draftHtml only - user must explicitly Publish to go live.
       ...createFunnelPageDraftUpdate(cleanHtml),
       customChatJson: nextChat as any,
     }, hasDraftHtml),
@@ -2431,7 +4389,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       contextKeyCount: contextKeys.length,
       contextMediaCount: contextMedia.length,
       changelog,
+      planAdherenceIssues: planAdherence.issues,
+      run: aiRun,
     }),
+    sourceActionPlan: effectiveSourceActionPlan,
     page: normalizedUpdated,
   });
 }

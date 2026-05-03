@@ -5,7 +5,10 @@ import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import { generateText, generateTextWithImages } from "@/lib/ai";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
+import { assessDesignTokenDiscipline, buildDesignTokenContractBlock } from "@/lib/funnelDesignTokenGuard";
+import { buildFunnelDesignContextPromptBlock, sanitizeFunnelDesignContext } from "@/lib/funnelDesignContext";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { ensureFunnelBookingCalendar } from "@/lib/funnelBookingCalendars";
 import {
   buildFunnelExhibitArchetypeBlock,
   readFunnelExhibitArchetypePack,
@@ -68,6 +71,7 @@ type NormalizedGenerateRequest = {
   prompt: string;
   currentHtml: string;
   currentCss: string;
+  designContext: ReturnType<typeof sanitizeFunnelDesignContext>;
   contextKeys: string[];
   contextMedia: Array<{ url: string; fileName?: string; mimeType?: string }>;
   chatHistory: Array<{ role: "user" | "assistant"; content: string }>;
@@ -96,6 +100,7 @@ function normalizeGenerateBody(raw: unknown): NormalizedGenerateRequest {
     prompt: cleanString(rec.prompt, 12000),
     currentHtml: typeof rec.currentHtml === "string" ? rec.currentHtml : "",
     currentCss: typeof rec.currentCss === "string" ? rec.currentCss : "",
+    designContext: sanitizeFunnelDesignContext(rec.designContext),
     contextKeys: cleanStringList(rec.contextKeys, 60, 160),
     contextMedia: Array.isArray(rec.contextMedia)
       ? rec.contextMedia
@@ -175,6 +180,18 @@ const bodySchema = z.object({
   prompt: z.string().trim().min(1).max(12000),
   currentHtml: z.string().optional().default(""),
   currentCss: z.string().optional().default(""),
+  designContext: z
+    .object({
+      designBrief: z.string().trim().max(1600).optional(),
+      fontDirection: z.string().trim().max(400).optional(),
+      vibeKeywords: z.array(z.string().trim().min(1).max(40)).max(8).optional(),
+      colorDirection: z.string().trim().max(320).optional(),
+      designConcepts: z.string().trim().max(900).optional(),
+      avoid: z.string().trim().max(600).optional(),
+    })
+    .strip()
+    .nullable()
+    .optional(),
   contextKeys: z.array(z.string().trim().min(1).max(160)).max(60).optional().default([]),
   contextMedia: z
     .array(
@@ -350,6 +367,81 @@ const paragraphBlockSchema = z
   })
   .strip();
 
+const testimonialGridItemSchema = z
+  .object({
+    quote: z.string().trim().min(1).max(800),
+    name: z.string().trim().min(1).max(120),
+    role: z.string().trim().max(160).optional(),
+    outcome: z.string().trim().max(160).optional(),
+  })
+  .strip();
+
+const testimonialGridBlockSchema = z
+  .object({
+    type: z.literal("testimonialGrid"),
+    props: z
+      .object({
+        eyebrow: z.string().trim().max(80).optional(),
+        heading: z.string().trim().max(180).optional(),
+        intro: z.string().trim().max(400).optional(),
+        items: z.array(testimonialGridItemSchema).min(1).max(6),
+        columns: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const pricingGridItemSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    price: z.string().trim().min(1).max(80),
+    billingPeriod: z.string().trim().max(80).optional(),
+    description: z.string().trim().max(240).optional(),
+    badge: z.string().trim().max(60).optional(),
+    features: z.array(z.string().trim().min(1).max(160)).max(8).optional(),
+    ctaText: z.string().trim().max(120).optional(),
+    ctaHref: z.string().trim().max(600).optional(),
+    priceId: z.string().trim().max(140).optional(),
+    featured: z.boolean().optional(),
+  })
+  .strip();
+
+const pricingGridBlockSchema = z
+  .object({
+    type: z.literal("pricingGrid"),
+    props: z
+      .object({
+        eyebrow: z.string().trim().max(80).optional(),
+        heading: z.string().trim().max(180).optional(),
+        intro: z.string().trim().max(400).optional(),
+        items: z.array(pricingGridItemSchema).min(1).max(4),
+        columns: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const syncedReviewsBlockSchema = z
+  .object({
+    type: z.literal("syncedReviews"),
+    props: z
+      .object({
+        eyebrow: z.string().trim().max(80).optional(),
+        heading: z.string().trim().max(180).optional(),
+        intro: z.string().trim().max(400).optional(),
+        limit: z.number().finite().min(1).max(12).optional(),
+        minRating: z.number().finite().min(1).max(5).optional(),
+        columns: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+        showBusinessReply: z.boolean().optional(),
+        includePhotos: z.boolean().optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
 const buttonBlockSchema = z
   .object({
     type: z.literal("button"),
@@ -435,6 +527,9 @@ const aiInsertableBlockSchema = z.discriminatedUnion("type", [
   videoBlockSchema,
   headingBlockSchema,
   paragraphBlockSchema,
+  testimonialGridBlockSchema,
+  pricingGridBlockSchema,
+  syncedReviewsBlockSchema,
   buttonBlockSchema,
   spacerBlockSchema,
   formLinkBlockSchema,
@@ -540,6 +635,9 @@ const aiAnalysisInsertableBlockSchema = z.discriminatedUnion("type", [
   videoBlockSchema,
   headingBlockSchema,
   paragraphBlockSchema,
+  testimonialGridBlockSchema,
+  pricingGridBlockSchema,
+  syncedReviewsBlockSchema,
   buttonBlockSchema,
   spacerBlockSchema,
   aiAnalysisFormLinkBlockSchema,
@@ -1052,11 +1150,73 @@ function promptRequestsFunctionalEmbed(prompt: string) {
   return embedVerb.test(text) && integrationTarget.test(text);
 }
 
+function buildFunctionalActionContractBlock() {
+  return [
+    "FUNCTIONAL_COMPONENT_ACTION_CONTRACT:",
+    "- Treat formEmbed, calendarEmbed, checkout, chatbot, and other functional blocks as framed funnel steps, not bare raw embeds.",
+    "- If you return JSON actions for a functional component, include the surrounding framing actions needed to introduce it: typically a heading, a short expectation-setting paragraph, and clamp or spacing styles on the functional block.",
+    "- Booking calendars need booking-specific framing about what happens on the call, who it is for, and why scheduling now is safe.",
+    "- Keep functional stacks width-clamped: main frame around 1100-1200px, inner copy or form stacks around 680-900px, and embeds at 100% width of their clamped container.",
+    "- Keep spacing intentional: roughly 72-120px between section beats, 24-48px within framed sections, and 12-20px for tight copy-to-control spacing.",
+    "- Use one alignment system per functional stack and avoid equal-weight panels or pasted app chrome.",
+  ].join("\n");
+}
+
+function buildFramedFunctionalInsertActions(input:
+  | { kind: "form"; prompt: string; formSlug: string }
+  | { kind: "calendar"; prompt: string; calendarId: string }) {
+  const prompt = String(input.prompt || "");
+  const isApplicationFlow = /\b(application|apply|intake|questionnaire|survey)\b/i.test(prompt);
+  const isDemoFlow = /\b(demo|walkthrough|tour)\b/i.test(prompt);
+  const isConsultFlow = /\b(call|consult|strategy|session|appointment)\b/i.test(prompt);
+
+  const frameStyle = { maxWidthPx: 760, align: "center" as const };
+  const bodyStyle = { maxWidthPx: 820, align: "center" as const, marginTopPx: 16, marginBottomPx: 12 };
+  const embedStyle = { maxWidthPx: 880, align: "center" as const, marginTopPx: 24, borderRadiusPx: 24 };
+
+  if (input.kind === "form") {
+    const heading = isApplicationFlow ? "Tell us about your situation" : "Complete the next step";
+    const intro = isApplicationFlow
+      ? "Use the form below to share the details that matter most so the next step can be tailored to your goals. Keep this section focused, calm, and clearly guided."
+      : "Use the form below to share what you need so the next step feels personal, clear, and easy to complete without leaving the page.";
+    return [
+      { type: "insertAfter", block: { type: "heading", props: { text: heading, level: 2, style: frameStyle } } },
+      { type: "insertAfter", block: { type: "paragraph", props: { text: intro, style: bodyStyle } } },
+      { type: "insertAfter", block: { type: "formEmbed", props: { formSlug: input.formSlug, height: 720, style: embedStyle } } },
+    ];
+  }
+
+  const heading = isDemoFlow
+    ? "Choose a time for your walkthrough"
+    : isConsultFlow
+      ? "Choose a time for your session"
+      : "Choose a time that works for you";
+  const intro = isDemoFlow
+    ? "Pick a slot below for a focused walkthrough. Frame this as a guided next step with clear expectations and enough reassurance to make booking feel easy."
+    : "Pick a time below and keep the scheduling handoff native to the page. Explain what happens next, who this is for, and why booking now is a safe next move.";
+  return [
+    { type: "insertAfter", block: { type: "heading", props: { text: heading, level: 2, style: frameStyle } } },
+    { type: "insertAfter", block: { type: "paragraph", props: { text: intro, style: bodyStyle } } },
+    { type: "insertAfter", block: { type: "calendarEmbed", props: { calendarId: input.calendarId, height: 780, style: embedStyle } } },
+  ];
+}
+
+function promptRequestsLightSurfaceChange(prompt: string) {
+  const text = String(prompt || "").trim().toLowerCase();
+  if (!text) return false;
+  return /\b(background|surface|page|section|block|card)\b/.test(text) && /\b(white|lighter|light|bright|brighter|cleaner|airy|airier)\b/.test(text);
+}
+
+function fragmentChanged(previousHtml: string, nextHtml: string, previousCss: string, nextCss: string) {
+  return String(previousHtml || "") !== String(nextHtml || "") || String(previousCss || "") !== String(nextCss || "");
+}
+
 function inferForcedActionsFromIntent(opts: {
   prompt: string;
   html: string;
   forms: Array<{ slug: string; name: string; status: string }>;
   calendars: Array<{ id: string; enabled: boolean; title: string }>;
+  defaultCalendarId?: string;
   hasStripeProducts: boolean;
 }) {
   const prompt = String(opts.prompt || "");
@@ -1088,13 +1248,12 @@ function inferForcedActionsFromIntent(opts: {
 
   if (wantsForm) {
     const formSlug = pickDefaultFormSlug(opts.forms);
-    if (formSlug) actions.push({ type: "insertAfter", block: { type: "formEmbed", props: { formSlug, height: 720 } } });
+    if (formSlug) actions.push(...buildFramedFunctionalInsertActions({ kind: "form", prompt, formSlug }));
   }
 
   if (wantsCalendar) {
-    const calendarId = pickDefaultCalendarId(opts.calendars);
-    if (calendarId)
-      actions.push({ type: "insertAfter", block: { type: "calendarEmbed", props: { calendarId, height: 780 } } });
+    const calendarId = pickDefaultCalendarId(opts.calendars, opts.defaultCalendarId);
+    if (calendarId) actions.push(...buildFramedFunctionalInsertActions({ kind: "calendar", prompt, calendarId }));
   }
 
   if (wantsChatbot) {
@@ -1141,7 +1300,12 @@ function resolveFormSlug(
   return fuzzy?.slug ?? fallback;
 }
 
-function pickDefaultCalendarId(calendars: Array<{ id: string; enabled: boolean; title: string }>): string {
+function pickDefaultCalendarId(calendars: Array<{ id: string; enabled: boolean; title: string }>, preferredCalendarId?: string): string {
+  const preferred = String(preferredCalendarId || "").trim();
+  if (preferred) {
+    const preferredCalendar = calendars.find((calendar) => calendar.enabled && calendar.id === preferred);
+    if (preferredCalendar?.id) return preferredCalendar.id;
+  }
   const enabled = calendars.find((c) => c.enabled);
   return (enabled ?? calendars[0])?.id ?? "";
 }
@@ -1149,8 +1313,9 @@ function pickDefaultCalendarId(calendars: Array<{ id: string; enabled: boolean; 
 function resolveCalendarId(
   pick: z.infer<typeof aiCalendarPickSchema>,
   calendars: Array<{ id: string; enabled: boolean; title: string }>,
+  preferredCalendarId?: string,
 ): string {
-  const fallback = pickDefaultCalendarId(calendars);
+  const fallback = pickDefaultCalendarId(calendars, preferredCalendarId);
   if (!calendars.length) return "";
 
   if (pick.pick === "default") return fallback;
@@ -1245,7 +1410,7 @@ export async function POST(req: Request) {
   }
   const parsed = bodySchema.safeParse(normalizedBody);
   const body = parsed.success ? parsed.data : normalizedBody;
-  const { funnelId, pageId, prompt, contextKeys, contextMedia, chatHistory } = body;
+  const { funnelId, pageId, prompt, designContext, contextKeys, contextMedia, chatHistory } = body;
   const currentHtml = String(body.currentHtml || "");
   const currentCss = String(body.currentCss || "");
 
@@ -1285,6 +1450,11 @@ export async function POST(req: Request) {
     frameId: null,
     pageType: intentProfile.pageType,
     formStrategy: intentProfile.formStrategy,
+    audience: intentProfile.audience,
+    offer: intentProfile.offer,
+    companyContext: intentProfile.companyContext,
+    pageGoal: intentProfile.pageGoal,
+    primaryCta: intentProfile.primaryCta,
   });
   const routeLabel = buildFunnelPageRouteLabel(page.funnel.slug, page.slug);
   const storedExhibitArchetypePack = readFunnelExhibitArchetypePack(settings?.dataJson ?? null, page.funnel.id);
@@ -1312,6 +1482,7 @@ export async function POST(req: Request) {
     intentProfile,
     currentHtml,
     currentCss,
+    designContext,
     contextKeys,
     contextMedia,
     recentChatHistory: chatHistory,
@@ -1353,7 +1524,24 @@ export async function POST(req: Request) {
     select: { slug: true, name: true, status: true },
   });
 
-  const calendarsConfig = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1 as const, calendars: [] }));
+  let calendarsConfig = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1 as const, calendars: [] }));
+  let defaultCalendarId = "";
+  const shouldProvisionFunnelCalendar =
+    intentProfile.pageType === "booking" ||
+    intentProfile.formStrategy === "booking" ||
+    (promptRequestsFunctionalEmbed(prompt) && /\b(calendar|booking|book\b|schedule|appointment|appoint)\b/i.test(prompt));
+  if (shouldProvisionFunnelCalendar) {
+    const ensuredCalendar = await ensureFunnelBookingCalendar({
+      ownerId,
+      funnelId: page.funnel.id,
+      funnelName: page.funnel.name,
+      pageTitle: page.title,
+    });
+    if (ensuredCalendar.ok) {
+      calendarsConfig = ensuredCalendar.config;
+      defaultCalendarId = ensuredCalendar.calendar.id;
+    }
+  }
   const calendars = (calendarsConfig as any)?.calendars && Array.isArray((calendarsConfig as any).calendars)
     ? ((calendarsConfig as any).calendars as Array<{ id: string; enabled: boolean; title: string }>)
     : ([] as Array<{ id: string; enabled: boolean; title: string }>);
@@ -1381,6 +1569,7 @@ export async function POST(req: Request) {
         "",
       ].join("\n")
     : "";
+  const designContextBlock = buildFunnelDesignContextPromptBlock(designContext);
 
   const stripeProductsBlock = stripeProducts.ok && stripeProducts.products.length
     ? [
@@ -1411,8 +1600,10 @@ export async function POST(req: Request) {
     "- Action types:",
     "  - { type: 'insertAfter', block: { type, props } }",
     "  - { type: 'insertPresetAfter', preset: 'hero'|'body'|'form'|'shop' }",
-    "- Allowed block types for insertAfter: chatbot, image, video, heading, paragraph, button, spacer, formLink, formEmbed, calendarEmbed, salesCheckoutButton.",
+    "- Allowed block types for insertAfter: chatbot, image, video, heading, paragraph, testimonialGrid, pricingGrid, syncedReviews, button, spacer, formLink, formEmbed, calendarEmbed, salesCheckoutButton.",
     "- Do NOT include HTML/CSS fences when you return JSON actions.",
+    buildFunctionalActionContractBlock(),
+    buildDesignTokenContractBlock("DESIGN_TOKEN_FRAGMENT_CONTRACT:"),
     "Constraints:",
     "- No external JS/CSS, no frameworks.",
     "- Prefer semantic HTML and classes; keep it minimal.",
@@ -1463,18 +1654,24 @@ export async function POST(req: Request) {
     "  buildPrompt?: string,",
     "  question?: string",
     "}",
+    buildFunctionalActionContractBlock(),
+    buildDesignTokenContractBlock("DESIGN_TOKEN_FRAGMENT_CONTRACT:"),
     "Rules:",
     "- Synthesize the strongest coherent baseline from BUSINESS_PROFILE, FUNNEL_BRIEF, INTENT_PROFILE, route cues, and the user's request before asking a question.",
-    "- If user says 'embed my calendar' or anything about booking/scheduling, prefer output='actions' with a calendarEmbed block.",
-    "- If user says 'embed my form' or anything about forms, prefer output='actions' with a formEmbed (or formLink if they want a link).",
+    "- If user says 'embed my calendar' or anything about booking/scheduling, prefer output='actions' with a framed calendar sequence rather than a lone calendarEmbed block.",
+    "- If user says 'embed my form' or anything about forms, prefer output='actions' with a framed form sequence rather than a lone formEmbed block (or use formLink only when they explicitly want a link).",
     "- If user asks for a chatbot/chat widget, prefer output='actions' with a chatbot block.",
     "- If user asks for a VSL, explainer video, hero video, or video section and a real video asset is available, prefer output='actions' with a video block.",
+    "- If user asks for testimonials, proof, outcomes, or social proof, prefer output='actions' with a testimonialGrid block unless they explicitly want custom HTML.",
+    "- If user asks for real reviews, organic reviews, review sync, or wants the page to stay connected to their live review inbox, prefer output='actions' with a syncedReviews block.",
+    "- If user asks for pricing, packages, plans, tiers, or offer comparison, prefer output='actions' with a pricingGrid block unless they explicitly want a bespoke HTML table.",
     "- If user asks for a shop/store/product list, prefer output='actions' with an insertPresetAfter preset='shop'.",
     "- If user mentions cart/checkout/add-to-cart/Stripe, prefer output='actions' with preset='shop' (do NOT generate a fake shop in HTML).",
     "- For calendarEmbed, props must include { calendar: { pick: 'default'|'byId'|'byTitle', value? }, height?, style? }.",
     "- For formEmbed/formLink, props must include { form: { pick: 'default'|'bySlug'|'byName', value? }, ... }.",
     "- Use pick='default' for 'my calendar'/'my form' when no specific name/slug is provided.",
     "- For other block types, follow the normal props shapes.",
+    "- Do not treat a functional component as self-framing. If the user wants a real funnel step, include the supporting heading and explanatory copy in the action list or switch to output='html' for a richer wrapped section.",
     "- IMPORTANT: If CURRENT_HTML or CURRENT_CSS are present and the user is asking for styling, contrast, readability, spacing, color, or layout fixes on the existing block, return output='html'. Do not redirect that into block actions and do not ask what type of block to use.",
     "- If output='html' and CURRENT_HTML or CURRENT_CSS are present, include diagnosis. Describe the scene problem before describing the fix.",
     "- Diagnosis should explain what region is affected, what element is causing the issue, what it is colliding with or failing to express, and where the safe placement or stronger composition should be.",
@@ -1505,6 +1702,7 @@ export async function POST(req: Request) {
     `Page: ${page.title} (slug: ${page.slug})`,
     "",
     contextBlock,
+    designContextBlock,
     contextMediaBlock,
     currentFragmentSceneSnapshot,
     hasCurrent
@@ -1572,7 +1770,7 @@ export async function POST(req: Request) {
           return { type: "insertAfter" as const, block: { type: block.type, props: nextProps } };
         }
         if (block.type === "calendarEmbed") {
-          const calendarId = resolveCalendarId(block.props.calendar, calendars);
+          const calendarId = resolveCalendarId(block.props.calendar, calendars, defaultCalendarId);
           const nextProps = { ...block.props };
           delete (nextProps as any).calendar;
           (nextProps as any).calendarId = calendarId;
@@ -1660,14 +1858,58 @@ export async function POST(req: Request) {
     }
   }
 
-  const rawHtmlFence = extractFence(buildRaw, "html");
-  const rawCssFence = extractFence(buildRaw, "css");
-  const coerced = coerceHtmlFragment(rawHtmlFence);
-  const html = coerced.html;
-  const css = [rawCssFence, coerced.cssFromHtml].filter(Boolean).join("\n\n").trim();
+  const coerceBuildResponse = (raw: string) => {
+    const rawHtmlFence = extractFence(raw, "html");
+    const rawCssFence = extractFence(raw, "css");
+    const coerced = coerceHtmlFragment(rawHtmlFence);
+    return {
+      html: coerced.html,
+      css: [rawCssFence, coerced.cssFromHtml].filter(Boolean).join("\n\n").trim(),
+    };
+  };
+
+  let { html, css } = coerceBuildResponse(buildRaw);
 
   if (!html.trim()) {
     return NextResponse.json({ ok: false, error: "AI returned empty HTML" }, { status: 502 });
+  }
+
+  const shouldRetryMaterialEdit = hasCurrent && prefersInPlaceHtml && !fragmentChanged(currentHtml, html, currentCss, css);
+
+  if (shouldRetryMaterialEdit) {
+    const retryUser = [
+      baseUser,
+      "",
+      diagnosisBlock,
+      diagnosisBlock ? "" : null,
+      structuralGuidanceBlock,
+      toneGuidanceBlock,
+      "",
+      "RETRY_RULE:",
+      "The previous attempt did not materially change CURRENT_HTML or CURRENT_CSS.",
+      "Return a materially updated fragment that clearly satisfies the user's instruction. Do not preserve the current styling if it conflicts with the request.",
+      promptRequestsLightSurfaceChange(prompt)
+        ? "If the user asked for a white, lighter, brighter, or cleaner background, explicitly change the dominant surface backgrounds to white or near-white and adjust text contrast so the result is visibly different and more readable."
+        : "Make at least one clear visual or structural change that satisfies the request instead of returning the existing fragment unchanged.",
+      "",
+      "BUILD_INSTRUCTION:",
+      buildPrompt,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    try {
+      const retryRaw = imageUrls.length
+        ? await generateTextWithImages({ system: buildSystem, user: retryUser, imageUrls, history: chatHistory })
+        : await generateText({ system: buildSystem, user: retryUser, history: chatHistory });
+      const retried = coerceBuildResponse(retryRaw);
+      if (retried.html.trim()) {
+        html = retried.html;
+        css = retried.css;
+      }
+    } catch {
+      // Fall back to the original unchanged fragment if the retry fails.
+    }
   }
 
   // Final guardrail: if the model emitted placeholders or portal-only URLs, or if intent is clearly
@@ -1682,6 +1924,7 @@ export async function POST(req: Request) {
       html,
       forms,
       calendars,
+      defaultCalendarId,
       hasStripeProducts: Boolean(stripeProducts.ok && stripeProducts.products.length),
     });
 
@@ -1705,6 +1948,60 @@ export async function POST(req: Request) {
     } catch {
       return NextResponse.json({ ok: false, error: "AI provider not configured" }, { status: 502 });
     }
+  }
+
+  let designTokenIssues = assessDesignTokenDiscipline({ html, css });
+
+  if (designTokenIssues.length) {
+    const tokenRetryUser = [
+      baseUser,
+      "",
+      diagnosisBlock,
+      diagnosisBlock ? "" : null,
+      structuralGuidanceBlock,
+      toneGuidanceBlock,
+      "",
+      "FIRST_PASS_HTML:",
+      "```html",
+      clampText(html, 20000),
+      "```",
+      "",
+      "FIRST_PASS_CSS:",
+      "```css",
+      clampText(css, 20000),
+      "```",
+      "",
+      "DESIGN_SYSTEM_NORMALIZATION_REQUIRED:",
+      ...designTokenIssues.map((issue) => `- ${issue}`),
+      buildDesignTokenContractBlock("DESIGN_TOKEN_FRAGMENT_CONTRACT:"),
+      "Normalize the fragment before returning. Preserve the structure, CTA destinations, and functional wiring, but unify button styling, card structure, and typography hierarchy under the shared token system.",
+      "",
+      "BUILD_INSTRUCTION:",
+      buildPrompt,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    try {
+      const tokenRetryRaw = imageUrls.length
+        ? await generateTextWithImages({ system: buildSystem, user: tokenRetryUser, imageUrls, history: chatHistory })
+        : await generateText({ system: buildSystem, user: tokenRetryUser, history: chatHistory });
+      const retried = coerceBuildResponse(tokenRetryRaw);
+      if (retried.html.trim()) {
+        html = retried.html;
+        css = retried.css;
+        designTokenIssues = assessDesignTokenDiscipline({ html, css });
+      }
+    } catch {
+      // Fall back to the original build if token normalization fails.
+    }
+  }
+
+  if (designTokenIssues.length) {
+    return NextResponse.json(
+      { ok: false, error: `Generated fragment violated design-token rules: ${designTokenIssues.join(" ")}` },
+      { status: 502 },
+    );
   }
 
   const summary = buildCustomCodeResultSummary({

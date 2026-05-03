@@ -95,7 +95,7 @@ function distributeRow(layout: DashboardLayoutItem[], cols: number): DashboardLa
       widths[index] = Math.max(widths[index], minWidths[index]);
     }
 
-    let used = widths.reduce((sum, value) => sum + value, 0);
+    const used = widths.reduce((sum, value) => sum + value, 0);
     if (used > cols) {
       for (const item of sorted) next.set(item.i, item);
       continue;

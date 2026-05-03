@@ -1308,7 +1308,7 @@ export function PortalBillingClient({
         <div
           className={[
             "fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4",
-            "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
+            "pa-modal-safe-pad",
             "sm:items-center",
           ].join(" ")}
         >

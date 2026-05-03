@@ -48,6 +48,7 @@ export async function GET(
   }
 
   const durationMinutes = cal.durationMinutes ?? parsed.data.durationMinutes;
+  const minimumNoticeMinutes = cal.minimumNoticeMinutes ?? 0;
 
   const now = new Date();
   const base = parsed.data.startAt ? new Date(parsed.data.startAt) : now;
@@ -66,6 +67,7 @@ export async function GET(
     startAt: parsed.data.startAt ?? null,
     days: parsed.data.days,
     durationMinutes,
+    minimumNoticeMinutes,
     limit: parsed.data.limit,
     coverageBlocks: blocks,
     existing: bookings,

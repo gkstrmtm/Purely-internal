@@ -14,8 +14,10 @@ export function AppModal({
   onClose,
   children,
   footer,
+  headerActions,
   widthClassName,
   zIndex,
+  backdropClassName,
   closeVariant = "x",
   hideHeaderDivider = true,
   hideFooterDivider = true,
@@ -26,8 +28,10 @@ export function AppModal({
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  headerActions?: React.ReactNode;
   widthClassName?: string;
   zIndex?: number;
+  backdropClassName?: string;
   closeVariant?: "text" | "x";
   hideHeaderDivider?: boolean;
   hideFooterDivider?: boolean;
@@ -61,10 +65,10 @@ export function AppModal({
     const baseZ = Number.isFinite(zIndex as number) ? (zIndex as number) : 8000;
 
     return (
-      <div className="fixed inset-0" style={{ zIndex: baseZ }} aria-hidden>
+      <div className="fixed inset-0" style={{ zIndex: baseZ }}>
         <button
           type="button"
-          className="absolute inset-0 cursor-default bg-black/30"
+          className={classNames("absolute inset-0 cursor-default bg-black/30", backdropClassName)}
           onClick={onClose}
           aria-label="Close modal"
         />
@@ -72,7 +76,7 @@ export function AppModal({
         <div
           className={classNames(
             "fixed inset-0 flex items-start justify-center px-4",
-            "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
+            "pa-modal-safe-pad",
             "sm:items-center",
           )}
           style={{ zIndex: baseZ + 10 }}
@@ -97,19 +101,22 @@ export function AppModal({
                   <div className="text-base font-semibold text-zinc-900">{title}</div>
                   {description ? <div className="mt-1 text-sm text-zinc-600">{description}</div> : null}
                 </div>
-                <button
-                  type="button"
-                  className={classNames(
-                    "shrink-0 select-none transition-all duration-150 hover:-translate-y-0.5",
-                    closeVariant === "x"
-                      ? "grid h-10 w-10 place-items-center rounded-2xl border border-transparent bg-white text-lg leading-none font-semibold text-zinc-500 hover:scale-105 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
-                      : "rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50",
-                  )}
-                  onClick={onClose}
-                  aria-label="Close"
-                >
-                  {closeVariant === "x" ? "×" : "Close"}
-                </button>
+                <div className="flex shrink-0 items-start gap-2">
+                  {headerActions ? <div className="flex items-center gap-2">{headerActions}</div> : null}
+                  <button
+                    type="button"
+                    className={classNames(
+                      "shrink-0 select-none transition-all duration-150 hover:-translate-y-0.5",
+                      closeVariant === "x"
+                        ? "grid h-10 w-10 place-items-center rounded-2xl border border-transparent bg-white text-lg leading-none font-semibold text-zinc-500 hover:scale-105 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
+                        : "rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50",
+                    )}
+                    onClick={onClose}
+                    aria-label="Close"
+                  >
+                    {closeVariant === "x" ? "×" : "Close"}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -120,7 +127,7 @@ export function AppModal({
         </div>
       </div>
     );
-  }, [children, closeVariant, description, footer, hideFooterDivider, hideHeaderDivider, onClose, open, title, widthClassName, zIndex]);
+  }, [backdropClassName, children, closeVariant, description, footer, headerActions, hideFooterDivider, hideHeaderDivider, onClose, open, title, widthClassName, zIndex]);
 
   if (!mounted) return null;
   if (!body) return null;

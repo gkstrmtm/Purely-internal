@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { listAvailabilityBlocksForRange } from "@/lib/bookingAvailability";
 import { prisma } from "@/lib/db";
@@ -48,6 +49,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, slots: [] });
   }
 
+  const calendarsConfig = calendarId ? await getBookingCalendarsConfig(ownerId).catch(() => null) : null;
+  const calendar = calendarId ? calendarsConfig?.calendars.find((entry) => entry.id === calendarId) ?? null : null;
+
   const now = new Date();
   const base = parsed.data.startAt ? new Date(parsed.data.startAt) : now;
   const rangeStart = Number.isNaN(base.getTime()) ? now : base;
@@ -64,7 +68,8 @@ export async function GET(req: Request) {
   const slots = computeAvailableSlots({
     startAt: parsed.data.startAt ?? null,
     days: parsed.data.days,
-    durationMinutes: parsed.data.durationMinutes,
+    durationMinutes: calendar?.durationMinutes ?? parsed.data.durationMinutes,
+    minimumNoticeMinutes: calendar?.minimumNoticeMinutes ?? 0,
     limit: parsed.data.limit,
     coverageBlocks: blocks,
     existing: bookings,

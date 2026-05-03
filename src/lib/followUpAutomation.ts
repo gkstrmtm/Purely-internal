@@ -1236,7 +1236,7 @@ export async function scheduleFollowUpsForBooking(
   let location: string | null = null;
 
   const rawNotes = typeof (bookingRow as any).notes === "string" ? ((bookingRow as any).notes as string) : "";
-  if (rawNotes.startsWith("[Purely Connect Meeting]")) {
+  if (/^\[(Purely Connect|Zoom|Google Meet) Meeting\]/.test(rawNotes)) {
     const lines = rawNotes.split(/\r?\n/);
     if (lines.length >= 2) {
       const urlLine = lines[1].trim();

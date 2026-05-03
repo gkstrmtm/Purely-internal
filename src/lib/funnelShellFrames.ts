@@ -20,6 +20,82 @@ export type FunnelShellFrame = {
   };
 };
 
+const SHARED_DESIGN_DIRECTIVES = [
+  "Make the page feel intentionally designed for the business, offer, and audience instead of falling back to a generic house template.",
+  "Push sophistication through hierarchy, spacing, proof staging, and restrained art direction before adding decorative effects.",
+  "Keep richer visuals performance-disciplined: non-critical media should stay defer-friendly and above-the-fold emphasis should be deliberate.",
+] as const;
+
+function withSharedDesignDirectives(frame: FunnelShellFrame): FunnelShellFrame {
+  return {
+    ...frame,
+    designDirectives: Array.from(new Set([...frame.designDirectives, ...SHARED_DESIGN_DIRECTIVES])),
+  };
+}
+
+function cleanSignal(value: unknown, max = 240) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, max) : "";
+}
+
+function matchesAny(value: string, patterns: RegExp[]) {
+  return patterns.some((pattern) => pattern.test(value));
+}
+
+function inferAdaptiveShellFrameId(input: {
+  pageType: FunnelPageIntentType;
+  formStrategy?: FunnelPageFormStrategy | null;
+  audience?: string | null;
+  offer?: string | null;
+  companyContext?: string | null;
+  pageGoal?: string | null;
+  primaryCta?: string | null;
+}) {
+  const pageType = input.pageType;
+  const formStrategy = input.formStrategy;
+  const signal = [input.audience, input.offer, input.companyContext, input.pageGoal, input.primaryCta]
+    .map((value) => cleanSignal(value, 280).toLowerCase())
+    .filter(Boolean)
+    .join(" ");
+
+  if (pageType === "booking") {
+    if (formStrategy === "application") return "booking-diagnostic-fit-first";
+    if (
+      matchesAny(signal, [
+        /qualification|screen|screening|selective|fit[- ]first|fit first/,
+        /application|eligibility|who this is for|who it is for|who this isn'?t for|not for/,
+        /diagnostic|assessment|audit|strategy brief|discovery|vetting/,
+      ])
+    ) {
+      return "booking-diagnostic-fit-first";
+    }
+    return "booking-authority-editorial";
+  }
+
+  if (pageType === "lead-capture") {
+    if (matchesAny(signal, [/audit|assessment|quote|estimate|brief|strategy|roadmap|plan/])) {
+      return "lead-audit-conversion-brief";
+    }
+    return "lead-editorial-value-exchange";
+  }
+
+  if (pageType === "landing") {
+    if (matchesAny(signal, [/audit|assessment|quote|estimate|brief|strategy|roadmap|plan/])) {
+      return "lead-audit-conversion-brief";
+    }
+    if (matchesAny(signal, [/book|booking|consult|consultation|call|demo/])) {
+      return "booking-authority-editorial";
+    }
+    return "lead-editorial-value-exchange";
+  }
+
+  if (pageType === "application") return "application-selective-screening";
+  if (pageType === "sales") return "sales-proof-stack-premium";
+  if (pageType === "checkout") return "checkout-trust-reassurance";
+  if (pageType === "webinar") return "webinar-promise-registration";
+  if (pageType === "home") return matchesAny(signal, [/book|booking|consult|call|demo/]) ? "booking-authority-editorial" : "lead-editorial-value-exchange";
+  return "booking-authority-editorial";
+}
+
 const FUNNEL_SHELL_FRAMES: FunnelShellFrame[] = [
   {
     id: "booking-authority-editorial",
@@ -224,36 +300,50 @@ const FUNNEL_SHELL_FRAMES: FunnelShellFrame[] = [
 ];
 
 export function listFunnelShellFrames(pageType?: FunnelPageIntentType | null) {
-  if (!pageType) return [...FUNNEL_SHELL_FRAMES];
-  return FUNNEL_SHELL_FRAMES.filter((frame) => frame.pageTypes.includes(pageType));
+  if (!pageType) return FUNNEL_SHELL_FRAMES.map(withSharedDesignDirectives);
+  return FUNNEL_SHELL_FRAMES.filter((frame) => frame.pageTypes.includes(pageType)).map(withSharedDesignDirectives);
 }
 
 export function getFunnelShellFrame(frameId?: string | null) {
   const cleanId = String(frameId || "").trim().toLowerCase();
   if (!cleanId) return null;
-  return FUNNEL_SHELL_FRAMES.find((frame) => frame.id === cleanId) || null;
+  const frame = FUNNEL_SHELL_FRAMES.find((candidate) => candidate.id === cleanId);
+  return frame ? withSharedDesignDirectives(frame) : null;
 }
 
-export function getDefaultFunnelShellFrameId(pageType: FunnelPageIntentType, formStrategy?: FunnelPageFormStrategy | null) {
-  if (pageType === "booking") return formStrategy === "application" ? "booking-diagnostic-fit-first" : "booking-authority-editorial";
-  if (pageType === "lead-capture") return "lead-editorial-value-exchange";
-  if (pageType === "sales") return "sales-proof-stack-premium";
-  if (pageType === "checkout") return "checkout-trust-reassurance";
-  if (pageType === "application") return "application-selective-screening";
-  if (pageType === "webinar") return "webinar-promise-registration";
-  if (pageType === "landing") return "lead-editorial-value-exchange";
-  if (pageType === "home") return "booking-authority-editorial";
-  return "booking-authority-editorial";
+export function getDefaultFunnelShellFrameId(
+  pageType: FunnelPageIntentType,
+  formStrategy?: FunnelPageFormStrategy | null,
+  options?: {
+    audience?: string | null;
+    offer?: string | null;
+    companyContext?: string | null;
+    pageGoal?: string | null;
+    primaryCta?: string | null;
+  },
+) {
+  return inferAdaptiveShellFrameId({ pageType, formStrategy, ...options });
 }
 
 export function resolveFunnelShellFrame(input: {
   frameId?: string | null;
   pageType: FunnelPageIntentType;
   formStrategy?: FunnelPageFormStrategy | null;
+  audience?: string | null;
+  offer?: string | null;
+  companyContext?: string | null;
+  pageGoal?: string | null;
+  primaryCta?: string | null;
 }) {
   const requested = getFunnelShellFrame(input.frameId);
   if (requested && requested.pageTypes.includes(input.pageType)) return requested;
 
-  const fallbackId = getDefaultFunnelShellFrameId(input.pageType, input.formStrategy);
+  const fallbackId = getDefaultFunnelShellFrameId(input.pageType, input.formStrategy, {
+    audience: input.audience,
+    offer: input.offer,
+    companyContext: input.companyContext,
+    pageGoal: input.pageGoal,
+    primaryCta: input.primaryCta,
+  });
   return getFunnelShellFrame(fallbackId);
 }

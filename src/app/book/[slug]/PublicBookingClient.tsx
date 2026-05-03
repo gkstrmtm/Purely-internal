@@ -136,6 +136,7 @@ export function PublicBookingClient({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<Booking | null>(null);
   const [rescheduleUrl, setRescheduleUrl] = useState<string | null>(null);
+  const [successMeetingLocation, setSuccessMeetingLocation] = useState<string | null>(null);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -356,6 +357,7 @@ export function PublicBookingClient({
 
     setSuccess((body as { booking: Booking }).booking);
     setRescheduleUrl(typeof (body as any).rescheduleUrl === "string" ? ((body as any).rescheduleUrl as string) : null);
+    setSuccessMeetingLocation(typeof (body as any).meetingLocation === "string" ? ((body as any).meetingLocation as string) : null);
     notifyParentCreditFunnelEvent({
       eventType: "booking_created",
       pageId: readTrackingContextFromWindow().pageId || null,
@@ -431,9 +433,9 @@ export function PublicBookingClient({
             <p className="mt-3 text-sm" style={{ color: "var(--booking-muted)" }}>
               {new Date(success.startAt).toLocaleString()} ({site.durationMinutes} minutes)
             </p>
-            {site.meetingLocation ? (
+            {(successMeetingLocation || site.meetingLocation) ? (
               <div className="mt-2 whitespace-pre-line text-sm" style={{ color: "var(--booking-muted)" }}>
-                Location: {site.meetingLocation}
+                Location: {successMeetingLocation || site.meetingLocation}
               </div>
             ) : null}
             {site.meetingDetails ? (

@@ -1294,7 +1294,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               className={
                 mode === "manual"
                   ? "fixed inset-0 z-9997 flex items-stretch justify-center bg-black/40 px-0 pt-[var(--pa-modal-safe-top,0px)] pb-0 sm:px-4"
-                  : "fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center"
+                  : "fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pa-modal-safe-pad sm:items-center"
               }
               onMouseDown={() => setComposerOpen(false)}
             >
@@ -1546,7 +1546,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
                 {manualImagePreviewOpen && manualImagePreview ? (
                   <div
-                    className="fixed inset-0 z-9998 flex items-end justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center"
+                    className="fixed inset-0 z-9998 flex items-end justify-center bg-black/40 px-4 pa-modal-safe-pad sm:items-center"
                     onMouseDown={() => {
                       if (manualImageImporting) return;
                       setManualImagePreviewOpen(false);
@@ -2698,7 +2698,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
       {draftOpen ? (
         <div
-          className="fixed inset-0 z-9997 flex items-stretch justify-center bg-black/30 px-0 pt-[var(--pa-modal-safe-top,0px)] pb-0 sm:px-4 sm:pt-[calc(var(--pa-modal-safe-top,0px)+1rem)]"
+          className="fixed inset-0 z-9997 flex items-stretch justify-center bg-black/30 px-0 pb-0 sm:px-4 pa-modal-sheet-shell"
           onMouseDown={() => setDraftOpen(false)}
         >
           <div
@@ -3016,7 +3016,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
       {siteConfigOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pa-modal-safe-pad sm:items-center"
           onMouseDown={() => {
             if (siteConfigBusy) return;
             setSiteConfigOpen(false);

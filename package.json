@@ -6,7 +6,7 @@
     "node": "20.x"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/start-next-dev.mjs",
     "prebuild": "node scripts/prisma-prebuild.mjs",
     "build": "next build --webpack",
     "start": "next start",
@@ -21,6 +21,7 @@
     "db:migrate": "node scripts/db-guard.mjs && prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:deploy": "node scripts/db-guard.mjs && prisma db push && prisma db seed",
+    "funnel:scorecard": "node scripts/funnel-business-scorecard.js",
     "db:patch:hr": "node scripts/apply-hr-db-patch.mjs",
     "db:patch:blogs": "node scripts/apply-blogs-db-patch.mjs",
     "vercel-build": "node scripts/prisma-prebuild.mjs && next build --webpack",

@@ -793,7 +793,7 @@ function defaultShellConcept(input: {
   return `Build a ${input.pageType} page shell for ${audience} around ${offer}. Lead with a strong promise, establish credibility early, clarify the decision path without filler, and make '${cta}' feel like the natural next step toward ${pageGoal}. ${interactionLine}`;
 }
 
-function detectIntentType(source: string): FunnelPageIntentType {
+export function detectIntentType(source: string): FunnelPageIntentType {
   const s = source.toLowerCase();
   const tests: Array<{ type: FunnelPageIntentType; score: number }> = [
     { type: "thank-you", score: /\b(thank you|thanks|success|confirmation|confirmed|complete)\b/.test(s) ? 6 : 0 },
@@ -950,6 +950,11 @@ export function inferFunnelPageIntentProfile(input?: {
     frameId: cleanText(effectiveExisting.shellFrameId, 80),
     pageType,
     formStrategy,
+    audience,
+    offer,
+    companyContext,
+    pageGoal,
+    primaryCta,
   });
   const qualificationFields =
     cleanText(effectiveExisting.qualificationFields, 240) ||
@@ -1143,6 +1148,11 @@ export function buildResolvedFunnelFoundation(input: {
     frameId: cleanText(intent?.shellFrameId, 80),
     pageType,
     formStrategy,
+    audience,
+    offer,
+    companyContext: cleanText(intent?.companyContext, 360) || cleanText(brief?.companyContext, 360) || businessContext,
+    pageGoal,
+    primaryCta,
   });
   const shellConcept = cleanText(intent?.shellConcept, 480) || cleanText(shellFrame?.shellConcept, 480) || defaultShellConcept({
     pageType,

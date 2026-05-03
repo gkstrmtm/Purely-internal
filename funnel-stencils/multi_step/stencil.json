@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "stencilId": "multi_step",
+  "funnelType": "multi_step",
+  "title": "Multi-Step Funnel Stencil",
+  "conversionGoal": "Guide the visitor through staged qualification, routing, and completion without forcing all decisions onto a single page.",
+  "notes": [
+    "Normalized from landing, feature, proof, form, FAQ, and routing patterns across the source templates.",
+    "The funnel is intentionally step-driven rather than visually embellished.",
+    "Each page represents a clear decision or commitment boundary in the flow."
+  ],
+  "sources": [
+    {
+      "repository": "cruip/open-react-template",
+      "path": "components/workflows.tsx",
+      "notes": "Confirmed staged process communication and step-oriented marketing structure.",
+      "patterns": ["workflow", "feature cards"]
+    },
+    {
+      "repository": "Blazity/next-saas-starter",
+      "path": "views/HomePage/FeaturesGallery.tsx",
+      "notes": "Added sequential content and step-like reveal patterns that normalize into structured progression.",
+      "patterns": ["gallery", "tabs", "step progression"]
+    },
+    {
+      "repository": "PageAI-Pro/page-ui",
+      "path": "components/landing/index.ts",
+      "notes": "Expanded reusable step, FAQ, proof, and CTA building blocks.",
+      "patterns": ["feature list", "faq", "social proof", "cta"]
+    }
+  ],
+  "placeholderTokens": [
+    { "token": "{{multiStep.hero.headline}}", "category": "content", "description": "Entry-step headline.", "required": true },
+    { "token": "{{multiStep.qualification.fields[0].label}}", "category": "form", "description": "Qualification field label.", "required": true },
+    { "token": "{{multiStep.nextStep.ctaLabel}}", "category": "confirmation", "description": "Routing CTA label.", "required": true }
+  ],
+  "sections": [
+    { "id": "hero", "name": "Hero", "archetype": "hero", "purpose": "Introduce the staged flow and invite the visitor into step one.", "placeholderTokens": ["{{multiStep.hero.headline}}", "{{multiStep.hero.primaryCta.label}}"] },
+    { "id": "feature-grid", "name": "FeatureGrid", "archetype": "features", "purpose": "Explain the paths or outcomes inside the flow.", "placeholderTokens": ["{{multiStep.features.heading}}", "{{multiStep.features.items[0].title}}"] },
+    { "id": "proof-strip", "name": "ProofStrip", "archetype": "proof", "purpose": "Add trust before qualification.", "placeholderTokens": ["{{multiStep.proof.items[0].label}}"] },
+    { "id": "qualification-form", "name": "QualificationForm", "archetype": "form", "purpose": "Collect the information needed to route the visitor correctly.", "placeholderTokens": ["{{multiStep.qualification.heading}}", "{{multiStep.qualification.fields[0].label}}"] },
+    { "id": "faq-section", "name": "FAQSection", "archetype": "faq", "purpose": "Handle uncertainty before the next route is chosen.", "placeholderTokens": ["{{multiStep.faq.heading}}", "{{multiStep.faq.items[0].question}}"] },
+    { "id": "cta-section", "name": "CTASection", "archetype": "cta", "purpose": "Drive the visitor into the next step.", "placeholderTokens": ["{{multiStep.cta.heading}}", "{{multiStep.cta.label}}"] },
+    { "id": "next-step-panel", "name": "NextStepPanel", "archetype": "next_step", "purpose": "Explain what route or action comes next in the flow.", "placeholderTokens": ["{{multiStep.nextStep.heading}}", "{{multiStep.nextStep.ctaLabel}}"] },
+    { "id": "confirmation-panel", "name": "ConfirmationPanel", "archetype": "confirmation", "purpose": "Confirm the end of the flow and clarify follow-up.", "placeholderTokens": ["{{multiStep.confirmation.heading}}", "{{multiStep.confirmation.detailBody}}"] }
+  ],
+  "pages": [
+    { "id": "entry", "name": "EntryPage", "goal": "Introduce the staged flow and earn the first click.", "sections": ["hero", "feature-grid", "proof-strip", "cta-section"], "entry": true },
+    { "id": "qualification", "name": "QualificationPage", "goal": "Gather the details needed to decide the right path.", "sections": ["qualification-form"] },
+    { "id": "offer", "name": "OfferPage", "goal": "Resolve friction and route the visitor to the correct outcome.", "sections": ["faq-section", "next-step-panel"] },
+    { "id": "completion", "name": "CompletionPage", "goal": "Confirm submission or routing completion.", "sections": ["confirmation-panel"], "terminal": true }
+  ],
+  "optionalSections": ["proof-strip", "faq-section"]
+}

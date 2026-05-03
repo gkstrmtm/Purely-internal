@@ -1544,7 +1544,7 @@ export function PortalPeopleContactsClient() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl pb-[calc(var(--pa-portal-embed-footer-offset,0px)+96px+var(--pa-portal-floating-tools-reserve,0px))] [&_button]:transition [&_button]:duration-150 [&_button]:ease-out [&_a]:transition [&_a]:duration-150 [&_a]:ease-out">
+    <div className="mx-auto w-full max-w-6xl pa-portal-footer-reserve [&_button]:transition [&_button]:duration-150 [&_button]:ease-out [&_a]:transition [&_a]:duration-150 [&_a]:ease-out">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">People</h1>
@@ -2586,7 +2586,7 @@ export function PortalPeopleContactsClient() {
         <div
           className={classNames(
             "fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4",
-            "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
+            "pa-modal-safe-pad",
             "sm:items-center",
           )}
         >

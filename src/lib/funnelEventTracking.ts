@@ -68,7 +68,7 @@ function cleanNullableText(value: unknown, max = 240) {
   return next || null;
 }
 
-function normalizeMetaPixelId(raw: unknown) {
+export function normalizeCreditFunnelMetaPixelId(raw: unknown) {
   const next = String(typeof raw === "string" ? raw : "")
     .trim()
     .replace(/[^0-9]/g, "")
@@ -192,9 +192,9 @@ export function readCreditFunnelTrackingSettings(settingsJson: unknown, funnelId
   const rec = isRecord(settingsJson) ? settingsJson : {};
   const funnelPixelIds = isRecord(rec.funnelPixelIds) ? rec.funnelPixelIds : {};
   const funnelPagePixelIds = isRecord(rec.funnelPagePixelIds) ? rec.funnelPagePixelIds : {};
-  const globalPixelId = normalizeMetaPixelId(rec.metaPixelId);
-  const funnelPixelId = funnelId ? normalizeMetaPixelId(funnelPixelIds[funnelId]) : null;
-  const pagePixelId = pageId ? normalizeMetaPixelId(funnelPagePixelIds[pageId]) : null;
+  const globalPixelId = normalizeCreditFunnelMetaPixelId(rec.metaPixelId);
+  const funnelPixelId = funnelId ? normalizeCreditFunnelMetaPixelId(funnelPixelIds[funnelId]) : null;
+  const pagePixelId = pageId ? normalizeCreditFunnelMetaPixelId(funnelPagePixelIds[pageId]) : null;
   return {
     globalPixelId,
     funnelPixelId,
@@ -205,9 +205,45 @@ export function readCreditFunnelTrackingSettings(settingsJson: unknown, funnelId
 
 export function writeGlobalCreditFunnelTrackingSettings(settingsJson: unknown, input: { metaPixelId?: unknown }) {
   const base = isRecord(settingsJson) ? { ...settingsJson } : {};
-  const nextPixelId = normalizeMetaPixelId(input.metaPixelId);
+  const nextPixelId = normalizeCreditFunnelMetaPixelId(input.metaPixelId);
   if (nextPixelId) base.metaPixelId = nextPixelId;
   else delete base.metaPixelId;
+  return base;
+}
+
+export function writeFunnelCreditFunnelTrackingSettings(
+  settingsJson: unknown,
+  funnelId: string,
+  input: { metaPixelId?: unknown },
+) {
+  const base = isRecord(settingsJson) ? { ...settingsJson } : {};
+  const nextPixelId = normalizeCreditFunnelMetaPixelId(input.metaPixelId);
+  const funnelPixelIds = isRecord(base.funnelPixelIds) ? { ...base.funnelPixelIds } : {};
+
+  if (nextPixelId) funnelPixelIds[funnelId] = nextPixelId;
+  else delete funnelPixelIds[funnelId];
+
+  if (Object.keys(funnelPixelIds).length > 0) base.funnelPixelIds = funnelPixelIds;
+  else delete base.funnelPixelIds;
+
+  return base;
+}
+
+export function writeFunnelPageCreditFunnelTrackingSettings(
+  settingsJson: unknown,
+  pageId: string,
+  input: { metaPixelId?: unknown },
+) {
+  const base = isRecord(settingsJson) ? { ...settingsJson } : {};
+  const nextPixelId = normalizeCreditFunnelMetaPixelId(input.metaPixelId);
+  const funnelPagePixelIds = isRecord(base.funnelPagePixelIds) ? { ...base.funnelPagePixelIds } : {};
+
+  if (nextPixelId) funnelPagePixelIds[pageId] = nextPixelId;
+  else delete funnelPagePixelIds[pageId];
+
+  if (Object.keys(funnelPagePixelIds).length > 0) base.funnelPagePixelIds = funnelPagePixelIds;
+  else delete base.funnelPagePixelIds;
+
   return base;
 }
 
