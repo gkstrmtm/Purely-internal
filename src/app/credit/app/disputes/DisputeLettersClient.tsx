@@ -5,10 +5,12 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { IconExport, IconFunnel } from "@/app/portal/PortalIcons";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { RichTextMarkdownEditor, type RichTextMarkdownEditorHandle } from "@/components/RichTextMarkdownEditor";
 import { SignatureDisplay } from "@/components/SignatureDisplay";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { CONTACT_SIGNATURE_MARKDOWN, normalizeDisputeLetterText, readContactAddress, readContactCustomValue, readContactSignature, readContactSignatureImage } from "@/lib/creditDisputeLetters";
 import { extractCreditInquiryDate } from "@/lib/creditReports";
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
@@ -188,9 +190,9 @@ function statusLabel(status: LetterLite["status"]) {
 }
 
 function statusClasses(status: LetterLite["status"]) {
-  if (status === "GENERATED") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "SENT") return "border-sky-200 bg-sky-50 text-sky-700";
-  return "border-zinc-200 bg-zinc-100 text-zinc-700";
+  if (status === "GENERATED") return "border-emerald-200/80 bg-emerald-100/75 text-emerald-800 supports-backdrop-filter:bg-emerald-100/55";
+  if (status === "SENT") return "border-sky-200/80 bg-sky-100/75 text-sky-800 supports-backdrop-filter:bg-sky-100/55";
+  return "border-white/70 bg-white/70 text-zinc-700 supports-backdrop-filter:bg-white/45";
 }
 
 function computeFixedMenuStyle(rect: DOMRect, width = 288, estHeight = 320): FixedMenuStyle {
@@ -268,8 +270,22 @@ function formatDisputeItemText(item: Pick<CreditReportItem, "label" | "detailsJs
 
 const BUTTON_MOTION_CLASS = "transition-all duration-150 hover:-translate-y-0.5 focus-visible:outline-none";
 const PRIMARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:opacity-60`;
-const SECONDARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60`;
+const SECONDARY_BUTTON_CLASS = classNames(
+  `${BUTTON_MOTION_CLASS} rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-white/80 focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60`,
+  portalGlassButtonClass,
+);
 const AI_GRADIENT_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white shadow-sm focus-visible:ring-2 focus-visible:ring-brand-blue/30`;
+const ICON_BUTTON_CLASS = classNames(
+  `${BUTTON_MOTION_CLASS} inline-flex h-10 w-10 items-center justify-center rounded-2xl text-zinc-800 hover:bg-white/80 focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60`,
+  portalGlassButtonClass,
+);
+const GLASS_INPUT_CLASS = classNames(
+  "w-full rounded-2xl px-4 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus-visible:ring-2 focus-visible:ring-brand-blue/20",
+  portalGlassButtonClass,
+);
+const GLASS_INPUT_COMBOBOX_CLASS = `pa-portal-listbox-button ${GLASS_INPUT_CLASS} pr-10`;
+const GLASS_PANEL_CLASS = classNames("rounded-3xl border border-white/65", portalGlassPanelClass);
+const GLASS_SECTION_CLASS = classNames("rounded-3xl border border-white/65", portalGlassSectionClass);
 const CONTACT_SIGNATURE_SNIPPET = `\n\n${CONTACT_SIGNATURE_MARKDOWN}\n`;
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -746,22 +762,22 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   }, [letterLoading, mode, pdfDownloadUrl, refreshPdf, selectedLetter, selectedLetterId, working]);
 
   const composer = composerOpen ? (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => working !== "generate" && closeComposer()}>
-      <div className="my-auto w-full max-w-4xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="New dispute letter" data-overlay-root="true">
+    <div className={classNames("fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4", portalGlassBackdropClass)} onMouseDown={() => working !== "generate" && closeComposer()}>
+      <div className={classNames("my-auto w-full max-w-4xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-4xl border border-white/70 p-6 shadow-[0_28px_90px_rgba(15,23,42,0.2)] sm:p-7", portalGlassPanelClass)} onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="New dispute letter" data-overlay-root="true">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-lg font-semibold text-zinc-900">New dispute letter</div>
             <div className="mt-1 text-sm text-zinc-600">Pick the contact, choose the recipient, load the report items, and generate a mailed letter draft.</div>
           </div>
-          <button type="button" onClick={closeComposer} aria-label="Close dispute letter composer" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 text-lg font-semibold text-zinc-700 hover:bg-zinc-50">×</button>
+          <button type="button" onClick={closeComposer} aria-label="Close dispute letter composer" className={classNames("inline-flex h-10 w-10 items-center justify-center rounded-full text-lg font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}>×</button>
         </div>
         <div className="mt-6 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">1 Contact</span>
-          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">2 Letter</span>
-          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">3 Issues</span>
+          <span className={classNames("rounded-full border border-white/70 px-3 py-1.5", portalGlassButtonClass)}>1 Contact</span>
+          <span className={classNames("rounded-full border border-white/70 px-3 py-1.5", portalGlassButtonClass)}>2 Letter</span>
+          <span className={classNames("rounded-full border border-white/70 px-3 py-1.5", portalGlassButtonClass)}>3 Issues</span>
         </div>
         <div className="mt-5 space-y-4">
-          <section className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
+          <section className={classNames(GLASS_SECTION_CLASS, "p-5")}>
             <div className="text-sm font-semibold text-zinc-900">Contact and recipient</div>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <label className="block md:col-span-2">
@@ -780,7 +796,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                   }}
                   placeholder={contactsLoading ? "Searching contacts..." : "Search or select a contact"}
                   emptyLabel={contactsLoading ? "Searching contacts..." : "No contacts found"}
-                  inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                  inputClassName={GLASS_INPUT_COMBOBOX_CLASS}
                 />
               </label>
               <label className="block md:col-span-2">
@@ -802,14 +818,14 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                   }}
                   placeholder="Type or select a recipient"
                   emptyLabel="Keep typing to use a custom recipient"
-                  inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                  inputClassName={GLASS_INPUT_COMBOBOX_CLASS}
                 />
               </label>
               <label className="block md:col-span-2">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient address</div>
-                <textarea value={recipientAddress} onChange={(event) => { setRecipientAddress(event.target.value); setRecipientAddressManual(true); }} className="min-h-24 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300" />
+                <textarea value={recipientAddress} onChange={(event) => { setRecipientAddress(event.target.value); setRecipientAddressManual(true); }} className={classNames("min-h-24", GLASS_INPUT_CLASS)} />
               </label>
-              <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700 md:col-span-2">
+              <div className={classNames("rounded-2xl border border-white/70 px-4 py-3 text-sm text-zinc-700 md:col-span-2", portalGlassButtonClass)}>
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Signature on file</div>
                 <div className="mt-2">
                   <SignatureDisplay value={selectedContactSignature} emptyLabel="No signature stored on this contact yet" textClassName="font-medium text-zinc-900" />
@@ -818,12 +834,12 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             </div>
           </section>
 
-          <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+          <section className={classNames(GLASS_SECTION_CLASS, "p-5")}>
             <div className="text-sm font-semibold text-zinc-900">Letter details</div>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <label className="block">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Round</div>
-                <PortalListboxDropdown value={round} onChange={setRound} options={ROUND_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+                <PortalListboxDropdown value={round} onChange={setRound} options={ROUND_OPTIONS} buttonClassName={classNames("flex w-full items-center justify-between gap-2 rounded-2xl px-4 py-3 text-sm hover:bg-white/80", portalGlassButtonClass)} />
               </label>
               <label className="block">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Next follow-up (days)</div>
@@ -833,27 +849,27 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                   max={60}
                   value={followUpDays}
                   onChange={(event) => setFollowUpDays(Math.max(7, Math.min(60, Number.parseInt(event.target.value || "0", 10) || template.cadenceDays)))}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  className={GLASS_INPUT_CLASS}
                 />
               </label>
             </div>
-            <div className="mt-4 rounded-2xl border border-brand-blue/20 bg-brand-blue/5 px-4 py-3 text-sm text-zinc-700">
+            <div className={classNames("mt-4 rounded-2xl border border-white/70 px-4 py-3 text-sm text-zinc-700", portalGlassButtonClass)}>
               <div className="font-semibold text-zinc-900">Auto letter strategy: {template.label}</div>
               <div className="mt-1">{template.summary}</div>
               <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Next follow-up: {nextTemplate.label} in about {followUpDays} days</div>
             </div>
           </section>
 
-          <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+          <section className={classNames(GLASS_SECTION_CLASS, "p-5")}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Issues</div>
                 <div className="mt-1 text-sm text-zinc-600">Add the exact items you want in the letter.</div>
               </div>
-              <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">{cleanItems.length} issue{cleanItems.length === 1 ? "" : "s"}</div>
+              <div className={classNames("rounded-full border border-white/70 px-3 py-1 text-xs font-semibold text-zinc-700", portalGlassButtonClass)}>{cleanItems.length} issue{cleanItems.length === 1 ? "" : "s"}</div>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+            <div className={classNames("mt-4 rounded-2xl border border-white/70 p-3", portalGlassButtonClass)}>
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Add from latest credit report</div>
                 <div className="text-[11px] text-zinc-500">{composerReportLabel || (contactId ? "No report found yet" : "Select a contact first")}</div>
@@ -865,7 +881,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                 onSelect={addComposerReportItem}
                 placeholder={composerItemsLoading ? "Loading report items..." : "Search report items to add"}
                 emptyLabel={composerItemsLoading ? "Loading report items..." : "No report items available"}
-                inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                inputClassName={GLASS_INPUT_COMBOBOX_CLASS}
                 disabled={!contactId || composerItemsLoading}
               />
             </div>
@@ -879,7 +895,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                       const nextValue = event.target.value;
                       setItems((current) => current.map((entry, entryIndex) => (entryIndex === index ? nextValue : entry)));
                     }}
-                    className="flex-1 rounded-2xl border border-zinc-200 bg-zinc-50/40 px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                    className={classNames("flex-1", GLASS_INPUT_CLASS)}
                     placeholder={index === 0 ? "Account XXXX reported late but was paid on time" : "Add another issue"}
                   />
                   <button
@@ -890,14 +906,14 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                         return next.length ? next : [""];
                       });
                     }}
-                    className="rounded-2xl border border-zinc-200 px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    className={classNames("rounded-2xl px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-white/80", portalGlassButtonClass)}
                   >
                     Remove
                   </button>
                 </div>
               ))}
             </div>
-            <button type="button" onClick={() => setItems((current) => [...current, ""])} className="mt-3 rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Add issue</button>
+            <button type="button" onClick={() => setItems((current) => [...current, ""])} className={classNames("mt-3 rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}>Add issue</button>
           </section>
         </div>
         <div className="mt-6 flex justify-end">
@@ -953,7 +969,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                     }
                   }}
                   autoFocus
-                  className="w-full max-w-2xl rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xl font-bold text-zinc-900 outline-none focus:border-zinc-300"
+                  className={classNames("w-full max-w-2xl px-4 py-2 text-xl font-bold text-zinc-900", GLASS_INPUT_CLASS)}
                   placeholder="Letter title"
                 />
               ) : (
@@ -982,7 +998,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                 href={pdfDownloadUrl}
                 target="_blank"
                 rel="noreferrer"
-                className={`${BUTTON_MOTION_CLASS} inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-brand-blue/20`}
+                className={ICON_BUTTON_CLASS}
                 aria-label="Download PDF"
                 title="Download PDF"
               >
@@ -1004,7 +1020,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
         </div>
         {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
         <div className="mt-6 grid gap-4 xl:grid-cols-[1fr_320px]">
-          <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <section className={classNames(GLASS_PANEL_CLASS, "p-6")}>
             <label className="block">
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter</div>
               <RichTextMarkdownEditor
@@ -1018,27 +1034,27 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             <div className="mt-3 text-xs text-zinc-500">Formatting and inserted contact signatures carry into the generated PDF.</div>
           </section>
           <aside className="space-y-4">
-            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+            <section className={classNames(GLASS_PANEL_CLASS, "p-5")}>
               <div className="text-sm font-semibold text-zinc-900">Letter status</div>
               <div className="mt-3 grid gap-3 text-sm text-zinc-700">
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className={classNames("rounded-2xl border border-white/70 p-4", portalGlassButtonClass)}>
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Status</div>
                   <div className="mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold text-zinc-900">{selectedLetter ? statusLabel(selectedLetter.status) : "Not available"}</div>
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className={classNames("rounded-2xl border border-white/70 p-4", portalGlassButtonClass)}>
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Updated</div>
                   <div className="mt-2 font-medium text-zinc-900">{selectedLetter ? formatDateTime(selectedLetter.updatedAt) : "Not available"}</div>
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className={classNames("rounded-2xl border border-white/70 p-4", portalGlassButtonClass)}>
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mailed</div>
                   <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.sentAt ? formatDateTime(selectedLetter.sentAt) : "Not marked yet"}</div>
                 </div>
               </div>
             </section>
-            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+            <section className={classNames(GLASS_PANEL_CLASS, "p-5")}>
               <div className="text-sm font-semibold text-zinc-900">Contact</div>
               {selectedLetter?.contact ? (
-                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className={classNames("mt-3 rounded-2xl border border-white/70 p-4", portalGlassButtonClass)}>
                   <div className="text-sm font-semibold text-zinc-900">{selectedLetter.contact.name}</div>
                   <div className="mt-1 text-xs text-zinc-600">{selectedLetter.contact.email || "No email"}{selectedLetter.contact.phone ? ` • ${selectedLetter.contact.phone}` : ""}</div>
                   <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Signature on file</div>
@@ -1049,7 +1065,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                     />
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" onClick={insertSignatureIntoLetter} className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-100">
+                    <button type="button" onClick={insertSignatureIntoLetter} className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}>
                       Add signature to letter
                     </button>
                     <div
@@ -1059,7 +1075,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                         event.dataTransfer.setData("text/plain", CONTACT_SIGNATURE_SNIPPET);
                         event.dataTransfer.effectAllowed = "copy";
                       }}
-                      className="inline-flex cursor-grab items-center rounded-2xl border border-dashed border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-600 active:cursor-grabbing"
+                      className={classNames("inline-flex cursor-grab items-center rounded-2xl border border-dashed border-white/80 px-3 py-2 text-xs font-semibold text-zinc-600 active:cursor-grabbing", portalGlassButtonClass)}
                       title="Drag into the letter editor"
                     >
                       Drag signature into letter
@@ -1070,7 +1086,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                   ) : null}
                 </div>
               ) : (
-                <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">No contact linked.</div>
+                <div className={classNames("mt-3 rounded-2xl border border-dashed border-white/80 p-4 text-sm text-zinc-600", portalGlassButtonClass)}>No contact linked.</div>
               )}
             </section>
           </aside>
@@ -1090,20 +1106,20 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
         <button type="button" onClick={handleOpenComposer} className={PRIMARY_BUTTON_CLASS}>+ New</button>
       </div>
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
-      <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+      <section className={classNames("mt-6 p-6", GLASS_PANEL_CLASS)}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex w-full max-w-4xl flex-col gap-3 sm:flex-row sm:items-center">
-            <input value={search} onChange={(event) => setSearch(event.target.value)} className="h-11 w-full rounded-full border border-zinc-200 px-4 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20 sm:flex-1" placeholder="Search letters" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} className={classNames("h-11 rounded-full sm:flex-1", GLASS_INPUT_CLASS)} placeholder="Search letters" />
             {statusFiltersMenu ? (
               <>
                 <div className="fixed inset-0 z-30" onMouseDown={() => setStatusFiltersMenu(null)} onTouchStart={() => setStatusFiltersMenu(null)} aria-hidden />
-                <div
-                  className="fixed z-40 w-72 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                <LiquidGlassPopupSurface
+                  className="fixed z-40 w-72 overflow-auto rounded-2xl border border-white/70 shadow-[0_18px_50px_rgba(15,23,42,0.16)]"
                   style={{ left: statusFiltersMenu.left, top: statusFiltersMenu.top, maxHeight: statusFiltersMenu.maxHeight }}
                   onMouseDown={(event) => event.stopPropagation()}
                   onTouchStart={(event) => event.stopPropagation()}
                 >
-                  <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                  <div className="border-b border-white/60 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
                   <div className="px-4 py-3">
                     <div className="text-xs font-semibold text-zinc-700">Letter status</div>
                     <div className="mt-2 grid grid-cols-2 gap-2">
@@ -1120,7 +1136,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                             "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
                             statusFilter === value
                               ? "border-brand-ink bg-brand-ink text-white"
-                              : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                              : classNames("border-white/70 text-zinc-800 hover:bg-white/80", portalGlassButtonClass),
                           )}
                           onClick={() => setStatusFilter(value)}
                         >
@@ -1132,20 +1148,21 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                     {statusFilter !== "ALL" ? (
                       <button
                         type="button"
-                        className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        className={classNames("mt-3 w-full rounded-xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}
                         onClick={() => setStatusFilter("ALL")}
                       >
                         Clear filters
                       </button>
                     ) : null}
                   </div>
-                </div>
+                </LiquidGlassPopupSurface>
               </>
             ) : null}
             <button
               type="button"
               className={classNames(
-                "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
+                "inline-flex h-11 w-11 items-center justify-center rounded-full text-zinc-800 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-white/80",
+                portalGlassButtonClass,
                 statusFilter !== "ALL" && "border-brand-ink",
               )}
               onClick={(event) => {
@@ -1166,22 +1183,22 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{lettersLoading ? "Loading..." : `${filteredLetters.length} letters`}</div>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+          <div className={classNames("rounded-2xl border border-white/70 px-4 py-3", portalGlassButtonClass)}>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Draft</div>
             <div className="mt-2 text-xl font-bold text-zinc-900">{letterCounts.draft}</div>
           </div>
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+          <div className={classNames("rounded-2xl border border-white/70 px-4 py-3", portalGlassButtonClass)}>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Generated</div>
             <div className="mt-2 text-xl font-bold text-zinc-900">{letterCounts.generated}</div>
           </div>
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+          <div className={classNames("rounded-2xl border border-white/70 px-4 py-3", portalGlassButtonClass)}>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mailed</div>
             <div className="mt-2 text-xl font-bold text-zinc-900">{letterCounts.sent}</div>
           </div>
         </div>
-        <div className="mt-5 overflow-x-auto rounded-3xl border border-zinc-200">
+        <div className={classNames("mt-5 overflow-x-auto rounded-3xl border border-white/70", portalGlassSectionClass)}>
           <table className="min-w-full text-left text-sm">
-            <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            <thead className="bg-white/45 text-xs font-semibold uppercase tracking-wide text-zinc-500 supports-backdrop-filter:bg-white/30">
               <tr>
                 <th className="px-4 py-3">Letter</th>
                 <th className="px-4 py-3">Contact</th>
@@ -1196,7 +1213,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                 </tr>
               ) : (
                 filteredLetters.map((letter) => (
-                  <tr key={letter.id} tabIndex={0} role="button" onClick={() => { window.location.href = routeSet.editorHref(letter.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); window.location.href = routeSet.editorHref(letter.id); } }} className="cursor-pointer border-t border-zinc-200 transition hover:bg-zinc-50 focus:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue/20">
+                  <tr key={letter.id} tabIndex={0} role="button" onClick={() => { window.location.href = routeSet.editorHref(letter.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); window.location.href = routeSet.editorHref(letter.id); } }} className="cursor-pointer border-t border-white/60 transition hover:bg-white/40 focus:bg-white/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue/20">
                     <td className="px-4 py-3">
                       <div className="font-semibold text-zinc-900">{formatDisputeLetterListTitle(letter.subject) || `Round 1 - ${letter.contact.name} - Recipient`}</div>
                       <div className="mt-1 text-xs text-zinc-500">Created {formatDateTime(letter.createdAt)}</div>

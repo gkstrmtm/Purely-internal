@@ -10074,8 +10074,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     } catch (error) {
       const rawSupportChatError = error instanceof Error ? error.message.trim() : String(error ?? "").trim();
       supportChatFailureMessage = /\binsufficient_quota\b|\bquota\b|AI request failed:\s*429/i.test(rawSupportChatError)
-        ? "I hit a temporary AI availability issue while drafting that reply. Please try again in a moment."
-        : "I hit a temporary AI issue while drafting that reply. Please try again in a moment.";
+        ? "Sorry, Pura is offline right now. Please try again in a moment."
+        : "Sorry, Pura is temporarily offline right now. Please try again in a moment.";
       console.error("[pura-route] handlePostMessage error", {
         threadId,
         promptMessage,
@@ -10112,7 +10112,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     }
   }
 
-  const finalFailureSummary = aiConfigErrorMessage || supportChatFailureMessage || "Run ended without a reply.";
+  const finalFailureSummary = aiConfigErrorMessage || supportChatFailureMessage || "Sorry, Pura is offline right now. Please try again in a moment.";
 
   console.error("[pura-route] no assistant reply", {
     threadId,
@@ -10148,7 +10148,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   return NextResponse.json({
     ok: false,
     error: finalFailureSummary,
-    code: aiConfigErrorMessage || supportChatFailureMessage ? "AI_UNAVAILABLE" : "NO_ASSISTANT_REPLY",
+    code: aiConfigErrorMessage || supportChatFailureMessage ? "PURA_OFFLINE" : "NO_ASSISTANT_REPLY",
     userMessage: responseUserMessage,
     assistantMessage: null,
     assistantActions: [],
