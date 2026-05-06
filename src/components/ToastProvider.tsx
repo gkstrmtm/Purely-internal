@@ -148,3 +148,14 @@ export function useToast() {
   if (!ctx) throw new Error("useToast must be used within <ToastProvider>");
   return ctx;
 }
+
+const noopToastApi: ToastContextValue = {
+  push: () => {},
+  error: () => {},
+  success: () => {},
+  info: () => {},
+};
+
+export function useOptionalToast() {
+  return useContext(ToastContext) ?? noopToastApi;
+}

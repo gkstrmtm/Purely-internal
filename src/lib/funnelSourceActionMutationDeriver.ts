@@ -109,6 +109,23 @@ function moveText(move: SourceActionPlanMove) {
   return [move.key, move.target, move.change, move.why, move.selectorHint || "", ...(Array.isArray(move.diff) ? move.diff : [])].join(" ").toLowerCase();
 }
 
+function extractQuotedRewrite(move: SourceActionPlanMove) {
+  const raw = [move.change, move.why, ...(Array.isArray(move.diff) ? move.diff : [])].join(" ");
+  const fromToMatch = raw.match(/from ["']([^"']+)["'] to ["']([^"']+)["']/i);
+  if (fromToMatch) {
+    return {
+      fromText: String(fromToMatch[1] || "").trim(),
+      toText: String(fromToMatch[2] || "").trim(),
+    };
+  }
+  const toOnlyMatch = raw.match(/to ["']([^"']+)["']/i);
+  if (!toOnlyMatch) return null;
+  return {
+    fromText: "",
+    toText: String(toOnlyMatch[1] || "").trim(),
+  };
+}
+
 function hasMoveSignal(move: SourceActionPlanMove, pattern: RegExp) {
   return pattern.test(moveText(move));
 }
@@ -142,6 +159,10 @@ function pickTargetSection(rootBlocks: CreditFunnelBlock[], move: SourceActionPl
   if (selectorHint.startsWith("#")) {
     const selectorMatch = findSectionByAnchor(rootBlocks, selectorHint.slice(1));
     if (selectorMatch) return selectorMatch;
+  }
+
+  if (hasMoveSignal(move, /top page headline|top headline|main headline|first headline|page headline at the top|opening headline|hero heading|hero headline|first screen headline/i)) {
+    return fallback || null;
   }
 
   const directMatch = findSectionByNeedle(rootBlocks, `${move.target} ${move.key}`);
@@ -306,6 +327,16 @@ export function deriveFunnelPageMutationsFromSourceActionPlan(blocks: CreditFunn
     const wantsPrimaryButton = hasMoveSignal(move, /filled primary button|primary button|designed conversion object|distinct radius|cta styling/i);
     const allowStructuralMoves = move.executionMode === "model-led" && move.confidence === "high";
     const allowAdjacentSurfaceWork = move.executionMode === "model-led" && move.confidence !== "low";
+    const directRewrite = extractQuotedRewrite(move);
+
+    if (targetHeading && directRewrite?.toText && hasMoveSignal(move, /headline|h1|hero heading|page headline/i)) {
+      moveMutations.push({
+        type: "setText",
+        blockId: targetHeading.id,
+        text: directRewrite.toText,
+      });
+      continue;
+    }
 
     if (targetSection) {
       const sectionStyle: Partial<BlockStyle> = {};

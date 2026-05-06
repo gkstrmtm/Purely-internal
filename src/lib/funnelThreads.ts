@@ -34,6 +34,53 @@ export type FunnelThreadRecord = {
 };
 
 const MAX_THREAD_MESSAGES = 24;
+const MAX_THREAD_MESSAGE_CONTENT_CHARS = 4_000;
+const MAX_THREAD_CONTEXT_KEYS = 16;
+const MAX_THREAD_CONTEXT_ARRAY_ITEMS = 8;
+const MAX_THREAD_CONTEXT_STRING_CHARS = 280;
+const THREAD_MESSAGE_TRUNCATION_NOTE = "\n\n[Message truncated for stability]";
+
+function cleanThreadMessageContent(raw: unknown) {
+  const content = typeof raw === "string" ? raw.replace(/\u0000/g, "").trim() : "";
+  if (!content) return "";
+  if (content.length <= MAX_THREAD_MESSAGE_CONTENT_CHARS) return content;
+
+  const maxContentLength = Math.max(0, MAX_THREAD_MESSAGE_CONTENT_CHARS - THREAD_MESSAGE_TRUNCATION_NOTE.length);
+  return `${content.slice(0, maxContentLength).trimEnd()}${THREAD_MESSAGE_TRUNCATION_NOTE}`;
+}
+
+function normalizeFunnelThreadContextValue(raw: unknown, depth = 0): unknown {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    const value = raw.trim().slice(0, MAX_THREAD_CONTEXT_STRING_CHARS);
+    return value || null;
+  }
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : undefined;
+  if (typeof raw === "boolean") return raw;
+
+  if (Array.isArray(raw)) {
+    if (depth >= 1) return undefined;
+    const next = raw
+      .map((item) => normalizeFunnelThreadContextValue(item, depth + 1))
+      .filter((item): item is Exclude<typeof item, undefined> => item !== undefined)
+      .slice(0, MAX_THREAD_CONTEXT_ARRAY_ITEMS);
+    return next.length ? next : null;
+  }
+
+  if (!raw || typeof raw !== "object") return undefined;
+  if (depth >= 1) return undefined;
+
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw).slice(0, MAX_THREAD_CONTEXT_KEYS)) {
+    const normalized = normalizeFunnelThreadContextValue(value, depth + 1);
+    if (normalized === undefined) continue;
+    const normalizedKey = key.trim().slice(0, 80);
+    if (!normalizedKey) continue;
+    next[normalizedKey] = normalized;
+  }
+
+  return Object.keys(next).length ? next : null;
+}
 
 export function normalizeFunnelThreadKind(raw: unknown): FunnelThreadKind {
   const value = String(raw || "").trim().toLowerCase();
@@ -46,8 +93,10 @@ export function normalizeFunnelThreadTitle(raw: unknown, fallback = "Main thread
 }
 
 export function normalizeFunnelThreadContext(raw: unknown): Record<string, unknown> | null {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  return { ...(raw as Record<string, unknown>) };
+  const normalized = normalizeFunnelThreadContextValue(raw);
+  return normalized && typeof normalized === "object" && !Array.isArray(normalized)
+    ? (normalized as Record<string, unknown>)
+    : null;
 }
 
 export function normalizeFunnelThreadMessages(raw: unknown): FunnelThreadMessage[] {
@@ -58,7 +107,7 @@ export function normalizeFunnelThreadMessages(raw: unknown): FunnelThreadMessage
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const entry = item as Record<string, unknown>;
     const role = entry.role === "assistant" ? "assistant" : entry.role === "user" ? "user" : null;
-    const content = typeof entry.content === "string" ? entry.content.trim() : "";
+    const content = cleanThreadMessageContent(entry.content);
     const at = typeof entry.at === "string" && entry.at.trim() ? entry.at.trim() : undefined;
     const sourceActionPlan = sanitizeSourceActionPlan(entry.sourceActionPlan);
     if (!role || !content) continue;
@@ -71,6 +120,38 @@ export function normalizeFunnelThreadMessages(raw: unknown): FunnelThreadMessage
   }
 
   return messages.slice(-MAX_THREAD_MESSAGES);
+}
+
+export function normalizeFunnelThreadRecord(raw: unknown, funnelIdFallback = ""): FunnelThreadRecord | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+
+  const thread = raw as Record<string, unknown>;
+  const id = typeof thread.id === "string" && thread.id.trim() ? thread.id.trim() : "";
+  if (!id) return null;
+
+  const funnelId = typeof thread.funnelId === "string" && thread.funnelId.trim()
+    ? thread.funnelId.trim()
+    : funnelIdFallback;
+  const createdAt = typeof thread.createdAt === "string" && thread.createdAt.trim()
+    ? thread.createdAt.trim()
+    : new Date().toISOString();
+  const updatedAt = typeof thread.updatedAt === "string" && thread.updatedAt.trim()
+    ? thread.updatedAt.trim()
+    : createdAt;
+  const messages = normalizeFunnelThreadMessages(thread.messages);
+
+  return {
+    id,
+    funnelId,
+    pageId: typeof thread.pageId === "string" && thread.pageId.trim() ? thread.pageId.trim() : null,
+    title: normalizeFunnelThreadTitle(thread.title),
+    kind: normalizeFunnelThreadKind(thread.kind),
+    messages,
+    context: normalizeFunnelThreadContext(thread.context),
+    lastMessageAt: readFunnelThreadLastMessageAt(messages, typeof thread.lastMessageAt === "string" ? thread.lastMessageAt : updatedAt),
+    createdAt,
+    updatedAt,
+  };
 }
 
 export function readFunnelThreadLastMessageAt(messages: FunnelThreadMessage[], fallback?: Date | string | null) {
@@ -110,7 +191,23 @@ export function toFunnelThreadRecord(thread: {
   createdAt: Date | string;
   updatedAt: Date | string;
 }): FunnelThreadRecord {
-  return {
+  return normalizeFunnelThreadRecord({
+    id: thread.id,
+    funnelId: thread.funnelId,
+    pageId: thread.pageId,
+    title: thread.title,
+    kind: thread.kind,
+    messages: thread.messagesJson,
+    context: thread.contextJson,
+    lastMessageAt:
+      thread.lastMessageAt instanceof Date
+        ? thread.lastMessageAt.toISOString()
+        : typeof thread.lastMessageAt === "string" && thread.lastMessageAt.trim()
+          ? thread.lastMessageAt.trim()
+          : null,
+    createdAt: thread.createdAt instanceof Date ? thread.createdAt.toISOString() : String(thread.createdAt),
+    updatedAt: thread.updatedAt instanceof Date ? thread.updatedAt.toISOString() : String(thread.updatedAt),
+  }, thread.funnelId) || {
     id: thread.id,
     funnelId: thread.funnelId,
     pageId: thread.pageId,
@@ -146,24 +243,8 @@ export function readPersistedFunnelThreads(settingsJson: unknown, funnelId: stri
 
   const normalized: FunnelThreadRecord[] = [];
   for (const item of rawThreads) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    const thread = item as Record<string, unknown>;
-    const id = typeof thread.id === "string" && thread.id.trim() ? thread.id.trim() : "";
-    const createdAt = typeof thread.createdAt === "string" && thread.createdAt.trim() ? thread.createdAt.trim() : new Date().toISOString();
-    const updatedAt = typeof thread.updatedAt === "string" && thread.updatedAt.trim() ? thread.updatedAt.trim() : createdAt;
-    if (!id) continue;
-    normalized.push({
-      id,
-      funnelId,
-      pageId: typeof thread.pageId === "string" && thread.pageId.trim() ? thread.pageId.trim() : null,
-      title: normalizeFunnelThreadTitle(thread.title),
-      kind: normalizeFunnelThreadKind(thread.kind),
-      messages: normalizeFunnelThreadMessages(thread.messages),
-      context: normalizeFunnelThreadContext(thread.context),
-      lastMessageAt: readFunnelThreadLastMessageAt(normalizeFunnelThreadMessages(thread.messages), typeof thread.lastMessageAt === "string" ? thread.lastMessageAt : updatedAt),
-      createdAt,
-      updatedAt,
-    });
+    const thread = normalizeFunnelThreadRecord(item, funnelId);
+    if (thread) normalized.push(thread);
   }
 
   return sortFunnelThreads(normalized);

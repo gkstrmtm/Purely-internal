@@ -3,19 +3,24 @@ import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 
 import { prisma } from "@/lib/db";
+import { getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { parseCreditFormContent, parseCreditFormFields, parseCreditFormStyle, parseCreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
 import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
+import { readFunnelOffers } from "@/lib/funnelOffers";
+import { resolveFunnelBookingSurfaceContext } from "@/lib/funnelBookingSurface";
 import { resolveFunnelPageRenderState } from "@/lib/funnelPageGraph";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
+import { renderTextTemplate } from "@/lib/textTemplate";
 
 import { CreditHostedFormClient } from "@/app/credit/forms/[slug]/CreditHostedFormClient";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
+import { FunnelCustomHtmlRuntimeSurface } from "@/components/funnel/FunnelCustomHtmlRuntimeSurface";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -328,7 +333,13 @@ async function renderFunnel(
   if (pageSlug && !page) notFound();
   const renderState = resolveFunnelPageRenderState(page, "published");
   const defaultBookingCalendarId = readFunnelBookingRouting(settingsRow?.dataJson ?? null, funnel.id)?.calendarId ?? null;
+  const offers = readFunnelOffers(settingsRow?.dataJson ?? null, funnel.id);
   const markdownBlocks = renderState.kind === "markdown" ? parseBlogContent(renderState.markdown) : [];
+  const templateVars = funnel.ownerId ? await getBusinessProfileTemplateVars(funnel.ownerId).catch(() => ({})) : {};
+  const renderedCustomHtml =
+    page && renderState.kind === "html"
+      ? renderTextTemplate(renderState.html || "", templateVars)
+      : "";
 
   const [hasBrandFontFamily, hasBrandFontGoogleFamily] = await Promise.all([
     hasPublicColumn("BusinessProfile", "brandFontFamily"),
@@ -352,7 +363,7 @@ async function renderFunnel(
 
   const customHtmlSrcDoc = (() => {
     if (!page || renderState.kind !== "html") return null;
-    if (!brandGoogleCss && !brandFontFamily) return renderState.html;
+    if (!brandGoogleCss && !brandFontFamily) return renderedCustomHtml;
 
     const cssLines = [
       brandGoogleCss,
@@ -362,7 +373,7 @@ async function renderFunnel(
       .join("\n");
 
     const injection = cssLines ? `<style>${cssLines}</style>` : "";
-  const html = String(renderState.html || "");
+    const html = String(renderedCustomHtml || "");
     if (!injection) return html;
 
     const headClose = html.match(/<\/head\s*>/i);
@@ -380,12 +391,27 @@ async function renderFunnel(
       {page ? (
         <>
           {renderState.kind === "html" ? (
-            <iframe
-              title={page.title}
-              sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
-              allow="microphone"
-              srcDoc={customHtmlSrcDoc ?? ""}
-              className="h-screen w-full bg-white"
+            <FunnelCustomHtmlRuntimeSurface
+              html={customHtmlSrcDoc ?? ""}
+              bookingTarget={defaultBookingCalendarId
+                ? {
+                    kind: "calendar",
+                    ownerId: funnel.ownerId,
+                    calendarId: defaultBookingCalendarId,
+                    funnelId: funnel.id,
+                    pageId: page.id,
+                    themeStage: "published",
+                  }
+                : null}
+              surfaceContext={resolveFunnelBookingSurfaceContext({
+                posture: "published",
+                routeKind: defaultBookingCalendarId ? "funnel-default" : "placeholder",
+                pageTitle: page.title,
+                calendarTitle: defaultBookingCalendarId || null,
+                pageIntent: "brief" in page ? page.brief || null : null,
+              })}
+              injectImplicitBooking={Boolean(defaultBookingCalendarId)}
+              className="min-h-screen w-full bg-white"
             />
           ) : renderState.kind === "blocks" ? (
             <div>
@@ -395,9 +421,14 @@ async function renderFunnel(
                 context: {
                   bookingOwnerId: funnel.ownerId,
                   defaultBookingCalendarId: defaultBookingCalendarId || undefined,
+                  funnelId: funnel.id,
                   funnelPageId: page.id,
+                  bookingThemeStage: "published",
                   funnelSlug: slug,
+                  bookingSurfacePageTitle: page.title,
+                  bookingSurfacePageIntent: "brief" in page ? page.brief || null : null,
                   funnelPathBase,
+                  offers,
                 },
               })}
             </div>

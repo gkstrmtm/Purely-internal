@@ -11,8 +11,8 @@ import { ensureFunnelBookingCalendar } from "@/lib/funnelBookingCalendars";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { assessDesignTokenDiscipline, buildDesignTokenContractBlock } from "@/lib/funnelDesignTokenGuard";
-import { buildFunnelDesignContextPromptBlock, sanitizeFunnelDesignContext } from "@/lib/funnelDesignContext";
-import { synthesizeFunnelGenerationPrompt } from "@/lib/funnelPromptSynthesizer";
+import { buildFunnelDesignContextPromptBlock, hasFunnelDesignContext, sanitizeFunnelDesignContext } from "@/lib/funnelDesignContext";
+import { synthesizeFunnelGenerationPrompt, type FunnelPromptSynthesisResult } from "@/lib/funnelPromptSynthesizer";
 import { readFunnelBookingRouting, resolveFunnelBookingCalendarId, writeFunnelBookingRouting } from "@/lib/funnelBookingRouting";
 import {
   buildFunnelBriefPromptBlock,
@@ -35,6 +35,7 @@ import {
 import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { stripeGetWithKey } from "@/lib/stripeFetchWithKey.server";
 import { blocksToCustomHtmlDocument, escapeHtml } from "@/lib/funnelBlocksToCustomHtmlDocument";
+import { buildBookingRuntimePlaceholderHtml, resolveFunnelBookingSurfaceContext } from "@/lib/funnelBookingSurface";
 import {
   buildFunnelExhibitArchetypeBlock,
   readFunnelExhibitArchetypePack,
@@ -487,9 +488,11 @@ function buildExhibitPlannerContractBlock(input: {
     input.source ? `- Advisory source: ${String(input.source).trim()}` : "",
     input.designProfileId ? `- Design profile: ${String(input.designProfileId).trim()}` : "",
     input.categories?.length ? `- Suggested categories: ${input.categories.join(", ")}` : "",
-    "- Use Exhibit selectively. Extract only the sections, layout ideas, or components that serve the funnel goal.",
-    "- Default Exhibit mode to assist, not full. Do not blindly apply the full Exhibit styling system.",
-    "- If the resulting direction feels generic, over-styled, or disconnected from the conversion job, reduce styling and keep the layout logic only.",
+    "- Treat Exhibit as secondary design advisory, not the source of truth for the page.",
+    "- Raw business context, current page state, live runtime truth, and the newest user direction outrank Exhibit guidance.",
+    "- Use Exhibit only for foundation-level design sharpening: spacing, typography, density, elevation, anti-pattern avoidance, and reference anchors.",
+    "- Do not let Exhibit decide offer logic, business posture, booking-vs-commerce behavior, or shell direction when stronger local context already answers those choices.",
+    "- If any Exhibit guidance feels generic, over-styled, weak, or disconnected from the conversion job, ignore it instead of blending it into the final page plan.",
     foundationRules.length ? "- Foundation rules:" : "",
     ...foundationRules.map((line) => `  - ${line.replace(/^Exhibit [^:]+:\s*/i, "")}`),
     referenceAnchors.length ? "- Reference anchors:" : "",
@@ -1175,6 +1178,7 @@ function buildBookingFallbackHtmlFromPlan(input: {
   );
   const bookingHref = input.bookingHref || `#${input.bookingSectionId}`;
   const canEmbedBooking = !/^#/.test(bookingHref);
+  const primaryBookingHref = canEmbedBooking ? `#${input.bookingSectionId}` : bookingHref;
   const supportLabel = /proof\s+(rail|strip)/i.test(supportRole) ? "Decision support" : supportRole || "Decision support";
   const handoffLead = /embedded booking section/i.test(handoffType)
     ? "The booking section stays embedded and low-friction."
@@ -1187,14 +1191,35 @@ function buildBookingFallbackHtmlFromPlan(input: {
   const bestUsedWhen = `You are weighing ${cleanOffer} because the current bottleneck, handoff, or operating gap needs a real decision now.`;
   const leaveWith = `You leave with a clearer recommendation, a tighter sense of fit, and a next move grounded in ${pageGoal}.`;
   const proofAtAsk = handoffProof || `Proof and reassurance stay attached to the booking step so the handoff into ${cleanOffer} feels earned.`;
-  const bookingTriggerAttrs = canEmbedBooking
-    ? ` data-booking-modal-trigger="true" data-booking-cta-label="${escapeHtml(ctaText)}"`
-    : "";
+  const bookingTriggerAttrs = "";
   const bookingStatusReady = canEmbedBooking ? "true" : "false";
-  const bookingStatusLabel = canEmbedBooking ? "Scheduler ready" : "Calendar connection pending";
+  const bookingStatusLabel = canEmbedBooking ? "Scheduler attached" : "Calendar connection pending";
   const bookingStatusCopy = canEmbedBooking
-    ? "The selected calendar stays attached to this routing path, so the scheduler opens without dropping the visitor out of the page context."
+    ? "The selected calendar stays attached to this page shell, so scheduling happens inline while the proof, promise, and next-step framing stay in view."
     : "Connect a live booking calendar to replace this placeholder handoff with an in-page scheduler.";
+  const bookingRuntimeHtml = canEmbedBooking
+    ? buildBookingRuntimePlaceholderHtml({
+        surfaceContext: resolveFunnelBookingSurfaceContext({
+          posture: "generated",
+          routeKind: canEmbedBooking ? "linked" : "placeholder",
+          pageTitle: input.pageTitle || input.funnelName || null,
+          pageIntent: {
+            pageGoal,
+            audience,
+            offer: cleanOffer,
+            primaryCta: ctaText,
+            companyContext,
+          },
+          overrides: {
+            title: "Book the session while the case for it is still visible",
+            body: `${handoffLead} ${handoffReassurance}`,
+            proofLabel: "Decision support",
+            proofBody: bookingStatusCopy,
+            note: "Keep the standalone booking page as a secondary escape hatch, not the primary experience.",
+          },
+        }),
+      })
+    : "";
   return [
     "<!DOCTYPE html>",
     '<html lang="en">',
@@ -1204,148 +1229,148 @@ function buildBookingFallbackHtmlFromPlan(input: {
     `  <title>${escapeHtml(input.pageTitle || input.funnelName || "Booking page")}</title>`,
     '  <link rel="preconnect" href="https://fonts.googleapis.com" />',
     '  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />',
-    '  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />',
+    '  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />',
     "  <style>",
-    "    :root { color-scheme: light; --color-primary: #1846d8; --color-background: #f7f4ee; --color-text: #162033; --color-muted: #5b6577; --color-accent: #eef2f8; }",
+    "    :root { color-scheme: light; --bg: #efe6d8; --surface: #fbf6ee; --surface-strong: #f1e4d2; --ink: #18212b; --ink-soft: #5d6777; --accent: #b46333; --accent-deep: #7a3d17; --line: rgba(24, 33, 43, 0.12); --deep: #121c26; --deep-soft: #1b2a38; }",
     "    * { box-sizing: border-box; }",
-    "    body { margin: 0; font-family: 'Manrope', 'Avenir Next', 'Trebuchet MS', sans-serif; background: var(--color-background); color: var(--color-text); }",
-    "    h1, h2, h3 { font-family: 'Plus Jakarta Sans', 'Manrope', 'Avenir Next', sans-serif; font-weight: 800; }",
+    "    body { margin: 0; font-family: 'IBM Plex Sans', 'Avenir Next', 'Trebuchet MS', sans-serif; background: radial-gradient(circle at top left, #fff8ef 0%, var(--bg) 42%, #e5d7c3 100%); color: var(--ink); }",
+    "    h1, h2, h3 { font-family: 'Sora', 'IBM Plex Sans', sans-serif; font-weight: 700; }",
     "    a { color: inherit; text-decoration: none; }",
-    "    .page { max-width: 1120px; margin: 0 auto; padding: 32px 20px 88px; }",
-    "    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 8px 0 24px; color: var(--color-muted); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }",
-    "    .hero { display: grid; grid-template-columns: minmax(0, 1.18fr) minmax(300px, 0.82fr); gap: 24px; align-items: stretch; }",
-    "    .hero-copy, .hero-proof, .band, .details, .fit-grid, .booking { border: 1px solid color-mix(in srgb, var(--color-text) 10%, transparent); border-radius: 24px; box-shadow: 0 18px 42px color-mix(in srgb, var(--color-muted) 16%, transparent); }",
-    "    .hero-copy { padding: 38px; background: color-mix(in srgb, var(--color-background) 88%, var(--color-accent)); }",
-    "    .eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: color-mix(in srgb, var(--color-accent) 82%, var(--color-background)); color: var(--color-primary); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; }",
-    "    h1 { margin: 18px 0 14px; font-size: clamp(2.8rem, 5vw, 4.8rem); line-height: 0.95; letter-spacing: -0.04em; max-width: 10ch; }",
-    "    .lede { margin: 0; font-size: 18px; line-height: 1.7; color: var(--color-muted); max-width: 62ch; }",
-    "    .cta-row { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 28px; align-items: flex-start; }",
-    "    .cta-inline-proof { min-width: min(100%, 260px); max-width: 360px; padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--color-background) 90%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); color: var(--color-text); box-shadow: 0 8px 18px color-mix(in srgb, var(--color-muted) 12%, transparent); }",
-    "    .cta-inline-proof strong { display: block; margin-bottom: 6px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }",
-    "    .cta-primary { min-height: 62px; padding: 0 32px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; letter-spacing: 0.01em; background: var(--color-primary); color: var(--color-background); border: 1px solid color-mix(in srgb, var(--color-primary) 76%, var(--color-text)); box-shadow: 0 14px 28px color-mix(in srgb, var(--color-primary) 22%, transparent); }",
-    "    .cta-primary[data-booking-state='opening'] { background: color-mix(in srgb, var(--color-primary) 72%, var(--color-text)); box-shadow: 0 20px 38px color-mix(in srgb, var(--color-text) 18%, transparent); }",
-    "    .cta-secondary { min-height: auto; padding: 2px 0; border-radius: 0; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; letter-spacing: 0.01em; background: transparent; color: var(--color-muted); border: 0; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.18em; }",
-    "    .cta-proof-rail { margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }",
-    "    .cta-proof-chip { padding: 12px 14px; border-radius: 16px; background: color-mix(in srgb, var(--color-background) 86%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); color: var(--color-text); box-shadow: 0 8px 16px color-mix(in srgb, var(--color-muted) 10%, transparent); }",
-    "    .cta-proof-chip strong { display: block; margin-bottom: 4px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }",
-    "    .cta-note { margin-top: 12px; font-size: 13px; line-height: 1.6; color: var(--color-muted); }",
-    "    .micro-proof { margin-top: 22px; padding: 18px 20px; border-radius: 20px; background: color-mix(in srgb, var(--color-background) 92%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); box-shadow: 0 10px 20px color-mix(in srgb, var(--color-muted) 12%, transparent); }",
-    "    .micro-proof strong { display: block; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px; }",
-    "    .hero-proof { padding: 28px; display: flex; flex-direction: column; justify-content: space-between; gap: 18px; background: var(--color-text); color: var(--color-background); border-color: color-mix(in srgb, var(--color-text) 86%, var(--color-accent)); }",
-    "    .hero-proof-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: color-mix(in srgb, var(--color-background) 72%, var(--color-accent)); font-weight: 700; }",
-    "    .hero-proof-quote { font-size: 24px; line-height: 1.3; letter-spacing: -0.03em; color: var(--color-background); }",
-    "    .hero-proof-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }",
-    "    .hero-proof-list li { padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--color-text) 82%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-background) 12%, var(--color-text)); color: color-mix(in srgb, var(--color-background) 88%, var(--color-accent)); }",
-    "    .band { margin-top: 22px; padding: 18px 22px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; background: color-mix(in srgb, var(--color-background) 78%, var(--color-accent)); }",
-    "    .band-card { padding: 14px 16px; border-radius: 16px; background: color-mix(in srgb, var(--color-background) 90%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); box-shadow: 0 8px 18px color-mix(in srgb, var(--color-muted) 12%, transparent); }",
-    "    .band-card strong { display: block; margin-bottom: 6px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }",
-    "    .details, .fit-grid, .booking { margin-top: 22px; padding: 28px; }",
-    "    .details { background: color-mix(in srgb, var(--color-background) 92%, var(--color-accent)); }",
-    "    .section-kicker { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-muted); font-weight: 700; margin-bottom: 10px; }",
-    "    h2 { margin: 0 0 12px; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.02; letter-spacing: -0.03em; }",
-    "    .detail-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }",
-    "    .detail-step { padding: 18px 18px 20px; border-radius: 20px; background: color-mix(in srgb, var(--color-background) 84%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); }",
-    "    .detail-step strong { display: block; margin: 12px 0 8px; font-size: 15px; }",
-    "    .detail-step-index { width: 42px; height: 42px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--color-accent) 76%, var(--color-background)); color: var(--color-text); font-weight: 800; }",
-    "    .fit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; background: color-mix(in srgb, var(--color-accent) 68%, var(--color-background)); }",
-    "    .fit-card { padding: 20px 22px; border-radius: 18px; background: color-mix(in srgb, var(--color-background) 90%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 10%, transparent); }",
-    "    .fit-card-heading { font-size: clamp(1.6rem, 3vw, 2.2rem); }",
-    "    .fit-card ul { margin: 14px 0 0; padding-left: 18px; color: var(--color-muted); line-height: 1.75; }",
-    "    .booking { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 20px; align-items: start; }",
-    "    .booking-panel { padding: 20px; border-radius: 18px; background: color-mix(in srgb, var(--color-background) 92%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); }",
-    "    .booking-panel-copy { margin: 12px 0 18px; color: var(--color-muted); }",
-    "    .booking-flow { display: grid; gap: 12px; }",
-    "    .booking-status { margin-top: 16px; padding: 12px 14px; border-radius: 18px; display: grid; gap: 6px; background: color-mix(in srgb, var(--color-accent) 76%, var(--color-background)); border: 1px solid color-mix(in srgb, var(--color-primary) 16%, transparent); }",
-    "    .booking-status[data-booking-ready='false'] { background: color-mix(in srgb, var(--color-background) 82%, var(--color-accent)); border-color: color-mix(in srgb, var(--color-text) 10%, transparent); }",
-    "    .booking-status-label { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-primary); }",
-    "    .booking-status[data-booking-ready='false'] .booking-status-label { color: var(--color-text); }",
-    "    .booking-status-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--color-primary); box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-primary) 14%, transparent); }",
-    "    .booking-status[data-booking-ready='false'] .booking-status-dot { background: var(--color-muted); box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-muted) 14%, transparent); }",
-    "    .booking-status-copy { color: var(--color-muted); font-size: 14px; line-height: 1.65; }",
-    "    .booking-note { margin-top: 16px; padding-top: 16px; border-top: 1px solid color-mix(in srgb, var(--color-text) 10%, transparent); color: var(--color-muted); font-size: 14px; line-height: 1.65; }",
-    "    body.booking-modal-open { overflow: hidden; }",
-    "    .booking-modal[hidden] { display: none !important; }",
-    "    .booking-modal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; background: color-mix(in srgb, var(--color-text) 50%, transparent); backdrop-filter: blur(8px); }",
-    "    .booking-modal-panel { width: min(980px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 22px; border-radius: 24px; background: color-mix(in srgb, var(--color-background) 90%, var(--color-accent)); border: 1px solid color-mix(in srgb, var(--color-background) 72%, var(--color-text)); box-shadow: 0 26px 72px color-mix(in srgb, var(--color-muted) 18%, transparent); }",
-    "    .booking-modal-header { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }",
-    "    .booking-modal-header p { margin: 10px 0 0; max-width: 60ch; color: var(--color-muted); }",
-    "    .booking-modal-title { font-size: clamp(1.8rem, 3vw, 2.5rem); margin-bottom: 8px; }",
-    "    .booking-modal-close { min-height: 46px; padding: 0 18px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--color-text) 12%, transparent); background: color-mix(in srgb, var(--color-background) 90%, var(--color-accent)); color: var(--color-text); font-weight: 700; }",
-    "    .booking-modal-frame { width: 100%; min-height: min(68vh, 720px); border: 0; border-radius: 24px; background: var(--color-background); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 8%, transparent); }",
-    "    @media (max-width: 900px) { .hero, .booking, .band, .detail-list, .fit-grid { grid-template-columns: 1fr; } .hero-copy, .hero-proof, .details, .fit-grid, .booking { padding: 22px; } h1 { max-width: 100%; } }",
-    "    @media (max-width: 720px) { .booking-modal { padding: 14px; } .booking-modal-panel { padding: 18px; border-radius: 24px; } .booking-modal-frame { min-height: 72vh; } }",
+    "    .page { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 26px 0 88px; }",
+    "    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 4px 20px; color: var(--ink-soft); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; }",
+    "    .hero { display: grid; grid-template-columns: minmax(0, 1.14fr) minmax(320px, 0.86fr); gap: 22px; align-items: stretch; }",
+    "    .hero-copy { padding: 42px; border-radius: 30px; background: linear-gradient(145deg, rgba(255,250,243,0.96), rgba(243,231,214,0.92)); border: 1px solid var(--line); box-shadow: 0 18px 50px rgba(24, 33, 43, 0.10); }",
+    "    .hero-kicker, .section-kicker, .ledger-label, .pill-label { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 700; }",
+    "    .hero-kicker { padding: 8px 12px; border-radius: 999px; background: rgba(180, 99, 51, 0.12); color: var(--accent-deep); }",
+    "    h1 { margin: 18px 0 16px; max-width: 10ch; font-size: clamp(3rem, 5vw, 5.1rem); line-height: 0.92; letter-spacing: -0.05em; }",
+    "    .lede { margin: 0; max-width: 60ch; color: var(--ink-soft); font-size: 18px; line-height: 1.75; }",
+    "    .hero-actions { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; margin-top: 28px; }",
+    "    .cta-primary { min-height: 62px; padding: 0 32px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(122, 61, 23, 0.38); background: linear-gradient(180deg, #c97842, var(--accent)); color: #fff8f2; font-weight: 700; font-size: 16px; box-shadow: 0 18px 34px rgba(122, 61, 23, 0.22); }",
+    "    .cta-secondary { min-height: auto; padding: 2px 0; border: 0; background: transparent; color: var(--ink-soft); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.18em; font-weight: 600; }",
+    "    .hero-note { margin-top: 18px; display: grid; gap: 10px; }",
+    "    .support-card { padding: 16px 18px; border-radius: 20px; background: rgba(255, 252, 246, 0.78); border: 1px solid rgba(24, 33, 43, 0.10); }",
+    "    .support-card strong { display: block; margin-bottom: 6px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }",
+    "    .proof-ledger { padding: 28px; border-radius: 30px; background: linear-gradient(180deg, var(--deep), var(--deep-soft)); color: #f7f2ea; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 22px 54px rgba(17, 28, 38, 0.24); display: grid; gap: 18px; }",
+    "    .ledger-label { color: rgba(247, 242, 234, 0.66); }",
+    "    .proof-ledger h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.6rem); line-height: 1.02; letter-spacing: -0.04em; }",
+    "    .ledger-copy { color: rgba(247, 242, 234, 0.78); line-height: 1.72; }",
+    "    .ledger-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }",
+    "    .ledger-list li { padding: 14px 16px; border-radius: 18px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.08); }",
+    "    .ledger-list strong { display: block; margin-bottom: 6px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(247, 242, 234, 0.68); }",
+    "    .cred-strip { margin-top: 22px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }",
+    "    .cred-card { padding: 18px; border-radius: 22px; background: rgba(255, 250, 243, 0.86); border: 1px solid var(--line); box-shadow: 0 10px 26px rgba(24, 33, 43, 0.08); }",
+    "    .cred-card strong { display: block; margin-bottom: 8px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-deep); }",
+    "    .section-shell { margin-top: 22px; padding: 30px; border-radius: 30px; border: 1px solid var(--line); box-shadow: 0 18px 48px rgba(24, 33, 43, 0.10); }",
+    "    .session-map { background: linear-gradient(180deg, rgba(250, 245, 236, 0.92), rgba(240, 229, 214, 0.90)); }",
+    "    .section-kicker { color: var(--ink-soft); margin-bottom: 10px; }",
+    "    .section-title { margin: 0 0 12px; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.02; letter-spacing: -0.04em; }",
+    "    .session-grid { margin-top: 18px; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr); gap: 18px; }",
+    "    .process-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }",
+    "    .process-card, .expectation-card { padding: 20px; border-radius: 22px; background: rgba(255, 251, 245, 0.82); border: 1px solid rgba(24, 33, 43, 0.10); }",
+    "    .process-index { width: 40px; height: 40px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: rgba(180, 99, 51, 0.12); color: var(--accent-deep); font-weight: 700; }",
+    "    .process-card strong, .expectation-card strong { display: block; margin: 14px 0 8px; font-size: 15px; }",
+    "    .process-card div, .expectation-card div { color: var(--ink-soft); line-height: 1.72; }",
+    "    .pill-list { display: grid; gap: 12px; }",
+    "    .pill-row { padding: 14px 16px; border-radius: 18px; background: rgba(18, 28, 38, 0.04); border: 1px solid rgba(24, 33, 43, 0.08); }",
+    "    .pill-row strong { display: block; margin-bottom: 6px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-deep); }",
+    "    .booking-stage { margin-top: 22px; padding: 30px; border-radius: 32px; background: linear-gradient(180deg, rgba(27, 37, 47, 0.96), rgba(20, 29, 38, 0.98)); color: #f7f2ea; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 12px 30px rgba(17, 28, 38, 0.16); }",
+    "    .booking-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 390px); gap: 24px; align-items: start; }",
+    "    .booking-stage .section-kicker { color: rgba(247, 242, 234, 0.68); }",
+    "    .booking-stage .section-title { color: #f7f2ea; }",
+    "    .booking-copy { color: rgba(247, 242, 234, 0.78); line-height: 1.78; }",
+    "    .booking-proof { margin-top: 18px; padding: 18px 20px; border-radius: 22px; background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(255, 255, 255, 0.08); }",
+    "    .booking-proof strong { display: block; margin-bottom: 8px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(247, 242, 234, 0.68); }",
+    "    .booking-card { padding: 22px; border-radius: 26px; background: linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(246, 239, 229, 0.97)); color: var(--ink); border: 1px solid rgba(24, 33, 43, 0.08); box-shadow: 0 8px 22px rgba(17, 28, 38, 0.10); }",
+    "    .booking-card .hero-kicker { margin-bottom: 10px; }",
+    "    .booking-card-copy { color: var(--ink-soft); line-height: 1.72; }",
+    "    .booking-flow { display: grid; gap: 12px; margin-top: 16px; }",
+    "    .booking-status { margin-top: 16px; padding: 12px 14px; border-radius: 18px; display: grid; gap: 6px; background: rgba(180, 99, 51, 0.08); border: 1px solid rgba(180, 99, 51, 0.16); }",
+    "    .booking-status[data-booking-ready='false'] { background: rgba(24, 33, 43, 0.05); border-color: rgba(24, 33, 43, 0.10); }",
+    "    .booking-status-label { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-deep); }",
+    "    .booking-status[data-booking-ready='false'] .booking-status-label { color: var(--ink); }",
+    "    .booking-status-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 6px rgba(180, 99, 51, 0.12); }",
+    "    .booking-status[data-booking-ready='false'] .booking-status-dot { background: var(--ink-soft); box-shadow: 0 0 0 6px rgba(93, 103, 119, 0.12); }",
+    "    .booking-status-copy { color: var(--ink-soft); font-size: 14px; line-height: 1.65; }",
+    "    .booking-native-shell { margin-top: 16px; padding: 0; border-radius: 0; background: transparent; border: 0; box-shadow: none; }",
+    "    .booking-note { margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(24, 33, 43, 0.10); color: var(--ink-soft); font-size: 14px; line-height: 1.65; }",
+    "    @media (max-width: 940px) { .hero, .cred-strip, .session-grid, .process-grid, .booking-grid { grid-template-columns: 1fr; } .hero-copy, .proof-ledger, .section-shell, .booking-stage { padding: 24px; } h1 { max-width: 100%; } .page { width: min(100% - 24px, 1180px); } }",
     "  </style>",
     "</head>",
     "<body>",
     '  <main class="page">',
-    '    <div class="topbar"><span>' + escapeHtml(input.funnelName || "Consultation funnel") + '</span><span>' + escapeHtml(cleanOffer) + '</span></div>',
+    '    <div class="topbar"><span>' + escapeHtml(input.funnelName || "Booking funnel") + '</span><span>' + escapeHtml(cleanOffer) + '</span></div>',
     '    <section class="hero">',
     '      <div class="hero-copy">',
-    '        <div class="eyebrow">' + escapeHtml(qualifier) + '</div>',
+    '        <div class="hero-kicker">' + escapeHtml(qualifier) + '</div>',
     '        <h1>' + escapeHtml(promiseText) + '</h1>',
     '        <p class="lede">' + escapeHtml(heroApproach || summary) + '</p>',
-    '        <div class="cta-row">',
-    '          <a class="cta-primary" href="' + escapeHtml(bookingHref) + '"' + bookingTriggerAttrs + '>' + escapeHtml(ctaText) + '</a>',
-    '          <div class="cta-inline-proof"><strong>Decision support</strong>Clear recommendation, visible tradeoffs, and a next step framed before the scheduler opens.</div>',
+    '        <div class="hero-actions">',
+    '          <a class="cta-primary" href="' + escapeHtml(primaryBookingHref) + '"' + bookingTriggerAttrs + '>' + escapeHtml(ctaText) + '</a>',
+    '          <a class="cta-secondary" href="#booking-stage">See the booking handoff</a>',
     "        </div>",
-    '        <div class="cta-proof-rail"><div class="cta-proof-chip"><strong>Decision support</strong>One working recommendation tied to the real operating pressure.</div><div class="cta-proof-chip"><strong>Session outcome</strong>Leave with a clearer path, next steps, and the tradeoffs called out.</div></div>',
-    '        <div class="cta-note">' + escapeHtml(bookingStatusCopy) + '</div>',
-    '        <div class="micro-proof"><strong>' + escapeHtml(supportLabel) + '</strong>' + escapeHtml(adjacentProof) + '</div>',
+    '        <div class="hero-note">',
+    '          <div class="support-card"><strong>' + escapeHtml(supportLabel) + '</strong>' + escapeHtml(adjacentProof) + '</div>',
+    '          <div class="support-card"><strong>Scheduling posture</strong>' + escapeHtml(bookingStatusCopy) + '</div>',
+    '        </div>',
     "      </div>",
-    '      <aside class="hero-proof">',
-    '        <div class="hero-proof-label">Why this is worth booking</div>',
-    '        <div class="hero-proof-quote">' + escapeHtml(summary) + '</div>',
-    '        <ul class="hero-proof-list">',
-    '          <li><strong>Decision quality</strong>' + escapeHtml(contextLine) + '</li>',
+    '      <aside class="proof-ledger">',
+    '        <div class="ledger-label">Decision ledger</div>',
+    '        <h2>' + escapeHtml(summary) + '</h2>',
+    '        <div class="ledger-copy">' + escapeHtml(contextLine) + '</div>',
+    '        <ul class="ledger-list">',
     '          <li><strong>Proof strategy</strong>' + escapeHtml(proofStrategy) + '</li>',
-    '          <li><strong>What the session produces</strong>' + escapeHtml(handoffReassurance) + '</li>',
+    '          <li><strong>What changes after the call</strong>' + escapeHtml(leaveWith) + '</li>',
+    '          <li><strong>Session output</strong>' + escapeHtml(handoffReassurance) + '</li>',
     "        </ul>",
     "      </aside>",
     "    </section>",
-    '    <section class="band" aria-label="Proof strip">',
-    '      <div class="band-card"><strong>Best used when</strong>' + escapeHtml(bestUsedWhen) + '</div>',
-    '      <div class="band-card"><strong>What you leave with</strong>' + escapeHtml(leaveWith) + '</div>',
-    '      <div class="band-card"><strong>Proof at the ask</strong>' + escapeHtml(proofAtAsk) + '</div>',
+    '    <section class="cred-strip" aria-label="Credibility strip">',
+    '      <div class="cred-card"><strong>Best used when</strong>' + escapeHtml(bestUsedWhen) + '</div>',
+    '      <div class="cred-card"><strong>What changes after the call</strong>' + escapeHtml(leaveWith) + '</div>',
+    '      <div class="cred-card"><strong>Proof at the ask</strong>' + escapeHtml(proofAtAsk) + '</div>',
     "    </section>",
-    '    <section class="details" id="details">',
-    '      <div class="section-kicker">What the session actually does</div>',
-    '      <h2>One decisive path from pressure to recommendation</h2>',
+    '    <section class="section-shell session-map" id="details">',
+    '      <div class="section-kicker">How this booking earns itself</div>',
+    '      <h2 class="section-title">One operating thread from pressure to recommendation</h2>',
     '      <p class="lede">' + escapeHtml(summary) + '</p>',
-    '      <div class="detail-list">',
-    '        <div class="detail-step"><div class="detail-step-index">1</div><strong>Clarify the live pressure</strong><div>Start with the real workflow constraint, handoff gap, or delivery pressure behind the booking request instead of speaking in generic improvement language.</div></div>',
-    '        <div class="detail-step"><div class="detail-step-index">2</div><strong>Pressure-test the path</strong><div>Translate timing, delivery risk, tradeoffs, and implementation posture into a recommendation that matches ' + escapeHtml(audience) + '.</div></div>',
-    '        <div class="detail-step"><div class="detail-step-index">3</div><strong>Leave with a next move</strong><div>You leave with a recommendation, a clearer sense of fit, and a next step built around ' + escapeHtml(pageGoal) + '.</div></div>',
+    '      <div class="session-grid">',
+    '        <div class="process-grid">',
+    '          <div class="process-card"><div class="process-index">1</div><strong>Clarify the live pressure</strong><div>Start with the actual bottleneck, handoff gap, or delivery constraint instead of vague improvement language.</div></div>',
+    '          <div class="process-card"><div class="process-index">2</div><strong>Pressure-test the path</strong><div>Turn timing, delivery risk, tradeoffs, and implementation posture into a recommendation that matches ' + escapeHtml(audience) + '.</div></div>',
+    '          <div class="process-card"><div class="process-index">3</div><strong>Leave with the next move</strong><div>You leave with a recommendation and a next step tied to ' + escapeHtml(pageGoal) + '.</div></div>',
+    '        </div>',
+    '        <div class="expectation-card">',
+    '          <div class="pill-label">Expectation frame</div>',
+    '          <div class="pill-list">',
+    '            <div class="pill-row"><strong>Who this is for</strong>You are evaluating whether ' + escapeHtml(cleanOffer) + ' is the right next move and need a grounded answer fast.</div>',
+    '            <div class="pill-row"><strong>Why it feels safe to book</strong>' + escapeHtml(proofAtAsk) + '</div>',
+    '            <div class="pill-row"><strong>What stays visible</strong>The page keeps the case, proof, and expectations in view while the booking handoff happens.</div>',
+    '          </div>',
+    '        </div>',
     "      </div>",
     "    </section>",
-    '    <section class="fit-grid" aria-label="Fit and expectations">',
-    '      <div class="fit-card"><div class="section-kicker">Best fit</div><h2 class="fit-card-heading">Built for visitors who need operational clarity fast</h2><ul><li>You are deciding whether ' + escapeHtml(cleanOffer) + ' is the right next move.</li><li>You want the recommendation to feel grounded in workflow reality, not generic automation language.</li><li>You want the booking step to lead to a useful working session, not a vague sales call.</li></ul></div>',
-    '      <div class="fit-card"><div class="section-kicker">Session posture</div><h2 class="fit-card-heading">The handoff stays calm, specific, and credible</h2><ul><li>The page keeps proof close to the ask so trust does not disappear when the booking section arrives.</li><li>The offer is framed around ' + escapeHtml(pageGoal) + ' rather than ornamental discovery theater.</li><li>The CTA stays dominant without turning the page into a noisy hard-sell.</li></ul></div>',
-    "    </section>",
-    '    <section class="booking" id="' + escapeHtml(input.bookingSectionId) + '">',
-    '      <div>',
-    '        <div class="section-kicker">Booking handoff</div>',
-    '        <h2>Book the session while the case for it is still visible</h2>',
-    '        <p class="lede">' + escapeHtml(handoffLead + " " + handoffReassurance) + '</p>',
-    '        <div class="micro-proof"><strong>Reassurance at the handoff</strong>' + escapeHtml(handoffProof) + '</div>',
-    "      </div>",
-    '      <div class="booking-panel">',
-    '        <div class="hero-proof-label">Primary booking path</div>',
-    '        <p class="booking-panel-copy">Choose a time that works, confirm the session, and move into the conversation with the context already anchored around ' + escapeHtml(pageGoal) + '.</p>',
+    '    <section class="booking-stage" id="booking-stage">',
+    '      <div class="booking-grid">',
+    '        <div>',
+    '          <div class="section-kicker">Booking handoff</div>',
+    '          <h2 class="section-title">Book while the rationale, proof, and next-step framing are still in view</h2>',
+    '          <p class="booking-copy">' + escapeHtml(handoffLead + " " + handoffReassurance) + '</p>',
+    '          <div class="booking-proof"><strong>Reassurance at the handoff</strong>' + escapeHtml(handoffProof) + '</div>',
+    '        </div>',
+    '        <div class="booking-card" id="' + escapeHtml(input.bookingSectionId) + '">',
+    '          <div class="hero-kicker">Primary booking path</div>',
+    '          <p class="booking-card-copy">Choose a time that works, confirm the session, and move into the conversation with the context already anchored around ' + escapeHtml(pageGoal) + '.</p>',
     '        <div class="booking-flow">',
-    '          <a class="cta-primary" href="' + escapeHtml(bookingHref) + '"' + bookingTriggerAttrs + '>' + escapeHtml(ctaText) + '</a>',
+    '          <a class="cta-primary" href="' + escapeHtml(primaryBookingHref) + '"' + bookingTriggerAttrs + '>' + escapeHtml(ctaText) + '</a>',
     '          <a class="cta-secondary" href="' + escapeHtml(bookingHref) + '" target="_blank" rel="noopener noreferrer">Open the booking page directly</a>',
     "        </div>",
     '        <div class="booking-status" data-booking-status="true" data-booking-ready="' + bookingStatusReady + '"><div class="booking-status-label"><span class="booking-status-dot"></span><span data-booking-status-label="true">' + escapeHtml(bookingStatusLabel) + '</span></div><div class="booking-status-copy">' + escapeHtml(bookingStatusCopy) + '</div></div>',
+    canEmbedBooking ? '        <div class="booking-native-shell">' + bookingRuntimeHtml + '</div>' : "",
     '        <div class="booking-note">The page keeps proof, expectations, and the booking ask tied together so the handoff into ' + escapeHtml(cleanOffer) + ' feels like the next logical move, not an abrupt leap.</div>',
+    '        </div>',
     "      </div>",
     "    </section>",
-    canEmbedBooking
-      ? '    <div class="booking-modal" data-booking-modal="true" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="booking-modal-title"><div class="booking-modal-panel"><div class="booking-modal-header"><div><div class="section-kicker">Scheduling overlay</div><h2 id="booking-modal-title" class="booking-modal-title">Choose a time without losing the funnel context</h2><p>The selected calendar stays attached to this route, so visitors can schedule the session while the promise, proof, and next-step framing stay visible in memory.</p></div><button type="button" class="booking-modal-close" data-booking-modal-close="true">Close scheduler</button></div><iframe class="booking-modal-frame" src="' + escapeHtml(bookingHref) + '" loading="lazy" title="Booking scheduler"></iframe></div></div>'
-      : "",
     "  </main>",
-    canEmbedBooking
-      ? "  <script>(function(){var modal=document.querySelector('[data-booking-modal]');if(!modal)return;var triggers=Array.prototype.slice.call(document.querySelectorAll('[data-booking-modal-trigger=\"true\"]'));if(!triggers.length)return;var statusLabel=document.querySelector('[data-booking-status-label]');var statusCard=document.querySelector('[data-booking-status]');var frame=modal.querySelector('iframe');var setTriggerState=function(state){triggers.forEach(function(trigger){if(!(trigger instanceof HTMLElement))return;var baseLabel=trigger.getAttribute('data-booking-cta-label')||'Open scheduler';trigger.setAttribute('data-booking-state',state);trigger.textContent=state==='opening'?'Opening scheduler...':baseLabel;});};var openModal=function(){modal.hidden=false;modal.setAttribute('aria-hidden','false');document.body.classList.add('booking-modal-open');setTriggerState('opening');};var closeModal=function(){modal.hidden=true;modal.setAttribute('aria-hidden','true');document.body.classList.remove('booking-modal-open');setTriggerState('idle');};triggers.forEach(function(trigger){trigger.addEventListener('click',function(event){event.preventDefault();openModal();});});Array.prototype.slice.call(document.querySelectorAll('[data-booking-modal-close=\"true\"]')).forEach(function(button){button.addEventListener('click',closeModal);});modal.addEventListener('click',function(event){if(event.target===modal)closeModal();});document.addEventListener('keydown',function(event){if(event.key==='Escape'&&!modal.hidden)closeModal();});if(frame instanceof HTMLIFrameElement){frame.addEventListener('load',function(){setTriggerState('ready');if(statusCard instanceof HTMLElement){statusCard.setAttribute('data-booking-ready','true');}if(statusLabel instanceof HTMLElement){statusLabel.textContent='Scheduler loaded';}});}})();</script>"
-      : "",
     "</body>",
     "</html>",
   ].join("\n");
@@ -1362,66 +1387,48 @@ function enhanceBookingSchedulingExperience(input: {
 }) {
   const rawHtml = String(input.html || "");
   const bookingHref = String(input.bookingHref || "").trim();
-  if (!rawHtml || !bookingHref || /^#/.test(bookingHref) || /data-booking-modal=/i.test(rawHtml)) return rawHtml;
+  if (!rawHtml || !bookingHref || /^#/.test(bookingHref) || /data-pa-booking-runtime=/i.test(rawHtml)) return rawHtml;
 
   const ctaLabel = escapeHtml(String(input.ctaText || "Open scheduler").trim() || "Open scheduler");
   const bookingHrefPattern = new RegExp(`(<a\\b[^>]*href=["'])${escapeRegExp(bookingHref)}(["'][^>]*)(>)`, "gi");
   let triggerCount = 0;
   let html = rawHtml.replace(bookingHrefPattern, (match, prefix, href, suffix, end) => {
-    if (/data-booking-modal-trigger=/i.test(match) || triggerCount >= 2) return match;
+    if (triggerCount >= 2) return match;
     triggerCount += 1;
-    return `${prefix}${href}${suffix} data-booking-modal-trigger="true" data-booking-cta-label="${ctaLabel}" data-booking-state="idle"${end}`;
+    return `${prefix}${href}${suffix} data-booking-inline-target="true" data-booking-cta-label="${ctaLabel}"${end}`;
   });
 
   if (!triggerCount) return rawHtml;
 
+  const inlineRuntimeHtml = buildBookingRuntimePlaceholderHtml({
+    surfaceContext: resolveFunnelBookingSurfaceContext({
+      posture: "inline-upgrade",
+      routeKind: "linked",
+      overrides: {
+        title: "Choose a time without leaving the page",
+        proofLabel: "Inline scheduler",
+        proofBody: "The booking foundation stays native instead of falling back to a detached overlay.",
+        note: "Use the standalone booking page only when a separate full-page handoff is genuinely better.",
+      },
+    }),
+  });
+
   html = html.replace(
-    /(<a\b[^>]*data-booking-modal-trigger="true"[^>]*>[\s\S]*?<\/a>)/i,
-    `$1<div class="booking-inline-status" data-booking-status="true" data-booking-ready="true"><div class="booking-inline-status-label"><span class="booking-inline-status-dot"></span><span data-booking-status-label="true">Selected calendar ready</span></div><div class="booking-inline-status-copy">Open the scheduler without dropping the page context or losing the active booking route.</div></div>`,
+    /(<a\b[^>]*data-booking-inline-target="true"[^>]*>[\s\S]*?<\/a>)/i,
+    `$1<div class="booking-inline-status" data-booking-status="true" data-booking-ready="true"><div class="booking-inline-status-label"><span class="booking-inline-status-dot"></span><span data-booking-status-label="true">Scheduler attached</span></div><div class="booking-inline-status-copy">The booking foundation stays inside the page flow, so the proof and the ask stay connected while visitors choose a time.</div></div><div class="booking-inline-runtime">${inlineRuntimeHtml}</div>`,
   );
 
   const styleBlock = [
     "<style data-booking-overlay=\"true\">",
-    "  body.booking-modal-open { overflow: hidden; }",
     "  .booking-inline-status { margin-top: 14px; display: grid; gap: 6px; padding: 12px 14px; border-radius: 18px; background: rgba(24, 70, 216, 0.08); border: 1px solid rgba(24, 70, 216, 0.12); max-width: min(32rem, 100%); }",
     "  .booking-inline-status-label { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #173d9f; }",
     "  .booking-inline-status-dot { width: 10px; height: 10px; border-radius: 999px; background: #1846d8; box-shadow: 0 0 0 6px rgba(24, 70, 216, 0.12); }",
     "  .booking-inline-status-copy { color: rgba(22, 32, 51, 0.78); font-size: 14px; line-height: 1.6; }",
-    "  .booking-overlay-modal[hidden] { display: none !important; }",
-    "  .booking-overlay-modal { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(12, 18, 29, 0.58); backdrop-filter: blur(12px); }",
-    "  .booking-overlay-panel { width: min(980px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 22px; border-radius: 30px; background: linear-gradient(180deg, rgba(252,249,243,0.98), rgba(244,238,228,0.96)); border: 1px solid rgba(255,255,255,0.7); box-shadow: 0 42px 120px rgba(15,23,42,0.28); }",
-    "  .booking-overlay-header { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }",
-    "  .booking-overlay-header p { margin: 10px 0 0; max-width: 60ch; color: rgba(22, 32, 51, 0.72); line-height: 1.7; }",
-    "  .booking-overlay-kicker { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(22, 32, 51, 0.64); font-weight: 700; }",
-    "  .booking-overlay-title { margin: 8px 0 0; font-size: clamp(1.8rem, 3vw, 2.5rem); line-height: 1.04; letter-spacing: -0.03em; }",
-    "  .booking-overlay-close, .booking-overlay-direct { min-height: 46px; padding: 0 18px; border-radius: 999px; border: 1px solid rgba(22,32,51,0.12); background: rgba(255,255,255,0.82); color: #162033; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }",
-    "  .booking-overlay-actions { display: flex; flex-wrap: wrap; gap: 10px; }",
-    "  .booking-overlay-frame { width: 100%; min-height: min(68vh, 720px); border: 0; border-radius: 24px; background: #ffffff; box-shadow: inset 0 0 0 1px rgba(22,32,51,0.08); }",
-    "  @media (max-width: 720px) { .booking-overlay-modal { padding: 14px; } .booking-overlay-panel { padding: 18px; border-radius: 24px; } .booking-overlay-frame { min-height: 72vh; } }",
+    "  .booking-inline-runtime { margin-top: 16px; padding: 14px; border-radius: 22px; background: linear-gradient(180deg, rgba(252,249,243,0.98), rgba(244,238,228,0.96)); border: 1px solid rgba(22,32,51,0.1); box-shadow: 0 22px 56px rgba(15,23,42,0.12); }",
     "</style>",
   ].join("\n");
-  const modalMarkup = [
-    '<div class="booking-overlay-modal" data-booking-modal="true" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="booking-overlay-title">',
-    '  <div class="booking-overlay-panel">',
-    '    <div class="booking-overlay-header">',
-    '      <div>',
-    '        <div class="booking-overlay-kicker">Scheduling overlay</div>',
-    '        <h2 id="booking-overlay-title" class="booking-overlay-title">Choose a time without losing your place</h2>',
-    '        <p>The selected calendar stays attached to this routing path, so visitors can schedule the session while the surrounding promise and proof remain in view.</p>',
-    "      </div>",
-    '      <div class="booking-overlay-actions">',
-    '        <a class="booking-overlay-direct" href="' + escapeHtml(bookingHref) + '" target="_blank" rel="noopener noreferrer">Open booking page directly</a>',
-    '        <button type="button" class="booking-overlay-close" data-booking-modal-close="true">Close scheduler</button>',
-    "      </div>",
-    "    </div>",
-    '    <iframe class="booking-overlay-frame" src="' + escapeHtml(bookingHref) + '" loading="lazy" title="Booking scheduler"></iframe>',
-    "  </div>",
-    "</div>",
-  ].join("\n");
-  const scriptBlock = "<script>(function(){var modal=document.querySelector('[data-booking-modal]');if(!modal)return;var triggers=Array.prototype.slice.call(document.querySelectorAll('[data-booking-modal-trigger=\"true\"]'));if(!triggers.length)return;var statusLabel=document.querySelector('[data-booking-status-label]');var frame=modal.querySelector('iframe');var setTriggerState=function(state){triggers.forEach(function(trigger){if(!(trigger instanceof HTMLElement))return;var baseLabel=trigger.getAttribute('data-booking-cta-label')||'Open scheduler';trigger.setAttribute('data-booking-state',state);if(state==='opening'){trigger.textContent='Opening scheduler...';}else{trigger.textContent=baseLabel;}});};var openModal=function(){modal.hidden=false;modal.setAttribute('aria-hidden','false');document.body.classList.add('booking-modal-open');setTriggerState('opening');};var closeModal=function(){modal.hidden=true;modal.setAttribute('aria-hidden','true');document.body.classList.remove('booking-modal-open');setTriggerState('idle');};triggers.forEach(function(trigger){trigger.addEventListener('click',function(event){event.preventDefault();openModal();});});Array.prototype.slice.call(document.querySelectorAll('[data-booking-modal-close=\"true\"]')).forEach(function(button){button.addEventListener('click',closeModal);});modal.addEventListener('click',function(event){if(event.target===modal)closeModal();});document.addEventListener('keydown',function(event){if(event.key==='Escape'&&!modal.hidden)closeModal();});if(frame instanceof HTMLIFrameElement){frame.addEventListener('load',function(){setTriggerState('ready');if(statusLabel instanceof HTMLElement){statusLabel.textContent='Scheduler loaded';}});}})();</script>";
 
   html = /<\/head>/i.test(html) ? html.replace(/<\/head>/i, `${styleBlock}\n</head>`) : `${styleBlock}\n${html}`;
-  html = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${modalMarkup}\n${scriptBlock}\n</body>`) : `${html}\n${modalMarkup}\n${scriptBlock}`;
   return html;
 }
 
@@ -1533,9 +1540,22 @@ function analyzeSpatialDiscipline(html: string) {
   };
 }
 
+function requestAllowsMultipleBookingMounts(prompt: string, sectionPlan?: string | null) {
+  const text = `${String(prompt || "")}\n${String(sectionPlan || "")}`;
+  return /\b(?:two|2|multiple|multi|dual)\s+(?:booking|calendar|scheduler|scheduling|slot|slots|handoff|handoffs)\b/i.test(text)
+    || /\b(?:secondary|fallback|backup)\s+(?:booking|calendar|scheduler|slot)\b/i.test(text)
+    || /\bcompare\s+(?:booking|calendar|scheduler|slots?)\b/i.test(text);
+}
+
 function assessGeneratedPageQuality(
   html: string,
-  input: { pageType: string; primaryCta?: string | null; sectionPlan?: string | null; proofModel?: string | null },
+  input: {
+    pageType: string;
+    primaryCta?: string | null;
+    sectionPlan?: string | null;
+    proofModel?: string | null;
+    allowMultipleBookingMounts?: boolean;
+  },
 ) {
   const bodyHtml = extractBodyHtml(html);
   const text = extractQualityText(html);
@@ -1552,6 +1572,7 @@ function assessGeneratedPageQuality(
   const ctaLinkCount = (html.match(/<a\b[^>]*href=/gi) || []).length;
   const bookingHref = /href=["'][^"']*\/book\/[^"']*["']/i.test(html);
   const bookingAnchor = /id=["'][^"']*(book|schedule|calendar|appointment)[^"']*["']/i.test(html);
+  const bookingRuntimeMountCount = countPatternMatches(bodyHtml, /\bdata-pa-booking-runtime=["'][^"']+["']/gi);
   const bookingSignals = /\b(book|booking|schedule|scheduled|appointment|calendar|consultation|strategy call|book a call)\b/i.test(bodyText);
   const proofSignals = hasProofSurface(bodyHtml);
   const firstCtaIndex = findFirstPatternIndex(bodyHtml, [
@@ -1690,6 +1711,9 @@ function assessGeneratedPageQuality(
   }
 
   if (input.pageType === "booking") {
+    if (!input.allowMultipleBookingMounts && bookingRuntimeMountCount > 1) {
+      issues.push("Normal booking pages should use one dominant scheduler. Replace extra full booking widgets with a quieter fallback CTA or a jump back to the main booking section.");
+    }
     if (majorSectionCount < 3 && !hasDedicatedMidPageSupportBeat) {
       issues.push("Booking pages need more than a hero and booking block. Add a real middle support beat for fit, process, outcomes, or proof before the handoff.");
     }
@@ -1821,19 +1845,63 @@ function detectInteractiveIntent(text: string): {
   const testimonialSurface = /\b(testimonials? (section|grid|cards?)|social proof section|proof section|case stud(?:y|ies) section)\b/;
   const syncedReviewSurface = /\b(synced reviews?|live reviews?|real reviews?|reviews? (section|block|feed|grid)|customer reviews? section)\b/;
   const designLedCue = /\b(design|redesign|restyle|style|styling|visual|layout|look|feel|vibe|tone|premium|polished|unique|brand|art direction|concept|hero)\b/;
+  const removeVerb = /(remove|strip|delete|drop|cut|eliminate|without|avoid|not|no)/;
+  const negativeCommerceCue = new RegExp(
+    String.raw`\b(?:not\s+a|not\s+an|not|no|without|remove|strip|delete|drop|cut|eliminate|avoid|stop)\b[^.]{0,80}\b(?:shop|store|cart|checkout|purchase|buy\s*now|buy-now|add\s*to\s*cart|add-to-cart|payment\s+link|stripe\s+checkout)\b`,
+  ).test(s);
+  const negativeCalendarCue = new RegExp(
+    String.raw`\b(?:remove|strip|delete|drop|cut|eliminate|avoid)\b[^.]{0,80}\b(?:calendar|scheduler|booking\s+calendar|booking\s+widget|booking|appointment)\b`,
+  ).test(s);
   const pricingOnly = /\bpricing\b/.test(s) && !shopNoun.test(s.replace(/pricing/g, ""));
-  const wantsShop = !pricingOnly && (embedVerb.test(s) && shopNoun.test(s) || /\b(add to cart|checkout|payment link|stripe checkout)\b/.test(s));
-  const wantsCart = /\b(add to cart|cart)\b/.test(s) && (embedVerb.test(s) || /\bcheckout\b/.test(s));
-  const wantsCheckout = /\b(checkout|purchase|pay now|stripe checkout)\b/.test(s) && (embedVerb.test(s) || /\bstripe\b/.test(s));
-  const wantsCalendar = (embedVerb.test(s) && calendarNoun.test(s)) || /\bembed my calendar\b/.test(s);
+  const wantsShop = !negativeCommerceCue && !pricingOnly && ((embedVerb.test(s) && shopNoun.test(s)) || /\b(add to cart|checkout|payment link|stripe checkout)\b/.test(s));
+  const wantsCart = !negativeCommerceCue && /\b(add to cart|cart)\b/.test(s) && (embedVerb.test(s) || /\bcheckout\b/.test(s));
+  const wantsCheckout = !negativeCommerceCue && /\b(checkout|purchase|pay now|stripe checkout)\b/.test(s) && (embedVerb.test(s) || /\bstripe\b/.test(s));
+  const wantsCalendar = !negativeCalendarCue && ((embedVerb.test(s) && calendarNoun.test(s)) || /\bembed my calendar\b/.test(s));
   const wantsChatbot = (embedVerb.test(s) && chatbotNoun.test(s)) || /\bembed my chatbot\b/.test(s);
   const wantsPricing = pricingSurface.test(s) || (embedVerb.test(s) && /\bpricing\b/.test(s) && /\b(section|grid|cards?|table|plans?)\b/.test(s));
   const wantsTestimonialGrid = testimonialSurface.test(s) || (embedVerb.test(s) && /\btestimonials?\b/.test(s));
   const wantsSyncedReviews = syncedReviewSurface.test(s) || (embedVerb.test(s) && /\breviews?\b/.test(s));
-  const explicitRuntimeOnlyCue = /\b(just|only|simply|directly)\b/.test(s);
+  const explicitRuntimeOnlyCue =
+    /\b(?:just|only|simply)\s+(?:add|insert|embed|connect|wire|hook up|place|drop in|include|use|set up|attach)\b/.test(s) ||
+    /\bdirectly\s+(?:add|insert|embed|connect|wire|attach|place|drop in)\b/.test(s) ||
+    (removeVerb.test(s) && !designLedCue.test(s) && /(calendar|chatbot|checkout|cart|shop)/.test(s) && embedVerb.test(s));
   const designLedRequest = designLedCue.test(s) && !explicitRuntimeOnlyCue;
   const any = !designLedRequest && (wantsShop || wantsCart || wantsCheckout || wantsCalendar || wantsChatbot || wantsPricing || wantsTestimonialGrid || wantsSyncedReviews);
   return { wantsShop, wantsCart, wantsCheckout, wantsCalendar, wantsChatbot, wantsPricing, wantsTestimonialGrid, wantsSyncedReviews, any };
+}
+
+function resolveInteractiveIntentForPage(
+  intent: ReturnType<typeof detectInteractiveIntent>,
+  opts: {
+    prompt: string;
+    pageType?: string | null;
+    formStrategy?: string | null;
+    primaryCta?: string | null;
+  },
+): ReturnType<typeof detectInteractiveIntent> {
+  const bookingFirst =
+    opts.pageType === "booking" ||
+    opts.formStrategy === "booking" ||
+    /\b(book|booking|schedule|call|consult|consultation|appointment|demo)\b/i.test(String(opts.primaryCta || ""));
+
+  if (!bookingFirst) return intent;
+
+  const next = {
+    ...intent,
+    wantsShop: false,
+    wantsCart: false,
+    wantsCheckout: false,
+  };
+
+  return {
+    ...next,
+    any:
+      next.wantsCalendar ||
+      next.wantsChatbot ||
+      next.wantsPricing ||
+      next.wantsTestimonialGrid ||
+      next.wantsSyncedReviews,
+  };
 }
 
 function joinHumanList(items: string[]): string {
@@ -1869,7 +1937,8 @@ function buildInteractiveHeroText(intent: ReturnType<typeof detectInteractiveInt
   return `Use this page to ${joinHumanList(actions)}.`;
 }
 
-function buildPricingGridItems(stripeProducts: Array<{
+function buildPricingGridItems(
+  stripeProducts: Array<{
   id: string;
   name: string;
   description: string | null;
@@ -1877,7 +1946,11 @@ function buildPricingGridItems(stripeProducts: Array<{
   defaultPriceId: string;
   unitAmount: number | null;
   currency: string;
-}>): Array<Record<string, unknown>> {
+  }>,
+  opts?: { commerceMode?: boolean; consultationMode?: boolean },
+): Array<Record<string, unknown>> {
+  const commerceMode = opts?.commerceMode === true;
+  const consultationMode = opts?.consultationMode === true;
   const realProducts = stripeProducts
     .filter((product) => product && product.defaultPriceId)
     .slice(0, 3)
@@ -1887,41 +1960,42 @@ function buildPricingGridItems(stripeProducts: Array<{
       ...(product.description ? { description: String(product.description).slice(0, 220) } : {}),
       ...(index === 1 ? { badge: "Most chosen", featured: true } : {}),
       priceId: product.defaultPriceId,
-      ctaText: "Buy now",
+      ctaText: "Checkout",
+      ctaMode: "checkout",
       features: [
-        "Clear next step built into the page",
-        "Simple offer presentation without extra back-and-forth",
-        "Ready for checkout directly from this section",
+        "Live product and price data from Stripe",
+        "Built for direct purchase without extra qualification",
+        "Checkout can happen from this section",
       ],
     }));
 
-  if (realProducts.length) return realProducts;
+  if (commerceMode && realProducts.length) return realProducts;
 
   return [
     {
-      name: "Starter",
+      name: "Intro",
       price: "Custom quote",
-      description: "Use this slot for the lightest package or entry offer when exact pricing is not settled yet.",
-      ctaText: "Request details",
-      ctaHref: "#contact",
-      features: ["Best for simpler needs", "Fastest path to a first decision"],
+      description: "Use this card for the lightest engagement, entry package, or first step when the exact commercial detail is still evolving.",
+      ctaText: consultationMode ? "Book intro call" : "See details",
+      ctaHref: consultationMode ? "#booking" : "#contact",
+      features: ["Best for lighter scope", "Keeps the next step low-friction"],
     },
     {
-      name: "Signature",
+      name: "Core package",
       price: "Custom quote",
-      description: "Use this slot for the core offer you want most people to choose.",
-      badge: "Recommended",
+      description: "Use this card for the main package, service tier, or transformation path you want most qualified buyers to consider.",
+      badge: "Best fit",
       featured: true,
-      ctaText: "Request details",
-      ctaHref: "#contact",
-      features: ["Built for the main buyer path", "Best place to explain the real value"],
+      ctaText: consultationMode ? "Book strategy call" : "See what is included",
+      ctaHref: consultationMode ? "#booking" : "#contact",
+      features: ["Built for the main buyer path", "Best place to explain scope and outcome"],
     },
     {
-      name: "Custom",
+      name: "Custom scope",
       price: "Let’s scope it",
-      description: "Use this slot for buyers who need a tailored package, larger scope, or team rollout.",
-      ctaText: "Talk to us",
-      ctaHref: "#contact",
+      description: "Use this card for buyers who need a tailored package, larger rollout, or a consultation before the exact package is defined.",
+      ctaText: "Talk it through",
+      ctaHref: consultationMode ? "#booking" : "#contact",
       features: ["Flexible scope", "Best for custom requirements"],
     },
   ];
@@ -1972,7 +2046,7 @@ function buildInteractiveAssistantSummary(blocks: CreditFunnelBlock[]): string {
   const families: string[] = [];
   if (blockTreeHasType(blocks, (block) => block.type === "testimonialGrid")) families.push("a testimonial grid");
   if (blockTreeHasType(blocks, (block) => block.type === "syncedReviews")) families.push("synced reviews");
-  if (blockTreeHasType(blocks, (block) => block.type === "pricingGrid")) families.push("a pricing grid");
+  if (blockTreeHasType(blocks, (block) => block.type === "pricingGrid")) families.push("package cards");
   if (blockTreeHasType(blocks, (block) => block.type === "calendarEmbed")) families.push("a booking calendar");
   if (blockTreeHasType(blocks, (block) => block.type === "chatbot")) families.push("a chatbot");
   if (blockTreeHasType(blocks, (block) => block.type === "addToCartButton" || block.type === "salesCheckoutButton" || block.type === "cartButton")) {
@@ -2277,6 +2351,8 @@ function buildInteractiveBlocks(opts: {
   intent: ReturnType<typeof detectInteractiveIntent>;
 }): CreditFunnelBlock[] {
   const blocks: CreditFunnelBlock[] = [];
+  const commerceMode = Boolean(opts.intent.wantsShop || opts.intent.wantsCart || opts.intent.wantsCheckout);
+  const consultationMode = Boolean(opts.intent.wantsCalendar && !commerceMode);
   const heroChildren: CreditFunnelBlock[] = [
     {
       id: newBlockId("h1"),
@@ -2353,23 +2429,25 @@ function buildInteractiveBlocks(opts: {
   }
 
   if (opts.intent.wantsPricing) {
-    const pricingItems = buildPricingGridItems(opts.stripeProducts);
+    const pricingItems = buildPricingGridItems(opts.stripeProducts, { commerceMode, consultationMode });
     blocks.push({
       id: newBlockId("pricing"),
       type: "pricingGrid",
       props: {
-        eyebrow: "Pricing",
+        eyebrow: commerceMode ? "Pricing" : "Packages",
         heading: "Choose the right fit",
-        intro: opts.intent.wantsShop || opts.intent.wantsCheckout
+        intro: commerceMode
           ? "Use this section to compare plans before visitors drop into checkout."
-          : "Use this section to compare plans or packages before the next step.",
+          : consultationMode
+            ? "Use this section to compare package paths, then move qualified visitors into the booking step below without forcing store or checkout posture."
+            : "Use this section to compare packages, explain fit, and point people to the right next step without forcing checkout posture.",
         columns: pricingItems.length >= 3 ? 3 : pricingItems.length === 2 ? 2 : 1,
         items: pricingItems as any,
       },
     });
   }
 
-  if (opts.intent.wantsShop || opts.intent.wantsCart || opts.intent.wantsCheckout) {
+  if (commerceMode) {
     const purchasable = opts.stripeProducts
       .filter((p) => p && p.defaultPriceId)
       .slice(0, 6);
@@ -2455,6 +2533,8 @@ function buildInteractiveBlocks(opts: {
       id: newBlockId("calSection"),
       type: "section",
       props: {
+        anchorId: "booking",
+        anchorLabel: "Book a time",
         children: [
           { id: newBlockId("calH"), type: "heading", props: { text: "Book a time", level: 2 } },
           {
@@ -3105,13 +3185,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
           },
         }),
     },
-  ).catch(() => ({
+  ).catch((): FunnelPromptSynthesisResult => ({
     prompt,
     usedAi: false,
     exhibitAdvisory: null,
+    clarifyingQuestion: null,
+    businessSpecificityScore: 0,
+    contextGaps: [],
   }));
 
-  const intent = interactiveIntent;
+  const intent = resolveInteractiveIntentForPage(interactiveIntent, {
+    prompt,
+    pageType: effectiveIntentProfile.pageType,
+    formStrategy: effectiveIntentProfile.formStrategy,
+    primaryCta: effectiveIntentProfile.primaryCta,
+  });
   if (intent.any) {
     const [promptStrategy, stripeProducts] = await Promise.all([promptStrategyPromise, stripeProductsPromise]);
     aiRun.plannedMinSteps = promptStrategy.usedAi ? 1 : 0;
@@ -3255,11 +3343,53 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     select: { slug: true, name: true, status: true },
   });
   const [promptStrategy, stripeProducts, forms] = await Promise.all([promptStrategyPromise, stripeProductsPromise, formsPromise]);
+  if (promptStrategy.clarifyingQuestion && !intent.any) {
+    const question = promptStrategy.clarifyingQuestion.slice(0, 800);
+    const prevChat = Array.isArray(normalizedPage.customChatJson) ? (normalizedPage.customChatJson as any[]) : [];
+    const clarificationUserMsg = { role: "user", content: threadPrompt, at: new Date().toISOString() };
+    const assistantMsg = { role: "assistant", content: question, at: new Date().toISOString() };
+    const nextChat = [...prevChat, clarificationUserMsg, assistantMsg].slice(-40);
+
+    const updated = await prisma.creditFunnelPage.update({
+      where: { id: page.id },
+      data: {
+        customChatJson: nextChat,
+      },
+      select: withDraftHtmlSelect({
+        id: true,
+        slug: true,
+        title: true,
+        editorMode: true,
+        customHtml: true,
+        customChatJson: true,
+        updatedAt: true,
+      }, hasDraftHtml),
+    });
+
+    return NextResponse.json({
+      ok: true,
+      question,
+      aiResult: buildAiResultMeta({
+        mode: "question",
+        hadCurrentHtml: Boolean(effectiveCurrentHtml),
+        wantsDesignRedesign,
+        contextKeyCount: contextKeys.length,
+        contextMediaCount: contextMedia.length,
+        run: aiRun,
+      }),
+      sourceActionPlan: effectiveSourceActionPlan,
+      page: normalizeDraftHtml(updated),
+    });
+  }
   aiRun.plannedMinSteps = promptStrategy.usedAi ? 3 : 2;
   aiRun.plannedMaxSteps = (promptStrategy.usedAi ? 1 : 0) + 4 + (effectiveIntentProfile.pageType === "booking" ? 1 : 0);
   const strategicPrompt = promptStrategy.prompt;
   const exhibitPlannerContractBlock = buildExhibitPlannerContractBlock(promptStrategy.exhibitAdvisory);
   const wantsBookingPage = effectiveIntentProfile.pageType === "booking" || effectiveIntentProfile.formStrategy === "booking";
+  const hasExplicitDesignDirection = hasFunnelDesignContext(designContext);
+  const hasStructuredBookingDirection = Boolean(
+    String(effectiveIntentProfile.shellConcept || effectiveIntentProfile.sectionPlan || shellFrame?.sectionPlan || "").trim(),
+  );
   const bookingFallbackFastPathEligible = wantsBookingPage
     && !currentHtmlFromClient.trim()
     && (!effectiveCurrentHtml.trim() || Boolean(exportedCurrentHtmlFromBlocks))
@@ -3268,7 +3398,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     && contextMedia.length === 0
     && !intent.any
     && allowsStructuralRebuild
+    && !promptStrategy.usedAi
+    && !hasExplicitDesignDirection
+    && !hasStructuredBookingDirection
     && prompt.split(/\s+/).filter(Boolean).length <= 32;
+  const allowMultipleBookingMounts = requestAllowsMultipleBookingMounts(
+    prompt,
+    effectiveIntentProfile.sectionPlan || shellFrame?.sectionPlan || null,
+  );
   const bookingRuntimeBlock = [
     "BOOKING_RUNTIME:",
     wantsBookingPage
@@ -3374,6 +3511,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "- On booking pages, guide the visitor top-to-bottom into scheduling. If you use an in-page booking section, anchor the hero CTA into that section so the path feels intentional.",
     "- For booking pages with a native booking URL, an in-page anchor alone is not enough. Include at least one real booking link or embedded booking element that points to the provided runtime.",
     "- On the first take of a booking page, prefer embedding the native booking flow inside the booking section so the visitor can schedule without leaving the page unless the requested design clearly calls for a cleaner outbound handoff.",
+    "- On standard booking pages, use one dominant booking runtime or scheduler. Do not generate a second full calendar later in the page unless the user explicitly asks for multiple booking slots or a fallback scheduler pattern.",
+    "- If the page needs a later fallback beat, make it a quieter objection-handling section with a return-to-booking CTA or jump link back to the main scheduler instead of another full scheduling widget.",
     "- On booking pages, pair the first CTA with visible proof in the hero or the very next band: a testimonial excerpt, quantified result, trusted-by strip, or outcomes panel.",
     "- On booking pages, the primary CTA must be visually dominant in the first screen: use one filled high-contrast action with stronger size, containment, and spacing than any nearby link or secondary prompt.",
     "- On booking pages, do not give secondary actions the same visual weight as the booking CTA. Exploratory links should read as text-like support, not as competing buttons.",
@@ -3867,6 +4006,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
             primaryCta: effectiveIntentProfile.primaryCta,
             sectionPlan: effectiveIntentProfile.sectionPlan || shellFrame?.sectionPlan || null,
             proofModel: shellFrame?.proofModel || null,
+            allowMultipleBookingMounts,
           });
 
       if (html && firstPassIssues.length) {
@@ -3899,6 +4039,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
             : "",
           effectiveIntentProfile.pageType === "booking"
             ? "BOOKING_REPAIR_RULES: create clearer section rhythm. Do not keep hero, proof strip, details, FAQ, and booking areas on the same soft panel treatment. Introduce at least one more forceful contrast beat or visual temperature shift so the page reads in chapters."
+            : "",
+          effectiveIntentProfile.pageType === "booking"
+            ? "BOOKING_REPAIR_RULES: on a normal booking page, keep one real scheduler. If you need a softer later beat, turn it into objection-handling copy with a quieter return-to-booking link instead of duplicating the full booking UI."
             : "",
           "VISUAL_REPAIR_RULES: if the page still looks like a generic starter template, rebuild the hero, section containers, typography, and proof surfaces so the result feels deliberate and premium. Avoid stock UI font stacks such as Arial, Helvetica, Segoe UI, Tahoma, Geneva, Verdana, flat full-width color bands, viewport-height hero shells, and bare CTA rows with little containment.",
           "VISUAL_REPAIR_RULES: do not keep or reintroduce the common Inter body + Space Grotesk heading pairing or the usual soft-blue consultation shell. Pick a stronger type and surface direction.",
@@ -3942,6 +4085,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
           primaryCta: effectiveIntentProfile.primaryCta,
           sectionPlan: effectiveIntentProfile.sectionPlan || shellFrame?.sectionPlan || null,
           proofModel: shellFrame?.proofModel || null,
+          allowMultipleBookingMounts,
         });
 
         if (html && effectiveIntentProfile.pageType === "booking" && hasBookingClusterFailure(rescueIssues)) {
@@ -3969,6 +4113,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
             "- The booking CTA must be the most visually dominant object in that cluster. Use one filled high-contrast action and demote any secondary action to a quieter text link or subordinate treatment.",
             "- Do not leave proof as a later standalone section. Attach it directly to the hero CTA cluster, then repeat reassurance immediately above or inside the booking section.",
             "- Keep one dominant text-and-CTA column. Any secondary area must be a compact proof rail, proof strip, or reassurance stack, not decorative filler.",
+            "- Keep one real scheduler on a standard booking page. If you need a later fallback beat, use a quieter return-to-booking CTA instead of a second full calendar.",
             "- Return only a full ```html document, optionally followed by the JSON change log.",
           ].join("\n");
 
@@ -4232,7 +4377,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     finalQualityIssues.length &&
     !isPrimaryCtaCopyEdit &&
     effectiveIntentProfile.pageType === "booking" &&
-    (hasBookingClusterFailure(finalQualityIssues) || hasBookingGenericOutputFailure(finalQualityIssues))
+    hasBookingClusterFailure(finalQualityIssues)
   ) {
     aiRun.usedFallback = true;
     const bookingFallbackPlan = generationPlan;

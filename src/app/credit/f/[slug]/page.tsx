@@ -1,13 +1,18 @@
 import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
+import { getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
 import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
+import { readFunnelOffers } from "@/lib/funnelOffers";
+import { resolveFunnelBookingSurfaceContext } from "@/lib/funnelBookingSurface";
 import { resolveFunnelPageRenderState } from "@/lib/funnelPageGraph";
+import { renderTextTemplate } from "@/lib/textTemplate";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
+import { FunnelCustomHtmlRuntimeSurface } from "@/components/funnel/FunnelCustomHtmlRuntimeSurface";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -52,9 +57,15 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
     ? await prisma.creditFunnelBuilderSettings.findUnique({ where: { ownerId: funnel.ownerId }, select: { dataJson: true } }).catch(() => null)
     : null;
   const defaultBookingCalendarId = readFunnelBookingRouting(settings?.dataJson ?? null, funnel.id)?.calendarId ?? null;
+  const offers = readFunnelOffers(settings?.dataJson ?? null, funnel.id);
 
   const page = funnel.pages[0] || null;
   const renderState = resolveFunnelPageRenderState(page, "published");
+  const templateVars = funnel.ownerId ? await getBusinessProfileTemplateVars(funnel.ownerId).catch(() => ({})) : {};
+  const renderedCustomHtml =
+    renderState.kind === "html" && renderState.html
+      ? renderTextTemplate(renderState.html, templateVars)
+      : "";
   const markdownBlocks = renderState.kind === "markdown" ? parseBlogContent(renderState.markdown) : [];
 
   return (
@@ -62,12 +73,27 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
       {page ? (
         <>
           {renderState.kind === "html" ? (
-            <iframe
-              title={page.title}
-              sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
-                 allow="microphone"
-              srcDoc={renderState.html}
-              className="h-screen w-full bg-white"
+            <FunnelCustomHtmlRuntimeSurface
+              html={renderedCustomHtml}
+              bookingTarget={defaultBookingCalendarId
+                ? {
+                    kind: "calendar",
+                    ownerId: funnel.ownerId,
+                    calendarId: defaultBookingCalendarId,
+                    funnelId: funnel.id,
+                    pageId: page.id,
+                    themeStage: "published",
+                  }
+                : null}
+              surfaceContext={resolveFunnelBookingSurfaceContext({
+                posture: "published",
+                routeKind: defaultBookingCalendarId ? "funnel-default" : "placeholder",
+                pageTitle: page.title,
+                calendarTitle: defaultBookingCalendarId || null,
+                pageIntent: "brief" in page ? page.brief || null : null,
+              })}
+              injectImplicitBooking={Boolean(defaultBookingCalendarId)}
+              className="min-h-screen w-full bg-white"
             />
           ) : renderState.kind === "blocks" ? (
             <div>
@@ -77,9 +103,14 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
                 context: {
                   bookingOwnerId: funnel.ownerId,
                   defaultBookingCalendarId: defaultBookingCalendarId || undefined,
+                  funnelId: funnel.id,
                   funnelPageId: page.id,
+                  bookingThemeStage: "published",
+                  bookingSurfacePageTitle: page.title,
+                  bookingSurfacePageIntent: "brief" in page ? page.brief || null : null,
                   funnelSlug: funnel.slug,
                   funnelPathBase: `/credit/f/${encodeURIComponent(funnel.slug)}`,
+                  offers,
                 },
               })}
             </div>

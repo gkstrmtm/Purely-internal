@@ -1,4 +1,5 @@
 import type { CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
+import { buildBookingRuntimePlaceholderHtml, resolveFunnelBookingSurfaceContext } from "@/lib/funnelBookingSurface";
 
 export function escapeHtml(s: string) {
   return String(s || "")
@@ -94,7 +95,7 @@ export function blocksToCustomHtmlDocument(opts: {
         if (b.type === "addToCartButton" || b.type === "salesCheckoutButton" || b.type === "cartButton") return true;
         if (b.type === "pricingGrid") {
           const items: any[] = Array.isArray((b.props as any)?.items) ? ((b.props as any).items as any[]) : [];
-          if (items.some((item) => item && typeof item === "object" && String((item as any).priceId || "").trim())) return true;
+          if (items.some((item) => item && typeof item === "object" && (item as any).ctaMode === "checkout" && String((item as any).priceId || "").trim())) return true;
         }
         if (b.type === "section") {
           const p: any = b.props as any;
@@ -201,8 +202,12 @@ export function blocksToCustomHtmlDocument(opts: {
         .join("\n");
 
       const logo = logoUrl
-        ? `<a href=\"${escapeHtmlAttr(logoHref || "/")}\" style=\"display:inline-flex;align-items:center;gap:10px;text-decoration:none\"><img src=\"${escapeHtmlAttr(logoUrl)}\" alt=\"${escapeHtmlAttr(logoAlt || "Logo")}\" style=\"height:28px;width:auto\" /></a>`
-        : `<a href=\"${escapeHtmlAttr(logoHref || "/")}\" style=\"font-weight:900;text-decoration:none\">${escapeHtml(opts.title || "")}</a>`;
+        ? logoHref
+          ? `<a href=\"${escapeHtmlAttr(logoHref)}\" style=\"display:inline-flex;align-items:center;gap:10px;text-decoration:none\"><img src=\"${escapeHtmlAttr(logoUrl)}\" alt=\"${escapeHtmlAttr(logoAlt || "Logo")}\" style=\"height:28px;width:auto\" /></a>`
+          : `<span style=\"display:inline-flex;align-items:center;gap:10px;text-decoration:none\"><img src=\"${escapeHtmlAttr(logoUrl)}\" alt=\"${escapeHtmlAttr(logoAlt || "Logo")}\" style=\"height:28px;width:auto\" /></span>`
+        : logoHref
+          ? `<a href=\"${escapeHtmlAttr(logoHref)}\" style=\"font-weight:900;text-decoration:none\">${escapeHtml(opts.title || "")}</a>`
+          : `<span style=\"font-weight:900\">${escapeHtml(opts.title || "")}</span>`;
 
       return withBlockAnchor(b, `<div class=\"pa-header\"><div class=\"pa-header-inner\">${logo}<nav class=\"pa-nav\">${links}</nav></div></div>`);
     }
@@ -287,11 +292,24 @@ export function blocksToCustomHtmlDocument(opts: {
 
     if (b.type === "calendarEmbed") {
       const calendarId = typeof (b.props as any)?.calendarId === "string" ? String((b.props as any).calendarId).trim() : "";
-      const height = typeof (b.props as any)?.height === "number" && Number.isFinite((b.props as any).height) ? Math.max(120, Math.min(2000, Math.round((b.props as any).height))) : 760;
       const cssInline = styleToCss((b.props as any)?.style);
       if (!calendarId || !opts.ownerId) return "";
-      const src = `/book/u/${encodeURIComponent(opts.ownerId)}/${encodeURIComponent(calendarId)}`;
-      return withBlockAnchor(b, `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><iframe title=\"Booking\" src=\"${escapeHtmlAttr(src)}\" style=\"width:100%;height:${height}px;border:1px solid var(--pa-border);border-radius:16px;background:#fff\" sandbox=\"allow-forms allow-scripts allow-same-origin\"></iframe></div>`);
+      const runtimeHtml = buildBookingRuntimePlaceholderHtml({
+        ownerId: opts.ownerId,
+        calendarId,
+        surfaceContext: resolveFunnelBookingSurfaceContext({
+          posture: "exported-html",
+          routeKind: "linked",
+          pageTitle: opts.title,
+          calendarTitle: calendarId,
+          preferredShellStyle: "editorial",
+          preferredShellDensity: "compact",
+          overrides: {
+            note: "The booking engine stays native. This page controls the shell and the handoff framing.",
+          },
+        }),
+      });
+      return withBlockAnchor(b, `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}>${runtimeHtml}</div>`);
     }
 
     if (b.type === "syncedReviews") {
@@ -362,25 +380,26 @@ export function blocksToCustomHtmlDocument(opts: {
           const description = typeof (item as any).description === "string" ? String((item as any).description).trim() : "";
           const badge = typeof (item as any).badge === "string" ? String((item as any).badge).trim() : "";
           const featured = (item as any).featured === true;
+          const ctaMode = (item as any).ctaMode === "checkout" ? "checkout" : "link";
           const ctaTextRaw = typeof (item as any).ctaText === "string" ? String((item as any).ctaText).trim() : "";
           const ctaHref = typeof (item as any).ctaHref === "string" ? String((item as any).ctaHref).trim() : "";
           const priceId = typeof (item as any).priceId === "string" ? String((item as any).priceId).trim() : "";
           const features = Array.isArray((item as any).features) ? ((item as any).features as unknown[]).map((feature) => String(feature || "").trim()).filter(Boolean) : [];
-          const ctaText = ctaTextRaw || (priceId ? "Buy now" : ctaHref ? "Learn more" : "");
-          const textColor = featured ? "#ffffff" : "#09090b";
-          const mutedColor = featured ? "rgba(255,255,255,0.78)" : "#52525b";
+          const ctaText = ctaTextRaw || (ctaMode === "checkout" && priceId ? "Buy now" : ctaHref ? "Learn more" : "");
+          const textColor = "#09090b";
+          const mutedColor = "#52525b";
           const badgeMarkup = badge
-            ? `<div style="margin-bottom:16px;display:inline-flex;width:fit-content;border-radius:999px;border:1px solid ${featured ? "rgba(255,255,255,0.2)" : "#e4e4e7"};background:${featured ? "rgba(255,255,255,0.1)" : "#fafafa"};padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:${featured ? "#ffffff" : "#52525b"}">${escapeHtml(badge)}</div>`
+            ? `<div style="margin-bottom:16px;display:inline-flex;width:fit-content;border-radius:999px;border:1px solid ${featured ? "rgba(15,23,42,0.08)" : "#e4e4e7"};background:${featured ? "#ffffff" : "#fafafa"};padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#52525b">${escapeHtml(badge)}</div>`
             : "";
           const featureMarkup = features.length
-            ? `<ul style="margin:20px 0 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px;font-size:14px;color:${featured ? "rgba(255,255,255,0.88)" : "#3f3f46"}">${features.map((feature) => `<li style="display:flex;align-items:flex-start;gap:12px"><span style="margin-top:7px;height:6px;width:6px;flex:0 0 auto;border-radius:999px;background:${featured ? "#ffffff" : "#09090b"}"></span><span>${escapeHtml(feature)}</span></li>`).join("")}</ul>`
+            ? `<ul style="margin:20px 0 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px;font-size:14px;color:#3f3f46">${features.map((feature) => `<li style="display:flex;align-items:flex-start;gap:12px"><span style="margin-top:7px;height:6px;width:6px;flex:0 0 auto;border-radius:999px;background:#09090b"></span><span>${escapeHtml(feature)}</span></li>`).join("")}</ul>`
             : "";
-          const ctaMarkup = priceId && ctaText
+          const ctaMarkup = ctaMode === "checkout" && priceId && ctaText
             ? `<button type="button" class="${featured ? "pa-btn pa-btn-primary" : "pa-btn"}" data-pa-action="buy" data-pa-price-id="${escapeHtmlAttr(priceId)}" data-pa-qty="1" data-pa-name="${escapeHtmlAttr(name)}" data-pa-desc="${escapeHtmlAttr(description)}" style="width:100%">${escapeHtml(ctaText)}</button>`
             : ctaHref && ctaText
               ? `<a class="${featured ? "pa-btn pa-btn-primary" : "pa-btn"}" href="${escapeHtmlAttr(ctaHref)}" style="width:100%">${escapeHtml(ctaText)}</a>`
               : "";
-          return `<article style="display:flex;height:100%;flex-direction:column;border-radius:30px;border:1px solid ${featured ? "#09090b" : "#e4e4e7"};background:${featured ? "#09090b" : "#ffffff"};padding:24px;box-shadow:${featured ? "0 22px 48px rgba(15,23,42,0.18)" : "0 16px 40px rgba(15,23,42,0.06)"};color:${textColor}">${badgeMarkup}<div style="font-size:14px;font-weight:700;color:${featured ? "rgba(255,255,255,0.78)" : "#52525b"}">${escapeHtml(name)}</div><div style="margin-top:12px;display:flex;align-items:flex-end;gap:8px"><div style="font-size:40px;font-weight:700;letter-spacing:-0.02em">${escapeHtml(price)}</div>${billingPeriod ? `<div style="padding-bottom:4px;font-size:14px;color:${mutedColor}">${escapeHtml(billingPeriod)}</div>` : ""}</div>${description ? `<p style="margin:12px 0 0 0;font-size:14px;line-height:1.75;color:${mutedColor}">${escapeHtml(description)}</p>` : ""}${featureMarkup}${ctaMarkup ? `<div style="margin-top:24px">${ctaMarkup}</div>` : ""}</article>`;
+          return `<article style="display:flex;height:100%;flex-direction:column;border-radius:30px;border:1px solid ${featured ? "rgba(15,23,42,0.12)" : "#e4e4e7"};background:${featured ? "linear-gradient(180deg,#fcfcfd 0%,#f8fafc 100%)" : "#ffffff"};padding:24px;box-shadow:${featured ? "0 10px 26px rgba(15,23,42,0.06)" : "0 6px 18px rgba(15,23,42,0.04)"};color:${textColor}">${badgeMarkup}<div style="font-size:14px;font-weight:700;color:#52525b">${escapeHtml(name)}</div><div style="margin-top:12px;display:flex;align-items:flex-end;gap:8px"><div style="font-size:40px;font-weight:700;letter-spacing:-0.02em">${escapeHtml(price)}</div>${billingPeriod ? `<div style="padding-bottom:4px;font-size:14px;color:${mutedColor}">${escapeHtml(billingPeriod)}</div>` : ""}</div>${description ? `<p style="margin:12px 0 0 0;font-size:14px;line-height:1.75;color:${mutedColor}">${escapeHtml(description)}</p>` : ""}${featureMarkup}${ctaMarkup ? `<div style="margin-top:24px">${ctaMarkup}</div>` : ""}</article>`;
         })
         .filter(Boolean)
         .join("\n");

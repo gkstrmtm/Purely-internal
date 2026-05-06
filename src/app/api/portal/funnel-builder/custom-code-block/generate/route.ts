@@ -1488,6 +1488,10 @@ export async function POST(req: Request) {
     recentChatHistory: chatHistory,
     recentIterationMemory: buildRecentIterationNotes(chatHistory),
   });
+  if (promptStrategy.clarifyingQuestion) {
+    const question = promptStrategy.clarifyingQuestion.slice(0, 800);
+    return NextResponse.json({ ok: true, question, summary: question.slice(0, 180) });
+  }
   const strategicPrompt = promptStrategy.prompt;
   const shellFrameBlock = buildShellFrameContextBlock(shellFrame);
   const archetypeContextBlock = buildArchetypeContextBlock(relevantArchetypes);

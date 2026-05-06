@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { getBookingFormConfig } from "@/lib/bookingForm";
+import { deriveFunnelBookingHostedThemeFromSource } from "@/lib/funnelBookingTheme";
+import { getNeutralFunnelBookingRuntimeTheme } from "@/lib/funnelBookingRuntimeTheme";
+import { mergeFunnelBookingHostedTheme, readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { getHostedTheme } from "@/lib/hostedTheme";
 
@@ -10,10 +13,14 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ ownerId: string; calendarId: string }> },
 ) {
   const { ownerId, calendarId } = await params;
+  const requestUrl = new URL(req.url);
+  const requestedFunnelId = requestUrl.searchParams.get("funnelId")?.trim() || "";
+  const requestedPageId = requestUrl.searchParams.get("pageId")?.trim() || "";
+  const requestedThemeStage = requestUrl.searchParams.get("themeStage") === "published" ? "published" : "current";
 
   const [hasPhotoUrl, hasMeetingLocation, hasMeetingDetails] = await Promise.all([
     hasPublicColumn("PortalBookingSite", "photoUrl"),
@@ -59,7 +66,7 @@ export async function GET(
 
   const enabled = Boolean(site.enabled) && Boolean(cal.enabled);
 
-  const [profile, form, hostedTheme] = await Promise.all([
+  const [profile, form, ownerHostedTheme, settingsRow, derivedFunnelHostedTheme] = await Promise.all([
     site.owner?.id
       ? await (prisma as any).businessProfile.findUnique({
           where: { ownerId: site.owner.id },
@@ -75,7 +82,35 @@ export async function GET(
       : null,
     ownerId ? getBookingFormConfig(String(ownerId)) : Promise.resolve(null),
     ownerId ? getHostedTheme(String(ownerId)) : Promise.resolve(null),
+    requestedFunnelId
+      ? prisma.creditFunnelBuilderSettings.findUnique({ where: { ownerId }, select: { dataJson: true } }).catch(() => null)
+      : Promise.resolve(null),
+    requestedFunnelId
+      ? deriveFunnelBookingHostedThemeFromSource({
+          ownerId,
+          funnelId: requestedFunnelId,
+          pageId: requestedPageId || null,
+          stage: requestedThemeStage,
+        }).catch(() => null)
+      : Promise.resolve(null),
   ]);
+
+  const funnelHostedTheme = requestedFunnelId
+    ? readFunnelBookingRouting(settingsRow?.dataJson ?? null, requestedFunnelId)?.hostedTheme ?? null
+    : null;
+  const hasFunnelNativeTheme = Boolean(
+    requestedFunnelId &&
+      ((derivedFunnelHostedTheme && Object.values(derivedFunnelHostedTheme).some((value) => value != null && value !== 1)) ||
+        (funnelHostedTheme && Object.values(funnelHostedTheme).some((value) => value != null && value !== 1))),
+  );
+  const embeddedFunnelTheme = requestedFunnelId ? getNeutralFunnelBookingRuntimeTheme() : null;
+  const hostedTheme =
+    embeddedFunnelTheme ??
+    mergeFunnelBookingHostedTheme(
+      mergeFunnelBookingHostedTheme(ownerHostedTheme ?? null, derivedFunnelHostedTheme ?? null),
+      funnelHostedTheme,
+    );
+  const useFunnelTheme = Boolean(embeddedFunnelTheme || hasFunnelNativeTheme);
 
   return NextResponse.json({
     ok: true,
@@ -90,11 +125,12 @@ export async function GET(
       hostName: site.owner?.name ?? null,
       businessName: hasBusinessName ? ((profile as any)?.businessName ?? null) : null,
       logoUrl: hasLogoUrl ? ((profile as any)?.logoUrl ?? null) : null,
-      brandPrimaryHex: hasPrimaryHex ? ((profile as any)?.brandPrimaryHex ?? null) : null,
-      brandSecondaryHex: hasSecondaryHex ? ((profile as any)?.brandSecondaryHex ?? null) : null,
-      brandAccentHex: hasAccentHex ? ((profile as any)?.brandAccentHex ?? null) : null,
-      brandTextHex: hasTextHex ? ((profile as any)?.brandTextHex ?? null) : null,
-      hostedTheme: hostedTheme ?? null,
+      brandPrimaryHex: useFunnelTheme ? null : hasPrimaryHex ? ((profile as any)?.brandPrimaryHex ?? null) : null,
+      brandSecondaryHex: useFunnelTheme ? null : hasSecondaryHex ? ((profile as any)?.brandSecondaryHex ?? null) : null,
+      brandAccentHex: useFunnelTheme ? null : hasAccentHex ? ((profile as any)?.brandAccentHex ?? null) : null,
+      brandTextHex: useFunnelTheme ? null : hasTextHex ? ((profile as any)?.brandTextHex ?? null) : null,
+      hostedThemeSource: useFunnelTheme ? "funnel" : "account",
+      hostedTheme,
       photoUrl: hasPhotoUrl ? ((site as any).photoUrl ?? null) : null,
       meetingLocation: hasMeetingLocation ? (cal.meetingLocation ?? (site as any).meetingLocation ?? null) : null,
       meetingDetails: hasMeetingDetails ? (cal.meetingDetails ?? (site as any).meetingDetails ?? null) : null,

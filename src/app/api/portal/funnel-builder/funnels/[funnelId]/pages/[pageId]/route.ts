@@ -19,6 +19,7 @@ import {
 import { applyFunnelPageMutations } from "@/lib/funnelPageMutationApplier";
 import { coerceFunnelPageMutations } from "@/lib/funnelPageMutations";
 import { inferFunnelPageIntentProfile, readFunnelPageBrief, writeFunnelPageBrief } from "@/lib/funnelPageIntent";
+import { normalizeFunnelThreadMessages } from "@/lib/funnelThreads";
 import {
   applyDraftHtmlWriteCompat,
   dbHasCreditFunnelPageDraftHtmlColumn,
@@ -26,7 +27,6 @@ import {
   withDraftHtmlSelect,
 } from "@/lib/funnelPageDbCompat";
 import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
-import { validateFunnelPageContract } from "@/lib/funnelPageContract";
 import { createFunnelPageBlockSnapshotUpdate } from "@/lib/funnelPageState";
 
 export const dynamic = "force-dynamic";
@@ -163,7 +163,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
   if (typeof body?.customHtml === "string") data.customHtml = body.customHtml;
   if (typeof body?.draftHtml === "string") data.draftHtml = body.draftHtml;
   if (body?.blocksJson !== undefined) data.blocksJson = body.blocksJson;
-  if (body?.customChatJson !== undefined) data.customChatJson = body.customChatJson;
+  if (body?.customChatJson !== undefined) data.customChatJson = normalizeFunnelThreadMessages(body.customChatJson);
 
   if (typeof body?.slug === "string") {
     const slug = body.slug
@@ -211,35 +211,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     data.blocksJson = mutationSnapshotUpdate.blocksJson;
     if (typeof body?.customHtml !== "string") data.customHtml = mutationSnapshotUpdate.customHtml;
     if (typeof body?.draftHtml !== "string") data.draftHtml = mutationSnapshotUpdate.draftHtml;
-  }
-
-  const effectiveEditorMode = typeof data.editorMode === "string" ? data.editorMode : page.editorMode;
-  const shouldValidateManagedLiveUpdate =
-    effectiveEditorMode === "BLOCKS" &&
-    (body?.blocksJson !== undefined || (requestedMutations?.length ?? 0) > 0 || data.editorMode === "BLOCKS");
-
-  if (shouldValidateManagedLiveUpdate) {
-    const validation = validateFunnelPageContract({
-      ...normalizeDraftHtml(page),
-      intentProfile: readFunnelPageBrief(settings, pageId),
-      ...(typeof data.slug === "string" ? { slug: data.slug } : null),
-      ...(typeof data.title === "string" ? { title: data.title } : null),
-      editorMode: effectiveEditorMode,
-      ...(data.blocksJson !== undefined ? { blocksJson: data.blocksJson } : null),
-      ...(typeof data.customHtml === "string" ? { customHtml: data.customHtml } : null),
-      ...(typeof data.draftHtml === "string" ? { draftHtml: data.draftHtml } : null),
-    });
-
-    if (!validation.ok) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: `This ${validation.pageType} page is not ready to save live yet.`,
-          issues: validation.issues,
-        },
-        { status: 422 },
-      );
-    }
   }
 
   const nextData = applyDraftHtmlWriteCompat(data, hasDraftHtml);
@@ -338,6 +309,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     ok: true,
     page: {
       ...normalizeDraftHtml(updated),
+      customChatJson: normalizeFunnelThreadMessages(updated.customChatJson),
       seo: nextSeo,
       brief: nextBrief,
       trackingSettings,

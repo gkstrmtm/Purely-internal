@@ -20,7 +20,9 @@ import {
   type PricingGridItem,
   type TestimonialGridItem,
 } from "@/lib/creditFunnelBlocks";
+import { deriveBusinessProfileTemplateVars } from "@/lib/businessProfileTemplateVars";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
+import { FunnelCustomHtmlRuntimeSurface } from "@/components/funnel/FunnelCustomHtmlRuntimeSurface";
 import { LinkUrlModal } from "@/components/LinkUrlModal";
 import { PortalBookingCalendarEditorModal } from "@/components/PortalBookingCalendarEditorModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
@@ -43,6 +45,7 @@ import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
+import { buildBookingRuntimePlaceholderHtml, resolveFunnelBookingSurfaceContext, type BookingSurfaceContext } from "@/lib/funnelBookingSurface";
 import { CreditFormTemplatePreview } from "@/components/CreditFormTemplatePreview";
 import { CREDIT_FORM_TEMPLATES, coerceCreditFormTemplateKey, getCreditFormTemplate, type CreditFormTemplateKey } from "@/lib/creditFormTemplates";
 import { CREDIT_FORM_THEMES, coerceCreditFormThemeKey, getCreditFormTheme, type CreditFormThemeKey } from "@/lib/creditFormThemes";
@@ -51,10 +54,12 @@ import {
   getFunnelPageCurrentHtml,
   getFunnelPageDraftHtml,
   getFunnelPagePublishedHtml,
+  isFunnelPageDraftNewerThanLive,
 } from "@/lib/funnelPageState";
 import { buildFunnelPageGraph, getFunnelPageLensUiModel } from "@/lib/funnelPageGraph";
 import {
   buildDefaultFunnelThreadTitle,
+  normalizeFunnelThreadRecord,
   normalizeFunnelThreadMessages,
   readFunnelThreadLastMessageAt,
   type FunnelThreadRecord,
@@ -97,7 +102,13 @@ import { assessFunnelSceneQuality } from "@/lib/funnelSceneQuality";
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
 import { getFunnelShellFrame, listFunnelShellFrames } from "@/lib/funnelShellFrames";
 import { hostedFunnelPath } from "@/lib/publicHostedKeys";
-import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+import { toPurelyHostedUrl, toRuntimeHostedUrl } from "@/lib/publicHostedOrigin";
+import { renderTextTemplate } from "@/lib/textTemplate";
+import {
+  normalizeFunnelOffers,
+  resolveFunnelOffer,
+  type FunnelOffer,
+} from "@/lib/funnelOffers";
 import {
   getFunnelEditorPageSelectionDecision,
   getFunnelEditorWorkflowViewModel,
@@ -114,6 +125,39 @@ type AiDesignContextDraft = Required<Omit<FunnelDesignContext, "vibeKeywords">> 
   vibeKeywords: string[];
 };
 
+type SelectedEditTargetState = {
+  scope?: string;
+  name?: string;
+  price?: string;
+  priceId?: string;
+  billingPeriod?: string;
+  description?: string;
+  badge?: string;
+  ctaText?: string;
+  ctaHref?: string;
+  offerId?: string;
+  offerLabel?: string;
+  features?: string[];
+  featureCount?: number;
+  cardCount?: number;
+  routeKind?: string;
+  calendarTitle?: string;
+  text?: string;
+  anchorId?: string;
+  mediaType?: string;
+  logoState?: string;
+};
+
+type SelectedEditTarget = {
+  label: string;
+  summary: string;
+  contextLine?: string;
+  blockType: string;
+  blockId: string;
+  itemIndex?: number;
+  currentState?: SelectedEditTargetState;
+};
+
 const AI_CONTEXT_MEDIA_LIMIT = 12;
 
 const EMPTY_AI_DESIGN_CONTEXT: AiDesignContextDraft = {
@@ -124,6 +168,11 @@ const EMPTY_AI_DESIGN_CONTEXT: AiDesignContextDraft = {
   designConcepts: "",
   avoid: "",
 };
+
+const CHAT_RAIL_WIDTH_STORAGE_KEY = "funnel-builder:chat-rail-width";
+const CHAT_RAIL_DEFAULT_WIDTH = 440;
+const CHAT_RAIL_MIN_WIDTH = 340;
+const CHAT_RAIL_COLLAPSE_THRESHOLD = 250;
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -223,6 +272,48 @@ function AiSparkIcon({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
+function AssistantTypingDots({ tone = "light", className }: { tone?: "light" | "dark"; className?: string }) {
+  const dotClassName = tone === "dark" ? "bg-zinc-500" : "bg-zinc-400";
+
+  return (
+    <span className={classNames("inline-flex items-center gap-1", className)} aria-hidden="true">
+      {[0, 1, 2].map((index) => (
+        <span
+          key={index}
+          className={classNames("h-1.5 w-1.5 rounded-full animate-pulse", dotClassName)}
+          style={{ animationDelay: `${index * 160}ms`, animationDuration: "1.1s" }}
+        />
+      ))}
+    </span>
+  );
+}
+
+function AssistantThinkingCard({
+  mode,
+  label,
+  detail,
+}: {
+  mode: "plan" | "work";
+  label: string;
+  detail: string;
+}) {
+  const checkpoints = mode === "work"
+    ? ["Preparing draft update", "Tracking expected diff", "Keeping thread in sync"]
+    : ["Reading page job", "Mapping section flow", "Shaping the next diff"];
+
+  return (
+    <div className="mr-10 max-w-[min(44rem,100%)] rounded-[20px] border border-zinc-200/80 bg-white/90 px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+      <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+        <AssistantTypingDots />
+        <span>{mode === "work" ? "Applying" : "Reviewing"}</span>
+      </div>
+      <div className="mt-2 text-sm font-medium leading-6 text-zinc-900">{label}</div>
+      <div className="mt-1 text-xs leading-5 text-zinc-600">{detail}</div>
+      <div className="mt-2 text-[11px] leading-5 text-zinc-500">{checkpoints.join(" · ")}</div>
+    </div>
+  );
+}
+
 function BuilderRailNavButton({
   label,
   active,
@@ -301,10 +392,39 @@ function BuilderStageToggleButton({
       aria-pressed={active}
       title={title || label}
       className={classNames(
-        "rounded-lg border px-3 py-1.5 text-sm font-semibold transition-[border-color,background-color,color,box-shadow] duration-150",
+        "rounded-lg border px-2.5 py-1 text-[13px] font-semibold transition-[border-color,background-color,color,box-shadow] duration-150",
         active
           ? "border-zinc-300 bg-white text-zinc-950 shadow-[0_8px_20px_rgba(15,23,42,0.06)]"
           : "border-transparent text-zinc-700 hover:border-zinc-200 hover:bg-white",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function PreviewModeToggleButton({
+  label,
+  active,
+  title,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  title?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={title || label}
+      className={classNames(
+        "rounded-xl px-2.5 py-1 text-[11px] font-semibold transition-[background-color,color,box-shadow] duration-150",
+        active
+          ? "bg-zinc-950 text-white shadow-[0_10px_24px_rgba(15,23,42,0.18)]"
+          : "text-zinc-600 hover:bg-white hover:text-zinc-950",
       )}
     >
       {label}
@@ -577,7 +697,7 @@ function CodeSurfaceRenderedLines({
 }) {
   const tokenStyles = tone === "light" ? CODE_TONE_STYLES_LIGHT : CODE_TONE_STYLES;
   return (
-    <div className="w-max min-w-full px-4 py-3">
+    <div className="w-max min-w-full px-4 py-3 pb-6 text-[13.5px] leading-6 tracking-[0] antialiased" style={{ tabSize: 2, fontFamily: CODE_SURFACE_FONT_FAMILY }}>
       {lines.map((line, index) => {
         const highlighted = isHighlightedCodeLine(index + 1, lineHighlightRange);
         const tokens = tokenizeCodeLine(line);
@@ -585,6 +705,7 @@ function CodeSurfaceRenderedLines({
         return (
           <div
             key={`code-line-${index}`}
+            data-code-line={index + 1}
             className={classNames(
               "min-h-6 whitespace-pre rounded-md",
               highlighted
@@ -1208,7 +1329,7 @@ function buildBuilderResultSummary({
   const summaryText = compactActivityText(summary || "", 220);
   if (summaryText) return summaryText;
 
-  const scope = (scopeLabel || "Builder").trim();
+  const scope = (scopeLabel || "Canvas").trim();
   if (customCodeDiff?.htmlChanged && customCodeDiff?.cssChanged) return `${scope} updated markup and styles.`;
   if (customCodeDiff?.htmlChanged) return `${scope} updated markup.`;
   if (customCodeDiff?.cssChanged) return `${scope} refined styles.`;
@@ -1447,6 +1568,243 @@ type AiCheckpointRun = {
   stopReason: string;
 };
 
+type TransactionPathPointer = {
+  blockId?: string;
+  kind: string;
+  label: string;
+  detail: string;
+};
+
+type TransactionReadinessItem = {
+  key: "booking" | "purchase";
+  label: string;
+  status: "ready" | "configured" | "missing";
+  summary: string;
+  pointers: TransactionPathPointer[];
+};
+
+type TransactionReadiness = {
+  summary: string;
+  transactionReady: boolean;
+  items: TransactionReadinessItem[];
+};
+
+function detectBookingMarkupInHtml(html: string) {
+  return /(\/book\/|calendarembed|book a time|schedule (a|your)|booking widget|calendar widget)/i.test(html);
+}
+
+function detectPurchaseMarkupInHtml(html: string) {
+  return /(checkout-session|add-to-cart|buy now|secure my order|continue to payment|cart-button|salescheckoutbutton|priceid)/i.test(html);
+}
+
+function buildTransactionReadiness(opts: {
+  blocks: CreditFunnelBlock[];
+  currentHtml: string;
+  pageType: FunnelPageIntentType;
+  funnelBookingCalendarId?: string | null;
+  bookingCalendarTitleById?: Record<string, string>;
+  stripeProductsCount?: number;
+}): TransactionReadiness {
+  const bookingPointers: TransactionPathPointer[] = [];
+  const purchasePointers: TransactionPathPointer[] = [];
+  const bookingSeen = new Set<string>();
+  const purchaseSeen = new Set<string>();
+
+  const pushPointer = (
+    bucket: TransactionPathPointer[],
+    seen: Set<string>,
+    pointer: TransactionPathPointer,
+  ) => {
+    const key = `${pointer.blockId || "html"}:${pointer.kind}:${pointer.label}:${pointer.detail}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    bucket.push(pointer);
+  };
+
+  const visit = (blocks: CreditFunnelBlock[]) => {
+    for (const block of blocks) {
+      if (!block || typeof block !== "object") continue;
+      const props: any = block.props || {};
+      const text = normalizeInlineText(String(props.text || props.heading || props.title || props.productName || props.label || ""));
+
+      switch (block.type) {
+        case "calendarEmbed": {
+          const calendarId = String(props.calendarId || "").trim();
+          pushPointer(bookingPointers, bookingSeen, {
+            blockId: block.id,
+            kind: "Booking block",
+            label: opts.bookingCalendarTitleById?.[calendarId] || text || "Calendar embed",
+            detail: calendarId ? `calendarId: ${calendarId}` : "embedded calendar",
+          });
+          break;
+        }
+        case "button": {
+          const href = String(props.href || "").trim();
+          if (/(\/book\/|#book\b|booking|schedule|calendar)/i.test(href)) {
+            pushPointer(bookingPointers, bookingSeen, {
+              blockId: block.id,
+              kind: "Booking CTA",
+              label: text || "Booking button",
+              detail: href || "booking link",
+            });
+          }
+          if (/(checkout|cart|payment|buy|price)/i.test(href)) {
+            pushPointer(purchasePointers, purchaseSeen, {
+              blockId: block.id,
+              kind: "Purchase CTA",
+              label: text || "Purchase button",
+              detail: href || "checkout link",
+            });
+          }
+          break;
+        }
+        case "salesCheckoutButton":
+          pushPointer(purchasePointers, purchaseSeen, {
+            blockId: block.id,
+            kind: "Checkout block",
+            label: text || "Buy now",
+            detail: String(props.priceId || "").trim() || "Stripe checkout",
+          });
+          break;
+        case "addToCartButton":
+          pushPointer(purchasePointers, purchaseSeen, {
+            blockId: block.id,
+            kind: "Cart block",
+            label: text || "Add to cart",
+            detail: String(props.priceId || "").trim() || "cart action",
+          });
+          break;
+        case "cartButton":
+          pushPointer(purchasePointers, purchaseSeen, {
+            blockId: block.id,
+            kind: "Cart block",
+            label: text || "Cart",
+            detail: "cart entry point",
+          });
+          break;
+        case "pricingGrid": {
+          const items = Array.isArray(props.items) ? props.items : [];
+          const pricedItems = items.filter((item: any) => item && (item.priceId || /checkout|cart|payment|buy/i.test(String(item.ctaHref || ""))));
+          if (pricedItems.length) {
+            pushPointer(purchasePointers, purchaseSeen, {
+              blockId: block.id,
+              kind: "Pricing block",
+              label: text || String(props.heading || "").trim() || "Pricing",
+              detail: `${pricedItems.length} purchasable offer${pricedItems.length === 1 ? "" : "s"}`,
+            });
+          }
+          break;
+        }
+        case "customCode": {
+          const html = `${String(props.html || "")}\n${String(props.css || "")}`;
+          if (detectBookingMarkupInHtml(html)) {
+            pushPointer(bookingPointers, bookingSeen, {
+              blockId: block.id,
+              kind: "Custom block",
+              label: "Booking markup",
+              detail: "custom code block",
+            });
+          }
+          if (detectPurchaseMarkupInHtml(html)) {
+            pushPointer(purchasePointers, purchaseSeen, {
+              blockId: block.id,
+              kind: "Custom block",
+              label: "Purchase markup",
+              detail: "custom code block",
+            });
+          }
+          break;
+        }
+        default:
+          break;
+      }
+
+      if (block.type === "section") {
+        for (const key of ["children", "leftChildren", "rightChildren"] as const) {
+          const nested = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : [];
+          visit(nested);
+        }
+      }
+
+      if (block.type === "columns") {
+        const columns = Array.isArray(props.columns) ? props.columns : [];
+        for (const column of columns) {
+          const nested = Array.isArray(column?.children) ? (column.children as CreditFunnelBlock[]) : [];
+          visit(nested);
+        }
+      }
+    }
+  };
+
+  visit(opts.blocks);
+
+  if (!bookingPointers.length && detectBookingMarkupInHtml(opts.currentHtml)) {
+    pushPointer(bookingPointers, bookingSeen, {
+      kind: "Page source",
+      label: "Booking markup detected",
+      detail: "current page HTML",
+    });
+  }
+  if (!purchasePointers.length && detectPurchaseMarkupInHtml(opts.currentHtml)) {
+    pushPointer(purchasePointers, purchaseSeen, {
+      kind: "Page source",
+      label: "Purchase markup detected",
+      detail: "current page HTML",
+    });
+  }
+
+  const expectsBooking = opts.pageType === "booking";
+  const expectsPurchase = opts.pageType === "sales" || opts.pageType === "checkout";
+  const bookingReady = bookingPointers.length > 0;
+  const purchaseReady = purchasePointers.length > 0;
+  const bookingConfiguredOnly = !bookingReady && Boolean(opts.funnelBookingCalendarId);
+
+  const bookingItem: TransactionReadinessItem = {
+    key: "booking",
+    label: "Booking path",
+    status: bookingReady ? "ready" : bookingConfiguredOnly ? "configured" : "missing",
+    summary: bookingReady
+      ? `Booking is wired on this page through ${bookingPointers.length} area${bookingPointers.length === 1 ? "" : "s"}.`
+      : bookingConfiguredOnly
+        ? `A funnel calendar is linked, but this page still needs a booking block or booking CTA.`
+        : expectsBooking
+          ? `This page still cannot take a booking. Add a booking block or booking CTA.`
+          : `No booking block or booking CTA is wired on this page yet.`,
+    pointers: bookingPointers.slice(0, 4),
+  };
+
+  const purchaseItem: TransactionReadinessItem = {
+    key: "purchase",
+    label: "Purchase path",
+    status: purchaseReady ? "ready" : "missing",
+    summary: purchaseReady
+      ? `Payment is wired on this page through ${purchasePointers.length} area${purchasePointers.length === 1 ? "" : "s"}.`
+      : opts.stripeProductsCount
+        ? `Stripe products exist, but this page still needs a checkout or cart block.`
+        : expectsPurchase
+          ? `This page still cannot take payment. Add a checkout, cart, or priced offer block.`
+          : `No checkout or cart path is wired on this page yet.`,
+    pointers: purchasePointers.slice(0, 4),
+  };
+
+  const transactionReady = bookingReady || purchaseReady;
+  const summary = bookingReady && purchaseReady
+    ? "This page can already route people to booking and payment surfaces."
+    : bookingReady
+      ? "This page can take bookings, but it still has no payment path."
+      : purchaseReady
+        ? "This page can take payment, but it still has no booking path."
+        : bookingConfiguredOnly
+          ? "A shared booking route exists, but this page still needs a visible transaction surface."
+          : "This page is not transaction-ready yet. It still needs a booking path, a purchase path, or both.";
+
+  return {
+    summary,
+    transactionReady,
+    items: [bookingItem, purchaseItem],
+  };
+}
+
 function coerceAiCheckpointChangelog(raw: unknown): AiCheckpointChangelog | null {
   if (!raw || typeof raw !== "object") return null;
   const parsed = raw as Record<string, unknown>;
@@ -1496,6 +1854,100 @@ function labelAiRunStopReason(raw: string | null | undefined) {
   return value.replace(/[-_]+/g, " ");
 }
 
+function buildInitialManagedBlocks(input: {
+  pageType: FunnelPageIntentType;
+  title: string;
+  audience: string;
+  offer: string;
+  primaryCta: string;
+  selectedOffer?: FunnelOffer | null;
+}) {
+  if (input.pageType === "sales") {
+    const heading = input.title.trim() || input.selectedOffer?.label || "Choose your next step";
+    const audience = input.audience.trim();
+    const offerSummary = input.offer.trim() || input.selectedOffer?.label || "the offer";
+    const ctaText = input.primaryCta.trim() || (input.selectedOffer?.priceId ? "Buy now" : "Get started");
+
+    return [
+      {
+        id: "sales-section",
+        type: "section",
+        props: {
+          anchorId: "offer",
+          anchorLabel: "Offer",
+          children: [
+            { id: "sales-heading", type: "heading", props: { level: 2, text: heading } },
+            {
+              id: "sales-paragraph",
+              type: "paragraph",
+              props: {
+                text: [
+                  `This page should move the visitor from evaluation into ${offerSummary}.`,
+                  audience ? `Keep the decision path clear for ${audience}.` : "Keep the decision path clear and low-friction.",
+                ].join(" "),
+              },
+            },
+            input.selectedOffer?.priceId
+              ? {
+                  id: "sales-checkout",
+                  type: "salesCheckoutButton",
+                  props: {
+                    text: ctaText,
+                    offerId: input.selectedOffer.id,
+                    priceId: input.selectedOffer.priceId,
+                    productName: input.selectedOffer.productName || undefined,
+                    productDescription: input.selectedOffer.productDescription || undefined,
+                    quantity: 1,
+                  },
+                }
+              : {
+                  id: "sales-button",
+                  type: "button",
+                  props: {
+                    text: ctaText,
+                    href: "#contact",
+                    variant: "primary",
+                  },
+                },
+          ],
+        },
+      },
+    ] satisfies CreditFunnelBlock[];
+  }
+
+  if (input.pageType !== "booking") return [] as CreditFunnelBlock[];
+
+  const heading = input.title.trim() || "Book a time";
+  const audience = input.audience.trim();
+  const offer = input.offer.trim();
+  const summary = [
+    offer ? `Choose a time to ${offer.toLowerCase()}.` : "Choose a time that works for you.",
+    audience ? `This step is for ${audience}.` : "Use the calendar below to lock in the next step.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return [
+    {
+      id: "booking-section",
+      type: "section",
+      props: {
+        anchorId: "booking",
+        anchorLabel: "Book a time",
+        children: [
+          { id: "booking-heading", type: "heading", props: { level: 2, text: heading } },
+          { id: "booking-paragraph", type: "paragraph", props: { text: summary } },
+          {
+            id: "booking-calendar",
+            type: "calendarEmbed",
+            props: { calendarId: "", height: 760, style: { marginTopPx: 24 } },
+          },
+        ],
+      },
+    },
+  ] satisfies CreditFunnelBlock[];
+}
+
 type AiCheckpoint = {
   pageId: string;
   surface: "structure" | "source";
@@ -1511,11 +1963,25 @@ type AiCheckpoint = {
   previousPage: Pick<Page, "editorMode" | "blocksJson" | "customHtml" | "draftHtml" | "customChatJson">;
 };
 
+type AssistantContextSummary = {
+  funnel: string;
+  page: string;
+  surface: string;
+  mode: string;
+  state: string;
+  booking: string;
+  tracking: string;
+  seo: string;
+  commerce: string;
+};
+
 type DirectionWorkbenchPanelProps = {
   routeLabel: string;
+  pageType?: FunnelPageIntentType;
   pageTypeLabel?: string;
   assumption?: string | null;
   pageConversionFocus?: { headline?: string; summary?: string } | null;
+  transactionReadiness?: TransactionReadiness | null;
   shellFrame?: { label?: string; summary?: string; sectionPlan?: string; visualTone?: string; proofModel?: string; ctaRhythm?: string; designDirectives?: string[] } | null;
   sectionPlanItems?: string[];
   pageGoalUsesDefault?: boolean;
@@ -1531,17 +1997,24 @@ type DirectionWorkbenchPanelProps = {
   embedded?: boolean;
   onOpenBrief?: () => void;
   onAsk: (prompt: string) => void;
-  onPrepareDraft: (promptHint: string, displayPrompt?: string) => void;
+  onPrepareDraft: (promptHint: string, displayPrompt?: string, opts?: { sourceActionPlan?: SourceActionPlan | null }) => void;
   onAttach?: () => void;
   onPaste?: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   attachCount?: number;
+  onJumpToBlock?: (blockId: string) => void;
+  assistantContext?: AssistantContextSummary | null;
+  selectedTargetLabel?: string | null;
+  selectedTargetContextLine?: string | null;
+  selectionTools?: ReactNode;
 };
 
 function DirectionWorkbenchPanel({
   routeLabel,
+  pageType,
   pageTypeLabel,
   pageGoalUsesDefault,
   pageAnatomy,
+  transactionReadiness,
   messages = [],
   busy = false,
   activityLabel,
@@ -1553,23 +2026,33 @@ function DirectionWorkbenchPanel({
   onAttach,
   onPaste,
   attachCount = 0,
+  onJumpToBlock,
+  assistantContext,
+  selectedTargetLabel,
+  selectedTargetContextLine,
+  selectionTools,
 }: DirectionWorkbenchPanelProps) {
   const [chatMode, setChatMode] = useState<"plan" | "work">("plan");
   const [directionNote, setDirectionNote] = useState("");
+  const [assistantDetailsOpen, setAssistantDetailsOpen] = useState(false);
+  const [assistantDetailsPopoverStyle, setAssistantDetailsPopoverStyle] = useState<{ left: number; width: number } | null>(null);
   const directionScrollRef = useRef<HTMLDivElement | null>(null);
+  const assistantDetailsRef = useRef<HTMLDivElement | null>(null);
+  const assistantDetailsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const assistantHeaderMetaRef = useRef<HTMLDivElement | null>(null);
 
   const recentMessages = messages.slice(-8);
   const liveStatusLabel = busy
     ? chatMode === "work"
-      ? "Applying the next pass and preparing a summary"
-      : "Diagnosing the page and planning the next move"
+      ? "Applying the next pass"
+      : "Reviewing the page"
     : null;
   const inlineActivityLabel = activityLabel || liveStatusLabel || (chatMode === "work" ? "Applying changes" : "Reviewing the page");
   const inlineActivityDetail = activityDetail && activityDetail !== inlineActivityLabel
     ? activityDetail
     : chatMode === "work"
-      ? "Working through the current pass before writing the result back into the thread."
-      : "Reviewing the current page state before replying in the thread.";
+      ? "Applying the requested changes to the current page pass before replying here."
+      : "Reading the current page state before replying here.";
   const chatFooterClassName = embedded
     ? "shrink-0 border-t border-zinc-200/80 bg-white px-4 pb-4 pt-3 sm:px-5"
     : "shrink-0 border-t border-zinc-200/80 bg-white px-4 py-3 sm:px-5";
@@ -1581,6 +2064,159 @@ function DirectionWorkbenchPanel({
   const activeModeButtonClassName = "bg-white text-zinc-950 shadow-[0_6px_16px_rgba(15,23,42,0.08)]";
   const inactiveModeButtonClassName = "text-zinc-500 hover:bg-white/80 hover:text-zinc-950";
   const briefButtonClassName = "rounded-xl px-2.5 py-1.5 text-xs font-medium text-zinc-500 transition-colors duration-150 hover:bg-zinc-100 hover:text-zinc-950";
+  const panelHeading = embedded ? "Page assistant" : routeLabel;
+  const panelSubheading = embedded ? routeLabel : lensMeta;
+  const assistantContextEntries = [
+    assistantContext?.funnel ? { label: "Funnel", value: assistantContext.funnel } : null,
+    assistantContext?.page ? { label: "Page", value: assistantContext.page } : null,
+    assistantContext?.state ? { label: "State", value: assistantContext.state } : null,
+    assistantContext?.booking ? { label: "Booking", value: assistantContext.booking } : null,
+    assistantContext?.tracking ? { label: "Tracking", value: assistantContext.tracking } : null,
+    assistantContext?.seo ? { label: "SEO", value: assistantContext.seo } : null,
+    assistantContext?.commerce ? { label: "Commerce", value: assistantContext.commerce } : null,
+  ].filter((entry): entry is { label: string; value: string } => Boolean(entry));
+  const assistantPriorityContext = assistantContext?.commerce === "Needs offer binding"
+    ? "Commerce needs setup"
+    : assistantContext?.booking === "Needs route"
+      ? "Booking needs route"
+      : assistantContext?.state || "";
+  const assistantSummaryParts = [
+    selectedTargetLabel
+      ? `Editing ${selectedTargetLabel}`
+      : assistantContext?.page
+        ? assistantContext?.mode === "Edit"
+          ? `Editing ${assistantContext.page}`
+          : assistantContext.page
+        : "",
+    assistantPriorityContext,
+  ].filter(Boolean);
+  const assistantDetailsLabel = assistantContextEntries
+    .map((entry) => `${entry.label}: ${entry.value}`)
+    .join("\n");
+  const assistantContextSummary = assistantSummaryParts.join(" · ");
+
+  useEffect(() => {
+    setAssistantDetailsOpen(false);
+  }, [assistantDetailsLabel, assistantContextSummary]);
+
+  useEffect(() => {
+    if (!assistantDetailsOpen) {
+      setAssistantDetailsPopoverStyle(null);
+      return;
+    }
+
+    const updateAssistantDetailsPopoverStyle = () => {
+      const buttonRect = assistantDetailsButtonRef.current?.getBoundingClientRect();
+      const headerRect = assistantHeaderMetaRef.current?.getBoundingClientRect();
+      if (!buttonRect || !headerRect) return;
+
+      const horizontalPadding = 8;
+      const availableWidth = Math.max(headerRect.width - horizontalPadding * 2, 220);
+      const width = Math.min(320, availableWidth);
+      const preferredLeft = buttonRect.right - headerRect.left - width;
+      const maxLeft = Math.max(headerRect.width - width - horizontalPadding, horizontalPadding);
+      const left = Math.max(horizontalPadding, Math.min(preferredLeft, maxLeft));
+
+      setAssistantDetailsPopoverStyle({ left, width });
+    };
+
+    updateAssistantDetailsPopoverStyle();
+    window.addEventListener("resize", updateAssistantDetailsPopoverStyle);
+
+    return () => {
+      window.removeEventListener("resize", updateAssistantDetailsPopoverStyle);
+    };
+  }, [assistantDetailsOpen]);
+
+  useEffect(() => {
+    if (!assistantDetailsOpen) return;
+
+    const handlePointerDown = (event: PointerEvent | MouseEvent) => {
+      if (!assistantDetailsRef.current?.contains(event.target as Node)) {
+        setAssistantDetailsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setAssistantDetailsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("mousedown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("mousedown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [assistantDetailsOpen]);
+
+  const assistantContextMeta = assistantContextSummary ? (
+    <div ref={assistantHeaderMetaRef} className="mt-1.5 min-w-0 text-[11px] text-zinc-500">
+      <div className="flex min-w-0 flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1 truncate pt-0.5">{assistantContextSummary}</div>
+        {assistantContextEntries.length ? (
+          <div ref={assistantDetailsRef} className="relative z-30 shrink-0">
+            <button
+              ref={assistantDetailsButtonRef}
+              type="button"
+              aria-expanded={assistantDetailsOpen}
+              onClick={() => setAssistantDetailsOpen((open) => !open)}
+              className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-medium text-zinc-600 hover:bg-zinc-100"
+              title={assistantDetailsLabel}
+            >
+              Details
+            </button>
+            {assistantDetailsOpen && assistantDetailsPopoverStyle ? (
+              <div
+                className="absolute top-[calc(100%+0.5rem)] z-40 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_18px_42px_rgba(15,23,42,0.16)]"
+                style={{ left: `${assistantDetailsPopoverStyle.left}px`, width: `${assistantDetailsPopoverStyle.width}px` }}
+              >
+                <div className="max-h-[min(20rem,calc(100vh-16rem))] overflow-y-auto p-3">
+                  <div className="flex items-center justify-between gap-3 border-b border-zinc-100 pb-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Assistant context</div>
+                    <div className="text-[10px] text-zinc-400">Diagnostic</div>
+                  </div>
+                  <div className="mt-2 space-y-1.5 text-xs text-zinc-600">
+                    {assistantContextEntries.map((entry) => (
+                      <div key={`${entry.label}-${entry.value}`} className="rounded-xl bg-zinc-50/80 px-2.5 py-2">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{entry.label}</div>
+                        <div className="mt-1 wrap-break-word text-[12px] leading-5 text-zinc-800">{entry.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
+  const transactionPointers = transactionReadiness
+    ? transactionReadiness.items.flatMap((item) => item.pointers.map((pointer) => ({ item, pointer }))).slice(0, 4)
+    : [];
+  const transactionNeedsAttention = Boolean(transactionReadiness?.items.some((item) => item.status !== "ready"));
+  const [transactionDockExpanded, setTransactionDockExpanded] = useState(transactionNeedsAttention);
+
+  useEffect(() => {
+    setTransactionDockExpanded(transactionNeedsAttention);
+  }, [transactionNeedsAttention]);
+
+  const describeTransactionPointerAction = useCallback((item: TransactionReadinessItem, pointer: TransactionPathPointer) => {
+    if (item.key === "booking") {
+      if (pointer.kind === "Booking block") return "Review booking block";
+      if (pointer.kind === "Booking CTA") return "Review booking CTA";
+      return "Review booking path";
+    }
+    if (pointer.kind === "Pricing block") return "Edit pricing block";
+    if (pointer.kind === "Checkout block") return "Review checkout block";
+    if (pointer.kind === "Cart block") return "Review cart block";
+    return "Review payment path";
+  }, []);
 
   useEffect(() => {
     if (!directionScrollRef.current) return;
@@ -1608,17 +2244,18 @@ function DirectionWorkbenchPanel({
       .filter(Boolean)
       .join("\n");
     setChatMode("work");
-    onPrepareDraft(prompt, prompt);
+    onPrepareDraft(prompt, prompt, { sourceActionPlan: plan });
   };
 
   return (
-    <div className={classNames("flex min-h-0 flex-1 flex-col overflow-hidden", embedded ? "bg-transparent" : "rounded-3xl border border-zinc-200 bg-[linear-gradient(180deg,#fbfcfe_0%,#f5f7fb_100%)]") }>
+    <div className={classNames("flex min-h-0 flex-1 flex-col overflow-hidden", embedded ? "bg-transparent" : "rounded-3xl border border-zinc-200 bg-white") }>
       {!embedded ? (
-        <div className="shrink-0 border-b border-zinc-200/80 bg-white/70 px-4 py-2.5 sm:px-5">
+        <div className="shrink-0 border-b border-zinc-200/80 bg-white px-4 py-2 sm:px-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold text-zinc-950">{routeLabel}</div>
-              {lensMeta ? <div className="mt-1 truncate text-xs text-zinc-500">{lensMeta}</div> : null}
+              <div className="truncate text-sm font-semibold text-zinc-950">{panelHeading}</div>
+              {panelSubheading ? <div className="mt-1 truncate text-xs text-zinc-500">{panelSubheading}</div> : null}
+              {assistantContextMeta}
             </div>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               <div className={modeRailClassName}>
@@ -1630,7 +2267,7 @@ function DirectionWorkbenchPanel({
                     chatMode === "plan" ? activeModeButtonClassName : inactiveModeButtonClassName,
                   )}
                 >
-                  Discuss
+                  Ask
                 </button>
                 <button
                   type="button"
@@ -1640,7 +2277,7 @@ function DirectionWorkbenchPanel({
                     chatMode === "work" ? activeModeButtonClassName : inactiveModeButtonClassName,
                   )}
                 >
-                  Work
+                  Apply
                 </button>
               </div>
               {onOpenBrief ? (
@@ -1657,11 +2294,16 @@ function DirectionWorkbenchPanel({
         </div>
       ) : null}
 
-      <div className={classNames("shrink-0 px-4 pt-3 pb-2 sm:px-5 sm:pb-3", embedded ? "bg-white" : "bg-transparent") }>
+      <div className={classNames("shrink-0 px-4 pt-2 pb-1.5 sm:px-5 sm:pb-2", embedded ? "bg-white" : "bg-transparent") }>
         <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center justify-between gap-3">
           {embedded ? (
             <>
-              <div className="min-w-0 flex flex-1 flex-wrap items-center gap-2">
+              <div className="min-w-0 flex flex-1 items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  {routeLabel ? <div className="truncate text-sm font-semibold text-zinc-950">{routeLabel}</div> : null}
+                  {lensMeta ? <div className="mt-0.5 truncate text-xs text-zinc-500">{lensMeta}</div> : null}
+                  {assistantContextMeta}
+                </div>
                 <div className={modeRailClassName}>
                   <button
                     type="button"
@@ -1671,7 +2313,7 @@ function DirectionWorkbenchPanel({
                       chatMode === "plan" ? activeModeButtonClassName : inactiveModeButtonClassName,
                     )}
                   >
-                    Discuss
+                    Ask
                   </button>
                   <button
                     type="button"
@@ -1681,7 +2323,7 @@ function DirectionWorkbenchPanel({
                       chatMode === "work" ? activeModeButtonClassName : inactiveModeButtonClassName,
                     )}
                   >
-                    Work
+                    Apply
                   </button>
                 </div>
                 {onOpenBrief ? (
@@ -1699,8 +2341,8 @@ function DirectionWorkbenchPanel({
         </div>
       </div>
 
-      <div ref={directionScrollRef} className={classNames("min-h-0 flex-1 overflow-y-auto px-4 sm:px-5", embedded ? "pb-20 pt-3 sm:pb-24" : "pb-22 pt-4 sm:pb-26") }>
-        <div className="mx-auto w-full max-w-4xl space-y-6">
+      <div ref={directionScrollRef} className={classNames("min-h-0 flex-1 overflow-y-auto px-4 sm:px-5", embedded ? "pb-18 pt-2.5 sm:pb-22" : "pb-20 pt-3 sm:pb-24") }>
+        <div className="mx-auto w-full max-w-4xl space-y-5">
           {recentMessages.length ? (
             recentMessages.map((message, index) => (
               <div
@@ -1712,39 +2354,35 @@ function DirectionWorkbenchPanel({
                     <div className="whitespace-pre-wrap">{message.content}</div>
                   </div>
                 ) : (
-                  <div className="mr-10 max-w-[min(44rem,100%)] space-y-3">
-                    <div className="whitespace-pre-wrap text-sm leading-6 text-zinc-700">{message.content}</div>
+                  <div className="mr-6 max-w-[min(52rem,100%)] space-y-3">
+                    <div className="whitespace-pre-wrap break-words text-[15px] leading-7 text-zinc-700">{message.content}</div>
                     {message.sourceActionPlan ? (
-                      <div className="space-y-3">
-                        <div>
-                          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700">Actionable instructions</div>
-                          <div className="mt-2 space-y-2 border-l-2 border-blue-200 pl-3 text-sm leading-6 text-zinc-700">
-                            {message.sourceActionPlan.moves.slice(0, 3).map((move) => (
-                              <div key={`${message.at || index}-${move.key}`}>
-                                <span className="font-semibold text-zinc-950">{move.target}:</span>{" "}
-                                <span>{move.change}</span>
-                              </div>
-                            ))}
-                          </div>
+                      <div className="space-y-2.5 border-l-2 border-zinc-200 pl-3.5">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Suggested pass</div>
+                        <div className="space-y-2 text-sm leading-6 text-zinc-700">
+                          {message.sourceActionPlan.moves.slice(0, 5).map((move) => (
+                            <div key={`${message.at || index}-${move.key}`} className="min-w-0 break-words">
+                              <span className="font-semibold text-zinc-950">{move.target}:</span>{" "}
+                              <span>{move.change}</span>
+                            </div>
+                          ))}
                         </div>
                         {message.sourceActionPlan.watchouts.length ? (
-                          <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-900">
-                            <div className="font-semibold uppercase tracking-[0.16em] text-amber-800">Warnings</div>
-                            <div className="mt-1">{message.sourceActionPlan.watchouts.slice(0, 2).join(" - ")}</div>
+                          <div className="text-xs leading-5 text-zinc-500">
+                            <span className="font-semibold text-zinc-700">Watchouts:</span>{" "}
+                            <span>{message.sourceActionPlan.watchouts.slice(0, 2).join(" · ")}</span>
                           </div>
                         ) : null}
-                      </div>
-                    ) : null}
-                    {message.sourceActionPlan ? (
-                      <div>
-                        <button
-                          type="button"
-                          onClick={() => startPlanWork(message.sourceActionPlan!)}
-                          disabled={busy}
-                          className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Work this plan
-                        </button>
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => startPlanWork(message.sourceActionPlan!)}
+                            disabled={busy}
+                            className="text-xs font-medium text-zinc-700 underline decoration-zinc-300 underline-offset-4 transition hover:text-zinc-950 hover:decoration-zinc-500 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Apply this pass
+                          </button>
+                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -1756,8 +2394,6 @@ function DirectionWorkbenchPanel({
               {[
                 "What's the main problem with this page?",
                 "What should I fix next?",
-                "Review the headline and primary CTA",
-                "What's missing from the conversion path?",
               ].map((chip) => (
                 <button
                   key={chip}
@@ -1773,20 +2409,23 @@ function DirectionWorkbenchPanel({
 
           {busy ? (
             <div className="flex justify-start">
-              <div className="mr-10 max-w-[min(44rem,100%)] rounded-[22px] border border-zinc-200/80 bg-zinc-50/65 px-4 py-3">
-                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                  <SpinnerIcon className="h-3.5 w-3.5" />
-                  <span>{chatMode === "work" ? "Working" : "Reviewing"}</span>
-                </div>
-                <div className="mt-2 text-sm font-semibold text-zinc-900">{inlineActivityLabel}</div>
-                <div className="mt-1 text-xs leading-5 text-zinc-600">{inlineActivityDetail}</div>
-              </div>
+              <AssistantThinkingCard mode={chatMode} label={inlineActivityLabel} detail={inlineActivityDetail} />
             </div>
           ) : null}
         </div>
       </div>
 
       <div className={chatFooterClassName}>
+        {selectedTargetLabel || selectedTargetContextLine ? (
+          <div className="mx-auto mb-2 flex w-full max-w-4xl flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+            <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-semibold uppercase tracking-[0.14em] text-zinc-600">
+              Editing
+            </span>
+            {selectedTargetLabel ? <span className="font-semibold text-zinc-800">{selectedTargetLabel}</span> : null}
+            {selectedTargetContextLine ? <span className="truncate text-zinc-500">{selectedTargetContextLine}</span> : null}
+          </div>
+        ) : null}
+        {selectionTools ? <div className="mx-auto mb-3 w-full max-w-4xl">{selectionTools}</div> : null}
         <PageAssistantComposerRow>
           <AiPromptComposer
             value={directionNote}
@@ -1796,8 +2435,8 @@ function DirectionWorkbenchPanel({
             onPaste={onPaste}
             placeholder={
               chatMode === "work"
-                ? "Tell Pura what to change next. Work applies it and writes back a summary."
-                : "Ask what is weak, what is missing, or what Pura should change next."
+                ? "Name the exact changes you want applied."
+                : "Ask what feels off or what should change next."
             }
             busy={busy}
             busyLabel={inlineActivityLabel || "Thinking..."}
@@ -1819,6 +2458,7 @@ function CodeSurface({
   seamless = false,
   tone = "dark",
   statusLabel,
+  showStatusBar = true,
   editorSelectAllSignal = 0,
   onActivate,
 }: {
@@ -1830,6 +2470,7 @@ function CodeSurface({
   seamless?: boolean;
   tone?: "dark" | "light";
   statusLabel?: string;
+  showStatusBar?: boolean;
   editorSelectAllSignal?: number;
   onActivate?: () => void;
 }) {
@@ -1837,6 +2478,7 @@ function CodeSurface({
   const lines = splitCodeLines(code || "");
   const renderedLines = splitCodeLines(code || placeholder || "");
   const readOnlyViewportRef = useRef<HTMLDivElement | null>(null);
+  const readOnlyLineNumbersRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const editLineNumbersRef = useRef<HTMLDivElement | null>(null);
 
@@ -1875,9 +2517,16 @@ function CodeSurface({
     gutter.scrollTop = editor.scrollTop;
   }, []);
 
+  const syncReadOnlyGutterScroll = useCallback(() => {
+    const viewport = readOnlyViewportRef.current;
+    const gutter = readOnlyLineNumbersRef.current;
+    if (!viewport || !gutter) return;
+    gutter.scrollTop = viewport.scrollTop;
+  }, []);
+
   const isLight = tone === "light";
   const lineCount = Math.max(lines.length, 1);
-  const showStatusBar = !seamless;
+  const shouldShowStatusBar = showStatusBar && !seamless;
 
   return (
     <div className={classNames(
@@ -1892,13 +2541,11 @@ function CodeSurface({
           ? "rounded-[18px] border border-zinc-200/80 bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
           : "rounded-[20px] border border-zinc-900 bg-zinc-950",
     )}>
-      {showStatusBar ? (
+      {shouldShowStatusBar ? (
         <div className={classNames(
           "shrink-0 border-b px-6 py-3 text-[11px] font-medium",
           isLight
-            ? readOnly
-              ? "border-zinc-200 bg-zinc-50/70 text-zinc-500"
-              : "border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f4f4f5_100%)] text-zinc-700"
+            ? "border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f4f4f5_100%)] text-zinc-700"
             : "border-zinc-900 bg-zinc-950/80 text-zinc-400",
         )}>
           {statusLabel || (readOnly ? "Viewing source" : "Editing staged source")} - {`${lineCount} ${lineCount === 1 ? "line" : "lines"}`}
@@ -1908,7 +2555,7 @@ function CodeSurface({
       <div className={classNames("min-h-0 flex-1 overflow-hidden", seamless && isLight ? "bg-transparent" : isLight ? "bg-white" : "bg-zinc-950")}>
         {readOnly ? (
           <div
-            className={classNames("relative h-full", onActivate ? "group/csr" : "")}
+            className={classNames("relative flex h-full min-h-0", onActivate ? "group/csr" : "", isLight ? "bg-white" : "bg-zinc-950")}
             onClick={onActivate || undefined}
           >
             {onActivate ? (
@@ -1920,9 +2567,24 @@ function CodeSurface({
               </>
             ) : null}
             <div
-              ref={readOnlyViewportRef}
+              ref={readOnlyLineNumbersRef}
+              aria-hidden="true"
               className={classNames(
-                "h-full max-h-[calc(100dvh-240px)] overflow-x-auto overflow-y-auto overscroll-contain [scrollbar-gutter:stable] lg:max-h-none",
+                "shrink-0 overflow-hidden border-r px-2 py-3 pb-6 text-right text-[11px] leading-6 tabular-nums select-none",
+                isLight ? "border-zinc-200 bg-zinc-50 text-zinc-400" : "border-zinc-900 bg-zinc-950 text-zinc-500",
+              )}
+            >
+              {renderedLines.map((_, index) => (
+                <div key={`readonly-line-${index}`} className="h-6 pr-1">
+                  {index + 1}
+                </div>
+              ))}
+            </div>
+            <div
+              ref={readOnlyViewportRef}
+              onScroll={syncReadOnlyGutterScroll}
+              className={classNames(
+                "h-full max-h-[calc(100dvh-240px)] min-h-0 w-full overflow-x-auto overflow-y-auto overscroll-contain [scrollbar-gutter:stable] lg:max-h-none",
                 onActivate ? "cursor-text" : "",
                 seamless && isLight ? "bg-[linear-gradient(180deg,#fcfcfd_0%,#f8fafc_100%)]" : "",
               )}
@@ -2211,7 +2873,7 @@ function CustomHtmlPreviewFrame({
     : heightClassName;
 
   return (
-    <div className={classNames("mx-auto w-full", previewDevice === "mobile" ? "max-w-98" : "max-w-5xl")}>
+    <div className={classNames("mx-auto w-full", previewDevice === "mobile" ? "max-w-sm" : "max-w-5xl")}>
       <div
         className={classNames(
           previewDevice === "mobile"
@@ -2452,12 +3114,15 @@ function AiPromptComposer({
   const darkTone = tone === "dark";
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const composerStatusLabel = attachCount ? `${attachCount} reference${attachCount === 1 ? "" : "s"} attached` : null;
+  const statusTextColorClassName = busy ? (darkTone ? "text-zinc-500" : "text-zinc-500") : darkTone ? "text-zinc-500" : "text-zinc-500";
 
   useEffect(() => {
     const node = textareaRef.current;
     if (!node) return;
     node.style.height = "0px";
     node.style.height = `${Math.min(node.scrollHeight, 220)}px`;
+    node.style.overflowY = node.scrollHeight > 220 ? "auto" : "hidden";
+    if (!value.trim()) node.scrollTop = 0;
   }, [value]);
 
   return (
@@ -2482,7 +3147,7 @@ function AiPromptComposer({
             }
           }}
           className={classNames(
-            "min-w-0 flex-1 resize-none overflow-y-auto rounded-2xl px-3 py-2.5 text-[14px] leading-5 tracking-[-0.01em] outline-none transition-colors",
+            "min-w-0 flex-1 resize-none overflow-y-hidden rounded-2xl px-3 py-2.5 text-[14px] leading-5 tracking-[-0.01em] outline-none transition-colors",
             darkTone ? "text-zinc-50 placeholder:text-zinc-500" : "text-zinc-900 placeholder:text-zinc-400",
             "bg-transparent",
           )}
@@ -2540,8 +3205,13 @@ function AiPromptComposer({
         </button>
       </div>
 
-      <div className={classNames("flex min-h-[18px] items-center gap-2 px-7 pb-1 text-[11px] tracking-[0.01em]", busy ? (darkTone ? "text-zinc-600" : "text-zinc-400") : darkTone ? "text-zinc-500" : "text-zinc-500")}>
-        {composerStatusLabel ? <span className="min-w-0 truncate">{composerStatusLabel}</span> : null}
+      <div className={classNames("flex min-h-[18px] items-center gap-2 px-7 pb-1 text-[11px] tracking-[0.01em]", statusTextColorClassName)}>
+        {busy ? (
+          <>
+            <AssistantTypingDots tone={darkTone ? "dark" : "light"} />
+            <span className="min-w-0 truncate">{busyLabel}</span>
+          </>
+        ) : composerStatusLabel ? <span className="min-w-0 truncate">{composerStatusLabel}</span> : null}
       </div>
     </div>
   );
@@ -2623,6 +3293,70 @@ function buildEditorPreviewHtml(html: string) {
     const heightPx = getEditorPreviewEmbedHeight(attrs);
     return buildEditorEmbedPlaceholder(title, src, heightPx);
   });
+}
+
+function neutralizePreviewHeaderLogoLink(html: string) {
+  if (!html.trim()) return "";
+
+  return html.replace(
+    /(<div[^>]*class="pa-header"[^>]*><div class="pa-header-inner">)\s*<a\b([^>]*?)href=(['"])(?:\/|#)\3([^>]*)>([\s\S]*?)<\/a>/i,
+    (_match, prefix: string, beforeHref: string, _quote: string, afterHref: string, inner: string) =>
+      `${prefix}<span${beforeHref}${afterHref}>${inner}</span>`,
+  );
+}
+
+function hasEmbeddedBookingRuntimeInHtml(html: string) {
+  return /(<iframe\b[^>]*\bsrc=['"][^'"]*\/book\/|\/book\/[^"]+\/c\/|\/book\/u\/[^"'\s/]+\/[^"'?&#/]+|calendarembed|booking widget|calendar widget|data-editor-implicit-booking-preview|data-pa-booking-runtime|\{\{\s*(?:PURE_)?BOOKING_APP\s*\}\})/i.test(html);
+}
+
+function hasBookingSectionHeadingInHtml(html: string) {
+  return /<h([1-6])[^>]*>\s*(?:Book a time|Book time|Schedule a call|Schedule your call|Schedule a consultation|Schedule a discovery call)\s*<\/h\1>/i.test(html);
+}
+
+function injectImplicitBookingPreviewHtml(opts: {
+  html: string;
+  bookingSiteSlug?: string | null;
+  calendarId?: string | null;
+  calendarTitle?: string | null;
+  funnelId?: string | null;
+  pageId?: string | null;
+  surfaceContext?: BookingSurfaceContext | null;
+}) {
+  const html = String(opts.html || "");
+  const bookingSiteSlug = String(opts.bookingSiteSlug || "").trim();
+  const calendarId = String(opts.calendarId || "").trim();
+  if (!html.trim() || !bookingSiteSlug || !calendarId) return html;
+  if (html.includes("data-editor-implicit-booking-preview=\"1\"")) return html;
+  if (hasEmbeddedBookingRuntimeInHtml(html)) return html;
+
+  const safeCalendarTitle = escapeEditorPreviewText(String(opts.calendarTitle || calendarId).trim() || calendarId);
+  const runtimeHtml = buildBookingRuntimePlaceholderHtml({
+    slug: bookingSiteSlug,
+    calendarId,
+    surfaceContext: opts.surfaceContext || null,
+  });
+  const embedHtml = [
+    `<div data-editor-implicit-booking-preview="1" style="margin-top:24px;display:flex;flex-direction:column;gap:12px;">`,
+    `<div style="display:inline-flex;align-self:flex-start;max-width:100%;border:1px solid #bbf7d0;border-radius:999px;background:#f0fdf4;padding:6px 10px;font:600 11px/1.2 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:0.08em;text-transform:uppercase;color:#15803d;">Linked funnel calendar · ${safeCalendarTitle}</div>`,
+    runtimeHtml,
+    `</div>`,
+  ].join("");
+
+  const bookingHeadingPattern = /(<h([1-6])[^>]*>\s*(?:Book a time|Book time|Schedule a call|Schedule your call|Schedule a consultation|Schedule a discovery call)\s*<\/h\2>)/i;
+  if (bookingHeadingPattern.test(html)) {
+    return html.replace(bookingHeadingPattern, `$1${embedHtml}`);
+  }
+
+  const sectionHtml = [
+    `<section data-editor-implicit-booking-preview="1" style="margin:48px auto 0;max-width:960px;padding:0 24px 24px;">`,
+    `<h2 style="margin:0 0 16px;font:700 42px/1.1 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;">Book a time</h2>`,
+    embedHtml,
+    `</section>`,
+  ].join("");
+
+  if (/<\/main>/i.test(html)) return html.replace(/<\/main>/i, `${sectionHtml}</main>`);
+  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${sectionHtml}</body>`);
+  return `${html}${sectionHtml}`;
 }
 
 function humanizeBuilderSectionLabel(value: string) {
@@ -3017,7 +3751,7 @@ function formatMoney(cents: number | null | undefined, currency: string) {
 }
 
 function describeBuilderAiTarget(block: CreditFunnelBlock | null) {
-  if (!block) return "the builder";
+  if (!block) return "the page canvas";
 
   switch (block.type) {
     case "customCode":
@@ -3062,6 +3796,7 @@ type Funnel = {
   bookingDefaults?: FunnelBookingDefaults | null;
   seo?: FunnelSeo | null;
   brief?: FunnelBriefProfile | null;
+  offers?: FunnelOffer[];
   trackingSettings?: PixelTrackingSettings | null;
 };
 
@@ -3309,8 +4044,15 @@ function formatSavedAtLabel(value: string | null | undefined) {
   const diffMinutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
   if (diffMinutes < 1) return "Saved just now";
   if (diffMinutes < 60) return `Saved ${diffMinutes}m ago`;
+  if (diffMinutes < 24 * 60) {
+    const diffHours = Math.max(1, Math.round(diffMinutes / 60));
+    return `Saved ${diffHours}h ago`;
+  }
 
-  return `Saved ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  return `Saved ${date.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  })} ${date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
 function createImportedLayoutBlockId(prefix = "blk") {
@@ -4046,6 +4788,7 @@ type FunnelEditorDialog =
       heroAssetMode: FunnelPageMediaMode;
       audience: string;
       offer: string;
+      selectedOfferId: string;
     }
   | {
       type: "booking-routing";
@@ -4055,12 +4798,13 @@ type FunnelEditorDialog =
       newCalendarTitle: string;
     }
   | { type: "create-form"; slug: string; name: string; templateKey: CreditFormTemplateKey; themeKey: CreditFormThemeKey }
-  | { type: "leave-page"; nextPageId: string | null }
+  | { type: "leave-page"; nextPageId: string | null; nextThreadId?: string | null }
+  | { type: "leave-editor" }
   | { type: "delete-page" }
   | { type: "delete-block"; blockId: string; label: string }
   | null;
 
-type SidebarPanelMode = "structure" | "settings";
+type SidebarPanelMode = "structure" | "activity" | "selection" | "settings";
 
 /* DISABLED: broken intermediate refactor (kept temporarily for reference)
 export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; funnelId: string }) {
@@ -4120,9 +4864,69 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     const [stripeProducts, setStripeProducts] = useState<StripeProductLite[]>([]);
     const [stripeProductsBusy, setStripeProductsBusy] = useState(false);
     const [stripeProductsError, setStripeProductsError] = useState<string | null>(null);
+    const [newOfferLabel, setNewOfferLabel] = useState("");
+    const [newOfferProductId, setNewOfferProductId] = useState("");
     const [newStripeProductName, setNewStripeProductName] = useState("");
     const [newStripeProductPriceCents, setNewStripeProductPriceCents] = useState<number>(4900);
     const [newStripeProductCurrency, setNewStripeProductCurrency] = useState("usd");
+
+  const availableFunnelOffers = useMemo(
+    () => normalizeFunnelOffers(funnel?.offers ?? []).filter((offer) => offer.active !== false),
+    [funnel?.offers],
+  );
+  const offerEnabledStripeProducts = useMemo(
+    () => stripeProducts.filter((product) => product.defaultPrice?.id),
+    [stripeProducts],
+  );
+  const selectedOfferProduct = useMemo(
+    () => offerEnabledStripeProducts.find((product) => product.id === newOfferProductId) ?? null,
+    [newOfferProductId, offerEnabledStripeProducts],
+  );
+
+  const coerceStripeProductLite = useCallback((value: unknown): StripeProductLite | null => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const product = value as Record<string, any>;
+    const defaultPriceRaw = product.defaultPrice;
+    const defaultPrice =
+      defaultPriceRaw && typeof defaultPriceRaw === "object"
+        ? {
+            id: typeof defaultPriceRaw.id === "string" ? String(defaultPriceRaw.id) : "",
+            unitAmount:
+              typeof defaultPriceRaw.unitAmount === "number" && Number.isFinite(defaultPriceRaw.unitAmount)
+                ? defaultPriceRaw.unitAmount
+                : null,
+            currency: typeof defaultPriceRaw.currency === "string" ? String(defaultPriceRaw.currency) : "usd",
+          }
+        : null;
+
+    const next: StripeProductLite = {
+      id: typeof product.id === "string" ? String(product.id) : "",
+      name: typeof product.name === "string" ? String(product.name) : "",
+      description: typeof product.description === "string" ? String(product.description) : null,
+      defaultPrice: defaultPrice && defaultPrice.id ? defaultPrice : null,
+    };
+    return next.id && next.name ? next : null;
+  }, []);
+
+  const buildOfferFromStripeProduct = useCallback((product: StripeProductLite, options?: { id?: string; label?: string }): FunnelOffer | null => {
+    if (!product?.defaultPrice?.id) return null;
+    const label = String(options?.label || product.name || "").trim().slice(0, 120);
+    if (!label) return null;
+
+    return {
+      id: String(options?.id || "").trim(),
+      label,
+      stripeProductId: product.id,
+      priceId: product.defaultPrice.id,
+      productName: product.name || null,
+      productDescription: product.description || null,
+      displayPrice: formatMoney(product.defaultPrice.unitAmount, product.defaultPrice.currency) || null,
+      billingPeriod: null,
+      currency: product.defaultPrice.currency || null,
+      unitAmountCents: typeof product.defaultPrice.unitAmount === "number" ? product.defaultPrice.unitAmount : null,
+      active: true,
+    };
+  }, []);
 
   const createPage = async () => {
     const slug = normalizeSlug(PROMPT_DISABLED("Page slug (e.g. landing)") || "");
@@ -4286,7 +5090,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
                       )}
                     >
-                      Builder
+                      Canvas
                     </button>
                     <button
                       type="button"
@@ -4394,17 +5198,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               {error ? <div className="mx-4 mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
               {selectedPage && selectedPage.editorMode !== "MARKDOWN" ? (
-                <div className="mx-4 mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm shadow-sm">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Mode context</div>
-                  {selectedPage.editorMode === "BLOCKS" ? (
-                    <div className="mt-1 text-zinc-700">
-                      <span className="font-semibold text-zinc-900">Builder page.</span> Templates, sections, columns, and drag/drop control the structure. Ask AI stays inside this page: it edits a selected custom code block or inserts modular blocks where they belong.
-                    </div>
-                  ) : (
-                    <div className="mt-1 text-zinc-700">
-                      <span className="font-semibold text-zinc-900">Whole-page code.</span> Ask AI edits the full page source for this page only. Builder blocks are a separate structure unless you intentionally switch back to the builder.
-                    </div>
-                  )}
+                <div
+                  className="mx-4 mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm shadow-sm"
+                  title={aiScopeDetails.join(" ") || undefined}
+                >
+                  <div className="text-xs font-semibold text-zinc-900">{aiScopeSummary}</div>
                 </div>
               ) : null}
 
@@ -4427,7 +5225,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             busy ? "opacity-60" : "",
                           )}
                         >
-                          Switch to Builder
+                          Switch to Canvas
                         </button>
                         <button
                           type="button"
@@ -4444,7 +5242,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     </div>
                   ) : selectedPage.editorMode === "BLOCKS" ? (
                     <div>
-                      <div className="text-sm font-semibold text-zinc-900">Builder</div>
+                      <div className="text-sm font-semibold text-zinc-900">Canvas</div>
                       <div className="mt-3 grid grid-cols-2 gap-2">
                         {(
                           [
@@ -4560,8 +5358,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               </div>
                             ) : null}
 
-                            {selectedBlock.type === "salesCheckoutButton" ? (
+                            {selectedBlock.type === "salesCheckoutButton" || selectedBlock.type === "addToCartButton" ? (
                               <div className="space-y-2">
+                                <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                                  {selectedBlock.type === "addToCartButton" ? "Add to cart button" : "Checkout button"}
+                                </div>
                                 <input
                                   value={selectedBlock.props.text ?? ""}
                                   onChange={(e) =>
@@ -4571,19 +5372,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     })
                                   }
                                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  placeholder="Button text (e.g. Buy now)"
-                                />
-
-                                <input
-                                  value={selectedBlock.props.priceId ?? ""}
-                                  onChange={(e) =>
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: { ...selectedBlock.props, priceId: e.target.value.trim() },
-                                    })
-                                  }
-                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-mono"
-                                  placeholder="Stripe price id (price_...)"
+                                  placeholder={selectedBlock.type === "addToCartButton" ? "Button text (e.g. Add to cart)" : "Button text (e.g. Buy now)"}
                                 />
 
                                 <input
@@ -4604,48 +5393,94 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   placeholder="Quantity"
                                 />
 
-                                <PortalListboxDropdown
-                                  value={selectedBlock.props.priceId ?? ""}
-                                  onChange={(nextPriceId) => {
-                                    const priceId = String(nextPriceId || "").trim();
-                                    const picked = stripeProducts.find((p) => String(p?.defaultPrice?.id || "").trim() === priceId) || null;
-                                    const nextProductName = (picked?.name ? String(picked.name) : "").trim();
-                                    const nextProductDescription = (picked?.description ? String(picked.description) : "").trim();
-
-                                    const prevName = String((selectedBlock.props as any)?.productName || "").trim();
-                                    const prevDesc = String((selectedBlock.props as any)?.productDescription || "").trim();
-
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: {
-                                        ...selectedBlock.props,
-                                        priceId,
-                                        ...(priceId && !prevName && nextProductName ? { productName: nextProductName } : null),
-                                        ...(priceId && !prevDesc && nextProductDescription ? { productDescription: nextProductDescription } : null),
-                                      },
-                                    });
-                                  }}
-                                  placeholder={stripeProductsBusy ? "Loading Stripe products..." : "Select a Stripe product"}
-                                  options={(
-                                    [
+                                <label className="block">
+                                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Bound offer</div>
+                                  <PortalListboxDropdown
+                                    value={selectedCommerceOffer?.id || String((selectedBlock.props as any)?.offerId || "").trim()}
+                                    onChange={(nextOfferId) => bindSelectedCommerceButtonOffer(String(nextOfferId || ""))}
+                                    placeholder={availableFunnelOffers.length ? "Select a funnel offer" : "Create a funnel offer first"}
+                                    options={[
                                       {
                                         value: "",
                                         label: "(None)",
-                                        hint: "Paste a price id or select a product",
+                                        hint: "Keep using the raw Stripe price id fallback",
                                       },
-                                      ...stripeProducts
-                                        .filter((p) => p && p.defaultPrice && p.defaultPrice.id)
-                                        .map((p) => ({
-                                          value: p.defaultPrice!.id,
-                                          label: p.name,
-                                          hint: `${formatMoney(p.defaultPrice!.unitAmount, p.defaultPrice!.currency)} - ${p.defaultPrice!.id}`,
-                                        })),
-                                    ]
-                                  )}
-                                  className="w-full"
-                                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                                  disabled={stripeProductsBusy}
+                                      ...availableFunnelOffers.map((offer) => ({
+                                        value: offer.id,
+                                        label: offer.label,
+                                        hint: [offer.displayPrice || "", offer.priceId || ""].filter(Boolean).join(" - "),
+                                      })),
+                                    ]}
+                                    className="w-full"
+                                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                  />
+                                </label>
+
+                                {selectedCommerceOffer ? (
+                                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                                    Bound to <span className="font-semibold">{selectedCommerceOffer.label}</span>
+                                    {selectedCommerceOffer.displayPrice ? ` · ${selectedCommerceOffer.displayPrice}` : ""}
+                                    {selectedCommerceOffer.priceId ? ` · ${selectedCommerceOffer.priceId}` : ""}
+                                  </div>
+                                ) : null}
+
+                                <input
+                                  value={selectedBlock.props.priceId ?? ""}
+                                  onChange={(e) =>
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: { ...selectedBlock.props, priceId: e.target.value.trim() },
+                                    })
+                                  }
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-mono"
+                                  placeholder="Legacy Stripe price id fallback (price_...)"
                                 />
+
+                                <label className="block">
+                                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Create offer from Stripe product</div>
+                                  <PortalListboxDropdown
+                                    value={selectedOfferProduct?.id || ""}
+                                    onChange={(nextProductId) => setNewOfferProductId(String(nextProductId || ""))}
+                                    placeholder={stripeProductsBusy ? "Loading Stripe products..." : "Select a Stripe product"}
+                                    options={[
+                                      {
+                                        value: "",
+                                        label: "(None)",
+                                        hint: "Pick a Stripe product with a default price",
+                                      },
+                                      ...offerEnabledStripeProducts.map((product) => ({
+                                        value: product.id,
+                                        label: product.name,
+                                        hint: `${formatMoney(product.defaultPrice!.unitAmount, product.defaultPrice!.currency)} - ${product.defaultPrice!.id}`,
+                                      })),
+                                    ]}
+                                    className="w-full"
+                                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                    disabled={stripeProductsBusy}
+                                  />
+                                </label>
+
+                                <input
+                                  value={newOfferLabel}
+                                  onChange={(e) => setNewOfferLabel(e.target.value)}
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  placeholder="Offer label (e.g. Core package)"
+                                />
+
+                                <button
+                                  type="button"
+                                  disabled={busy || stripeProductsBusy || !selectedOfferProduct}
+                                  onClick={async () => {
+                                    const offer = await ensureFunnelOfferFromProduct(selectedOfferProduct);
+                                    if (offer) bindSelectedCommerceButtonOffer(offer.id);
+                                  }}
+                                  className={classNames(
+                                    "w-full rounded-xl px-3 py-2 text-sm font-semibold text-white",
+                                    busy || stripeProductsBusy || !selectedOfferProduct ? "bg-zinc-400" : "bg-emerald-600 hover:bg-emerald-700",
+                                  )}
+                                >
+                                  Create offer and bind it
+                                </button>
 
                                 {stripeProductsError ? (
                                   <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -4653,10 +5488,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   </div>
                                 ) : null}
 
-                                <div className="text-[11px] text-zinc-500">Stripe products auto-load.</div>
+                                <div className="text-[11px] text-zinc-500">Use funnel offers as the source of truth. The raw price id stays here only as a compatibility fallback.</div>
 
                                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Create Stripe product</div>
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Create Stripe product first</div>
                                   <div className="mt-2 space-y-2">
                                     <input
                                       value={newStripeProductName}
@@ -4686,12 +5521,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       disabled={stripeProductsBusy}
                                       onClick={async () => {
                                         const created = await createStripeProduct();
-                                        const priceId = String((created as any)?.defaultPrice?.id || "").trim();
-                                        if (created && priceId) {
-                                          upsertBlock({
-                                            ...selectedBlock,
-                                            props: { ...selectedBlock.props, priceId },
-                                          });
+                                        const offer = await ensureFunnelOfferFromProduct(created);
+                                        if (offer) {
+                                          bindSelectedCommerceButtonOffer(offer.id);
                                         }
                                       }}
                                       className={classNames(
@@ -4699,7 +5531,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                         stripeProductsBusy ? "bg-zinc-400" : "bg-(--color-brand-blue) hover:bg-blue-700",
                                       )}
                                     >
-                                      Create product
+                                      Create product and offer
                                     </button>
                                   </div>
                                 </div>
@@ -5369,104 +6201,339 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             ) : null}
 
                             {selectedBlock.type === "pricingGrid" ? (
-                              <div className="space-y-3">
-                                <input
-                                  value={selectedBlock.props.eyebrow ?? ""}
-                                  onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, eyebrow: e.target.value } })}
-                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  placeholder="Eyebrow (optional)"
-                                />
-                                <input
-                                  value={selectedBlock.props.heading ?? ""}
-                                  onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, heading: e.target.value } })}
-                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  placeholder="Section heading"
-                                />
-                                <label className="block">
-                                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Columns</div>
-                                  <PortalListboxDropdown
-                                    value={selectedBlock.props.columns ?? 3}
-                                    onChange={(v) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, columns: Number(v) as 1 | 2 | 3 } })}
-                                    options={[
-                                      { value: 1, label: "1 column" },
-                                      { value: 2, label: "2 columns" },
-                                      { value: 3, label: "3 columns" },
-                                    ]}
-                                    className="w-full"
-                                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                                  />
-                                </label>
-                                <div className="space-y-2">
-                                  <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Pricing cards ({(selectedBlock.props.items || []).length})</div>
-                                  {(selectedBlock.props.items || []).map((item, idx) => (
-                                    <div key={idx} className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
-                                      <div className="flex items-center justify-between gap-2">
-                                        <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Card {idx + 1}</div>
-                                        <button
-                                          type="button"
-                                          disabled={busy || (selectedBlock.props.items || []).length <= 1}
-                                          onClick={() => removeSelectedPricingGridItem(idx)}
-                                          className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40"
-                                        >
-                                          Remove
-                                        </button>
-                                      </div>
-                                      <input
-                                        value={item.name}
-                                        onChange={(e) => updateSelectedPricingGridItem(idx, { name: e.target.value })}
-                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                        placeholder="Plan name"
+                              (() => {
+                                const pricingItems = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
+                                const focusedPricingCard = focusedPricingGridCard?.blockId === selectedBlock.id
+                                  ? pricingItems[focusedPricingGridCard.itemIndex] || null
+                                  : null;
+
+                                return (
+                                  <div className="space-y-3">
+                                    <input
+                                      value={selectedBlock.props.eyebrow ?? ""}
+                                      onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, eyebrow: e.target.value } })}
+                                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      placeholder="Eyebrow (optional)"
+                                    />
+                                    <input
+                                      value={selectedBlock.props.heading ?? ""}
+                                      onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, heading: e.target.value } })}
+                                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      placeholder="Section heading"
+                                    />
+                                    <label className="block">
+                                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Columns</div>
+                                      <PortalListboxDropdown
+                                        value={selectedBlock.props.columns ?? 3}
+                                        onChange={(v) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, columns: Number(v) as 1 | 2 | 3 } })}
+                                        options={[
+                                          { value: 1, label: "1 column" },
+                                          { value: 2, label: "2 columns" },
+                                          { value: 3, label: "3 columns" },
+                                        ]}
+                                        className="w-full"
+                                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                                       />
-                                      <input
-                                        value={item.price}
-                                        onChange={(e) => updateSelectedPricingGridItem(idx, { price: e.target.value })}
-                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                        placeholder="Price (e.g. $97/mo)"
-                                      />
-                                      <input
-                                        value={item.description ?? ""}
-                                        onChange={(e) => updateSelectedPricingGridItem(idx, { description: e.target.value })}
-                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                        placeholder="Short description (optional)"
-                                      />
-                                      <input
-                                        value={item.badge ?? ""}
-                                        onChange={(e) => updateSelectedPricingGridItem(idx, { badge: e.target.value || undefined })}
-                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                        placeholder="Badge (e.g. Most popular)"
-                                      />
-                                      <input
-                                        value={item.ctaText ?? ""}
-                                        onChange={(e) => updateSelectedPricingGridItem(idx, { ctaText: e.target.value })}
-                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                        placeholder="CTA text"
-                                      />
-                                      <input
-                                        value={item.ctaHref ?? ""}
-                                        onChange={(e) => updateSelectedPricingGridItem(idx, { ctaHref: e.target.value })}
-                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                        placeholder="CTA link"
-                                      />
-                                      <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                                        <span className="font-semibold text-zinc-900">Featured card</span>
-                                        <ToggleSwitch
-                                          checked={item.featured === true}
-                                          disabled={busy}
-                                          onChange={(checked) => updateSelectedPricingGridItem(idx, { featured: checked || undefined })}
+                                    </label>
+                                    {focusedPricingCard ? (
+                                      <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-3 space-y-2">
+                                        <div className="flex items-center justify-between gap-3">
+                                          <div>
+                                            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700">Focused card</div>
+                                            <div className="mt-1 text-sm font-semibold text-blue-950">Card {focusedPricingGridCard!.itemIndex + 1}</div>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => setFocusedPricingGridCard(null)}
+                                            className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-[11px] font-semibold text-blue-900 hover:bg-blue-100"
+                                          >
+                                            Clear focus
+                                          </button>
+                                        </div>
+                                        <input
+                                          value={focusedPricingCard.name}
+                                          onChange={(e) => updateSelectedPricingGridItem(focusedPricingGridCard!.itemIndex, { name: e.target.value })}
+                                          className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm"
+                                          placeholder="Plan name"
                                         />
-                                      </label>
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                          <input
+                                            value={focusedPricingCard.price}
+                                            onChange={(e) => updateSelectedPricingGridItem(focusedPricingGridCard!.itemIndex, { price: e.target.value })}
+                                            className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm"
+                                            placeholder="Price label"
+                                          />
+                                          <input
+                                            value={focusedPricingCard.billingPeriod ?? ""}
+                                            onChange={(e) => updateSelectedPricingGridItem(focusedPricingGridCard!.itemIndex, { billingPeriod: e.target.value || undefined })}
+                                            className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm"
+                                            placeholder="Billing period (e.g. /month)"
+                                          />
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                          <input
+                                            value={focusedPricingCard.badge ?? ""}
+                                            onChange={(e) => updateSelectedPricingGridItem(focusedPricingGridCard!.itemIndex, { badge: e.target.value || undefined })}
+                                            className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm"
+                                            placeholder="Badge"
+                                          />
+                                          <PortalListboxDropdown
+                                            value={focusedPricingCard.ctaMode ?? (focusedPricingCard.offerId || focusedPricingCard.priceId ? "checkout" : "link")}
+                                            onChange={(nextMode) =>
+                                              updateSelectedPricingGridItem(focusedPricingGridCard!.itemIndex, {
+                                                ctaMode: nextMode === "checkout" ? "checkout" : "link",
+                                                ...(nextMode === "checkout" ? { ctaHref: undefined } : null),
+                                              })
+                                            }
+                                            options={[
+                                              { value: "link", label: "Link CTA" },
+                                              { value: "checkout", label: "Checkout CTA" },
+                                            ]}
+                                            className="w-full"
+                                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-200"
+                                          />
+                                        </div>
+                                        <input
+                                          value={focusedPricingCard.description ?? ""}
+                                          onChange={(e) => updateSelectedPricingGridItem(focusedPricingGridCard!.itemIndex, { description: e.target.value })}
+                                          className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm"
+                                          placeholder="Short description"
+                                        />
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                          <input
+                                            value={focusedPricingCard.ctaText ?? ""}
+                                            onChange={(e) => updateSelectedPricingGridItem(focusedPricingGridCard!.itemIndex, { ctaText: e.target.value })}
+                                            className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm"
+                                            placeholder="CTA text"
+                                          />
+                                          {focusedPricingCard.ctaMode === "checkout" || focusedPricingCard.offerId || focusedPricingCard.priceId ? (
+                                            <input
+                                              value={focusedPricingCard.priceId ?? ""}
+                                              onChange={(e) => updateSelectedPricingGridItem(focusedPricingGridCard!.itemIndex, { priceId: e.target.value.trim() })}
+                                              className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm font-mono"
+                                              placeholder="Legacy price id fallback (price_...)"
+                                            />
+                                          ) : (
+                                            <input
+                                              value={focusedPricingCard.ctaHref ?? ""}
+                                              onChange={(e) => updateSelectedPricingGridItem(focusedPricingGridCard!.itemIndex, { ctaHref: e.target.value })}
+                                              className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm"
+                                              placeholder="CTA link"
+                                            />
+                                          )}
+                                        </div>
+                                        {focusedPricingCard.ctaMode === "checkout" || focusedPricingCard.offerId || focusedPricingCard.priceId ? (
+                                          <>
+                                            <label className="block">
+                                              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700">Bound offer</div>
+                                              <PortalListboxDropdown
+                                                value={focusedPricingCardOffer?.id || String(focusedPricingCard.offerId || "").trim()}
+                                                onChange={(nextOfferId) => bindSelectedPricingGridItemOffer(focusedPricingGridCard!.itemIndex, String(nextOfferId || ""))}
+                                                placeholder={availableFunnelOffers.length ? "Select a funnel offer" : "Create a funnel offer first"}
+                                                options={[
+                                                  {
+                                                    value: "",
+                                                    label: "(None)",
+                                                    hint: "Keep using the raw Stripe price id fallback",
+                                                  },
+                                                  ...availableFunnelOffers.map((offer) => ({
+                                                    value: offer.id,
+                                                    label: offer.label,
+                                                    hint: [offer.displayPrice || "", offer.priceId || ""].filter(Boolean).join(" - "),
+                                                  })),
+                                                ]}
+                                                className="w-full"
+                                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-200"
+                                              />
+                                            </label>
+                                            {focusedPricingCardOffer ? (
+                                              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                                                Bound to <span className="font-semibold">{focusedPricingCardOffer.label}</span>
+                                                {focusedPricingCardOffer.displayPrice ? ` · ${focusedPricingCardOffer.displayPrice}` : ""}
+                                                {focusedPricingCardOffer.priceId ? ` · ${focusedPricingCardOffer.priceId}` : ""}
+                                              </div>
+                                            ) : null}
+                                            <label className="block">
+                                              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700">Create offer from Stripe product</div>
+                                              <PortalListboxDropdown
+                                                value={selectedOfferProduct?.id || ""}
+                                                onChange={(nextProductId) => setNewOfferProductId(String(nextProductId || ""))}
+                                                placeholder={stripeProductsBusy ? "Loading Stripe products..." : "Select a Stripe product"}
+                                                options={[
+                                                  {
+                                                    value: "",
+                                                    label: "(None)",
+                                                    hint: "Pick a Stripe product with a default price",
+                                                  },
+                                                  ...offerEnabledStripeProducts.map((product) => ({
+                                                    value: product.id,
+                                                    label: product.name,
+                                                    hint: `${formatMoney(product.defaultPrice!.unitAmount, product.defaultPrice!.currency)} - ${product.defaultPrice!.id}`,
+                                                  })),
+                                                ]}
+                                                className="w-full"
+                                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-200"
+                                                disabled={stripeProductsBusy}
+                                              />
+                                            </label>
+                                            <input
+                                              value={newOfferLabel}
+                                              onChange={(e) => setNewOfferLabel(e.target.value)}
+                                              className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm"
+                                              placeholder="Offer label (e.g. VIP package)"
+                                            />
+                                            <button
+                                              type="button"
+                                              disabled={busy || stripeProductsBusy || !selectedOfferProduct}
+                                              onClick={async () => {
+                                                const offer = await ensureFunnelOfferFromProduct(selectedOfferProduct);
+                                                if (offer) bindSelectedPricingGridItemOffer(focusedPricingGridCard!.itemIndex, offer.id);
+                                              }}
+                                              className={classNames(
+                                                "w-full rounded-xl px-3 py-2 text-sm font-semibold text-white",
+                                                busy || stripeProductsBusy || !selectedOfferProduct ? "bg-zinc-400" : "bg-emerald-600 hover:bg-emerald-700",
+                                              )}
+                                            >
+                                              Create offer and bind it
+                                            </button>
+                                            {stripeProductsError ? (
+                                              <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                                                {stripeProductsError}
+                                              </div>
+                                            ) : null}
+                                            <div className="rounded-2xl border border-blue-200 bg-white/80 p-3">
+                                              <div className="text-[10px] font-semibold uppercase tracking-wide text-blue-700">Need a new Stripe product?</div>
+                                              <div className="mt-2 space-y-2">
+                                                <input
+                                                  value={newStripeProductName}
+                                                  onChange={(e) => setNewStripeProductName(e.target.value)}
+                                                  className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm"
+                                                  placeholder="Product name"
+                                                />
+                                                <div className="grid grid-cols-2 gap-2">
+                                                  <input
+                                                    type="number"
+                                                    min={50}
+                                                    value={String(newStripeProductPriceCents)}
+                                                    onChange={(e) => setNewStripeProductPriceCents(Number(e.target.value) || 0)}
+                                                    className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm"
+                                                    placeholder="Price (cents)"
+                                                  />
+                                                  <input
+                                                    value={newStripeProductCurrency}
+                                                    onChange={(e) => setNewStripeProductCurrency(e.target.value)}
+                                                    className="w-full rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm"
+                                                    placeholder="Currency (usd)"
+                                                  />
+                                                </div>
+                                                <button
+                                                  type="button"
+                                                  disabled={stripeProductsBusy}
+                                                  onClick={async () => {
+                                                    const created = await createStripeProduct();
+                                                    const offer = await ensureFunnelOfferFromProduct(created);
+                                                    if (offer) bindSelectedPricingGridItemOffer(focusedPricingGridCard!.itemIndex, offer.id);
+                                                  }}
+                                                  className={classNames(
+                                                    "w-full rounded-xl px-3 py-2 text-sm font-semibold text-white",
+                                                    stripeProductsBusy ? "bg-zinc-400" : "bg-(--color-brand-blue) hover:bg-blue-700",
+                                                  )}
+                                                >
+                                                  Create product and offer
+                                                </button>
+                                              </div>
+                                            </div>
+                                          </>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
+                                    <div className="space-y-2">
+                                      <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Pricing cards ({pricingItems.length})</div>
+                                      {pricingItems.map((item, idx) => (
+                                        <div key={idx} className={classNames("rounded-xl border bg-white p-3 space-y-2", focusedPricingGridCard?.blockId === selectedBlock.id && focusedPricingGridCard.itemIndex === idx ? "border-blue-300 ring-1 ring-blue-200" : "border-zinc-200")}>
+                                          <div className="flex items-center justify-between gap-2">
+                                            <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Card {idx + 1}</div>
+                                            <div className="flex items-center gap-2">
+                                              <button
+                                                type="button"
+                                                onClick={() => setFocusedPricingGridCard({ blockId: selectedBlock.id, itemIndex: idx })}
+                                                className={classNames("rounded-lg border px-2 py-1 text-[11px] font-semibold", focusedPricingGridCard?.blockId === selectedBlock.id && focusedPricingGridCard.itemIndex === idx ? "border-blue-300 bg-blue-50 text-blue-900" : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50")}
+                                              >
+                                                Quick edit
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={busy || pricingItems.length <= 1}
+                                                onClick={() => removeSelectedPricingGridItem(idx)}
+                                                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-600 hover:bg-zinc-50 disabled:opacity-40"
+                                              >
+                                                Remove
+                                              </button>
+                                            </div>
+                                          </div>
+                                          <input
+                                            value={item.name}
+                                            onChange={(e) => updateSelectedPricingGridItem(idx, { name: e.target.value })}
+                                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                            placeholder="Plan name"
+                                          />
+                                          <input
+                                            value={item.price}
+                                            onChange={(e) => updateSelectedPricingGridItem(idx, { price: e.target.value })}
+                                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                            placeholder="Price (e.g. $97/mo)"
+                                          />
+                                          {item.offerId ? (
+                                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                                              Offer bound: {resolveFunnelOffer(availableFunnelOffers, item.offerId)?.label || item.offerId}
+                                            </div>
+                                          ) : null}
+                                          <input
+                                            value={item.description ?? ""}
+                                            onChange={(e) => updateSelectedPricingGridItem(idx, { description: e.target.value })}
+                                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                            placeholder="Short description (optional)"
+                                          />
+                                          <input
+                                            value={item.badge ?? ""}
+                                            onChange={(e) => updateSelectedPricingGridItem(idx, { badge: e.target.value || undefined })}
+                                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                            placeholder="Badge (e.g. Most popular)"
+                                          />
+                                          <input
+                                            value={item.ctaText ?? ""}
+                                            onChange={(e) => updateSelectedPricingGridItem(idx, { ctaText: e.target.value })}
+                                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                            placeholder="CTA text"
+                                          />
+                                          <input
+                                            value={item.ctaHref ?? ""}
+                                            onChange={(e) => updateSelectedPricingGridItem(idx, { ctaHref: e.target.value })}
+                                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                            placeholder="CTA link"
+                                          />
+                                          <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                            <span className="font-semibold text-zinc-900">Featured card</span>
+                                            <ToggleSwitch
+                                              checked={item.featured === true}
+                                              disabled={busy}
+                                              onChange={(checked) => updateSelectedPricingGridItem(idx, { featured: checked || undefined })}
+                                            />
+                                          </label>
+                                        </div>
+                                      ))}
+                                      <button
+                                        type="button"
+                                        disabled={busy || pricingItems.length >= 4}
+                                        onClick={() => addSelectedPricingGridItem()}
+                                        className="w-full rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-40"
+                                      >
+                                        + Add pricing card
+                                      </button>
                                     </div>
-                                  ))}
-                                  <button
-                                    type="button"
-                                    disabled={busy || (selectedBlock.props.items || []).length >= 4}
-                                    onClick={() => addSelectedPricingGridItem()}
-                                    className="w-full rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 disabled:opacity-40"
-                                  >
-                                    + Add pricing card
-                                  </button>
-                                </div>
-                              </div>
+                                  </div>
+                                );
+                              })()
                             ) : null}
 
                           </div>
@@ -5480,7 +6547,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       <div className="text-sm font-semibold text-zinc-900">Custom code (AI)</div>
                       <div className="mt-3 max-h-[40vh] space-y-2 overflow-auto rounded-2xl border border-zinc-200 bg-white p-3">
                         {selectedChat.length === 0 ? (
-                          <div className="text-sm text-zinc-600">Ask for a page structure and CTA flow. Then follow up with edits like "tighten the headline hierarchy".</div>
+                          <div className="text-sm text-zinc-600">Ask for a page section plan and CTA flow. Then follow up with edits like "tighten the headline hierarchy".</div>
                         ) : (
                           selectedChat.map((m, idx) => (
                             <div
@@ -5675,12 +6742,30 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 </div>
                               </div>
                             ) : null}
-                          <iframe
-                            title={selectedPage.title}
-                            sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
-                            allow="microphone"
-                            srcDoc={getFunnelPageCurrentHtml(selectedPage)}
-                            className="h-[78vh] w-full bg-white"
+                          <FunnelCustomHtmlRuntimeSurface
+                            html={getFunnelPageCurrentHtml(selectedPage)}
+                            bookingTarget={bookingSiteSlug
+                              ? {
+                                  kind: "slug",
+                                  slug: bookingSiteSlug,
+                                  funnelId: funnel?.id || null,
+                                  pageId: selectedPage.id,
+                                  themeStage: "current",
+                                }
+                              : (typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
+                                  ? {
+                                      kind: "calendar",
+                                      ownerId: String((funnel as any).ownerId),
+                                      calendarId: funnel.bookingCalendarId,
+                                      funnelId: funnel?.id || null,
+                                      pageId: selectedPage.id,
+                                      themeStage: "current",
+                                    }
+                                  : null)}
+                            injectImplicitBooking={Boolean((bookingSiteSlug || funnel?.bookingCalendarId) && selectedPagePreviewBookingState)}
+                            bookingLabel={selectedPagePreviewBookingState?.title || null}
+                            surfaceContext={previewBookingSurfaceContext}
+                            className="min-h-[78vh] w-full bg-white"
                           />
                         </div>
                       ) : (
@@ -5696,14 +6781,19 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 blocks: selectedBlocks,
                                 basePath,
                                 context: {
+                                  bookingOwnerId: typeof (funnel as any)?.ownerId === "string" ? String((funnel as any).ownerId) : undefined,
                                   bookingSiteSlug: bookingSiteSlug || undefined,
                                   defaultBookingCalendarId: funnel?.bookingCalendarId || undefined,
                                     defaultBookingCalendarTitle: funnel?.bookingCalendarId ? bookingCalendarTitleById[funnel.bookingCalendarId] || funnel.bookingCalendarId : undefined,
                                     bookingCalendarTitleById,
                                   funnelId: funnel?.id || undefined,
                                   funnelPageId: selectedPage?.id || "",
+                                  bookingThemeStage: "current",
                                   funnelSlug: funnel?.slug || undefined,
                                   funnelPageSlug: selectedPage?.slug || undefined,
+                                  bookingSurfacePageTitle: selectedPage?.title || undefined,
+                                  bookingSurfacePageIntent: selectedPage?.brief || null,
+                                  offers: funnel?.offers || [],
                                   previewDevice,
                                     showBookingState: true,
                                 },
@@ -5752,17 +6842,30 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             defaultBookingCalendarId: funnel?.bookingCalendarId || undefined,
                                             funnelId: funnel?.id || undefined,
                                             funnelPageId: selectedPage?.id || "",
+                                            bookingThemeStage: "current",
                                             funnelSlug: funnel?.slug || undefined,
                                             funnelPageSlug: selectedPage?.slug || undefined,
+                                            bookingSurfacePageTitle: selectedPage?.title || undefined,
+                                            bookingSurfacePageIntent: selectedPage?.brief || null,
+                                            offers: funnel?.offers || [],
                                             previewDevice,
                                           },
                                           editor: {
                                             enabled: true,
                                             selectedBlockId,
                                             hoveredBlockId,
-                                            onSelectBlockId: (id) => setSelectedBlockId(id),
+                                            selectedPricingGridItemIndex: focusedPricingGridCard?.blockId === selectedBlockId ? focusedPricingGridCard.itemIndex : null,
+                                            onSelectBlockId: (id) => selectCanvasBlock(id),
+                                            onSelectPricingGridItem: (blockId, itemIndex) => {
+                                              selectCanvasBlock(blockId, itemIndex);
+                                            },
                                             onHoverBlockId: (id) => setHoveredBlockId(id),
                                             onUpsertBlock: (next) => upsertBlock(next),
+                                            onRequestHeaderLogoMedia: (id) => {
+                                              setSelectedBlockId(id);
+                                              setMediaPickerTarget({ type: "header-logo", blockId: id });
+                                              setMediaPickerOpen(true);
+                                            },
                                             onRequestBookingRouting: (id) => {
                                               openBookingRoutingDialog(id);
                                             },
@@ -5896,11 +6999,29 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             previewDevice === "mobile" ? "rounded-2xl" : "rounded-none",
                           )}
                         >
-                          <iframe
-                            title={selectedPage.title}
-                            sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
-                            allow="microphone"
-                            srcDoc={getFunnelPageCurrentHtml(selectedPage)}
+                          <FunnelCustomHtmlRuntimeSurface
+                            html={getFunnelPageCurrentHtml(selectedPage)}
+                            bookingTarget={bookingSiteSlug
+                              ? {
+                                  kind: "slug",
+                                  slug: bookingSiteSlug,
+                                  funnelId: funnel?.id || null,
+                                  pageId: selectedPage.id,
+                                  themeStage: "current",
+                                }
+                              : (typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
+                                  ? {
+                                      kind: "calendar",
+                                      ownerId: String((funnel as any).ownerId),
+                                      calendarId: funnel.bookingCalendarId,
+                                      funnelId: funnel?.id || null,
+                                      pageId: selectedPage.id,
+                                      themeStage: "current",
+                                    }
+                                  : null)}
+                            injectImplicitBooking={Boolean((bookingSiteSlug || funnel?.bookingCalendarId) && selectedPagePreviewBookingState)}
+                            bookingLabel={selectedPagePreviewBookingState?.title || null}
+                            surfaceContext={previewBookingSurfaceContext}
                             className="h-full w-full bg-white"
                           />
                         </div>
@@ -5943,7 +7064,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   )}
                                 >
                                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{b.type}</div>
-                                  <div className="mt-3">{renderCreditFunnelBlocks({ blocks: [b], basePath })}</div>
+                                  <div className="mt-3">
+                                    {renderCreditFunnelBlocks({
+                                      blocks: [b],
+                                      basePath,
+                                      context: {
+                                        funnelId: funnel?.id || undefined,
+                                        funnelPageId: selectedPage?.id || "",
+                                        offers: funnel?.offers || [],
+                                      },
+                                    })}
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -6049,26 +7180,144 @@ function buildThreadPreview(messages: Array<{ role: string; content: string }>) 
   return "No saved reasoning in this thread yet.";
 }
 
-function getThreadScopeLabel(thread: FunnelThreadRecord, activePageId: string | null, pageTitle: string) {
-  if (!thread.pageId) return "Funnel";
-  if (thread.pageId === activePageId) return "This page";
-  return pageTitle || "Other page";
+function buildThreadPreviewSummary(thread: FunnelThreadRecord) {
+  const messages = parseDirectionThreadMessages(thread.messages);
+  let latestUserPrompt = "";
+  let latestAssistantText = "";
+  let latestPlanLabel = "";
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!latestPlanLabel && message.role === "assistant") latestPlanLabel = readSourceActionPlanLabel(message.sourceActionPlan);
+    if (!latestAssistantText && message.role === "assistant") latestAssistantText = message.content;
+    if (!latestUserPrompt && message.role === "user") latestUserPrompt = message.content;
+    if (latestUserPrompt && latestAssistantText && latestPlanLabel) break;
+  }
+
+  const candidates = [
+    formatThreadTitleLabel(extractActivityFocus(latestPlanLabel, latestUserPrompt)),
+    formatThreadTitleLabel(extractActivityFocus(latestAssistantText, latestUserPrompt)),
+    formatThreadTitleLabel(extractActivityFocus(latestUserPrompt, latestAssistantText)),
+    classifyThreadIntentLabel(latestPlanLabel),
+    classifyThreadIntentLabel(latestAssistantText),
+    classifyThreadIntentLabel(latestUserPrompt),
+  ].filter(Boolean);
+
+  return candidates[0] || buildThreadPreview(messages);
 }
 
-function getThreadDisplayTitle(thread: FunnelThreadRecord, activePageId: string | null, pageTitle: string) {
-  const rawTitle = String(thread.title || "").trim();
+function formatThreadTitleLabel(value: string) {
+  const compact = compactActivityText(value, 52)
+    .replace(/^['"`]+|['"`]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!compact) return "";
 
-  if (thread.kind === "main") return "Main";
-  if (thread.kind === "alternate") {
-    if (thread.pageId === activePageId) return "Chat";
-    return pageTitle ? `${pageTitle} chat` : "Chat";
+  return `${compact.charAt(0).toUpperCase()}${compact.slice(1)}`
+    .replace(/\bcta\b/gi, "CTA")
+    .replace(/\bseo\b/gi, "SEO")
+    .replace(/\bhtml\b/gi, "HTML")
+    .replace(/\bcss\b/gi, "CSS");
+}
+
+function readSourceActionPlanLabel(plan: SourceActionPlan | undefined) {
+  if (!plan) return "";
+  const summary = compactActivityText(typeof plan.summary === "string" ? plan.summary : "", 72);
+  if (summary) return summary;
+
+  const firstMove = Array.isArray((plan as Record<string, unknown>).moves)
+    ? ((plan as Record<string, unknown>).moves as unknown[]).find((move) => move && typeof move === "object") as Record<string, unknown> | undefined
+    : undefined;
+  if (!firstMove) return "";
+
+  return compactActivityText(
+    String(firstMove.label || firstMove.summary || firstMove.title || firstMove.what || ""),
+    72,
+  );
+}
+
+function classifyThreadIntentLabel(signal: string) {
+  const compact = compactActivityText(signal, 140).toLowerCase();
+  if (!compact) return "";
+  if (/(publish|go live|launch|ship|readiness|final check|qa|review before publish)/.test(compact)) return "Publish readiness check";
+  if (/(pricing|price|offer|package|tier|plan card|pricing card)/.test(compact)) return "Pricing card edits";
+  if (/(booking|calendar|schedule|appointment|availability|meeting|call routing)/.test(compact)) return "Booking path setup";
+  if (/(hero|headline|subhead|above the fold)/.test(compact)) return "Hero copy refinement";
+  if (/(cta|call to action|signup|sign up|registration|handoff|opt-?in|lead form|form)/.test(compact)) return "CTA + registration handoff";
+  if (/(source|html|css|custom code|markup|stylesheet|code block)/.test(compact)) return "Source update thread";
+  if (/(seo|search|meta description|title tag)/.test(compact)) return "SEO visibility updates";
+  if (/(tracking|pixel|analytics|conversion)/.test(compact)) return "Tracking setup";
+  if (/(proof|testimonial|review|social proof)/.test(compact)) return "Proof section updates";
+  if (/(header|nav|logo)/.test(compact)) return "Header and nav edits";
+  if (/(section|layout|structure|spacing|hierarchy)/.test(compact)) return "Section structure edits";
+  return "";
+}
+
+function inferThreadTaskLabel(thread: FunnelThreadRecord) {
+  const messages = parseDirectionThreadMessages(thread.messages);
+  let latestUserPrompt = "";
+  let latestAssistantText = "";
+  let latestPlanLabel = "";
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!latestPlanLabel && message.role === "assistant") {
+      latestPlanLabel = readSourceActionPlanLabel(message.sourceActionPlan);
+    }
+    if (!latestAssistantText && message.role === "assistant") {
+      latestAssistantText = message.content;
+    }
+    if (!latestUserPrompt && message.role === "user") {
+      latestUserPrompt = message.content;
+    }
+    if (latestUserPrompt && latestAssistantText && latestPlanLabel) break;
   }
-  if (thread.kind === "page") {
-    if (thread.pageId === activePageId) return "This page";
-    return pageTitle || rawTitle || "Page";
-  }
-  if (!rawTitle) return "Thread";
-  if (rawTitle.toLowerCase() === "main funnel discussion") return "Main";
+
+  const userFocus = extractActivityFocus(latestUserPrompt, latestAssistantText);
+  const assistantFocus = extractActivityFocus(latestAssistantText, latestUserPrompt);
+  const planFocus = extractActivityFocus(latestPlanLabel, latestUserPrompt);
+  const candidates = [
+    classifyThreadIntentLabel(latestPlanLabel),
+    classifyThreadIntentLabel(userFocus),
+    classifyThreadIntentLabel(assistantFocus),
+    classifyThreadIntentLabel(latestUserPrompt),
+    classifyThreadIntentLabel(latestAssistantText),
+    formatThreadTitleLabel(planFocus),
+    formatThreadTitleLabel(userFocus),
+    formatThreadTitleLabel(assistantFocus),
+    formatThreadTitleLabel(latestPlanLabel),
+  ].filter(Boolean);
+
+  return candidates[0] || "";
+}
+
+function getThreadScopeLabel(thread: FunnelThreadRecord, activePageId: string | null, pageTitle: string) {
+  if (!thread.pageId) return "Funnel-wide thread";
+  if (thread.pageId === activePageId) return "Page thread";
+  return pageTitle ? `${pageTitle} thread` : "Other page thread";
+}
+
+function getThreadDisplayTitle(
+  thread: FunnelThreadRecord,
+  activePageId: string | null,
+  pageTitle: string,
+  options?: { scopeSequence?: number; scopeThreadCount?: number },
+) {
+  const rawTitle = String(thread.title || "").trim();
+  const scopeSequence = Math.max(options?.scopeSequence || 1, 1);
+  const scopeThreadCount = Math.max(options?.scopeThreadCount || 1, 1);
+  const inferredTaskLabel = inferThreadTaskLabel(thread);
+  const looksLikeSourceThread = /source|html|css|custom code/i.test([rawTitle, inferredTaskLabel].filter(Boolean).join(" "));
+  const fallbackTitleBase = !thread.pageId
+    ? "Funnel strategy chat"
+    : looksLikeSourceThread
+      ? "Source editing chat"
+      : "Page chat";
+  const fallbackTitle = scopeThreadCount > 1 ? `${fallbackTitleBase} ${scopeSequence}` : fallbackTitleBase;
+
+  if (!rawTitle) return inferredTaskLabel || fallbackTitle;
+  if (["main", "page", "chat", "thread", "main funnel discussion"].includes(rawTitle.toLowerCase())) return fallbackTitle;
+  if (thread.kind === "page" && rawTitle.toLowerCase() === String(pageTitle || "").trim().toLowerCase()) return inferredTaskLabel || fallbackTitle;
   return rawTitle;
 }
 
@@ -6094,7 +7343,7 @@ function ThreadTransitionCard({
       className={classNames(
         "w-full rounded-xl px-3 py-2.5 text-left transition",
         active
-          ? "bg-zinc-100"
+          ? "border border-blue-200 bg-blue-50/80"
           : "bg-white hover:bg-zinc-50",
       )}
     >
@@ -6106,7 +7355,14 @@ function ThreadTransitionCard({
           )}
         />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-zinc-950">{title}</div>
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-950">{title}</div>
+            {active ? (
+              <span className="shrink-0 rounded-full border border-blue-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-blue-700">
+                Current
+              </span>
+            ) : null}
+          </div>
           <div className="mt-0.5 truncate text-[11px] text-zinc-500">{scopeLabel} · {meta}</div>
         </div>
       </div>
@@ -6151,8 +7407,26 @@ function normalizeEditorMetaPixelId(raw: unknown) {
     .slice(0, 32) || null;
 }
 
+function normalizeFunnelSeoTitle(raw: unknown) {
+  return String(typeof raw === "string" ? raw : "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+}
+
+function normalizeFunnelSeoDescription(raw: unknown) {
+  return String(typeof raw === "string" ? raw : "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 300);
+}
+
 function serializeFunnelSeoDraft(seo: FunnelSeo | null | undefined) {
-  return JSON.stringify({ noIndex: Boolean(seo?.noIndex) });
+  return JSON.stringify({
+    title: normalizeFunnelSeoTitle(seo?.title),
+    description: normalizeFunnelSeoDescription(seo?.description),
+    noIndex: Boolean(seo?.noIndex),
+  });
 }
 
 const FUNNEL_EDITOR_DRAFT_CACHE_PREFIX = "pa:funnel-editor-draft:v1:";
@@ -6326,18 +7600,18 @@ function readStoredPageChatProfile(): PuraAiProfile {
 const PAGE_CANVAS_VIEW_META: Record<PageCanvasView, { label: string; summary: string }> = {
   preview: {
     label: "Preview",
-    summary: "See the current draft as the visitor would.",
+    summary: "See this page draft as the visitor would.",
   },
   source: {
     label: "Source",
-    summary: "Inspect source and prepare scoped edits.",
+    summary: "Inspect or edit the same page draft as HTML.",
   },
 };
 
 const PAGE_LENS_STAGE_META: Record<PageLensStage, { label: string; summary: string }> = {
   page: {
     label: "Page",
-    summary: "Switch the live page view between preview and source.",
+    summary: "Switch this page between preview and source.",
   },
   chat: {
     label: "Chat",
@@ -6368,6 +7642,57 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [stripeProducts, setStripeProducts] = useState<StripeProductLite[]>([]);
   const [stripeProductsBusy, setStripeProductsBusy] = useState(false);
   const [stripeProductsError, setStripeProductsError] = useState<string | null>(null);
+  const [newOfferLabel, setNewOfferLabel] = useState("");
+  const [newOfferProductId, setNewOfferProductId] = useState("");
+  const [newStripeProductName, setNewStripeProductName] = useState("");
+  const [newStripeProductPriceCents, setNewStripeProductPriceCents] = useState<number>(4900);
+  const [newStripeProductCurrency, setNewStripeProductCurrency] = useState("usd");
+
+  const coerceStripeProductLite = useCallback((value: unknown): StripeProductLite | null => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const product = value as Record<string, any>;
+    const defaultPriceRaw = product.defaultPrice;
+    const defaultPrice =
+      defaultPriceRaw && typeof defaultPriceRaw === "object"
+        ? {
+            id: typeof defaultPriceRaw.id === "string" ? String(defaultPriceRaw.id) : "",
+            unitAmount:
+              typeof defaultPriceRaw.unitAmount === "number" && Number.isFinite(defaultPriceRaw.unitAmount)
+                ? defaultPriceRaw.unitAmount
+                : null,
+            currency: typeof defaultPriceRaw.currency === "string" ? String(defaultPriceRaw.currency) : "usd",
+          }
+        : null;
+
+    const next: StripeProductLite = {
+      id: typeof product.id === "string" ? String(product.id) : "",
+      name: typeof product.name === "string" ? String(product.name) : "",
+      description: typeof product.description === "string" ? String(product.description) : null,
+      defaultPrice: defaultPrice && defaultPrice.id ? defaultPrice : null,
+    };
+    return next.id && next.name ? next : null;
+  }, []);
+
+  const buildOfferFromStripeProduct = useCallback((product: StripeProductLite, options?: { id?: string; label?: string }): FunnelOffer | null => {
+    if (!product?.defaultPrice?.id) return null;
+    const id = String(options?.id || "").trim();
+    const label = String(options?.label || product.name || "").trim().slice(0, 120);
+    if (!id || !label) return null;
+
+    return {
+      id,
+      label,
+      stripeProductId: product.id,
+      priceId: product.defaultPrice.id,
+      productName: product.name || null,
+      productDescription: product.description || null,
+      displayPrice: formatMoney(product.defaultPrice.unitAmount, product.defaultPrice.currency) || null,
+      billingPeriod: null,
+      currency: product.defaultPrice.currency || null,
+      unitAmountCents: typeof product.defaultPrice.unitAmount === "number" ? product.defaultPrice.unitAmount : null,
+      active: true,
+    };
+  }, []);
 
   const loadStripeProducts = useCallback(async () => {
     if (stripeProductsBusy) return;
@@ -6380,30 +7705,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         throw new Error((json && typeof json.error === "string" && json.error) || "Unable to load Stripe products");
       }
       const items = Array.isArray(json.products) ? (json.products as any[]) : [];
-      const coerced: StripeProductLite[] = items
-        .filter((p) => p && typeof p === "object")
-        .map((p) => {
-          const defaultPriceRaw = (p as any).defaultPrice;
-          const defaultPrice =
-            defaultPriceRaw && typeof defaultPriceRaw === "object"
-              ? {
-                  id: typeof defaultPriceRaw.id === "string" ? String(defaultPriceRaw.id) : "",
-                  unitAmount:
-                    typeof defaultPriceRaw.unitAmount === "number" && Number.isFinite(defaultPriceRaw.unitAmount)
-                      ? defaultPriceRaw.unitAmount
-                      : null,
-                  currency: typeof defaultPriceRaw.currency === "string" ? String(defaultPriceRaw.currency) : "usd",
-                }
-              : null;
-
-          return {
-            id: typeof (p as any).id === "string" ? String((p as any).id) : "",
-            name: typeof (p as any).name === "string" ? String((p as any).name) : "",
-            description: typeof (p as any).description === "string" ? String((p as any).description) : null,
-            defaultPrice: defaultPrice && defaultPrice.id ? defaultPrice : null,
-          };
-        })
-        .filter((p) => p.id && p.name);
+      const coerced = items.map((item) => coerceStripeProductLite(item)).filter((item): item is StripeProductLite => Boolean(item));
       setStripeProducts(coerced);
     } catch (e) {
       const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to load Stripe products";
@@ -6411,7 +7713,57 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     } finally {
       setStripeProductsBusy(false);
     }
-  }, [stripeProductsBusy]);
+  }, [coerceStripeProductLite, stripeProductsBusy]);
+
+  const createStripeProduct = useCallback(async () => {
+    const name = String(newStripeProductName || "").trim();
+    const currency = String(newStripeProductCurrency || "usd").trim().toLowerCase() || "usd";
+    const unitAmount = Math.max(0, Math.floor(Number(newStripeProductPriceCents) || 0));
+
+    if (!name) {
+      toast.error("Enter a Stripe product name first");
+      return null;
+    }
+    if (unitAmount < 50) {
+      toast.error("Stripe product price must be at least 50 cents");
+      return null;
+    }
+
+    setStripeProductsBusy(true);
+    setStripeProductsError(null);
+    try {
+      const res = await fetch("/api/portal/funnel-builder/sales/products", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, unitAmount, currency }),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error((json && typeof json.error === "string" && json.error) || "Unable to create Stripe product");
+      }
+      const created = coerceStripeProductLite(json.product);
+      if (!created) throw new Error("Stripe product was created, but the response was incomplete");
+
+      setStripeProducts((prev) => {
+        const rest = prev.filter((item) => item.id !== created.id);
+        return [created, ...rest];
+      });
+      setNewOfferProductId(created.id);
+      if (!String(newOfferLabel || "").trim()) setNewOfferLabel(created.name);
+      setNewStripeProductName("");
+      setNewStripeProductPriceCents(4900);
+      setNewStripeProductCurrency("usd");
+      toast.success("Stripe product created");
+      return created;
+    } catch (e) {
+      const message = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to create Stripe product";
+      setStripeProductsError(message || "Unable to create Stripe product");
+      toast.error(message || "Unable to create Stripe product");
+      return null;
+    } finally {
+      setStripeProductsBusy(false);
+    }
+  }, [coerceStripeProductLite, newOfferLabel, newStripeProductCurrency, newStripeProductName, newStripeProductPriceCents, toast]);
 
   const [funnel, setFunnel] = useState<Funnel | null>(null);
   const [pages, setPages] = useState<Page[] | null>(null);
@@ -6420,9 +7772,34 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [dirtyPageIds, setDirtyPageIds] = useState<Record<string, boolean>>({});
   const [forms, setForms] = useState<CreditForm[] | null>(null);
 
+  const availableFunnelOffers = useMemo(
+    () => normalizeFunnelOffers(funnel?.offers ?? []).filter((offer) => offer.active !== false),
+    [funnel?.offers],
+  );
+  const offerEnabledStripeProducts = useMemo(
+    () => stripeProducts.filter((product) => product.defaultPrice?.id),
+    [stripeProducts],
+  );
+  const selectedOfferProduct = useMemo(
+    () => offerEnabledStripeProducts.find((product) => product.id === newOfferProductId) ?? null,
+    [newOfferProductId, offerEnabledStripeProducts],
+  );
+
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [draftThreadPageId, setDraftThreadPageId] = useState<string | null>(null);
+  const [threadSelectionMode, setThreadSelectionMode] = useState<"auto" | "manual">("auto");
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [focusedPricingGridCard, setFocusedPricingGridCard] = useState<{ blockId: string; itemIndex: number } | null>(null);
+  const [pricingEditorOpen, setPricingEditorOpen] = useState(false);
+  const [pricingEditorPrompt, setPricingEditorPrompt] = useState("");
+  const [draggedPricingGridCardIndex, setDraggedPricingGridCardIndex] = useState<number | null>(null);
+  const [pricingTierDropTargetIndex, setPricingTierDropTargetIndex] = useState<number | null>(null);
+  const [pricingEditorComparisonNotes, setPricingEditorComparisonNotes] = useState<{
+    firstToSecond: string;
+    secondToThird: string;
+    hierarchy: string;
+  }>({ firstToSecond: "", secondToThird: "", hierarchy: "" });
   const [selectedHeaderNavItemId, setSelectedHeaderNavItemId] = useState<string | null>(null);
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
@@ -6472,6 +7849,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [sourcePreviewActive, setSourcePreviewActive] = useState(false);
   const [sourceSelectAllSignal, setSourceSelectAllSignal] = useState(0);
   const [chatRailOpen, setChatRailOpen] = useState(false);
+  const [chatRailWidth, setChatRailWidth] = useState(CHAT_RAIL_DEFAULT_WIDTH);
+  const [chatRailResizing, setChatRailResizing] = useState(false);
+  const chatRailAutoOpenedRef = useRef(false);
+  const chatRailResizePointerIdRef = useRef<number | null>(null);
+  const chatRailResizeFrameRef = useRef<number | null>(null);
+  const chatRailResizePendingWidthRef = useRef<number | null>(null);
   const [, setCustomCodeContextOpen] = useState(false);
   const [wholePageSyncNotice, setWholePageSyncNotice] = useState<string | null>(null);
   const [selectedHtmlRegionKey, setSelectedHtmlRegionKey] = useState<string | null>(null);
@@ -6497,6 +7880,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   // (formEmbed, calendarEmbed). Different from basePath which is the portal nav path.
   const hostedBasePath = portalVariant === "credit" ? "/credit" : "";
   const builderTopLevelPanel = sidebarPanel;
+  const sidebarPanelCardClassName = "rounded-2xl border border-zinc-200 bg-white p-3.5 shadow-[0_8px_24px_rgba(15,23,42,0.04)]";
 
   const platformTargetHost = useMemo(() => {
     if (typeof window !== "undefined") return window.location.hostname || null;
@@ -6514,6 +7898,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     const h = (platformTargetHost || "").trim().toLowerCase();
     return h === "localhost" || h.endsWith(".local") || h === "127.0.0.1";
   }, [platformTargetHost]);
+
+  const runtimeHostedOrigin = useMemo(() => {
+    if (typeof window !== "undefined") return window.location.origin || null;
+    const raw = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
+    return raw || null;
+  }, []);
 
   const allFontPreviewGoogleCss = useMemo(() => {
     const lines = FONT_PRESETS.map((p) => googleFontImportCss(p.googleFamily)).filter(Boolean) as string[];
@@ -6541,11 +7931,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     }
 
     const hostedPath = hostedFunnelPath(slug, funnelId);
-    return hostedPath ? toPurelyHostedUrl(`${hostedPath}${pageSlugSuffix}`) : null;
-  }, [funnel?.assignedDomain, funnel?.slug, funnel?.id, isLocalPreview, selectedPublicPageSlug]);
+    return hostedPath ? toRuntimeHostedUrl(`${hostedPath}${pageSlugSuffix}`, runtimeHostedOrigin) : null;
+  }, [funnel?.assignedDomain, funnel?.slug, funnel?.id, isLocalPreview, runtimeHostedOrigin, selectedPublicPageSlug]);
 
   const [brandPalette, setBrandPalette] = useState<null | { primary?: string; accent?: string; text?: string }>(null);
   const [businessProfileSummary, setBusinessProfileSummary] = useState<BusinessProfileSummary | null>(null);
+  const [businessProfileTemplateVars, setBusinessProfileTemplateVars] = useState<Record<string, string>>({});
   const [foundationArtifact, setFoundationArtifact] = useState<FunnelFoundationArtifact | null>(null);
   const [foundationArtifactBusy, setFoundationArtifactBusy] = useState(false);
   const [foundationArtifactError, setFoundationArtifactError] = useState<string | null>(null);
@@ -6596,13 +7987,112 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     () => threads.find((thread) => thread.id === selectedThreadId) || null,
     [selectedThreadId, threads],
   );
+  const isDraftThreadActive = Boolean(selectedPage && !selectedThread && draftThreadPageId === selectedPage.id);
+
+  useEffect(() => {
+    if (chatRailAutoOpenedRef.current) return;
+    if (!selectedPage) return;
+    if (typeof window !== "undefined" && window.innerWidth >= 1024) {
+      setChatRailOpen(true);
+      chatRailAutoOpenedRef.current = true;
+    }
+  }, [selectedPage]);
+
+  const queueChatRailWidth = useCallback((nextWidth: number) => {
+    chatRailResizePendingWidthRef.current = nextWidth;
+    if (chatRailResizeFrameRef.current !== null) return;
+    chatRailResizeFrameRef.current = window.requestAnimationFrame(() => {
+      chatRailResizeFrameRef.current = null;
+      const pendingWidth = chatRailResizePendingWidthRef.current;
+      chatRailResizePendingWidthRef.current = null;
+      if (typeof pendingWidth === "number" && Number.isFinite(pendingWidth)) {
+        setChatRailWidth(pendingWidth);
+      }
+    });
+  }, []);
+
+  const updateChatRailWidthFromClientX = useCallback(
+    (clientX: number) => {
+      const viewportWidth = Math.max(window.innerWidth || 0, 1024);
+      const rawWidth = Math.max(0, viewportWidth - clientX);
+      const nextWidth = clamp(rawWidth, CHAT_RAIL_MIN_WIDTH, Math.min(760, Math.max(420, viewportWidth - 320)));
+      queueChatRailWidth(nextWidth);
+    },
+    [queueChatRailWidth],
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const storedWidth = Number(window.localStorage.getItem(CHAT_RAIL_WIDTH_STORAGE_KEY) || "");
+      if (!Number.isFinite(storedWidth)) return;
+      setChatRailWidth(clamp(storedWidth, CHAT_RAIL_MIN_WIDTH, 760));
+    } catch {
+      // Ignore storage access failures and keep the default width.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(CHAT_RAIL_WIDTH_STORAGE_KEY, String(Math.round(chatRailWidth)));
+    } catch {
+      // Ignore storage access failures and keep the in-memory width.
+    }
+  }, [chatRailWidth]);
+
+  useEffect(() => {
+    if (!chatRailResizing) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (chatRailResizePointerIdRef.current !== null && event.pointerId !== chatRailResizePointerIdRef.current) return;
+      updateChatRailWidthFromClientX(event.clientX);
+    };
+    const stopResizing = (event?: PointerEvent) => {
+      if (event && chatRailResizePointerIdRef.current !== null && event.pointerId !== chatRailResizePointerIdRef.current) return;
+      const viewportWidth = Math.max(window.innerWidth || 0, 1024);
+      const rawWidth = event ? Math.max(0, viewportWidth - event.clientX) : null;
+      chatRailResizePointerIdRef.current = null;
+      setChatRailResizing(false);
+      if (rawWidth !== null && rawWidth <= CHAT_RAIL_COLLAPSE_THRESHOLD) {
+        setChatRailMode("chat");
+        setChatRailOpen(false);
+        queueChatRailWidth(CHAT_RAIL_DEFAULT_WIDTH);
+      }
+    };
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResizing);
+    window.addEventListener("pointercancel", stopResizing);
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResizing);
+      window.removeEventListener("pointercancel", stopResizing);
+    };
+  }, [chatRailResizing, queueChatRailWidth, updateChatRailWidthFromClientX]);
+
+  useEffect(() => {
+    return () => {
+      if (chatRailResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(chatRailResizeFrameRef.current);
+        chatRailResizeFrameRef.current = null;
+      }
+    };
+  }, []);
+
   const selectedThreadMessages = useMemo<ChatMessage[]>(() => {
-    if (selectedThread) return selectedThread.messages as ChatMessage[];
+    if (selectedThread) return normalizeFunnelThreadMessages(selectedThread.messages) as ChatMessage[];
     if (!selectedPage) return [];
-    return Array.isArray(selectedPage.customChatJson)
-      ? (stripFunnelPageIntentMessages<ChatMessage>(selectedPage.customChatJson) as ChatMessage[])
-      : [];
-  }, [selectedPage, selectedThread]);
+    if (draftThreadPageId === selectedPage.id) return [];
+    return normalizeFunnelThreadMessages(selectedPage.customChatJson) as ChatMessage[];
+  }, [draftThreadPageId, selectedPage, selectedThread]);
   const pageTitleById = useMemo(() => {
     const entries = (pages || []).map((page) => [page.id, String(page.title || "").trim()] as const);
     return new Map<string, string>(entries);
@@ -6610,12 +8100,32 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const selectedThreadPageTitle = selectedThread?.pageId
     ? (pageTitleById.get(selectedThread.pageId) || String((selectedThread.context as Record<string, unknown> | null)?.pageTitle || "").trim())
     : "";
+  const threadScopeSequence = useMemo(() => {
+    const sequenceById = new Map<string, number>();
+    const countByScopeId = new Map<string, number>();
+
+    for (const thread of threads) {
+      const scopeId = thread.pageId || "__funnel__";
+      const nextCount = (countByScopeId.get(scopeId) || 0) + 1;
+      countByScopeId.set(scopeId, nextCount);
+      sequenceById.set(thread.id, nextCount);
+    }
+
+    return { sequenceById, countByScopeId };
+  }, [threads]);
   const selectedThreadDisplayTitle = selectedThread
-    ? getThreadDisplayTitle(selectedThread, selectedPageId, selectedThreadPageTitle)
-    : "Main";
+    ? getThreadDisplayTitle(selectedThread, selectedPageId, selectedThreadPageTitle, {
+        scopeSequence: threadScopeSequence.sequenceById.get(selectedThread.id) || 1,
+        scopeThreadCount: threadScopeSequence.countByScopeId.get(selectedThread.pageId || "__funnel__") || 1,
+      })
+    : isDraftThreadActive
+      ? (pageCanvasView === "source" ? "Source editing chat" : "Page chat")
+      : "Page chat";
   const selectedThreadMeta = selectedThread
     ? `${getThreadScopeLabel(selectedThread, selectedPageId, selectedThreadPageTitle)} · ${formatThreadLastActive(selectedThread.lastMessageAt)}`
-    : "Funnel · No activity yet";
+    : isDraftThreadActive
+      ? "Draft thread for this page"
+      : "Primary thread for this page";
   const currentPageThreads = useMemo(
     () => threads.filter((thread) => Boolean(selectedPageId) && thread.pageId === selectedPageId),
     [selectedPageId, threads],
@@ -6641,20 +8151,42 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
     setSelectedThreadId((prev) => {
       const current = prev ? threads.find((thread) => thread.id === prev) || null : null;
-      if (current && (!current.pageId || current.pageId === selectedPageId)) return current.id;
+      if (threadSelectionMode === "manual" && current) {
+        if (!current.pageId) return current.id;
+        if (current.pageId === selectedPageId) return current.id;
+      }
+
+      if (current && current.pageId === selectedPageId) return current.id;
+
+      if (selectedPageId && draftThreadPageId === selectedPageId) return null;
 
       const pageThread = selectedPageId ? threads.find((thread) => thread.pageId === selectedPageId) || null : null;
+      if (selectedPageId) return pageThread?.id || null;
+
       const mainThread = threads.find((thread) => thread.kind === "main" && !thread.pageId) || null;
-      return pageThread?.id || mainThread?.id || threads[0]?.id || null;
+      return mainThread?.id || threads[0]?.id || null;
     });
-  }, [selectedPageId, threads]);
+  }, [draftThreadPageId, selectedPageId, threadSelectionMode, threads]);
 
   useEffect(() => {
-    if (!selectedThread?.pageId) return;
-    if (selectedThread.pageId === selectedPageId) return;
-    if (!(pages || []).some((page) => page.id === selectedThread.pageId)) return;
-    setSelectedPageId(selectedThread.pageId);
-  }, [pages, selectedPageId, selectedThread?.pageId]);
+    if (!selectedThreadId) return;
+    setDraftThreadPageId(null);
+  }, [selectedThreadId]);
+
+  const openThreadFromRail = useCallback(
+    (thread: FunnelThread) => {
+      setDraftThreadPageId(null);
+      setThreadSelectionMode("manual");
+      if (thread.pageId && thread.pageId !== selectedPageId) {
+        requestPageSelection(thread.pageId, { nextThreadId: thread.id });
+        setChatRailMode("chat");
+        return;
+      }
+      setSelectedThreadId(thread.id);
+      setChatRailMode("chat");
+    },
+    [requestPageSelection, selectedPageId],
+  );
 
   const bookingCalendarEditorIdRef = useRef<string | null>(null);
 
@@ -6886,6 +8418,32 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (!selectedPage?.id || !activeAiQuestion || activeAiQuestion.pageId !== selectedPage.id) return null;
     return activeAiQuestion;
   }, [activeAiQuestion, selectedPage?.id]);
+  const sidebarRecentActivity = useMemo(
+    () =>
+      [
+        ...selectedPageBuilderChangeActivity.map((item) => ({
+          id: item.id,
+          source: "builder" as const,
+          label: item.scopeLabel,
+          summary: item.summary,
+          prompt: item.prompt,
+          at: item.at,
+          kind: item.kind,
+        })),
+        ...selectedPageHtmlChangeActivity.map((item) => ({
+          id: item.id,
+          source: "source" as const,
+          label: item.scopeLabel,
+          summary: item.summary,
+          prompt: item.prompt,
+          at: item.at,
+          kind: item.kind,
+        })),
+      ]
+        .sort((left, right) => (Date.parse(right.at || "") || 0) - (Date.parse(left.at || "") || 0))
+        .slice(0, 8),
+    [selectedPageBuilderChangeActivity, selectedPageHtmlChangeActivity],
+  );
   const requestBackgroundVisualReview = useCallback(
     async (input: {
       funnelId: string;
@@ -7026,8 +8584,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     [bookingCalendars],
   );
   const bookingCalendarTitleById = useMemo(
-    () => Object.fromEntries(enabledBookingCalendars.map((calendar) => [calendar.id, calendar.title || calendar.id])),
-    [enabledBookingCalendars],
+    () => Object.fromEntries(bookingCalendars.map((calendar) => [calendar.id, calendar.title || calendar.id])),
+    [bookingCalendars],
+  );
+  const bookingCalendarEnabledById = useMemo(
+    () => Object.fromEntries(bookingCalendars.map((calendar) => [calendar.id, calendar.enabled !== false])),
+    [bookingCalendars],
   );
   const selectedPagePreviewBookingState = useMemo(() => {
     if (!selectedPage) return null;
@@ -7053,6 +8615,19 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     const sourceKind = funnel?.bookingCalendarId && funnel.bookingCalendarId === calendarId ? "funnel-default" : "page-specific";
     return { calendarId, title, sourceKind } as const;
   }, [bookingCalendarTitleById, funnel?.bookingCalendarId, selectedPage]);
+
+  const previewBookingSurfaceContext = useMemo<BookingSurfaceContext | null>(() => {
+    if (!selectedPage) return null;
+    return resolveFunnelBookingSurfaceContext({
+      posture: "editor-preview",
+      routeKind: selectedPagePreviewBookingState?.sourceKind === "page-specific" ? "page-specific" : selectedPagePreviewBookingState?.sourceKind === "funnel-default" ? "funnel-default" : "linked",
+      pageTitle: selectedPage.title,
+      calendarTitle: selectedPagePreviewBookingState?.title || null,
+      pageIntent: selectedPage.brief || null,
+      previewDevice,
+      isDraft: sourceEditMode && sourcePreviewActive,
+    });
+  }, [previewDevice, selectedPage, selectedPagePreviewBookingState, sourceEditMode, sourcePreviewActive]);
 
   const appendHtmlChangeActivity = useCallback((item: HtmlChangeActivityItem) => {
     setHtmlChangeActivity((prev) => [item, ...prev].slice(0, 24));
@@ -7286,6 +8861,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         const brandVoice = typeof p?.brandVoice === "string" ? p.brandVoice.trim() : "";
         const businessContext = typeof p?.businessContext === "string" ? p.businessContext.trim() : "";
         const primaryGoals = normalizeBusinessProfileGoals(p?.primaryGoals);
+        const nextTemplateVars = deriveBusinessProfileTemplateVars(p);
         const next = {
           primary: isHexColor(primary) ? primary : undefined,
           accent: isHexColor(accent) ? accent : undefined,
@@ -7293,6 +8869,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         };
         if (!cancelled) {
           setBrandPalette(next.primary || next.accent || next.text ? next : null);
+          setBusinessProfileTemplateVars(nextTemplateVars);
           setBusinessProfileSummary(
             businessName || industry || businessModel || targetCustomer || brandVoice || businessContext || primaryGoals.length
               ? {
@@ -7862,6 +9439,221 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (funnel?.bookingCalendarId) return "funnel";
     return "placeholder";
   }, [funnel?.bookingCalendarId, selectedCalendarBlockPinnedCalendarId]);
+  const selectedCommerceOffer = useMemo(() => {
+    if (!selectedBlock || (selectedBlock.type !== "salesCheckoutButton" && selectedBlock.type !== "addToCartButton")) {
+      return null;
+    }
+    return resolveFunnelOffer(availableFunnelOffers, (selectedBlock.props as any)?.offerId);
+  }, [availableFunnelOffers, selectedBlock]);
+  const selectedPricingBlock = useMemo(
+    () => (selectedBlock?.type === "pricingGrid" ? selectedBlock : null),
+    [selectedBlock],
+  );
+  const selectedPricingItems = useMemo<PricingGridItem[]>(
+    () => (selectedPricingBlock && Array.isArray(selectedPricingBlock.props.items) ? selectedPricingBlock.props.items : []),
+    [selectedPricingBlock],
+  );
+  const selectedPricingFeaturedIndex = useMemo(
+    () => selectedPricingItems.findIndex((item) => item.featured === true),
+    [selectedPricingItems],
+  );
+  const pagePreviewEditSelectionActive =
+    builderSurfaceMode === "blocks"
+    && pageLensStage === "page"
+    && pageCanvasView === "preview"
+    && previewMode === "edit";
+  const selectCanvasBlock = useCallback((blockId: string, itemIndex?: number | null) => {
+    const targetBlock = findBlockInTree(editableBlocks, blockId)?.block || null;
+    const pricingCardTarget = targetBlock?.type === "pricingGrid" && typeof itemIndex === "number";
+
+    setSelectedBlockId(blockId);
+
+    if (typeof itemIndex === "number") {
+      setFocusedPricingGridCard({ blockId, itemIndex });
+    } else if (targetBlock?.type !== "pricingGrid") {
+      setFocusedPricingGridCard(null);
+    }
+
+    if (pricingCardTarget) {
+      setPricingEditorOpen(true);
+      return;
+    }
+
+    if (targetBlock?.type !== "pricingGrid") {
+      setPricingEditorOpen(false);
+    }
+  }, [editableBlocks, findBlockInTree]);
+
+  useEffect(() => {
+    if (!selectedPricingBlock || !pagePreviewEditSelectionActive) {
+      setPricingEditorOpen(false);
+      return;
+    }
+  }, [pagePreviewEditSelectionActive, selectedPricingBlock]);
+
+  useEffect(() => {
+    setPricingEditorPrompt("");
+    setDraggedPricingGridCardIndex(null);
+    setPricingTierDropTargetIndex(null);
+    setPricingEditorComparisonNotes({ firstToSecond: "", secondToThird: "", hierarchy: "" });
+  }, [selectedPricingBlock?.id]);
+
+  const selectedEditTarget = useMemo<SelectedEditTarget | null>(() => {
+    if (!selectedBlock) return null;
+
+    if (selectedBlock.type === "headerNav") {
+      const logoUrl = String((selectedBlock.props as any)?.logoUrl || "").trim();
+      return {
+        label: "Header logo",
+        summary: logoUrl
+          ? "Selected header logo for brand asset changes."
+          : "Selected empty header logo slot for brand asset changes.",
+        contextLine: logoUrl ? "Current logo is set." : "No logo is set yet.",
+        blockType: "headerNav",
+        blockId: selectedBlock.id,
+        currentState: {
+          scope: "logo",
+          logoState: logoUrl ? "logo set" : "no logo set",
+        },
+      };
+    }
+
+    if (selectedBlock.type === "pricingGrid") {
+      const items = Array.isArray((selectedBlock.props as any)?.items) ? ((selectedBlock.props as any).items as PricingGridItem[]) : [];
+      const focusedCard = focusedPricingGridCard?.blockId === selectedBlock.id
+        ? items[focusedPricingGridCard.itemIndex] || null
+        : null;
+
+      if (focusedCard && focusedPricingGridCard) {
+        const cardName = String(focusedCard.name || `Card ${focusedPricingGridCard.itemIndex + 1}`).trim();
+        const featureList = Array.isArray(focusedCard.features)
+          ? focusedCard.features.map((feature) => String(feature || "").trim()).filter(Boolean)
+          : [];
+        const priceText = [String(focusedCard.price || "").trim(), String(focusedCard.billingPeriod || "").trim()].filter(Boolean).join(" ");
+        const ctaText = String(focusedCard.ctaText || focusedCard.ctaHref || "").trim();
+        const boundOffer = resolveFunnelOffer(availableFunnelOffers, focusedCard.offerId);
+        return {
+          label: `${cardName} pricing card`,
+          summary: `Selected pricing card ${focusedPricingGridCard.itemIndex + 1} with price ${priceText || "not set"}, CTA ${ctaText || "not set"}, offer ${boundOffer?.label || "not bound"}, and current bullets ${featureList.length ? featureList.join(" | ") : "none"}.`,
+          contextLine: [priceText || "Price not set", ctaText ? `CTA ${ctaText}` : "CTA not set", boundOffer ? `Offer ${boundOffer.label}` : "No offer bound", `${featureList.length} features`].join(" | "),
+          blockType: "pricingGrid",
+          blockId: selectedBlock.id,
+          itemIndex: focusedPricingGridCard.itemIndex,
+          currentState: {
+            scope: "pricing-card",
+            name: cardName,
+            price: String(focusedCard.price || "").trim() || undefined,
+            billingPeriod: String(focusedCard.billingPeriod || "").trim() || undefined,
+            description: String(focusedCard.description || "").trim() || undefined,
+            badge: String(focusedCard.badge || "").trim() || undefined,
+            ctaText: String(focusedCard.ctaText || "").trim() || undefined,
+            ctaHref: String(focusedCard.ctaHref || "").trim() || undefined,
+            priceId: boundOffer?.priceId || String(focusedCard.priceId || "").trim() || undefined,
+            offerId: boundOffer?.id || String(focusedCard.offerId || "").trim() || undefined,
+            offerLabel: boundOffer?.label || undefined,
+            features: featureList.slice(0, 6),
+            featureCount: featureList.length,
+          },
+        };
+      }
+
+      return {
+        label: "Pricing section",
+        summary: "Selected the pricing section. Narrow to one card if you want a single-package change.",
+        contextLine: `${items.length} pricing cards in this section.`,
+        blockType: "pricingGrid",
+        blockId: selectedBlock.id,
+        currentState: {
+          scope: "pricing-section",
+          cardCount: items.length,
+        },
+      };
+    }
+
+    if (selectedBlock.type === "calendarEmbed") {
+      const routeLabel = selectedCalendarBlockRouteKind === "block"
+        ? "step-specific"
+        : selectedCalendarBlockRouteKind === "funnel"
+          ? "funnel-linked"
+          : "unrouted";
+      return {
+        label: "Booking block",
+        summary: `Selected booking block with ${routeLabel} routing${selectedCalendarBlockResolvedCalendarTitle ? ` (${selectedCalendarBlockResolvedCalendarTitle})` : ""}.`,
+        contextLine: `${routeLabel} routing${selectedCalendarBlockResolvedCalendarTitle ? ` | ${selectedCalendarBlockResolvedCalendarTitle}` : ""}`,
+        blockType: "calendarEmbed",
+        blockId: selectedBlock.id,
+        currentState: {
+          scope: "booking",
+          routeKind: routeLabel,
+          calendarTitle: selectedCalendarBlockResolvedCalendarTitle || undefined,
+        },
+      };
+    }
+
+    if (selectedBlock.type === "button" || selectedBlock.type === "salesCheckoutButton" || selectedBlock.type === "addToCartButton") {
+      const ctaText = String(((selectedBlock.props as any)?.text || "")).trim() || "CTA";
+      const boundOffer =
+        selectedBlock.type === "salesCheckoutButton" || selectedBlock.type === "addToCartButton"
+          ? resolveFunnelOffer(availableFunnelOffers, (selectedBlock.props as any)?.offerId)
+          : null;
+      const priceId = String((selectedBlock.props as any)?.priceId || "").trim();
+      return {
+        label: `${ctaText} CTA`,
+        summary: `Selected CTA block with current label ${ctaText}${boundOffer ? ` and bound offer ${boundOffer.label}` : priceId ? ` and price ${priceId}` : ""}.`,
+        contextLine: boundOffer ? `Current label: ${ctaText} | Offer ${boundOffer.label}` : `Current label: ${ctaText}`,
+        blockType: selectedBlock.type,
+        blockId: selectedBlock.id,
+        currentState: {
+          scope: "cta",
+          text: ctaText,
+          priceId: boundOffer?.priceId || priceId || undefined,
+          offerId: boundOffer?.id || undefined,
+          offerLabel: boundOffer?.label || undefined,
+        },
+      };
+    }
+
+    if (selectedBlock.type === "image" || selectedBlock.type === "video") {
+      return {
+        label: selectedBlock.type === "image" ? "Media image" : "Media video",
+        summary: `Selected ${selectedBlock.type === "image" ? "image" : "video"} block for media-specific edits.`,
+        contextLine: selectedBlock.type === "image" ? "Selected for image replacement or framing edits." : "Selected for video replacement or framing edits.",
+        blockType: selectedBlock.type,
+        blockId: selectedBlock.id,
+        currentState: {
+          scope: "media",
+          mediaType: selectedBlock.type,
+        },
+      };
+    }
+
+    if (selectedBlock.type === "section") {
+      const anchorId = String((selectedBlock.props as any)?.anchorId || "").trim();
+      return {
+        label: anchorId ? `${anchorId} section` : "Section",
+        summary: `Selected section${anchorId ? ` anchored as ${anchorId}` : ""}.`,
+        contextLine: anchorId ? `Anchor ${anchorId}` : "Selected section scope.",
+        blockType: "section",
+        blockId: selectedBlock.id,
+        currentState: {
+          scope: "section",
+          anchorId: anchorId || undefined,
+        },
+      };
+    }
+
+    return {
+      label: selectedBlock.type,
+      summary: `Selected ${selectedBlock.type} block.`,
+      contextLine: `Selected ${selectedBlock.type} block.`,
+      blockType: selectedBlock.type,
+      blockId: selectedBlock.id,
+      currentState: {
+        scope: "block",
+      },
+    };
+  }, [availableFunnelOffers, focusedPricingGridCard, funnel?.bookingCalendarId, selectedBlock, selectedCalendarBlockResolvedCalendarTitle, selectedCalendarBlockRouteKind]);
+  const assistantSelectedEditTarget = pagePreviewEditSelectionActive ? selectedEditTarget : null;
 
   const openBookingRoutingDialog = useCallback(
     (blockId?: string | null) => {
@@ -7962,8 +9754,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   );
 
   const canonicalCustomCodeBlock = useMemo(() => {
-    if (selectedBlock && selectedBlock.type === "customCode") return selectedBlock;
-
     if (aiSidebarCustomCodeBlockId) {
       const sidebarBlock = pageCustomCodeBlocks.find((block) => block.id === aiSidebarCustomCodeBlockId) || null;
       if (sidebarBlock) return sidebarBlock;
@@ -7997,7 +9787,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
       const storedCustomCodeId = typeof parsed.aiSidebarCustomCodeBlockId === "string" ? parsed.aiSidebarCustomCodeBlockId : "";
       const storedSelectedBlockId = typeof parsed.selectedBlockId === "string" ? parsed.selectedBlockId : "";
-      const storedSidebarPanel = parsed.sidebarPanel === "page" || parsed.sidebarPanel === "settings" ? "settings" : "structure";
+      const storedSidebarPanel =
+        parsed.sidebarPanel === "activity" ||
+        parsed.sidebarPanel === "selection" ||
+        parsed.sidebarPanel === "settings"
+          ? parsed.sidebarPanel
+          : parsed.sidebarPanel === "page"
+            ? "settings"
+            : "structure";
 
       if (storedCustomCodeId && pageCustomCodeBlocks.some((block) => block.id === storedCustomCodeId)) {
         setAiSidebarCustomCodeBlockId(storedCustomCodeId);
@@ -8320,6 +10117,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (!pageChanged && !modeChanged && !becameOnlyCodeIsland) return;
 
     const shouldOpenSource = nextState.sourceMode === "custom-html" || nextState.onlyCodeIsland;
+    const nextBuilderSurfaceMode = "whole-page";
     const shouldOpenPreview = Boolean(
       shouldOpenSource &&
         nextState.pageId &&
@@ -8327,9 +10125,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         nextState.sourceMode === "custom-html" &&
         !nextState.onlyCodeIsland,
     );
-    setBuilderSurfaceMode(shouldOpenSource ? "whole-page" : "blocks");
+    setPreviewMode("preview");
+    setBuilderSurfaceMode(nextBuilderSurfaceMode);
     setPageLensStage("page");
-    setPageCanvasView("preview");
+    setPageCanvasView(shouldOpenPreview ? "preview" : nextBuilderSurfaceMode === "whole-page" ? pageCanvasView : "preview");
+    if (pageChanged || modeChanged) {
+      setFocusedPricingGridCard(null);
+      setHoveredBlockId(null);
+    }
     setSelectedHtmlRegionKey(null);
     setWholePageSyncNotice(null);
     setSidebarPanel("structure");
@@ -8337,7 +10140,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       pendingBlankPagePreviewRef.current = null;
       setBriefPanelOpen(false);
     }
-  }, [pageAnatomy.onlyCodeIsland, selectedPageEditorMode, selectedPageGraph.sourceMode, selectedPageId]);
+  }, [builderSurfaceMode, pageAnatomy.onlyCodeIsland, pageCanvasView, selectedPageEditorMode, selectedPageGraph.sourceMode, selectedPageId]);
 
   const selectedBlockContainer = useMemo(
     () => (selectedBlockId ? findContainerForBlock(editableBlocks, selectedBlockId) : null),
@@ -8480,7 +10283,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         key: "shell",
         eyebrow: "Step 4",
         title: "Confirm the shell",
-        description: "Make sure the draft lands with the right structure, then generate from here.",
+        description: "Make sure the draft lands with the right page canvas, then generate from here.",
       },
     ],
     [],
@@ -8517,9 +10320,77 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       pageAnatomy.totalBlocks,
     ],
   );
+  const pageTransactionReadiness = useMemo(
+    () => buildTransactionReadiness({
+      blocks: editableBlocks,
+      currentHtml: getFunnelPageCurrentHtml(selectedPage),
+      pageType: pageIntentProfile.pageType,
+      funnelBookingCalendarId: funnel?.bookingCalendarId ?? null,
+      bookingCalendarTitleById,
+      stripeProductsCount: stripeProducts.filter((product) => product.defaultPrice?.id).length,
+    }),
+    [bookingCalendarTitleById, editableBlocks, funnel?.bookingCalendarId, pageIntentProfile.pageType, selectedPage, stripeProducts],
+  );
+  const previewShowsImplicitBookingCalendar = useMemo(() => {
+    const bookingItem = pageTransactionReadiness.items.find((item) => item.key === "booking");
+    return Boolean(
+      selectedPage &&
+      selectedPage.editorMode === "BLOCKS" &&
+      pageIntentProfile.pageType === "booking" &&
+      funnel?.bookingCalendarId &&
+      bookingItem?.status === "configured" &&
+      !pageHasCalendarBlock,
+    );
+  }, [funnel?.bookingCalendarId, pageHasCalendarBlock, pageIntentProfile.pageType, pageTransactionReadiness.items, selectedPage]);
+  const previewRenderableBlocks = useMemo<CreditFunnelBlock[]>(() => {
+    const baseBlocks = pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks;
+    if (!previewShowsImplicitBookingCalendar) return baseBlocks;
+
+    return [
+      ...baseBlocks,
+      {
+        id: "preview-implicit-booking-calendar",
+        type: "calendarEmbed",
+        props: {
+          calendarId: "",
+          height: 760,
+          style: { marginTopPx: 24 },
+        },
+      },
+    ];
+  }, [editableBlocks, pageSettingsBlock, previewShowsImplicitBookingCalendar]);
+  const previewHasRenderableBlocks = useMemo(
+    () => previewRenderableBlocks.some((block) => block.type !== "page"),
+    [previewRenderableBlocks],
+  );
+  const aiSurfaceLabel = useMemo(() => {
+    if (selectedPage?.editorMode === "BLOCKS") {
+      if (builderSurfaceMode === "whole-page") return pageCanvasView === "source" ? "page source" : "page surface";
+      return "page edit surface";
+    }
+    return pageCanvasView === "source" ? "page source" : "page surface";
+  }, [builderSurfaceMode, pageCanvasView, selectedPage?.editorMode]);
+  const aiScopeSummary = useMemo(() => {
+    if (!selectedPage) return "Pura is idle until you select a page.";
+    if (selectedPage.editorMode === "BLOCKS" && builderSurfaceMode === "blocks") {
+      if (selectedBlock) return `Pura is using the current page plus the selected ${describeBuilderBlockNoun(selectedBlock)}.`;
+      return "Pura is using the current page surface and its live section tree.";
+    }
+    return "Pura is using the current page draft source for this page only.";
+  }, [builderSurfaceMode, selectedBlock, selectedPage]);
+  const aiScopeDetails = useMemo(
+    () => [
+      `Surface: ${aiSurfaceLabel}`,
+      `Page route: ${selectedPageRouteLabel}`,
+      pageTransactionReadiness.transactionReady ? "Transaction path: booking or payment is already wired" : "Transaction path: booking/payment still needs wiring",
+      aiReferenceCount ? `Attached references: ${aiReferenceCount}` : "Attached references: none",
+    ],
+    [aiReferenceCount, aiSurfaceLabel, pageTransactionReadiness.transactionReady, selectedPageRouteLabel],
+  );
 
   const storedPageSourceHtml = useMemo(() => getFunnelPageCurrentHtml(selectedPage), [selectedPage]);
   const currentPagePublishedHtml = useMemo(() => getFunnelPagePublishedHtml(selectedPage), [selectedPage]);
+  const currentPageDraftIsNewerThanLive = useMemo(() => isFunnelPageDraftNewerThanLive(selectedPage), [selectedPage]);
   const generatedBlockWholePageHtml = useMemo(() => {
     if (!selectedPage || !selectedPageSupportsBlocksSurface) return "";
     const nextHtml = buildWholePageDraftHtml(selectedPage, saveableBlocks);
@@ -8540,11 +10411,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const wholePageModeActive = Boolean(
     selectedPage && !blocksSurfaceActive && (selectedPageGraph.sourceMode === "custom-html" || builderSurfaceMode === "whole-page"),
   );
+  const blockPreviewUsesSharedCanvas = Boolean(selectedPageSupportsBlocksSurface && pageCanvasView === "preview");
+  const pageSurfaceActive = Boolean(pageLensStage === "page" && (blocksSurfaceActive || (pageCanvasView === "preview" && wholePageModeActive)));
   const wholePageSourceEditable = Boolean(selectedPage && selectedPageGraph.capabilities.supportsWholePageSource && !blocksSurfaceActive);
-  const wholePageSourceCanStartEditing = Boolean(selectedPage && !blocksSurfaceActive && selectedPageGraph.sourceMode !== "markdown");
-  const wholePageSourceRequiresModeSwitch = Boolean(wholePageSourceCanStartEditing && !wholePageSourceEditable);
-  const pendingSourceEditActivationRef = useRef(false);
-  const pendingSourceSelectAllRef = useRef(false);
+  const wholePageSourceCanStartEditing = Boolean(selectedPage && wholePageSourceEditable);
+  const wholePageSourceReadOnlySnapshot = Boolean(selectedPage && !blocksSurfaceActive && selectedPageGraph.sourceMode === "managed");
 
   useEffect(() => {
     if (!briefPanelOpen || !blankPageOnboardingActive) {
@@ -8612,9 +10483,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   }, [blankPageOnboardingActive]);
 
   const saveStatusLabel = (() => {
+    const hasStagedSourceChanges = sourceEditMode && sourceEditDraft !== sourceEditBaseline;
     if (!selectedPage) return null;
-    if (selectedPageDirty) return wholePageSourceEditable ? "Unsaved draft" : "Unsaved";
-    return formatSavedAtLabel((selectedPage as any).updatedAt) || (wholePageSourceEditable ? "Draft saved" : "Saved");
+    if (hasStagedSourceChanges) return sourcePreviewActive ? "Previewing staged draft" : "Staged source changes";
+    if (selectedPageDirty) return wholePageSourceEditable ? "Unsaved changes" : "Unsaved changes";
+    const savedLabel = formatSavedAtLabel((selectedPage as any).updatedAt);
+    if (!savedLabel) return wholePageSourceEditable ? "Draft saved" : "Live updated";
+    return wholePageSourceEditable
+      ? savedLabel.replace(/^Saved/, "Draft saved")
+      : savedLabel.replace(/^Saved/, "Live updated");
   })();
   const committedPageSourceHtml = useMemo(() => {
     if (!selectedPage) return "";
@@ -8632,10 +10509,37 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   );
   const currentPageSourceHtml = sourceEditMode ? sourceEditDraft : formattedCommittedPageSourceHtml;
   const previewPageSourceHtml = sourceEditMode && sourcePreviewActive ? sourceEditDraft : normalizedCommittedPageSourceHtml;
+  const previewResolvedPageSourceHtml = useMemo(
+    () => renderTextTemplate(previewPageSourceHtml, businessProfileTemplateVars),
+    [businessProfileTemplateVars, previewPageSourceHtml],
+  );
+  const previewHeaderBlock = useMemo(
+    () => editableBlocks.find((block) => block.type === "headerNav") || null,
+    [editableBlocks],
+  );
   const sourceHasPendingChanges = sourceEditMode && sourceEditDraft !== sourceEditBaseline;
   const wholePageUsesLiveDraftSource = Boolean(!wholePageSourceEditable && generatedBlockWholePageHtml);
   const wholePageNeedsSaveForDeployableSource = !wholePageSourceEditable && selectedPageDirty && !generatedBlockWholePageHtml;
-  const editorPreviewHtml = useMemo(() => buildEditorPreviewHtml(previewPageSourceHtml), [previewPageSourceHtml]);
+  const previewHtmlWithImplicitBooking = useMemo(() => {
+    const htmlWithBooking =
+      selectedPage && funnel?.bookingCalendarId && bookingSiteSlug && hasBookingSectionHeadingInHtml(previewResolvedPageSourceHtml)
+        ? injectImplicitBookingPreviewHtml({
+            html: previewResolvedPageSourceHtml,
+            bookingSiteSlug,
+            calendarId: funnel.bookingCalendarId,
+            calendarTitle: bookingCalendarTitleById[funnel.bookingCalendarId] || funnel.bookingCalendarId,
+            funnelId: funnel.id,
+            pageId: selectedPage.id,
+            surfaceContext: previewBookingSurfaceContext,
+          })
+        : previewResolvedPageSourceHtml;
+
+    const previewHeaderLogoHref = String((previewHeaderBlock?.props as any)?.logoHref || "").trim();
+    if (!previewHeaderBlock || previewHeaderLogoHref) return htmlWithBooking;
+
+    return neutralizePreviewHeaderLogoLink(htmlWithBooking);
+  }, [bookingCalendarTitleById, bookingSiteSlug, funnel?.bookingCalendarId, funnel?.id, previewBookingSurfaceContext, previewHeaderBlock, previewResolvedPageSourceHtml, selectedPage]);
+  const editorPreviewHtml = useMemo(() => buildEditorPreviewHtml(previewHtmlWithImplicitBooking), [previewHtmlWithImplicitBooking]);
   const wholePageStatusMessage = useMemo(() => {
     if (!wholePageModeActive) return wholePageSyncNotice;
     if (!selectedPage || !selectedPageSupportsBlocksSurface) return wholePageSyncNotice;
@@ -8646,9 +10550,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       return "Source is showing the last saved snapshot. Save the page to refresh the source snapshot.";
     }
     if (!generatedBlockWholePageHtml) {
-      return "Source reflects the latest saved structure.";
+      return "Source reflects the latest saved canvas snapshot.";
     }
-    return wholePageSyncNotice || "Source stays on the same draft you are editing in structure.";
+    return wholePageSyncNotice || "Source stays on the same draft you are editing in Canvas.";
   }, [
     currentPageSourceHtml,
     generatedBlockWholePageHtml,
@@ -8663,20 +10567,27 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (!selectedPage || !wholePageModeActive) return null;
 
     if (wholePageSourceEditable) {
-      return selectedPageDirty ? "Unsaved draft" : formatSavedAtLabel((selectedPage as any).updatedAt) || "Draft saved";
+      if (selectedPageDirty) return "Unsaved changes";
+      if (currentPageDraftIsNewerThanLive) return "Draft newer than live";
+      return "Live matches draft";
     }
 
-    if (wholePageUsesLiveDraftSource) return "Follows current draft";
+    if (wholePageUsesLiveDraftSource) return "Current draft";
     if (wholePageNeedsSaveForDeployableSource) return "Save page to refresh snapshot";
-    return formatSavedAtLabel((selectedPage as any).updatedAt) || "Source current";
-  }, [selectedPage, wholePageModeActive, wholePageNeedsSaveForDeployableSource, wholePageSourceEditable, wholePageUsesLiveDraftSource, selectedPageDirty]);
+    return formatSavedAtLabel((selectedPage as any).updatedAt) || "Saved snapshot";
+  }, [currentPageDraftIsNewerThanLive, selectedPage, wholePageModeActive, wholePageNeedsSaveForDeployableSource, wholePageSourceEditable, wholePageUsesLiveDraftSource, selectedPageDirty]);
 
   const sourcePaneMeta = useMemo(() => {
     if (!sourceEditMode) return wholePageSyncMeta;
-    if (sourcePreviewActive && sourceHasPendingChanges) return "Previewing staged changes";
-    if (sourceHasPendingChanges) return "Changes not yet applied";
-    return "Editing staged source";
+    if (sourcePreviewActive && sourceHasPendingChanges) return "Previewing staged draft";
+    if (sourceHasPendingChanges) return "Unsaved source changes";
+    return "Editing draft HTML";
   }, [sourceEditMode, sourceHasPendingChanges, sourcePreviewActive, wholePageSyncMeta]);
+  const sourceStageStateLabel = useMemo(() => {
+    if (sourceEditMode && (sourcePreviewActive || sourceHasPendingChanges)) return "Staged source";
+    if (sourceEditMode) return "Editing draft HTML";
+    return "Read-only source";
+  }, [sourceEditMode, sourceHasPendingChanges, sourcePreviewActive]);
 
   useEffect(() => {
     setWholePageSyncNotice(null);
@@ -8690,13 +10601,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setSourceSelectAllSignal(0);
   }, [selectedPage?.id, wholePageSourceEditable]);
 
-  useEffect(() => {
-    pendingSourceEditActivationRef.current = false;
-    pendingSourceSelectAllRef.current = false;
-  }, [selectedPage?.id]);
-
-
-
   const htmlRegionScopes = useMemo(
     () => (currentPageSourceHtml ? detectHtmlRegionScopes(currentPageSourceHtml) : []),
     [currentPageSourceHtml],
@@ -8705,7 +10609,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     () => htmlRegionScopes.find((region) => region.key === selectedHtmlRegionKey) || null,
     [htmlRegionScopes, selectedHtmlRegionKey],
   );
-  const sourceScopeLabel = wholePageSourceEditable ? "Current draft source" : "Generated source";
   const pageStyle = (pageSettingsBlock as any)?.props?.style as BlockStyle | undefined;
   const pageCanvasFontPresetKey = fontPresetKeyFromStyle({
     fontFamily: (pageStyle as any)?.fontFamily,
@@ -8728,7 +10631,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       if (!blocks || blocks.length === 0) return false;
       for (const b of blocks) {
         if (!b) continue;
-        if (b.type === "salesCheckoutButton" || b.type === "addToCartButton") return true;
+        if (b.type === "salesCheckoutButton" || b.type === "addToCartButton" || b.type === "pricingGrid") return true;
         if (b.type === "section") {
           const props: any = b.props;
           const keys = ["children", "leftChildren", "rightChildren"] as const;
@@ -8756,7 +10659,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   useEffect(() => {
     if (stripeProductsAutoLoadAttemptedRef.current) return;
     const selectedNeedsStripeProducts =
-      selectedBlock?.type === "salesCheckoutButton" || selectedBlock?.type === "addToCartButton";
+      selectedBlock?.type === "salesCheckoutButton" || selectedBlock?.type === "addToCartButton" || selectedBlock?.type === "pricingGrid";
     if (!pageHasStripeProductButtons && !selectedNeedsStripeProducts) return;
     if (stripeProductsBusy) return;
     if (stripeProducts.length > 0) {
@@ -8883,7 +10786,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     for (const page of cachedDraft?.dirtyPages || []) preservedPageDrafts.set(page.id, clonePageDraftForCache(page));
     for (const page of liveDirtyPages) preservedPageDrafts.set(page.id, clonePageDraftForCache(page));
 
-    const serverPages = Array.isArray(pJson.pages) ? (pJson.pages as Page[]) : [];
+    const serverPages = Array.isArray(pJson.pages)
+      ? (pJson.pages as Page[]).map((page) => ({
+          ...page,
+          customChatJson: normalizeFunnelThreadMessages(page.customChatJson),
+        }))
+      : [];
     const nextPages = serverPages.map((page) => {
       const draft = preservedPageDrafts.get(page.id);
       return draft ? ({ ...page, ...draft } as Page) : page;
@@ -8910,7 +10818,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setFunnel(preferredFunnelBrief ? ({ ...baseFunnel, brief: preferredFunnelBrief } as Funnel) : baseFunnel);
     setFunnelBriefDirty(Boolean(funnelBriefDirtyRef.current || cachedDraft?.funnelBriefDirty));
     setPages(nextPages);
-    setThreads(Array.isArray(tJson.threads) ? (tJson.threads as FunnelThread[]) : []);
+    setThreads(
+      Array.isArray(tJson.threads)
+        ? (tJson.threads as FunnelThread[])
+            .map((thread) => normalizeFunnelThreadRecord(thread, funnelId))
+            .filter((thread): thread is FunnelThread => thread !== null)
+        : [],
+    );
     setThreadsLoaded(true);
     setDirtyPageIds(nextDirtyPageIds);
     const preferredFromUrl = (() => {
@@ -8921,8 +10835,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     })();
     setSelectedPageId((prev) => {
       const current = prev && nextPages.some((p) => p.id === prev) ? prev : null;
-      const cachedSelected = cachedDraft?.selectedPageId && nextPages.some((p) => p.id === cachedDraft.selectedPageId) ? cachedDraft.selectedPageId : null;
-      const nextSelected = current || cachedSelected || preferredFromUrl || nextPages[0]?.id || null;
+      const nextSelected = current || preferredFromUrl || nextPages[0]?.id || null;
       if (nextSelected) initialPageSelectionConsumedRef.current = true;
       return nextSelected;
     });
@@ -9092,6 +11005,66 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     }
   }, [funnel, funnelId]);
 
+  const saveFunnelOffers = useCallback(async (nextOffersRaw: FunnelOffer[]) => {
+    if (!funnel) return null;
+    const nextOffers = normalizeFunnelOffers(nextOffersRaw);
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ offers: nextOffers }),
+      });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error(json?.error || "Failed to save funnel offers");
+      }
+      setFunnel(json.funnel as Funnel);
+      return normalizeFunnelOffers((json?.funnel as Funnel | null)?.offers ?? nextOffers);
+    } catch (e) {
+      const message = (e as any)?.message ? String((e as any).message) : "Failed to save funnel offers";
+      setError(message);
+      toast.error(message);
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }, [funnel, funnelId, toast]);
+
+  const ensureFunnelOfferFromProduct = useCallback(async (product: StripeProductLite | null) => {
+    if (!product?.defaultPrice?.id) {
+      toast.error("Choose a Stripe product with a default price first");
+      return null;
+    }
+
+    const existing = availableFunnelOffers.find((offer) => offer.priceId === product.defaultPrice?.id) ?? null;
+    if (existing) {
+      return existing;
+    }
+
+    const label = String(newOfferLabel || product.name || "").trim().slice(0, 120);
+    if (!label) {
+      toast.error("Enter an offer label first");
+      return null;
+    }
+
+    const draft = buildOfferFromStripeProduct(product, { id: `offer_${newId()}`, label });
+    if (!draft) {
+      toast.error("Unable to build an offer from that Stripe product");
+      return null;
+    }
+
+    const savedOffers = await saveFunnelOffers([...availableFunnelOffers, draft]);
+    if (!savedOffers) return null;
+
+    const savedOffer = resolveFunnelOffer(savedOffers, draft.id) ?? draft;
+    setNewOfferLabel("");
+    setNewOfferProductId(product.id);
+    toast.success("Offer created");
+    return savedOffer;
+  }, [availableFunnelOffers, buildOfferFromStripeProduct, newId, newOfferLabel, saveFunnelOffers, toast]);
+
   useEffect(() => {
     let cancelled = false;
     if (funnel !== null && pages !== null && threadsLoaded) return;
@@ -9106,10 +11079,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   }, [funnel, load, pages, threadsLoaded]);
 
   const upsertThreadLocal = useCallback((thread: FunnelThread) => {
+    const normalizedThread = normalizeFunnelThreadRecord(thread, funnelId);
+    if (!normalizedThread) return;
+
     setThreads((prev) => {
-      const next = prev.some((item) => item.id === thread.id)
-        ? prev.map((item) => (item.id === thread.id ? thread : item))
-        : [thread, ...prev];
+      const next = prev.some((item) => item.id === normalizedThread.id)
+        ? prev.map((item) => (item.id === normalizedThread.id ? normalizedThread : item))
+        : [normalizedThread, ...prev];
       next.sort((left, right) => {
         const leftAt = Date.parse(left.lastMessageAt || left.updatedAt || left.createdAt || "") || 0;
         const rightAt = Date.parse(right.lastMessageAt || right.updatedAt || right.createdAt || "") || 0;
@@ -9117,7 +11093,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       });
       return next;
     });
-  }, []);
+  }, [funnelId]);
 
   const saveThread = useCallback(
     async (
@@ -9176,6 +11152,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       }
       const nextThread = json.thread as FunnelThread;
       upsertThreadLocal(nextThread);
+      setDraftThreadPageId(null);
       setSelectedThreadId(nextThread.id);
       return nextThread;
     },
@@ -9364,21 +11341,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   }, [pages, savePage, selectedPage, setSelectedPageLocal, setupPageSlugDraft, toast]);
 
   const createAlternateThread = useCallback(async () => {
-    const pageTitle = String(selectedPage?.title || "").trim();
-    const nextThread = await createThread({
-      pageId: selectedPage?.id || null,
-      kind: "alternate",
-      title: buildDefaultFunnelThreadTitle({ kind: "alternate", pageTitle }),
-      cloneFromThreadId: selectedThread?.id || null,
-      messagesJson: selectedThreadMessages,
-      contextJson: {
-        ...(selectedPage?.id ? { pageId: selectedPage.id } : {}),
-        ...(pageTitle ? { pageTitle } : {}),
-      },
-    });
+    if (!selectedPage?.id) return null;
+    setThreadSelectionMode("auto");
+    setDraftThreadPageId(selectedPage.id);
+    setSelectedThreadId(null);
+    setChatInput("");
+    setPendingSourceActionPlan(null);
     setChatRailMode("chat");
-    return nextThread;
-  }, [createThread, selectedPage?.id, selectedPage?.title, selectedThread?.id, selectedThreadMessages]);
+    return null;
+  }, [selectedPage?.id]);
 
   const updatePageIntentProfile = useCallback(
     (patch: Partial<FunnelPageIntentProfile>, persist = false) => {
@@ -9662,6 +11633,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       heroAssetMode: seededIntent.mediaPlan.heroAssetMode,
       audience: funnel?.brief?.audienceSummary || "",
       offer: funnel?.brief?.offerSummary || "",
+      selectedOfferId: "",
     });
   };
 
@@ -9673,6 +11645,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     heroAssetMode,
     audience,
     offer,
+    selectedOfferId,
   }: {
     slug: string;
     title: string;
@@ -9681,6 +11654,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     heroAssetMode: FunnelPageMediaMode;
     audience: string;
     offer: string;
+    selectedOfferId: string;
   }) => {
     const requestedSlug = slug.trim();
     const normalizedSlug = requestedSlug ? normalizeSlug(requestedSlug) : "";
@@ -9701,6 +11675,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     const trimmedPrimaryCta = primaryCta.trim();
     const trimmedAudience = audience.trim();
     const trimmedOffer = offer.trim();
+    const selectedOffer = resolveFunnelOffer(availableFunnelOffers, selectedOfferId);
+    const initialManagedBlocks = buildInitialManagedBlocks({
+      pageType,
+      title: trimmedTitle,
+      audience: trimmedAudience,
+      offer: trimmedOffer,
+      primaryCta: trimmedPrimaryCta,
+      selectedOffer,
+    });
     setBusy(true);
     setError(null);
     setDialogError(null);
@@ -9729,7 +11712,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           {
             method: "PATCH",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ editorMode: "BLOCKS", blocksJson: [] }),
+            body: JSON.stringify({ editorMode: "BLOCKS", blocksJson: initialManagedBlocks, customHtml: "" }),
           },
         ).catch(() => null);
       }
@@ -9737,6 +11720,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       await load();
       setSelectedPageId(createdId || null);
       setSelectedBlockId(null);
+      setThreadSelectionMode("auto");
+      setSelectedThreadId(null);
+      setDraftThreadPageId(createdId || null);
       closeDialog();
     } catch (e) {
       const message = (e as any)?.message ? String((e as any).message) : "Failed to create page";
@@ -9902,7 +11888,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           const message = (e as any)?.message ? String((e as any).message) : "Failed to sync whole-page source";
           setWholePageSyncNotice(
             message === "Not found"
-              ? "Whole-page source could not be refreshed from this page yet. The builder canvas is still available, and you can retry whole-page mode after saving."
+              ? "Whole-page source could not be refreshed from this page yet. The page canvas is still available, and you can retry whole-page mode after saving."
               : `Whole-page source sync failed: ${message}`,
           );
         }
@@ -9959,6 +11945,27 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setPreviewMode("edit");
   };
 
+  const openPageViewMode = () => {
+    setPreviewMode("preview");
+    setBuilderMode("whole-page");
+    setPageLensStage("page");
+    setPageCanvasView("preview");
+    setSelectedBlockId(null);
+    setFocusedPricingGridCard(null);
+    setPricingEditorOpen(false);
+  };
+
+  const openPageEditMode = () => {
+    if (!selectedPageSupportsBlocksSurface) return;
+    setPreviewMode("edit");
+    setBuilderMode("blocks");
+    setPageLensStage("page");
+    setPageCanvasView("preview");
+    setSelectedBlockId(null);
+    setFocusedPricingGridCard(null);
+    setPricingEditorOpen(false);
+  };
+
   const applyGlobalHeader = async (headerBlock: CreditFunnelBlock) => {
     setBusy(true);
     setError(null);
@@ -10009,7 +12016,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     }
   };
 
-  const requestPageSelection = (nextPageId: string | null) => {
+  function requestPageSelection(nextPageId: string | null, options?: { nextThreadId?: string | null }) {
     const decision = getFunnelEditorPageSelectionDecision({
       busy,
       savingPage,
@@ -10017,23 +12024,59 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       selectedPageId,
       selectedPage,
       selectedPageDirty,
+      sourceHasPendingChanges,
     });
 
     if (decision.kind === "ignore") return;
     if (decision.kind === "confirm-leave") {
       setDialogError(null);
-      setDialog({ type: "leave-page", nextPageId: decision.nextPageId });
+      setDialog({ type: "leave-page", nextPageId: decision.nextPageId, nextThreadId: options?.nextThreadId ?? null });
       return;
     }
 
     setSelectedPageId(decision.nextPageId);
     setSelectedBlockId(null);
-  };
+    if (options?.nextThreadId !== undefined) {
+      setThreadSelectionMode("manual");
+      setDraftThreadPageId(null);
+      setSelectedThreadId(options.nextThreadId || null);
+      return;
+    }
+
+    const pageThread = decision.nextPageId ? threads.find((thread) => thread.pageId === decision.nextPageId) || null : null;
+    setThreadSelectionMode("auto");
+    setSelectedThreadId(pageThread?.id || null);
+    setDraftThreadPageId(decision.nextPageId && !pageThread ? decision.nextPageId : null);
+  }
+
+  const executeEditorBackNavigation = useCallback(() => {
+    if (typeof window !== "undefined") {
+      const referrer = String(document.referrer || "").trim();
+      const sameOriginReferrer = referrer.startsWith(window.location.origin);
+      const safeBuilderReferrer = sameOriginReferrer && /\/portal\/app\/services\/funnel-builder(?:\/|$)/.test(referrer);
+      if (safeBuilderReferrer && window.history.length > 1) {
+        router.back();
+        return;
+      }
+    }
+    router.push(`${basePath}/app/services/funnel-builder`, { scroll: false });
+  }, [basePath, router]);
+
+  const requestEditorExit = useCallback(() => {
+    if (busy || savingPage) return;
+    if (selectedPage?.id && (selectedPageDirty || sourceHasPendingChanges)) {
+      setDialogError(null);
+      setDialog({ type: "leave-editor" });
+      return;
+    }
+    executeEditorBackNavigation();
+  }, [busy, executeEditorBackNavigation, savingPage, selectedPage?.id, selectedPageDirty, sourceHasPendingChanges]);
 
   const continuePageSelection = async (mode: "save" | "discard") => {
     if (dialog?.type !== "leave-page") return;
 
     const nextPageId = dialog.nextPageId;
+    const nextThreadId = dialog.nextThreadId;
     closeDialog();
 
     if (mode === "save") {
@@ -10045,6 +12088,31 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
     setSelectedPageId(nextPageId);
     setSelectedBlockId(null);
+    if (nextThreadId !== undefined) {
+      setThreadSelectionMode("manual");
+      setDraftThreadPageId(null);
+      setSelectedThreadId(nextThreadId || null);
+      return;
+    }
+
+    const pageThread = nextPageId ? threads.find((thread) => thread.pageId === nextPageId) || null : null;
+    setThreadSelectionMode("auto");
+    setSelectedThreadId(pageThread?.id || null);
+    setDraftThreadPageId(nextPageId && !pageThread ? nextPageId : null);
+  };
+
+  const continueEditorExit = async (mode: "save" | "discard") => {
+    if (dialog?.type !== "leave-editor") return;
+
+    closeDialog();
+    if (mode === "save") {
+      const saved = await saveCurrentPage();
+      if (!saved) return;
+    } else {
+      await load();
+    }
+
+    executeEditorBackNavigation();
   };
 
   const upsertBlock = (block: CreditFunnelBlock) => {
@@ -10440,6 +12508,65 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     });
   };
 
+  const updateSelectedPricingGridItemFeatures = (itemIndex: number, rawValue: string) => {
+    const nextFeatures = String(rawValue || "")
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 8);
+
+    updateSelectedPricingGridItem(itemIndex, {
+      features: nextFeatures.length ? nextFeatures : undefined,
+    });
+  };
+
+  const bindSelectedPricingGridItemOffer = (itemIndex: number, offerIdRaw: string) => {
+    if (!selectedBlock || selectedBlock.type !== "pricingGrid") return;
+    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
+    const item = items[itemIndex];
+    if (!item) return;
+    const offer = resolveFunnelOffer(availableFunnelOffers, offerIdRaw);
+    const nextOfferId = offer?.id || undefined;
+    const currentName = String(item.name || "").trim();
+    const currentPrice = String(item.price || "").trim();
+    const currentDescription = String(item.description || "").trim();
+    const currentBillingPeriod = String(item.billingPeriod || "").trim();
+    const currentCtaText = String(item.ctaText || "").trim();
+
+    updateSelectedPricingGridItem(itemIndex, {
+      offerId: nextOfferId,
+      priceId: offer?.priceId || item.priceId || "",
+      ctaMode: offer?.priceId ? "checkout" : item.ctaMode,
+      name: !currentName || currentName === "New plan" ? offer?.label || item.name : item.name,
+      price: !currentPrice || /custom quote/i.test(currentPrice) ? offer?.displayPrice || item.price : item.price,
+      billingPeriod: !currentBillingPeriod ? offer?.billingPeriod || item.billingPeriod : item.billingPeriod,
+      description:
+        !currentDescription || currentDescription === "Describe who this plan is for and what it includes."
+          ? offer?.productDescription || item.description
+          : item.description,
+      ctaText: !currentCtaText && offer?.priceId ? "Buy now" : item.ctaText,
+      ctaHref: offer?.priceId ? undefined : item.ctaHref,
+    });
+  };
+
+  const bindSelectedCommerceButtonOffer = (offerIdRaw: string) => {
+    if (!selectedBlock || (selectedBlock.type !== "salesCheckoutButton" && selectedBlock.type !== "addToCartButton")) return;
+    const offer = resolveFunnelOffer(availableFunnelOffers, offerIdRaw);
+    const nextOfferId = offer?.id || undefined;
+    const currentProductName = String((selectedBlock.props as any)?.productName || "").trim();
+    const currentProductDescription = String((selectedBlock.props as any)?.productDescription || "").trim();
+    upsertBlock({
+      ...selectedBlock,
+      props: {
+        ...selectedBlock.props,
+        offerId: nextOfferId,
+        priceId: offer?.priceId || String((selectedBlock.props as any)?.priceId || "").trim(),
+        productName: currentProductName || offer?.productName || undefined,
+        productDescription: currentProductDescription || offer?.productDescription || undefined,
+      },
+    });
+  };
+
   const addSelectedPricingGridItem = () => {
     if (!selectedBlock || selectedBlock.type !== "pricingGrid") return;
     const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
@@ -10471,6 +12598,61 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       props: {
         ...selectedBlock.props,
         items: items.filter((_, index) => index !== itemIndex),
+      },
+    });
+  };
+
+  const remapPricingGridCardIndex = (currentIndex: number, fromIndex: number, toIndex: number) => {
+    if (currentIndex === fromIndex) return toIndex;
+    if (fromIndex < toIndex && currentIndex > fromIndex && currentIndex <= toIndex) return currentIndex - 1;
+    if (toIndex < fromIndex && currentIndex >= toIndex && currentIndex < fromIndex) return currentIndex + 1;
+    return currentIndex;
+  };
+
+  const reorderSelectedPricingGridItem = (fromIndex: number, toIndex: number) => {
+    if (!selectedBlock || selectedBlock.type !== "pricingGrid") return;
+    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
+    if (
+      fromIndex < 0
+      || toIndex < 0
+      || fromIndex >= items.length
+      || toIndex >= items.length
+      || fromIndex === toIndex
+    ) return;
+
+    const nextItems = [...items];
+    const [movedItem] = nextItems.splice(fromIndex, 1);
+    if (!movedItem) return;
+    nextItems.splice(toIndex, 0, movedItem);
+
+    upsertBlock({
+      ...selectedBlock,
+      props: {
+        ...selectedBlock.props,
+        items: nextItems,
+      },
+    });
+
+    setFocusedPricingGridCard((prev) => {
+      if (!prev || prev.blockId !== selectedBlock.id) return prev;
+      return {
+        ...prev,
+        itemIndex: remapPricingGridCardIndex(prev.itemIndex, fromIndex, toIndex),
+      };
+    });
+  };
+
+  const setSelectedPricingGridFeaturedItem = (itemIndex: number | null) => {
+    if (!selectedBlock || selectedBlock.type !== "pricingGrid") return;
+    const items = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
+    upsertBlock({
+      ...selectedBlock,
+      props: {
+        ...selectedBlock.props,
+        items: items.map((item, index) => ({
+          ...item,
+          featured: itemIndex !== null && index === itemIndex,
+        })),
       },
     });
   };
@@ -11003,7 +13185,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setError(null);
     setChatInput("");
     try {
-      if (aiUsesManagedStructure && !shouldUseWholePageForFirstDraft && !canonicalCustomCodeBlock && opts?.sourceActionPlan) {
+      if (aiUsesManagedStructure && !shouldUseWholePageForFirstDraft && opts?.sourceActionPlan) {
         const plannedMutations = deriveFunnelPageMutationsFromSourceActionPlan(editableBlocks, opts.sourceActionPlan);
         if (plannedMutations.length) {
           const mutationResult = applyFunnelPageMutations(editableBlocks, plannedMutations);
@@ -11018,6 +13200,38 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               diff,
               customCodeDiff: null,
             });
+            if (!diff.changed) {
+              setPendingSourceActionPlan(opts.sourceActionPlan);
+              setLastAiRun({
+                pageId: selectedPage.id,
+                surface: "structure",
+                prompt: summaryPromptText,
+                summary: summaryText,
+                warnings: [...mutationResult.warnings, "Apply this pass did not change any builder blocks."].slice(0, 4),
+                at: runAt,
+                previousPage,
+              });
+              setAiResultBanner({ summary: summaryText, at: runAt, tone: "warning" });
+              appendBuilderChangeActivity({
+                id: newId(),
+                pageId: selectedPage.id,
+                kind: "no-change",
+                scopeLabel: "Whole page",
+                prompt: summaryPromptText,
+                summary: summaryText,
+                at: runAt,
+                diff,
+                previewChanged: false,
+              });
+              setAiWorkFocus({
+                mode: "builder",
+                label: "Builder unchanged",
+                phase: "settled",
+                regionKey: null,
+                blockId: null,
+              });
+              return;
+            }
             const threadSummary = buildBuilderThreadSummary({
               scopeLabel: "Whole page",
               summary: summaryText,
@@ -11446,11 +13660,16 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             }
 
             if (type === "salesCheckoutButton") {
+              const offerId = s((props as any).offerId, 80);
               const priceId = s((props as any).priceId, 140);
               const qtyNum = Number((props as any).quantity);
               const quantity = Number.isFinite(qtyNum) ? Math.max(1, Math.min(20, Math.floor(qtyNum))) : 1;
               const text = s((props as any).text, 120) || "Buy now";
-              return { id, type: "salesCheckoutButton", props: { text, priceId, quantity, ...(style ? { style } : null) } } as any;
+              return {
+                id,
+                type: "salesCheckoutButton",
+                props: { text, ...(offerId ? { offerId } : null), priceId, quantity, ...(style ? { style } : null) },
+              } as any;
             }
 
             return null;
@@ -12017,6 +14236,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (!mirroredThread) return;
     const currentHtml = committedPageSourceHtml || getFunnelPageCurrentHtml(selectedPage);
     const sectionPlanItems = collectBuilderSectionPlanItems(selectedPage.blocksJson);
+    setAiWorkFocus({
+      mode: "page",
+      label: selectedHtmlRegion ? `AI is reviewing ${selectedHtmlRegion.label}` : "AI is reviewing the page",
+      phase: "pending",
+      regionKey: selectedHtmlRegion?.key || null,
+      blockId: null,
+    });
     setBusy(true);
     setError(null);
     try {
@@ -12032,6 +14258,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             sectionPlanItems,
             designContext: sanitizedAiDesignContext,
             contextMedia: effectiveAiContextMedia,
+            assistantContext,
             selectedRegion: selectedHtmlRegion
               ? {
                   key: selectedHtmlRegion.key,
@@ -12044,6 +14271,16 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               label: region.label,
               summary: region.summary,
             })),
+            selectedTarget: assistantSelectedEditTarget
+              ? {
+                  label: assistantSelectedEditTarget.label,
+                  summary: assistantSelectedEditTarget.summary,
+                  blockType: assistantSelectedEditTarget.blockType,
+                  blockId: assistantSelectedEditTarget.blockId,
+                  ...(typeof assistantSelectedEditTarget.itemIndex === "number" ? { itemIndex: assistantSelectedEditTarget.itemIndex } : {}),
+                  ...(assistantSelectedEditTarget.currentState ? { currentState: assistantSelectedEditTarget.currentState } : {}),
+                }
+              : null,
           }),
         },
       );
@@ -12059,9 +14296,64 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     } catch (e) {
       setError((e as any)?.message ? String((e as any).message) : "Chat failed");
     } finally {
+      setAiWorkFocus(null);
       setBusy(false);
     }
   };
+
+  const runPricingEditorAssist = useCallback(async () => {
+    if (!selectedPricingBlock || selectedPricingItems.length === 0) return;
+
+    const cardSummaries = selectedPricingItems
+      .map((item, index) => {
+        const featureList = Array.isArray(item.features)
+          ? item.features.map((feature) => String(feature || "").trim()).filter(Boolean)
+          : [];
+        return [
+          `Card ${index + 1}: ${String(item.name || `Package ${index + 1}`).trim() || `Package ${index + 1}`}`,
+          `Price: ${[String(item.price || "").trim(), String(item.billingPeriod || "").trim()].filter(Boolean).join(" ") || "Not set"}`,
+          `CTA: ${String(item.ctaText || item.ctaHref || "").trim() || "Not set"}`,
+          `Summary: ${String(item.description || "").trim() || "Not set"}`,
+          `Includes: ${featureList.length ? featureList.join(" | ") : "None"}`,
+          String(item.badge || "").trim() ? `Badge: ${String(item.badge || "").trim()}` : null,
+          item.featured ? "This is the highlighted package." : null,
+        ]
+          .filter(Boolean)
+          .join("\n");
+      })
+      .join("\n\n");
+
+    const comparisonLines = [
+      pricingEditorComparisonNotes.firstToSecond.trim()
+        ? `What makes Package 2 stronger than Package 1: ${pricingEditorComparisonNotes.firstToSecond.trim()}`
+        : null,
+      pricingEditorComparisonNotes.secondToThird.trim()
+        ? `What additional value Package 3 adds: ${pricingEditorComparisonNotes.secondToThird.trim()}`
+        : null,
+      pricingEditorComparisonNotes.hierarchy.trim()
+        ? `What buyers should understand first: ${pricingEditorComparisonNotes.hierarchy.trim()}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const prompt = [
+      "Refine this pricing section with all packages visible together.",
+      `Section heading: ${String((selectedPricingBlock.props as any)?.heading || "Pricing section").trim() || "Pricing section"}`,
+      `Card count: ${selectedPricingItems.length}`,
+      "",
+      cardSummaries,
+      comparisonLines ? `Comparative guidance:\n${comparisonLines}` : null,
+      pricingEditorPrompt.trim() ? `User guidance:\n${pricingEditorPrompt.trim()}` : null,
+      "Tighten the package differentiation, clarify the default recommendation, and improve proof, CTA, and pricing clarity without turning this into backend jargon.",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    setChatRailMode("chat");
+    setChatRailOpen(true);
+    await runAiChat(prompt);
+  }, [pricingEditorComparisonNotes, pricingEditorPrompt, runAiChat, selectedPricingBlock, selectedPricingItems]);
 
   const restoreLastAiRun = async () => {
     if (!selectedPage || !lastAiRun || lastAiRun.pageId !== selectedPage.id) return;
@@ -12117,15 +14409,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const beginSourceEditing = useCallback((options?: { selectAll?: boolean }) => {
     if (!selectedPage || !wholePageSourceCanStartEditing) return;
 
-    if (!wholePageSourceEditable) {
-      pendingSourceEditActivationRef.current = true;
-      pendingSourceSelectAllRef.current = Boolean(options?.selectAll);
-      setPageLensStage("page");
-      setPageCanvasView("source");
-      void setEditorMode("CUSTOM_HTML");
-      return;
-    }
-
     const rawDraft = normalizedCommittedPageSourceHtml || stripDiffMarkers(getFunnelPageDraftHtml(selectedPage));
     const initialDraft = formatHtmlSourceForDisplay(rawDraft);
     setSourceEditDraft(initialDraft);
@@ -12137,7 +14420,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (options?.selectAll) {
       setSourceSelectAllSignal((prev) => prev + 1);
     }
-  }, [normalizedCommittedPageSourceHtml, selectedPage, setEditorMode, wholePageSourceCanStartEditing, wholePageSourceEditable]);
+  }, [normalizedCommittedPageSourceHtml, selectedPage, wholePageSourceCanStartEditing]);
 
   const openSourceWorkspace = useCallback((options?: { selectAll?: boolean }) => {
     if (selectedPageSupportsBlocksSurface) setBuilderMode("whole-page");
@@ -12155,19 +14438,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
     beginSourceEditing(options);
   }, [beginSourceEditing, selectedPageSupportsBlocksSurface, setBuilderMode, sourceEditMode, wholePageSourceCanStartEditing, wholePageSourceEditable]);
-
-  useEffect(() => {
-    if (!pendingSourceEditActivationRef.current) return;
-    if (pageCanvasView !== "source" || !wholePageSourceEditable || sourceEditMode) return;
-
-    pendingSourceEditActivationRef.current = false;
-    const shouldSelectAll = pendingSourceSelectAllRef.current;
-    pendingSourceSelectAllRef.current = false;
-    beginSourceEditing();
-    if (shouldSelectAll) {
-      setSourceSelectAllSignal((prev) => prev + 1);
-    }
-  }, [beginSourceEditing, pageCanvasView, sourceEditMode, wholePageSourceEditable]);
 
   const discardSourceEditing = useCallback(() => {
     if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
@@ -12190,7 +14460,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setPageCanvasView("preview");
   }, [sourceHasPendingChanges]);
 
-  const applySourceEditing = useCallback(() => {
+  const applySourceEditing = useCallback(async () => {
     if (!selectedPage || !wholePageSourceEditable) return;
     if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
@@ -12199,14 +14469,19 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       discardSourceEditing();
       return;
     }
-    setSelectedPageLocal({ draftHtml: stripDiffMarkers(sourceEditDraft) });
+    const nextDraftHtml = stripDiffMarkers(sourceEditDraft);
+    const saved = await savePage({
+      editorMode: "CUSTOM_HTML",
+      draftHtml: nextDraftHtml,
+    });
+    if (!saved) return;
     setSourceEditMode(false);
     setSourceEditDraft("");
     setSourceEditBaseline("");
     setSourcePreviewActive(false);
     setSourceSelectAllSignal(0);
-    toast.success("Source changes applied to draft");
-  }, [discardSourceEditing, selectedPage, setSelectedPageLocal, sourceEditDraft, sourceHasPendingChanges, toast, wholePageSourceEditable]);
+    toast.success("Draft saved");
+  }, [discardSourceEditing, savePage, selectedPage, sourceEditDraft, sourceHasPendingChanges, toast, wholePageSourceEditable]);
 
   const wholePageSurfaceActive = wholePageModeActive;
   const customCodeModeActive = wholePageSourceEditable;
@@ -12220,18 +14495,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const pageManagementUi = useMemo(() => {
     if (selectedPageGraph.sourceMode === "managed") {
       return {
-        badgeLabel: "Managed builder",
+        badgeLabel: "Section page",
         badgeClassName: "border-emerald-200 bg-emerald-50 text-emerald-800",
-        summary: "Builder owns this draft. Opening Source switches this page into direct HTML drafting.",
-        lensLabel: wholePageModeActive ? "Source" : "Builder",
+        summary: "Current page draft",
+        lensLabel: wholePageModeActive ? "Source" : "Page",
       };
     }
 
     if (selectedPageGraph.sourceMode === "custom-html") {
       return {
-        badgeLabel: "Advanced page",
+        badgeLabel: "Custom page",
         badgeClassName: "border-blue-200 bg-blue-50 text-blue-800",
-        summary: "Draft workflow: Page previews the draft, Source edits it, Save keeps it private, and Publish makes it live.",
+        summary: "Current page draft",
         lensLabel: wholePageModeActive ? "Source" : "Page",
       };
     }
@@ -12246,13 +14521,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [publishingPage, setPublishingPage] = useState(false);
   const publishPage = async () => {
-    if (!selectedPage || selectedPageGraph.sourceMode !== "custom-html") return;
+    if (!selectedPage || (selectedPageGraph.sourceMode !== "custom-html" && selectedPageGraph.sourceMode !== "managed")) return;
     setPublishingPage(true);
     setError(null);
     try {
       // If there are unsaved local edits, save them as draft first.
       if (selectedPageDirty) {
-        await savePage({ draftHtml: getFunnelPageCurrentHtml(selectedPage) });
+        const savedDraft =
+          selectedPageGraph.sourceMode === "managed"
+            ? await savePage({
+                editorMode: "BLOCKS",
+                blocksJson: saveableBlocks,
+                customHtml: currentPagePublishedHtml,
+              })
+            : await savePage({ draftHtml: getFunnelPageCurrentHtml(selectedPage) });
+        if (!savedDraft) return;
       }
       const res = await fetch(
         `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/publish`,
@@ -12294,9 +14577,59 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     }
   }, [funnelLiveHref, toast]);
 
+  const liveTargetMeta = useMemo(() => {
+    if (!funnelLiveHref) return null;
+    try {
+      const parsed = new URL(funnelLiveHref, runtimeHostedOrigin || undefined);
+      return {
+        host: parsed.host,
+        path: parsed.pathname || "/",
+        label: `${parsed.host}${parsed.pathname || "/"}`,
+      };
+    } catch {
+      return {
+        host: null,
+        path: funnelLiveHref,
+        label: funnelLiveHref,
+      };
+    }
+  }, [funnelLiveHref, runtimeHostedOrigin]);
+
+  const previewSurfaceMeta = useMemo(() => {
+    if (blocksSurfaceActive) {
+      return {
+        label: "Edit",
+        detail: "Direct selection mode.",
+        className: "border-zinc-200 bg-zinc-50 text-zinc-800",
+      };
+    }
+    if (wholePageModeActive && pageCanvasView === "preview") {
+      return {
+        label: "Page",
+        detail: "Current draft preview.",
+        className: "border-zinc-200 bg-zinc-50 text-zinc-800",
+      };
+    }
+    if (wholePageModeActive && pageCanvasView === "source") {
+      return {
+        label: sourceEditMode ? "Editing source" : "Source",
+        detail: sourceEditMode
+          ? "Draft HTML editor."
+          : "Saved draft HTML.",
+        className: "border-zinc-200 bg-zinc-50 text-zinc-800",
+      };
+    }
+    return {
+      label: "Page",
+      detail: "Current page draft.",
+      className: "border-zinc-200 bg-zinc-50 text-zinc-800",
+    };
+  }, [blocksSurfaceActive, pageCanvasView, selectedPageSupportsBlocksSurface, sourceEditMode, wholePageModeActive]);
+
   const workflowView = getFunnelEditorWorkflowViewModel({
     selectedPage,
     selectedPageDirty,
+    sourceHasPendingChanges,
     customCodeModeActive,
     savingPage,
     publishingPage,
@@ -12341,17 +14674,89 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     : pageCanvasFontPresetKey === "custom"
       ? String((pageStyle as any)?.fontFamily || "Custom font")
       : pageCanvasFontPresetKey === "default"
-        ? "Default app font"
-        : String(pageCanvasFontPresetKey || "Canvas defaults");
+        ? "Inherited app font"
+        : String(pageCanvasFontPresetKey || "Advanced defaults");
   const trackingSummaryLabel = effectiveMetaPixelId ? `Using ${effectiveMetaPixelSourceLabel.toLowerCase()} Pixel ID` : "No Pixel ID yet";
-  const sidebarTitle = wholePageModeActive && !wholePageUsesBuilderSidebar
-    ? "Page setup"
-    : builderTopLevelPanel === "settings"
-      ? "Page setup"
-      : "Page structure";
+  const assistantContext = useMemo<AssistantContextSummary | null>(() => {
+    if (!selectedPage) return null;
+
+    const surface = pageCanvasView === "source" ? "Source" : "Page";
+    const mode = pageCanvasView === "source"
+      ? sourceEditMode
+        ? "Source edit"
+        : "Review"
+      : blocksSurfaceActive
+        ? "Edit"
+        : "View";
+    const booking = funnel?.bookingCalendarId
+      ? linkedFunnelCalendarTitle
+        ? `Linked (${linkedFunnelCalendarTitle})`
+        : "Linked"
+      : pageHasCalendarPlaceholder
+        ? "Needs route"
+        : "Not linked";
+    const tracking = !selectedPageExecutionSummary?.trackingReady
+      ? "Unavailable"
+      : selectedPageExecutionSummary?.metaPixelReady
+        ? "Live + pixel"
+        : effectiveMetaPixelId
+          ? "Live + saved pixel"
+          : "Live, no pixel";
+    const seo = selectedPage?.seo?.faviconUrl
+      ? "Page SEO set"
+      : funnel?.seo?.title || funnel?.seo?.description || funnel?.seo?.imageUrl || funnel?.seo?.noIndex
+        ? "Funnel SEO set"
+        : "Search visible";
+    const commerce = availableFunnelOffers.length
+      ? `${availableFunnelOffers.length} offers ready`
+      : pageHasStripeProductButtons
+        ? "Needs offer binding"
+        : "No offer setup";
+
+    return {
+      funnel: String(funnel?.name || funnel?.slug || "Current funnel"),
+      page: String(selectedPage.title || selectedPage.slug || "Current page"),
+      surface,
+      mode,
+      state: workflowView.workflowStatusLabel,
+      booking,
+      tracking,
+      seo,
+      commerce,
+    };
+  }, [
+    availableFunnelOffers.length,
+    blocksSurfaceActive,
+    effectiveMetaPixelId,
+    funnel?.bookingCalendarId,
+    funnel?.name,
+    funnel?.seo?.description,
+    funnel?.seo?.imageUrl,
+    funnel?.seo?.noIndex,
+    funnel?.seo?.title,
+    funnel?.slug,
+    linkedFunnelCalendarTitle,
+    pageCanvasView,
+    pageHasCalendarPlaceholder,
+    pageHasStripeProductButtons,
+    selectedPage,
+    selectedPageExecutionSummary?.metaPixelReady,
+    selectedPageExecutionSummary?.trackingReady,
+    sourceEditMode,
+    workflowView.workflowStatusLabel,
+  ]);
+  const sidebarTitle = blocksSurfaceActive
+    ? "Page context"
+    : wholePageModeActive && !wholePageUsesBuilderSidebar
+      ? "Page context"
+      : builderTopLevelPanel === "settings"
+        ? "Page context"
+        : "Page rail";
+  const sidebarSupportSectionClassName = "rounded-[24px] border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#fafafa_100%)] px-3.5 py-3 shadow-[0_12px_28px_rgba(15,23,42,0.04)]";
+  const sidebarSupportItemClassName = "rounded-xl border border-zinc-200/90 bg-white px-3 py-2.5 shadow-[0_6px_18px_rgba(15,23,42,0.035)]";
   const sidebarSettingsPanel = selectedPage ? (
-    <div className="border-t border-zinc-200">
-      <details open={pageHasCalendarPlaceholder || funnelBookingDirty || Boolean(quickCalendarError || funnelBookingError)} className="border-t border-zinc-200 py-3">
+    <div className="space-y-2.5 pt-3">
+      <details open={pageHasCalendarPlaceholder || funnelBookingDirty || Boolean(quickCalendarError || funnelBookingError)} className={sidebarSupportSectionClassName}>
         <summary className="cursor-pointer list-none">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -12373,12 +14778,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
         <div className="mt-2 space-y-2">
           <div className="grid gap-2 sm:grid-cols-2">
-            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600">
+            <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
               {funnel?.bookingCalendarId
                 ? `Funnel calendar: ${linkedFunnelCalendarTitle}`
                 : "Funnel calendar: not linked"}
             </div>
-            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600">
+            <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
               {selectedCalendarBlock
                 ? selectedCalendarBlockRouteKind === "block"
                   ? `This booking step uses ${selectedCalendarBlockResolvedCalendarTitle}.`
@@ -12392,7 +14797,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           </div>
 
           {(funnelBookingDirty || quickCalendarError || funnelBookingError) ? (
-            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600">
+            <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
               {quickCalendarError || funnelBookingError || "Booking changes are still open in draft state."}
             </div>
           ) : null}
@@ -12400,14 +14805,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           <button
             type="button"
             onClick={() => openBookingRoutingDialog()}
-            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50"
+            className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 transition-colors hover:bg-zinc-50"
           >
             Open booking setup
           </button>
         </div>
       </details>
 
-      <details className="border-t border-zinc-200 py-3">
+      <details className={sidebarSupportSectionClassName}>
         <summary className="cursor-pointer list-none">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -12515,6 +14920,47 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           </label>
           <div className="text-xs leading-5 text-zinc-500">Use this for internal, checkout, or thank-you pages that should not appear in search.</div>
 
+          <label className="block">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">SEO title</div>
+            <input
+              value={funnel?.seo?.title ?? ""}
+              maxLength={120}
+              onChange={(e) => {
+                const nextTitle = normalizeFunnelSeoTitle(e.target.value);
+                setSeoError(null);
+                setFunnel((prev) => {
+                  if (!prev) return prev;
+                  const nextSeo: FunnelSeo = { ...(prev.seo || {}), title: nextTitle || undefined };
+                  setSeoDirty(serializeFunnelSeoDraft(nextSeo) !== savedFunnelSeoKeyRef.current);
+                  return { ...prev, seo: nextSeo };
+                });
+              }}
+              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+              placeholder="Page title shown in search and browser tabs"
+            />
+          </label>
+          <label className="block">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Meta description</div>
+            <textarea
+              value={funnel?.seo?.description ?? ""}
+              maxLength={300}
+              rows={4}
+              onChange={(e) => {
+                const nextDescription = normalizeFunnelSeoDescription(e.target.value);
+                setSeoError(null);
+                setFunnel((prev) => {
+                  if (!prev) return prev;
+                  const nextSeo: FunnelSeo = { ...(prev.seo || {}), description: nextDescription || undefined };
+                  setSeoDirty(serializeFunnelSeoDraft(nextSeo) !== savedFunnelSeoKeyRef.current);
+                  return { ...prev, seo: nextSeo };
+                });
+              }}
+              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+              placeholder="Short summary for search and social previews"
+            />
+          </label>
+          <div className="text-xs leading-5 text-zinc-500">These fields become the hosted page title and search description when this funnel is served publicly.</div>
+
           {seoError ? <div className="text-xs font-semibold text-red-700">{seoError}</div> : null}
 
           <div className="flex items-center justify-between gap-3 border-t border-zinc-200 pt-2">
@@ -12538,7 +14984,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         </div>
       </details>
 
-      <details className="border-t border-zinc-200 py-3">
+      <details className={sidebarSupportSectionClassName}>
         <summary className="cursor-pointer list-none">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -12556,7 +15002,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
         <div className="mt-2 space-y-2.5">
           <div className="grid gap-2 sm:grid-cols-2">
-            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
+            <div className={sidebarSupportItemClassName}>
               <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Account pixel ID</div>
               <div className="mt-1 text-sm font-semibold text-zinc-900">{workspaceDefaultMetaPixelId || "Not configured"}</div>
               <Link
@@ -12566,7 +15012,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 Manage account pixel
               </Link>
             </div>
-            <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
+            <div className={sidebarSupportItemClassName}>
               <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Active pixel ID</div>
               <div className="mt-1 text-sm font-semibold text-zinc-900">{effectiveMetaPixelId || "No pixel ID yet"}</div>
               <div className="mt-1 text-xs leading-5 text-zinc-500">{effectiveMetaPixelId ? `Source: ${effectiveMetaPixelSourceLabel.toLowerCase()}.` : "Internal tracking only."}</div>
@@ -12623,7 +15069,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             </div>
           </label>
 
-          <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
+          <div className={sidebarSupportItemClassName}>
             <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Runtime check</div>
             <div className="mt-1 text-sm font-semibold text-zinc-900">{trackingRuntimeStatusLabel}</div>
             <div className="mt-1 text-xs leading-5 text-zinc-500">{trackingRuntimeHelperLabel}</div>
@@ -12631,21 +15077,28 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         </div>
       </details>
 
-      <details className="border-t border-zinc-200 py-3">
+      <details className={sidebarSupportSectionClassName}>
         <summary className="cursor-pointer list-none">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-zinc-900">Canvas defaults</div>
-              <div className="mt-1 text-xs leading-5 text-zinc-500">{canvasSummaryLabel}</div>
+              <div className="text-sm font-semibold text-zinc-700">Advanced</div>
+              <div className="mt-1 text-xs leading-5 text-zinc-500">Font and page defaults. Most pages should leave this collapsed.</div>
             </div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Canvas</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Advanced</div>
           </div>
         </summary>
 
         {showCanvasDefaults ? (
           <div className="mt-3 space-y-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Advanced page defaults</div>
+              <div className="mt-1 text-xs leading-5 text-zinc-500">Optional page-wide font baseline. Most pages should leave this alone.</div>
+            </div>
+            <div className={classNames(sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>
+              Current baseline: {canvasSummaryLabel}
+            </div>
             <label className="block">
-              <div className="mb-1 text-xs font-medium text-zinc-500">Canvas font</div>
+              <div className="mb-1 text-xs font-medium text-zinc-500">Page font</div>
               <PortalFontDropdown
                 value={pageCanvasFontPresetKey}
                 onChange={(k) => {
@@ -12681,7 +15134,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             ) : null}
           </div>
         ) : (
-          <div className="mt-3 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-xs leading-5 text-zinc-600">Imported pages keep their own typography and spacing.</div>
+          <div className={classNames("mt-3", sidebarSupportItemClassName, "text-xs leading-5 text-zinc-600")}>Imported pages keep their own typography and spacing.</div>
         )}
       </details>
 
@@ -13270,7 +15723,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 </div>
                 <div className="mt-1 text-sm font-semibold text-zinc-900">
                   {blankPageOnboardingActive && showShellStep && !showPageDirectionStep
-                    ? "Confirm the structure AI should build from before the first draft lands."
+                    ? "Confirm the page canvas AI should build from before the first draft lands."
                     : "Steer the recommendation without turning this into a worksheet."}
                 </div>
               </div>
@@ -14496,6 +16949,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   heroAssetMode: dialog.heroAssetMode,
                   audience: dialog.audience,
                   offer: dialog.offer,
+                  selectedOfferId: dialog.selectedOfferId,
                 });
               }}
             >
@@ -14510,6 +16964,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           const heroAssetMode = dialog?.type === "create-page" ? dialog.heroAssetMode : "auto";
           const audience = dialog?.type === "create-page" ? dialog.audience : "";
           const offer = dialog?.type === "create-page" ? dialog.offer : "";
+          const selectedOfferId = dialog?.type === "create-page" ? dialog.selectedOfferId : "";
+          const selectedCreateOffer = resolveFunnelOffer(availableFunnelOffers, selectedOfferId);
           const manualSlug = dialog?.type === "create-page" ? normalizeSlug(dialog.slug) : "";
           const manualTitle = dialog?.type === "create-page" ? dialog.title.trim() : "";
           const naming = buildSuggestedPageNaming({
@@ -14654,6 +17110,37 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
                   />
                 </label>
+
+                {pageType === "sales" ? (
+                  <label className="block">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Connected offer</div>
+                    <PortalListboxDropdown
+                      value={selectedOfferId}
+                      onChange={(nextOfferId) => {
+                        setDialogError(null);
+                        setDialog((prev) => (prev?.type === "create-page" ? { ...prev, selectedOfferId: String(nextOfferId || "") } : prev));
+                      }}
+                      placeholder={availableFunnelOffers.length ? "Choose a funnel offer" : "Create a funnel offer first"}
+                      options={[
+                        { value: "", label: "(None)", hint: "Seed the page without a bound checkout CTA" },
+                        ...availableFunnelOffers.map((entry) => ({
+                          value: entry.id,
+                          label: entry.label,
+                          hint: [entry.displayPrice || "", entry.priceId || ""].filter(Boolean).join(" - "),
+                        })),
+                      ]}
+                      className="mt-1"
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                    />
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {selectedCreateOffer
+                        ? `The primary CTA will bind to ${selectedCreateOffer.label}${selectedCreateOffer.displayPrice ? ` · ${selectedCreateOffer.displayPrice}` : ""}.`
+                        : availableFunnelOffers.length
+                          ? "Choose an offer now to seed the sales CTA already connected."
+                          : "No funnel offers exist yet, so the page will start with an unbound CTA."}
+                    </div>
+                  </label>
+                ) : null}
 
                 <label className="block">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Offer or hook (optional)</div>
@@ -14900,9 +17387,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       />
 
       <AppModal
-        open={dialog?.type === "leave-page"}
-        title="Leave page with unsaved changes?"
-        description="Choose whether to save this page before switching away from it."
+        open={dialog?.type === "leave-page" || dialog?.type === "leave-editor"}
+        title={dialog?.type === "leave-editor" ? "Leave builder with unsaved changes?" : "Leave page with unsaved changes?"}
+        description={dialog?.type === "leave-editor"
+          ? sourceHasPendingChanges
+            ? "Choose whether to save the staged source changes before leaving the builder."
+            : "Choose whether to save this page before leaving the builder."
+          : "Choose whether to save this page before switching away from it."}
         onClose={closeDialog}
         widthClassName="w-[min(560px,calc(100vw-32px))]"
         footer={
@@ -14919,11 +17410,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               type="button"
               className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
               onClick={() => {
-                void continuePageSelection("discard");
+                void (dialog?.type === "leave-editor" ? continueEditorExit("discard") : continuePageSelection("discard"));
               }}
               disabled={busy || savingPage}
             >
-              Discard changes
+              {dialog?.type === "leave-editor" ? "Leave without saving" : "Discard changes"}
             </button>
             <button
               type="button"
@@ -14933,20 +17424,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               )}
               disabled={busy || savingPage}
               onClick={() => {
-                void continuePageSelection("save");
+                void (dialog?.type === "leave-editor" ? continueEditorExit("save") : continuePageSelection("save"));
               }}
             >
-              {savingPage ? "Saving..." : workflowView.leavePageConfirmLabel}
+              {savingPage ? "Saving..." : dialog?.type === "leave-editor" ? "Save draft and leave" : workflowView.leavePageConfirmLabel}
             </button>
           </div>
         }
       >
         <div className="space-y-3">
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
-            {workflowView.leavePageSummary}
+            {dialog?.type === "leave-editor" && sourceHasPendingChanges
+              ? "You have staged source changes. Save draft now if you want to keep them before leaving the builder."
+              : workflowView.leavePageSummary}
           </div>
           <div className="text-xs text-zinc-500">
-            Discard reloads the last saved server version before switching pages.
+            {dialog?.type === "leave-editor"
+              ? "Leaving without saving reloads the last saved server version before returning to the builder list or previous route."
+              : "Discard reloads the last saved server version before switching pages."}
           </div>
         </div>
       </AppModal>
@@ -15157,15 +17652,411 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         </div>
       </AppModal>
 
+      <AppModal
+        open={pricingEditorOpen && Boolean(selectedPricingBlock)}
+        title="Pricing editor"
+        description="Edit the saved tier names, pricing, CTA, summary, and included points here. Assistant guidance stays separate below."
+        onClose={() => {
+          setPricingEditorOpen(false);
+          setFocusedPricingGridCard(null);
+        }}
+        widthClassName="w-[min(1120px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                onClick={() => addSelectedPricingGridItem()}
+                disabled={busy || !selectedPricingBlock}
+              >
+                Add tier
+              </button>
+              <div className="text-xs text-zinc-500">
+                {selectedPageDirty ? "Pricing edits are in the current draft." : "Pricing matches the saved draft."}
+              </div>
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              <button
+                type="button"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                onClick={() => {
+                  setPricingEditorOpen(false);
+                  setFocusedPricingGridCard(null);
+                }}
+                disabled={busy}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className={classNames(
+                  "rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
+                  busy || !selectedPricingItems.length ? "opacity-60" : "",
+                )}
+                onClick={() => {
+                  void runPricingEditorAssist();
+                }}
+                disabled={busy || !selectedPricingItems.length}
+              >
+                Refine with assistant
+              </button>
+            </div>
+          </div>
+        }
+      >
+        {selectedPricingBlock ? (
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#fafafa_100%)] px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Pricing section</div>
+                  <div className="mt-1 text-base font-semibold text-zinc-950">
+                    {String((selectedPricingBlock.props as any)?.heading || "Pricing section").trim() || "Pricing section"}
+                  </div>
+                  <div className="mt-1 text-xs leading-5 text-zinc-500">
+                    {String((selectedPricingBlock.props as any)?.intro || "").trim() || "Keep the tiers distinct here, then save the draft when you want the changes to stick."}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <div className="text-[11px] font-medium text-zinc-500">Drag tiers below to reorder them.</div>
+                  <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold text-zinc-700">
+                    {selectedPricingItems.length} {selectedPricingItems.length === 1 ? "tier" : "tiers"}
+                  </div>
+                  <div className={classNames(
+                    "rounded-full border px-3 py-1 text-[11px] font-semibold",
+                    selectedPageDirty ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800",
+                  )}>
+                    {selectedPageDirty ? "Unsaved draft" : "Saved draft"}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Optional assistant guidance</div>
+                  <div className="mt-1 text-xs leading-5 text-zinc-500">Use this only if you want AI help clarifying how the packages step up.</div>
+                </div>
+                <div className="min-w-55 flex-1 lg:max-w-70">
+                  <label className="block">
+                    <div className="mb-1 text-xs font-medium text-zinc-500">Default package</div>
+                    <PortalListboxDropdown
+                      value={selectedPricingFeaturedIndex >= 0 ? String(selectedPricingFeaturedIndex) : ""}
+                      onChange={(value) => setSelectedPricingGridFeaturedItem(value === "" ? null : Number(value))}
+                      options={[
+                        { value: "", label: "No default recommendation" },
+                        ...selectedPricingItems.map((item, itemIndex) => ({
+                          value: String(itemIndex),
+                          label: String(item.name || `Package ${itemIndex + 1}`).trim() || `Package ${itemIndex + 1}`,
+                        })),
+                      ]}
+                      className="w-full"
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                <label className="block">
+                  <div className="mb-1 text-xs font-medium text-zinc-500">What makes Package 2 stronger than Package 1?</div>
+                  <textarea
+                    value={pricingEditorComparisonNotes.firstToSecond}
+                    onChange={(e) => setPricingEditorComparisonNotes((prev) => ({ ...prev, firstToSecond: e.target.value }))}
+                    rows={2}
+                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                    placeholder="Package 2 adds campaign ownership, deeper reporting, or a more hands-on service level."
+                  />
+                </label>
+
+                {selectedPricingItems.length >= 3 ? (
+                  <label className="block">
+                    <div className="mb-1 text-xs font-medium text-zinc-500">What additional value does Package 3 add?</div>
+                    <textarea
+                      value={pricingEditorComparisonNotes.secondToThird}
+                      onChange={(e) => setPricingEditorComparisonNotes((prev) => ({ ...prev, secondToThird: e.target.value }))}
+                      rows={2}
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                      placeholder="Package 3 includes the highest-touch support, stronger proof, or a more complete done-for-you scope."
+                    />
+                  </label>
+                ) : null}
+
+                <label className={classNames("block", selectedPricingItems.length >= 3 ? "lg:col-span-2" : "") }>
+                  <div className="mb-1 text-xs font-medium text-zinc-500">What should buyers understand first?</div>
+                  <textarea
+                    value={pricingEditorComparisonNotes.hierarchy}
+                    onChange={(e) => setPricingEditorComparisonNotes((prev) => ({ ...prev, hierarchy: e.target.value }))}
+                    rows={2}
+                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                    placeholder="The buyer should immediately understand who each package is for and why the middle or top option is worth stepping into."
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              {selectedPricingItems.map((item, itemIndex) => {
+                const featureDraft = Array.isArray(item.features) ? item.features.join("\n") : "";
+                const cardName = String(item.name || `Package ${itemIndex + 1}`).trim() || `Package ${itemIndex + 1}`;
+                const connectedOffer = resolveFunnelOffer(availableFunnelOffers, item.offerId);
+                const ctaMode = item.ctaMode ?? (item.offerId || item.priceId ? "checkout" : "link");
+                const checkoutConnectionActive = ctaMode === "checkout" || Boolean(item.offerId || item.priceId);
+                const tierLabel = itemIndex === 0 ? "Tier 1" : itemIndex === 1 ? "Tier 2" : itemIndex === 2 ? "Tier 3" : `Tier ${itemIndex + 1}`;
+                const tierPositionLabel = itemIndex === 0 ? "Entry or lowest tier" : itemIndex === 1 ? "Middle tier" : itemIndex === 2 ? "Highest tier" : "Additional tier";
+                const packageNamePlaceholder = itemIndex === 0 ? "Signature Stay" : itemIndex === 1 ? "Signature Stay Intro" : "Culture Shift Plus";
+                const pricePlaceholder = itemIndex === 0 ? "$3,200" : itemIndex === 1 ? "$2,400" : "Custom quote";
+                const priceNotePlaceholder = itemIndex === 0 ? "/month" : "starting at";
+                const ctaPlaceholder = itemIndex === 0 ? "Book now" : "Choose tier";
+                const descriptionPlaceholder = itemIndex === 0 ? "One-line summary" : "Quick tier summary";
+                const featuresPlaceholder = itemIndex === 0 ? "Included point per line" : "What this tier includes, one per line";
+                const badgePlaceholder = itemIndex === 0 ? "Popular" : "Starter";
+                return (
+                  <div
+                    key={`${selectedPricingBlock.id}-${itemIndex}`}
+                    onFocusCapture={() => setFocusedPricingGridCard({ blockId: selectedPricingBlock.id, itemIndex })}
+                    onDragOver={(e) => {
+                      const dragIndex = draggedPricingGridCardIndex ?? Number(e.dataTransfer.getData("text/x-pricing-tier-index"));
+                      if (Number.isNaN(dragIndex)) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      if (dragIndex !== itemIndex) setPricingTierDropTargetIndex(itemIndex);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const dragIndex = draggedPricingGridCardIndex ?? Number(e.dataTransfer.getData("text/x-pricing-tier-index"));
+                      setDraggedPricingGridCardIndex(null);
+                      setPricingTierDropTargetIndex(null);
+                      if (Number.isNaN(dragIndex)) return;
+                      reorderSelectedPricingGridItem(dragIndex, itemIndex);
+                    }}
+                    className={classNames(
+                      "rounded-3xl border bg-white p-4 transition-colors",
+                      focusedPricingGridCard?.blockId === selectedPricingBlock.id && focusedPricingGridCard.itemIndex === itemIndex
+                        ? "border-zinc-900 shadow-[0_18px_44px_rgba(15,23,42,0.10)]"
+                        : "border-zinc-200 shadow-[0_12px_32px_rgba(15,23,42,0.05)]",
+                      draggedPricingGridCardIndex === itemIndex ? "opacity-70" : "",
+                      pricingTierDropTargetIndex === itemIndex && draggedPricingGridCardIndex !== null && draggedPricingGridCardIndex !== itemIndex
+                        ? "border-blue-300 bg-blue-50/40"
+                        : "",
+                    )}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <button
+                          type="button"
+                          draggable={!busy && selectedPricingItems.length > 1}
+                          onDragStart={(e) => {
+                            setDraggedPricingGridCardIndex(itemIndex);
+                            setPricingTierDropTargetIndex(itemIndex);
+                            e.dataTransfer.setData("text/x-pricing-tier-index", String(itemIndex));
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          onDragEnd={() => {
+                            setDraggedPricingGridCardIndex(null);
+                            setPricingTierDropTargetIndex(null);
+                          }}
+                          disabled={busy || selectedPricingItems.length <= 1}
+                          className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-zinc-50 text-zinc-500 hover:border-zinc-300 hover:bg-white hover:text-zinc-800 disabled:cursor-default disabled:opacity-50"
+                          title="Drag to move this tier"
+                          aria-label={`Drag to move ${cardName}`}
+                        >
+                          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
+                            <circle cx="6" cy="5" r="1.25" />
+                            <circle cx="6" cy="10" r="1.25" />
+                            <circle cx="6" cy="15" r="1.25" />
+                            <circle cx="14" cy="5" r="1.25" />
+                            <circle cx="14" cy="10" r="1.25" />
+                            <circle cx="14" cy="15" r="1.25" />
+                          </svg>
+                        </button>
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">{tierLabel}</div>
+                          <div className="mt-1 text-lg font-semibold text-zinc-950">{cardName}</div>
+                          <div className="mt-1 text-xs text-zinc-500">{tierPositionLabel}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {item.featured ? (
+                          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-[11px] font-semibold text-zinc-700">
+                            Default recommendation
+                          </span>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => removeSelectedPricingGridItem(itemIndex)}
+                          disabled={busy || selectedPricingItems.length <= 1}
+                          className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <div className="mb-1 text-xs font-medium text-zinc-500">Package name</div>
+                        <input
+                          value={item.name}
+                          onChange={(e) => updateSelectedPricingGridItem(itemIndex, { name: e.target.value })}
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder={packageNamePlaceholder}
+                        />
+                      </label>
+                      <label className="block">
+                        <div className="mb-1 text-xs font-medium text-zinc-500">Price</div>
+                        <input
+                          value={item.price}
+                          onChange={(e) => updateSelectedPricingGridItem(itemIndex, { price: e.target.value })}
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder={pricePlaceholder}
+                        />
+                      </label>
+                      <label className="block">
+                        <div className="mb-1 text-xs font-medium text-zinc-500">Price note or suffix</div>
+                        <input
+                          value={item.billingPeriod ?? ""}
+                          onChange={(e) => updateSelectedPricingGridItem(itemIndex, { billingPeriod: e.target.value || undefined })}
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder={priceNotePlaceholder}
+                        />
+                      </label>
+                      <label className="block">
+                        <div className="mb-1 text-xs font-medium text-zinc-500">CTA label</div>
+                        <input
+                          value={item.ctaText ?? ""}
+                          onChange={(e) => updateSelectedPricingGridItem(itemIndex, { ctaText: e.target.value })}
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder={ctaPlaceholder}
+                        />
+                      </label>
+                      <label className="block">
+                        <div className="mb-1 text-xs font-medium text-zinc-500">Optional badge</div>
+                        <input
+                          value={item.badge ?? ""}
+                          onChange={(e) => updateSelectedPricingGridItem(itemIndex, { badge: e.target.value || undefined })}
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder={badgePlaceholder}
+                        />
+                      </label>
+                      <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 px-3 py-2.5">
+                        <div>
+                          <div className="text-xs font-medium text-zinc-500">Highlight this package</div>
+                          <div className="mt-1 text-xs leading-5 text-zinc-500">Use this for the default recommendation.</div>
+                        </div>
+                        <ToggleSwitch
+                          checked={Boolean(item.featured)}
+                          onChange={(checked) => setSelectedPricingGridFeaturedItem(checked ? itemIndex : null)}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="mt-3 space-y-3">
+                      <label className="block">
+                        <div className="mb-1 text-xs font-medium text-zinc-500">Summary</div>
+                        <textarea
+                          value={item.description ?? ""}
+                          onChange={(e) => updateSelectedPricingGridItem(itemIndex, { description: e.target.value })}
+                          rows={2}
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder={descriptionPlaceholder}
+                        />
+                      </label>
+
+                      <label className="block">
+                        <div className="mb-1 text-xs font-medium text-zinc-500">Includes</div>
+                        <textarea
+                          value={featureDraft}
+                          onChange={(e) => updateSelectedPricingGridItemFeatures(itemIndex, e.target.value)}
+                          rows={4}
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder={featuresPlaceholder}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <div className="mb-1 text-xs font-medium text-zinc-500">CTA action</div>
+                        <PortalListboxDropdown
+                          value={ctaMode}
+                          onChange={(nextMode) =>
+                            updateSelectedPricingGridItem(itemIndex, {
+                              ctaMode: nextMode === "checkout" ? "checkout" : "link",
+                              ...(nextMode === "checkout" ? { ctaHref: undefined } : null),
+                            })
+                          }
+                          options={[
+                            { value: "link", label: "Go to another target" },
+                            { value: "checkout", label: "Open checkout" },
+                          ]}
+                          className="w-full"
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                        />
+                      </label>
+
+                      {checkoutConnectionActive ? (
+                        <label className="block">
+                          <div className="mb-1 text-xs font-medium text-zinc-500">Connected offer</div>
+                          <PortalListboxDropdown
+                            value={connectedOffer?.id || String(item.offerId || "").trim()}
+                            onChange={(nextOfferId) => bindSelectedPricingGridItemOffer(itemIndex, String(nextOfferId || ""))}
+                            placeholder={availableFunnelOffers.length ? "Choose a connected offer" : "Create a connected offer first"}
+                            options={[
+                              { value: "", label: "No connected offer", hint: "Keep the current checkout setup" },
+                              ...availableFunnelOffers.map((offer) => ({
+                                value: offer.id,
+                                label: offer.label,
+                                hint: [offer.displayPrice || "", offer.priceId || ""].filter(Boolean).join(" - "),
+                              })),
+                            ]}
+                            className="w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
+                        </label>
+                      ) : (
+                        <label className="block">
+                          <div className="mb-1 text-xs font-medium text-zinc-500">CTA target</div>
+                          <input
+                            value={item.ctaHref ?? ""}
+                            onChange={(e) => updateSelectedPricingGridItem(itemIndex, { ctaHref: e.target.value })}
+                            className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="#booking or /next-step"
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Optional assistant direction</div>
+              <textarea
+                value={pricingEditorPrompt}
+                onChange={(e) => setPricingEditorPrompt(e.target.value)}
+                rows={5}
+                className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                placeholder="Mention proof to emphasize, uploaded pricing docs to follow, trust signals to keep, or anything the assistant should sharpen before rewriting the section."
+              />
+            </div>
+          </div>
+        ) : null}
+      </AppModal>
+
       <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white">
         <div className="flex flex-col gap-2 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href={`${basePath}/app/services/funnel-builder`}
+            <button
+              type="button"
+              onClick={requestEditorExit}
               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
             >
               Back
-            </Link>
+            </button>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -15226,27 +18117,56 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               </button>
             </div>
 
-            <button
-              type="button"
-              disabled={busy || !selectedPage || !selectedPageDirty}
-              onClick={() => void saveCurrentPage()}
-              title={workflowView.saveButtonTitle}
-              className={classNames(
-                "rounded-xl px-4 py-2 text-sm font-semibold",
-                savingPage
-                  ? "bg-zinc-400 text-white"
-                  : selectedPageDirty
-                    ? "bg-brand-ink text-white hover:opacity-95"
-                    : "cursor-not-allowed border border-zinc-200 bg-white text-zinc-500",
-              )}
-            >
-              {savingPage ? (
-                <span className="inline-flex items-center gap-2">
-                  <SpinnerIcon className="h-4 w-4" />
-                  Saving
+            {savingPage || selectedPageDirty ? (
+              <button
+                type="button"
+                disabled={busy || !selectedPage || !selectedPageDirty}
+                onClick={() => void saveCurrentPage()}
+                title={workflowView.saveButtonTitle}
+                className={classNames(
+                  "rounded-xl px-4 py-2 text-sm font-semibold",
+                  savingPage
+                    ? "bg-zinc-400 text-white"
+                    : "bg-brand-ink text-white hover:opacity-95",
+                )}
+              >
+                {savingPage ? (
+                  <span className="inline-flex items-center gap-2">
+                    <SpinnerIcon className="h-4 w-4" />
+                    Saving
+                  </span>
+                ) : workflowView.saveButtonLabel}
+              </button>
+            ) : (
+              <span className="inline-flex items-center rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-600">
+                {workflowView.saveButtonLabel}
+              </span>
+            )}
+
+            {customCodeModeActive ? (
+              publishingPage || workflowView.hasDeployableDraft ? (
+                <button
+                  type="button"
+                  disabled={busy || publishingPage || !selectedPage || !workflowView.hasDeployableDraft}
+                  onClick={() => {
+                    void publishPage();
+                  }}
+                  className={classNames(
+                    "rounded-xl px-4 py-2 text-sm font-semibold",
+                    publishingPage
+                      ? "bg-zinc-400 text-white"
+                      : "bg-(--color-brand-blue) text-white hover:bg-blue-700",
+                  )}
+                  title={workflowView.hasDeployableDraft ? "Publish the saved draft so Open live matches this page." : "The published page already matches the saved draft."}
+                >
+                  {workflowView.publishButtonLabel}
+                </button>
+              ) : (
+                <span className="inline-flex items-center rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-600">
+                  {workflowView.publishButtonLabel}
                 </span>
-              ) : workflowView.saveButtonLabel}
-            </button>
+              )
+            ) : null}
 
             {saveStatusLabel ? (
               <span className={classNames(
@@ -15255,6 +18175,22 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               )}>
                 {saveStatusLabel}
               </span>
+            ) : null}
+
+            {selectedPage && funnelLiveHref ? (
+              <a
+                href={funnelLiveHref}
+                target="_blank"
+                rel="noreferrer"
+                title={workflowView.liveLinkHint}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M1.5 12s4-7 10.5-7 10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12Z" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" strokeWidth="1.8" />
+                </svg>
+                {workflowView.liveLinkLabel}
+              </a>
             ) : null}
 
             <button
@@ -15274,6 +18210,45 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
       </header>
 
+      {selectedPage ? (
+        <div className="border-b border-zinc-200 bg-zinc-50/80 px-4 py-2.5">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
+                {selectedPageRouteLabel || `/${selectedPage.slug || ""}`}
+              </span>
+              <span className={classNames(
+                "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                workflowView.workflowStatusClassName,
+              )}>
+                {workflowView.workflowStatusLabel}
+              </span>
+            </div>
+
+            {funnelLiveHref && liveTargetMeta ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <a
+                  href={funnelLiveHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="min-w-0 max-w-full truncate rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                  title={liveTargetMeta.label}
+                >
+                  {liveTargetMeta.path}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => void copyLiveFunnelHref()}
+                  className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                >
+                  Copy URL
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {error ? (
         <div className="mx-4 mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error}
@@ -15281,12 +18256,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       ) : null}
 
       <div
+        style={{
+          ...(chatRailOpen ? ({ ["--funnel-chat-rail-width" as any]: `${chatRailWidth}px` } as any) : {}),
+          transitionProperty: "grid-template-columns",
+          transitionDuration: chatRailResizing ? "0ms" : "320ms",
+          transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+        } as any}
         className={classNames(
-          "relative flex flex-1 flex-col overflow-auto lg:min-h-0 lg:overflow-hidden",
+          "relative flex flex-1 flex-col overflow-auto lg:min-h-0 lg:overflow-hidden motion-reduce:transition-none",
           chatRailOpen
             ? sidebarCollapsed
-              ? "lg:grid lg:grid-cols-[72px_minmax(0,1fr)_340px]"
-              : "lg:grid lg:grid-cols-[280px_minmax(0,1fr)_340px] xl:grid-cols-[296px_minmax(0,1fr)_340px]"
+              ? "lg:grid lg:grid-cols-[72px_minmax(0,1fr)_var(--funnel-chat-rail-width)]"
+              : "lg:grid lg:grid-cols-[280px_minmax(0,1fr)_var(--funnel-chat-rail-width)] xl:grid-cols-[296px_minmax(0,1fr)_var(--funnel-chat-rail-width)]"
             : sidebarCollapsed
               ? "lg:grid lg:grid-cols-[72px_minmax(0,1fr)]"
               : "lg:grid lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[296px_minmax(0,1fr)]",
@@ -15317,7 +18298,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               <div className="mb-3 flex items-center justify-between gap-3 border-b border-zinc-200 pb-3">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-zinc-900">{sidebarTitle}</div>
-                  {selectedPage ? <div className="mt-1 truncate text-xs text-zinc-500">{selectedPage.title || "Untitled page"}</div> : null}
+                  {selectedPage && !blocksSurfaceActive ? <div className="mt-1 truncate text-xs text-zinc-500">{selectedPage.title || "Untitled page"}</div> : null}
                 </div>
                 <button
                   type="button"
@@ -15333,198 +18314,103 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
           {!selectedPage ? (
             pages === null ? (
-              <div className="space-y-3">
-                <div className="h-11 rounded-2xl bg-zinc-100 animate-pulse" />
-                <div className="h-26 rounded-3xl bg-zinc-100 animate-pulse" />
-                <div className="h-18 rounded-3xl bg-zinc-100 animate-pulse" />
+              <div className={sidebarPanelCardClassName}>
+                <div className="space-y-3">
+                  <div className="h-11 rounded-2xl bg-zinc-100 animate-pulse" />
+                  <div className="h-26 rounded-3xl bg-zinc-100 animate-pulse" />
+                  <div className="h-18 rounded-3xl bg-zinc-100 animate-pulse" />
+                </div>
               </div>
             ) : (
-              <div className="text-sm text-zinc-600">Select a page to edit.</div>
+              <div className={sidebarPanelCardClassName}>
+                <div className="text-sm text-zinc-600">Select a page to edit.</div>
+              </div>
             )
           ) : wholePageModeActive && !wholePageUsesBuilderSidebar ? (
             <div className="space-y-3">
-              <div className="pb-1">
+              <div className={sidebarPanelCardClassName}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="break-all text-xs leading-5 text-zinc-500">{selectedPageRouteLabel || `/${selectedPage.slug}`}</div>
+                    <div className="text-sm font-semibold text-zinc-900">Page context</div>
+                    <div className="mt-1 break-all text-xs leading-5 text-zinc-500">{selectedPageRouteLabel || `/${selectedPage.slug}`}</div>
                   </div>
                   <span className={classNames(
-                    "pt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]",
-                    selectedPageDirty ? "text-amber-900" : "text-zinc-500",
+                    "rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold",
+                    selectedPageDirty ? "text-amber-900" : "text-zinc-600",
                   )}>
                     {sourcePaneMeta || wholePageSyncMeta || (selectedPageDirty ? "Unsaved draft" : "Draft saved")}
                   </span>
                 </div>
+                <div className="mt-3">{sidebarSettingsPanel}</div>
               </div>
-
-              {sidebarSettingsPanel}
             </div>
           ) : selectedPage.editorMode === "MARKDOWN" ? (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Legacy mode</div>
-              <div className="mt-2 font-semibold">This page is in Markdown mode.</div>
-              <div className="mt-2 text-amber-800">
-                Markdown editing is disabled in this editor. Pick a supported mode to continue.
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void setEditorMode("BLOCKS")}
-                  className={classNames(
-                    "rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100",
-                    busy ? "opacity-60" : "",
-                  )}
-                >
-                  Switch to Builder
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void setEditorMode("CUSTOM_HTML")}
-                  className={classNames(
-                    "rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100",
-                    busy ? "opacity-60" : "",
-                  )}
-                >
-                  Switch to Page
-                </button>
+            <div className={sidebarPanelCardClassName}>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Legacy mode</div>
+                <div className="mt-2 font-semibold">This page is in Markdown mode.</div>
+                <div className="mt-2 text-amber-800">
+                  Markdown editing is disabled in this editor. Pick a supported mode to continue.
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void setEditorMode("BLOCKS")}
+                    className={classNames(
+                      "rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100",
+                      busy ? "opacity-60" : "",
+                    )}
+                  >
+                    Switch to Builder
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void setEditorMode("CUSTOM_HTML")}
+                    className={classNames(
+                      "rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100",
+                      busy ? "opacity-60" : "",
+                    )}
+                  >
+                    Switch to Page
+                  </button>
+                </div>
               </div>
             </div>
           ) : wholePageUsesBuilderSidebar ? (
             <div className="space-y-3">
-              <div className="pb-1">
+              <div className={sidebarPanelCardClassName}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="break-all text-xs leading-5 text-zinc-500">{selectedPageRouteLabel || `/${selectedPage.slug}`}</div>
+                    <div className="text-sm font-semibold text-zinc-900">Page context</div>
+                    <div className="mt-1 break-all text-xs leading-5 text-zinc-500">{selectedPageRouteLabel || `/${selectedPage.slug}`}</div>
                   </div>
                   <span className={classNames(
-                    "pt-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]",
-                    selectedPageDirty ? "text-amber-900" : "text-zinc-500",
+                    "rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold",
+                    selectedPageDirty ? "text-amber-900" : "text-zinc-600",
                   )}>
                     {sourcePaneMeta || wholePageSyncMeta || (selectedPageDirty ? "Unsaved draft" : "Draft saved")}
                   </span>
                 </div>
+                <div className="mt-3">{sidebarSettingsPanel}</div>
               </div>
-
-              {sidebarSettingsPanel}
             </div>
           ) : blocksSurfaceActive ? (
             <div className="space-y-3">
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-1.5">
-                <div className="grid grid-cols-2 gap-1.5">
-                  <BuilderRailNavButton
-                    label="Builder"
-                    icon={
-                      <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="4" width="14" height="4" rx="1.5" />
-                        <rect x="3" y="10" width="14" height="6" rx="1.5" />
-                      </svg>
-                    }
-                    active={builderTopLevelPanel === "structure"}
-                    onClick={() => setSidebarPanel("structure")}
-                  />
-                  <BuilderRailNavButton
-                    label="Settings"
-                    icon={
-                      <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3.5" y="4" width="13" height="12" rx="2" />
-                        <path d="M7 8h6" />
-                        <path d="M7 12h4" />
-                      </svg>
-                    }
-                    active={builderTopLevelPanel === "settings"}
-                    onClick={() => setSidebarPanel("settings")}
-                  />
+              <div className={sidebarPanelCardClassName}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-zinc-900">Page context</div>
+                    <div className="mt-1 text-xs leading-5 text-zinc-500">Booking, SEO, tracking, and runtime state for this page.</div>
+                  </div>
+                  <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-600">
+                    {sidebarSettingsStatusLabel}
+                  </div>
                 </div>
+
+                <div className="mt-3">{sidebarSettingsPanel}</div>
               </div>
-
-              {builderTopLevelPanel === "structure" ? (
-                <div className="space-y-3">
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-3.5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Current page</div>
-                        <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{selectedPage.title || "Untitled page"}</div>
-                        <div className="mt-1 break-all text-xs leading-5 text-zinc-500">{selectedPageRouteLabel}</div>
-                        <div className="mt-2 text-[11px] font-medium text-zinc-500">
-                          {pageAnatomy.sections > 0
-                            ? `${pageAnatomy.sections} sections`
-                            : `${Math.max(pageAnatomy.totalBlocks, blockOutlineItems.length)} ${Math.max(pageAnatomy.totalBlocks, blockOutlineItems.length) === 1 ? "block" : "blocks"}`}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 rounded-[22px] border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3.5">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Structured flow</div>
-                          <div className="mt-1 text-xs leading-5 text-zinc-500">Keep the page read in one sequence: objective, metric, mechanism, then sections.</div>
-                        </div>
-                        <div className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-500">
-                          {pageAnatomy.totalBlocks} {pageAnatomy.totalBlocks === 1 ? "block" : "blocks"}
-                        </div>
-                      </div>
-
-                      <div className="mt-3 space-y-3">
-                        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-3">
-                          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Objective</div>
-                          <div className="mt-1 text-sm font-semibold text-zinc-950">{pageConversionFocus.headline}</div>
-                          <div className="mt-1 text-xs leading-5 text-zinc-600">{pageConversionFocus.summary}</div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
-                            <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 font-medium text-zinc-600">Next action: {pageConversionFocus.ctaValue}</span>
-                            {pageGoalUsesDefault ? <span>Using the default goal for this page type.</span> : null}
-                          </div>
-                        </div>
-
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5">
-                            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">{pageConversionFocus.metricLabel}</div>
-                            <div className="mt-1 wrap-break-word text-sm font-semibold leading-5 text-zinc-900">{pageConversionFocus.metricValue}</div>
-                          </div>
-                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5">
-                            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">{pageConversionFocus.mechanismLabel}</div>
-                            <div className="mt-1 wrap-break-word text-sm font-semibold leading-5 text-zinc-900">{pageConversionFocus.mechanismValue}</div>
-                          </div>
-                        </div>
-
-                        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-3">
-                          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Sections</div>
-                          <div className="mt-1 text-xs leading-5 text-zinc-500">Use this as the page sequence.</div>
-
-                          {sectionPlanItems.length ? (
-                            <div className="mt-3 space-y-1.5 border-l border-zinc-200/80 pl-3">
-                              {sectionPlanItems.slice(0, 6).map((item, index) => (
-                                <SectionPlanHintRow key={`${item}-${index}`} item={item} index={index} total={Math.min(sectionPlanItems.length, 6)} />
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="mt-3 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-4 text-sm text-zinc-600">
-                              No section outline yet. Start with the page goal, then shape the first pass.
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
-              {builderTopLevelPanel === "settings" ? (
-                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3.5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold text-zinc-900">Page setup</div>
-                      <div className="mt-1 text-xs leading-5 text-zinc-500">Use the sidebar sections below for booking, search, tracking, and defaults.</div>
-                    </div>
-                    <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-600">
-                      {sidebarSettingsStatusLabel}
-                    </div>
-                  </div>
-
-                  <div className="mt-3">{sidebarSettingsPanel}</div>
-                </div>
-              ) : null}
             </div>
           ) : null}
             </>
@@ -15538,31 +18424,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             "lg:order-2",
           )}
         >
-          {aiWorkFocus?.phase === "pending" ? (
-            <div className="pointer-events-none sticky top-3 z-20 mb-3 flex w-full flex-col items-end gap-2 self-end sm:w-auto sm:max-w-[26rem]">
-              {aiWorkFocus?.phase === "pending" ? (
-                <div
-                  className={classNames(
-                    "pointer-events-auto inline-flex max-w-full items-center gap-3 rounded-2xl border px-4 py-2.5 text-sm shadow-[0_14px_32px_rgba(15,23,42,0.10)]",
-                    "border-zinc-200/90 bg-white/95 text-zinc-900",
-                  )}
-                >
-                  <span
-                    className={classNames(
-                      "inline-flex h-2.5 w-2.5 shrink-0 rounded-full",
-                      "animate-pulse bg-zinc-900",
-                    )}
-                  />
-                  <span className="min-w-0 flex-1 font-medium">{aiWorkFocus.label}</span>
-                  {aiWorkFocus.mode === "page" && aiWorkFocus.regionKey ? (
-                    <span className="shrink-0 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                      Scoped
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
           <div
             className={classNames(
               "flex min-h-0 flex-1 flex-col overflow-hidden border border-zinc-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.06)]",
@@ -15572,9 +18433,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2">
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
-                  <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Preview"}</div>
+                  <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Page"}</div>
                 </div>
-                {selectedPage ? <div className="truncate text-xs text-zinc-500">{selectedPageRouteLabel} - {pageManagementUi.summary}</div> : null}
+                {selectedPage ? <div className="truncate text-xs text-zinc-500">{selectedPageRouteLabel}</div> : null}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <div className="inline-flex items-center gap-1.5 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-1">
@@ -15628,10 +18489,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       <div className="mx-0.5 h-4 w-px shrink-0 bg-zinc-200" />
                       <BuilderStageToggleButton
                         label="Page"
-                        active={pageLensStage === "page" && pageCanvasView === "preview" && wholePageSurfaceActive}
-                        title="Show the same current page draft in Preview"
+                        active={pageSurfaceActive}
+                        title="Open the page surface"
                         onClick={() => {
-                          if (selectedPageSupportsBlocksSurface) setBuilderMode("whole-page");
+                          if (selectedPageSupportsBlocksSurface) {
+                            setBuilderMode(previewMode === "edit" ? "blocks" : "whole-page");
+                          }
                           setPageLensStage("page");
                           setPageCanvasView("preview");
                         }}
@@ -15639,21 +18502,48 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       <BuilderStageToggleButton
                         label="Source"
                         active={pageLensStage === "page" && pageCanvasView === "source" && wholePageSurfaceActive}
-                        title="Show the same current page draft in Source"
+                        title={wholePageSourceEditable ? "Edit this same current draft as HTML" : "View this same current draft as source"}
                         onClick={() => {
                           openSourceWorkspace();
                         }}
                       />
-                      <div className="mx-0.5 h-4 w-px shrink-0 bg-zinc-200" />
-                      <BuilderStageToggleButton
-                        label="Chat"
-                        active={chatRailOpen}
-                        title={chatRailOpen ? "Close chat" : "Open chat"}
-                        onClick={() => setChatRailOpen((prev) => !prev)}
-                      />
+                      <div className="hidden lg:flex lg:items-center">
+                        <div className="mx-0.5 h-4 w-px shrink-0 bg-zinc-200" />
+                        <BuilderStageToggleButton
+                          label="Assistant"
+                          active={chatRailOpen}
+                          title={chatRailOpen ? "Hide the page assistant" : "Show the page assistant"}
+                          onClick={() => {
+                            if (chatRailOpen) {
+                              setChatRailOpen(false);
+                              return;
+                            }
+                            setChatRailMode("chat");
+                            setChatRailOpen(true);
+                          }}
+                        />
+                      </div>
                     </>
                   ) : null}
                 </div>
+                {selectedPage && selectedPageSupportsBlocksSurface && pageCanvasView === "preview" ? (
+                  <div className="flex items-center gap-2">
+                    <div className="inline-flex items-center gap-1 rounded-2xl border border-zinc-200 bg-white p-1">
+                      <PreviewModeToggleButton
+                        label="View"
+                        active={!blocksSurfaceActive}
+                        title="View the page"
+                        onClick={openPageViewMode}
+                      />
+                      <PreviewModeToggleButton
+                        label="Edit"
+                        active={blocksSurfaceActive}
+                        title="Edit the page directly"
+                        onClick={openPageEditMode}
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -15687,19 +18577,27 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     <div className="h-[60vh] rounded-4xl bg-white animate-pulse" />
                   </div>
                 ) : (
-                  <div className="text-sm text-zinc-600">Select a page to preview.</div>
+                  <div className="text-sm text-zinc-600">Select a page to open.</div>
                 )
-              ) : wholePageModeActive ? (
+              ) : wholePageModeActive && !blockPreviewUsesSharedCanvas ? (
                 <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col">
                   <div className="min-h-0 flex-1 lg:flex lg:flex-col">
                     {pageCanvasView === "source" ? (
                       <WholePageLensWindow
                         label="Source"
-                        title={sourceScopeLabel}
-                        meta={sourcePaneMeta}
+                        title="Source"
                         tone="subtle"
+                        compactHeader
                         actions={currentPageSourceHtml ? (
                           <div className="flex flex-wrap items-center gap-2">
+                            <div className={classNames(
+                              "rounded-full px-3 py-1 text-[11px] font-semibold",
+                              sourceEditMode
+                                ? "border border-blue-200 bg-blue-50 text-blue-900"
+                                : "bg-white text-zinc-700 ring-1 ring-inset ring-zinc-200",
+                            )}>
+                              {sourceStageStateLabel}
+                            </div>
                             <button
                               type="button"
                               onClick={() => {
@@ -15719,7 +18617,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               </svg>
                               Copy
                             </button>
-                            {wholePageSourceCanStartEditing ? (
+                            {wholePageSourceEditable ? (
                               <>
                                 {!sourceEditMode ? (
                                   <button
@@ -15735,7 +18633,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   onClick={() => openSourceWorkspace({ selectAll: true })}
                                   className="inline-flex items-center rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:text-zinc-900"
                                 >
-                                  {sourceEditMode ? "Select all" : "Edit and select all"}
+                                  {sourceEditMode ? "Select all" : "Replace code"}
                                 </button>
                                 {sourceHasPendingChanges ? (
                                   <>
@@ -15744,21 +18642,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       onClick={previewSourceEditing}
                                       className="inline-flex items-center rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:text-zinc-900"
                                     >
-                                      Review in Page
+                                      Preview changes
                                     </button>
                                     <button
                                       type="button"
                                       onClick={applySourceEditing}
                                       className="inline-flex items-center rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100"
                                     >
-                                      Apply to draft
+                                      Save to draft
                                     </button>
                                     <button
                                       type="button"
                                       onClick={discardSourceEditing}
                                       className="inline-flex items-center rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:text-zinc-900"
                                     >
-                                      Cancel edits
+                                      Discard
                                     </button>
                                   </>
                                 ) : sourceEditMode ? (
@@ -15767,7 +18665,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     onClick={discardSourceEditing}
                                     className="inline-flex items-center rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:text-zinc-900"
                                   >
-                                    Done editing
+                                    Discard
                                   </button>
                                 ) : null}
                               </>
@@ -15777,70 +18675,22 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         bodyClassName="min-h-0 flex flex-1 flex-col overflow-hidden bg-zinc-50"
                       >
                         {currentPageSourceHtml ? (
-                          <>
-                            <div
-                              className={classNames(
-                                "shrink-0 border-b px-4 py-3 sm:px-5",
-                                sourceEditMode
-                                  ? "border-zinc-300 bg-[linear-gradient(180deg,#ffffff_0%,#f4f4f5_100%)] text-zinc-950"
-                                  : wholePageSourceRequiresModeSwitch
-                                    ? "border-zinc-300 bg-[linear-gradient(180deg,#ffffff_0%,#f4f4f5_100%)] text-zinc-950"
-                                    : "border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] text-zinc-950",
-                              )}
-                            >
-                              <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div className="min-w-0 flex-1">
-                                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                                    {sourceEditMode ? "Editing source" : wholePageSourceRequiresModeSwitch ? "Preparing source edit" : "Saved draft source"}
-                                  </div>
-                                  <div className="mt-1 text-sm font-semibold text-zinc-900">
-                                    {sourceEditMode
-                                      ? sourceHasPendingChanges
-                                        ? "These edits are staged until you apply them to the draft."
-                                        : "You are editing the same draft that Page previews."
-                                      : wholePageSourceRequiresModeSwitch
-                                        ? "The first source edit converts this page into direct HTML drafting."
-                                        : "Source is showing the current draft HTML."}
-                                  </div>
-                                  <div className="mt-1 text-xs leading-5 text-zinc-600">
-                                    {sourceHasPendingChanges
-                                      ? "Review in Page checks the staged version before you apply it."
-                                      : sourceEditMode
-                                        ? "Type here, then use Done editing when you are finished."
-                                        : wholePageSourceRequiresModeSwitch
-                                          ? "Use Edit source to start that conversion."
-                                          : "Use Edit source when you want to change the draft code."}
-                                  </div>
-                                </div>
-                                <div className={classNames(
-                                  "rounded-full px-3 py-1 text-[11px] font-semibold",
-                                  sourceEditMode
-                                    ? "border border-blue-200 bg-blue-50 text-blue-900"
-                                    : wholePageNeedsSaveForDeployableSource || wholePageSourceRequiresModeSwitch
-                                      ? "border border-amber-200 bg-amber-50 text-amber-900"
-                                      : "bg-white text-zinc-700 ring-1 ring-inset ring-zinc-200",
-                                )}>
-                                  {sourcePaneMeta || (wholePageSourceRequiresModeSwitch ? "Switching this draft to source editing" : "Viewing saved draft source")}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="min-h-0 flex-1 p-3 sm:p-4">
-                              <CodeSurface
-                                value={currentPageSourceHtml}
-                                onChange={sourceEditMode ? (next) => {
-                                  setSourceEditDraft(next);
-                                  if (sourcePreviewActive) setSourcePreviewActive(false);
-                                } : undefined}
-                                placeholder="<!doctype html>"
-                                readOnly={!sourceEditMode}
-                                lineHighlightRange={null}
-                                tone="light"
-                                statusLabel={sourceEditMode ? "Editing staged source" : wholePageSourceRequiresModeSwitch ? "Preparing source editor" : "Viewing saved draft source"}
-                                editorSelectAllSignal={sourceSelectAllSignal}
-                                onActivate={wholePageSourceCanStartEditing ? () => beginSourceEditing() : undefined}
-                              />
-                            </div>
-                          </>
+                          <div className="min-h-0 flex-1 p-3 sm:p-4">
+                            <CodeSurface
+                              value={currentPageSourceHtml}
+                              onChange={sourceEditMode ? (next) => {
+                                setSourceEditDraft(next);
+                                if (sourcePreviewActive) setSourcePreviewActive(false);
+                              } : undefined}
+                              placeholder="<!doctype html>"
+                              readOnly={!sourceEditMode}
+                              lineHighlightRange={null}
+                              tone="light"
+                              showStatusBar={false}
+                              editorSelectAllSignal={sourceSelectAllSignal}
+                              onActivate={wholePageSourceEditable ? () => beginSourceEditing() : undefined}
+                            />
+                          </div>
                         ) : (
                           <div className="flex h-full min-h-[36vh] items-center justify-center px-6 text-center text-sm text-zinc-400">
                             {wholePageStatusMessage || "No page source available yet. Save the page to generate the source view."}
@@ -15865,21 +18715,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   ? "border-amber-300 bg-[linear-gradient(180deg,#fffbeb_0%,#fef3c7_100%)] text-zinc-950"
                                   : "border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f4f4f5_100%)] text-zinc-950",
                               )}>
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="text-sm font-semibold">
-                                      {sourceEditMode && sourcePreviewActive
-                                        ? "Page is showing your staged source edits."
-                                        : "Page is showing the saved draft."}
-                                    </div>
-                                    <div className={classNames(
-                                      "mt-1 text-xs",
-                                      sourceEditMode && sourcePreviewActive ? "text-amber-950/80" : "text-zinc-600",
-                                    )}>
-                                      {sourceEditMode && sourcePreviewActive
-                                        ? "Return to Source to apply or discard them."
-                                        : "Use Source when you want to change the draft code."}
-                                    </div>
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div className="text-sm font-semibold text-zinc-900">
+                                    {sourceEditMode && sourcePreviewActive ? "Previewing staged draft" : "Current saved draft"}
                                   </div>
                                   <div className={classNames(
                                     "px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]",
@@ -15887,7 +18725,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       ? "text-amber-900"
                                       : "text-zinc-500",
                                   )}>
-                                    {sourceEditMode && sourcePreviewActive ? "Staged changes" : "Saved draft"}
+                                    {sourceEditMode && sourcePreviewActive ? "Preview" : "Saved"}
                                   </div>
                                 </div>
                               </div>
@@ -15896,19 +18734,45 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               "min-h-0 flex-1 overflow-y-auto",
                               previewDevice === "mobile" ? "px-3 py-4 sm:px-4" : "px-4 py-4",
                             )}>
-                              <CustomHtmlPreviewFrame
-                                html={editorPreviewHtml}
-                                title={selectedPage.title}
-                                previewDevice={previewDevice}
-                                heightClassName={previewDevice === "mobile" ? "h-[min(72vh,780px)]" : "h-[min(82vh,1200px)] min-h-[720px]"}
-                                selectedRegionKey={selectedHtmlRegion?.key || null}
-                                selectionState={htmlPreviewSelectionState}
-                                minimalChrome
-                              />
+                              <div
+                                className={classNames(
+                                  "overflow-hidden bg-white",
+                                  previewDevice === "mobile" ? "min-h-[min(82vh,860px)] rounded-[28px]" : "min-h-[720px]",
+                                )}
+                              >
+                                <FunnelCustomHtmlRuntimeSurface
+                                  html={previewHtmlWithImplicitBooking}
+                                  bookingTarget={bookingSiteSlug
+                                    ? {
+                                        kind: "slug",
+                                        slug: bookingSiteSlug,
+                                        funnelId: funnel?.id || null,
+                                        pageId: selectedPage.id,
+                                        themeStage: "current",
+                                      }
+                                    : (typeof (funnel as any)?.ownerId === "string" && funnel?.bookingCalendarId
+                                        ? {
+                                            kind: "calendar",
+                                            ownerId: String((funnel as any).ownerId),
+                                            calendarId: funnel.bookingCalendarId,
+                                            funnelId: funnel?.id || null,
+                                            pageId: selectedPage.id,
+                                            themeStage: "current",
+                                          }
+                                        : null)}
+                                  injectImplicitBooking={Boolean((bookingSiteSlug || funnel?.bookingCalendarId) && selectedPagePreviewBookingState)}
+                                  bookingLabel={selectedPagePreviewBookingState?.title || null}
+                                  surfaceContext={previewBookingSurfaceContext}
+                                  className={classNames(
+                                    "w-full bg-white",
+                                    previewDevice === "mobile" ? "min-h-[min(82vh,860px)]" : "min-h-[720px]",
+                                  )}
+                                />
+                              </div>
                             </div>
                           </>
                         ) : selectedPage.editorMode === "BLOCKS" ? (
-                          <div className={classNames("mx-auto w-full p-3 sm:p-4", previewDevice === "mobile" ? "max-w-98" : "max-w-5xl") }>
+                          <div className={classNames("mx-auto w-full p-3 sm:p-4", previewDevice === "mobile" ? "max-w-sm" : "max-w-5xl") }>
                             <div
                               className={classNames(
                                 previewDevice === "mobile"
@@ -15917,21 +18781,26 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               )}
                             >
                               {previewDevice === "mobile" ? <div className="mx-auto mb-3 h-1.5 w-24 rounded-full bg-zinc-300" /> : null}
-                              <div className={classNames(previewDevice === "mobile" ? "h-[min(72vh,780px)] overflow-auto rounded-[28px] bg-white" : "h-[min(78vh,980px)] min-h-[640px] overflow-auto bg-white")}>
+                              <div className={classNames(previewDevice === "mobile" ? "h-[min(82vh,860px)] overflow-auto rounded-[28px] bg-white" : "min-h-[640px] max-h-[calc(100dvh-220px)] overflow-y-auto bg-white shadow-[0_0_0_1px_rgba(24,24,27,0.08)]")}>
                                 {renderCreditFunnelBlocks({
-                                  blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
+                                  blocks: previewRenderableBlocks,
                                   basePath: hostedBasePath,
                                   context: {
+                                    bookingOwnerId: typeof (funnel as any)?.ownerId === "string" ? String((funnel as any).ownerId) : undefined,
                                     bookingSiteSlug: bookingSiteSlug || undefined,
                                     defaultBookingCalendarId: funnel?.bookingCalendarId || undefined,
                                     defaultBookingCalendarTitle: funnel?.bookingCalendarId ? bookingCalendarTitleById[funnel.bookingCalendarId] || funnel.bookingCalendarId : undefined,
                                     bookingCalendarTitleById,
+                                    bookingCalendarEnabledById,
                                     funnelId: funnel?.id || undefined,
                                     funnelPageId: selectedPage.id,
                                     funnelSlug: funnel?.slug || undefined,
                                     funnelPageSlug: selectedPage.slug,
+                                    bookingSurfacePageTitle: selectedPage.title,
+                                    bookingSurfacePageIntent: selectedPage.brief || null,
+                                    offers: funnel?.offers || [],
                                     previewDevice,
-                                    previewEmbedMode: "live",
+                                    previewEmbedMode: "placeholder",
                                     showBookingState: true,
                                   },
                                 })}
@@ -15948,19 +18817,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   </div>
                 </div>
               ) : (
-                <div className={classNames("mx-auto w-full", previewDevice === "mobile" ? "max-w-98" : "max-w-5xl")}>
+                <div className={classNames("mx-auto w-full", previewDevice === "mobile" ? "max-w-sm" : "max-w-5xl")}>
                   <div
                     className={classNames(
                       previewDevice === "mobile"
                         ? "overflow-hidden rounded-[30px] border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-3 shadow-[0_20px_60px_rgba(15,23,42,0.08)]"
-                        : previewMode === "edit"
-                          ? "border border-zinc-200 bg-white"
-                          : "bg-transparent",
+                        : "border border-zinc-200 bg-white",
                     )}
                   >
                     {previewDevice === "mobile" ? <div className="mx-auto mb-3 h-1.5 w-24 rounded-full bg-zinc-300" /> : null}
                     <div
-                      className={classNames(previewDevice === "mobile" ? "h-[min(72vh,780px)] overflow-auto rounded-[28px] bg-white" : "h-[min(78vh,980px)] min-h-[640px] overflow-auto bg-white") }
+                      className={classNames(previewDevice === "mobile" ? "h-[min(82vh,860px)] overflow-auto rounded-[28px] bg-white" : "min-h-[640px] max-h-[calc(100dvh-220px)] overflow-y-auto bg-white") }
                       onDragOver={(e) => {
                         if (!blocksSurfaceActive || previewMode !== "edit") return;
                         const t = e.dataTransfer.types;
@@ -15983,11 +18850,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     >
                       {previewDevice === "mobile" ? (
                         <div className="border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-[11px] font-medium text-zinc-600">
-                          Mobile viewport preview. Live embeds are simplified here so the canvas stays responsive.
+                          Mobile viewport preview. This keeps the real page width, safe gutters, and a taller phone frame for verification.
                         </div>
                       ) : null}
 
-                      {editableBlocks.length === 0 ? (
+                      {(previewMode === "edit" ? editableBlocks.length === 0 : !previewHasRenderableBlocks) ? (
                         blankPageOnboardingActive ? (
                           <div className={classNames(previewDevice === "mobile" ? "p-4" : "p-8")}>
                             <div className="flex min-h-[60vh] items-center justify-center rounded-[28px] border border-zinc-200 bg-[radial-gradient(circle_at_top,#f8fafc_0%,#ffffff_52%,#f5f7fb_100%)] px-5 py-8">
@@ -15997,7 +18864,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">First draft setup</div>
                                     <div className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950">Set up the first version of this page before you start designing it.</div>
                                     <div className="mt-3 max-w-2xl text-sm leading-7 text-zinc-600">
-                                      This page is still empty at <span className="font-mono text-[13px] text-zinc-700">{selectedPageRouteLabel}</span>. Choose the direction, shape the first pass, and then let AI generate something you can immediately start refining on the canvas.
+                                      This page is still empty at <span className="font-mono text-[13px] text-zinc-700">{selectedPageRouteLabel}</span>. Choose the direction, shape the first pass, and then let AI generate something you can immediately start refining on the page.
                                     </div>
                                   </div>
                                   <div className="shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-[11px] font-semibold text-zinc-600">
@@ -16019,12 +18886,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
                                     <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Step 3</div>
                                     <div className="mt-2 text-sm font-semibold text-zinc-900">Generate a first draft you can work from</div>
-                                    <div className="mt-1 text-xs leading-6 text-zinc-600">Once the draft exists, you can keep iterating on the canvas, swap visuals, and test different angles.</div>
+                                    <div className="mt-1 text-xs leading-6 text-zinc-600">Once the draft exists, you can keep iterating on the page, swap visuals, and test different angles.</div>
                                   </div>
                                 </div>
 
                                 <div className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                                  <div className="text-xs leading-6 text-zinc-500">You can keep the guided shell flow, or skip it and start directly on the canvas.</div>
+                                  <div className="text-xs leading-6 text-zinc-500">You can keep the guided shell flow, or skip it and start directly on the page.</div>
                                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                     <button
                                       type="button"
@@ -16035,7 +18902,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       }}
                                       className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
                                     >
-                                      Start with empty canvas
+                                      Start with empty page
                                     </button>
                                     <button
                                       type="button"
@@ -16062,7 +18929,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     </div>
                                   </div>
                                   <div className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
-                                    Canvas open
+                                    Page open
                                   </div>
                                 </div>
 
@@ -16101,7 +18968,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 </div>
 
                                 <div className="mt-4 text-xs leading-6 text-zinc-500">
-                                  You can also drop starter blocks into this canvas or use the assistant bar below to generate the first pass.
+                                  You can also drop starter blocks into this page or use the assistant bar below to generate the first pass.
                                 </div>
                               </div>
                             </div>
@@ -16109,19 +18976,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         )
                       ) : (
                         renderCreditFunnelBlocks({
-                          blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
+                          blocks: previewMode === "preview" ? previewRenderableBlocks : (pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks),
                           basePath: hostedBasePath,
                           context: {
+                            bookingOwnerId: typeof (funnel as any)?.ownerId === "string" ? String((funnel as any).ownerId) : undefined,
                             bookingSiteSlug: bookingSiteSlug || undefined,
                             defaultBookingCalendarId: funnel?.bookingCalendarId || undefined,
                             defaultBookingCalendarTitle: funnel?.bookingCalendarId ? bookingCalendarTitleById[funnel.bookingCalendarId] || funnel.bookingCalendarId : undefined,
                             bookingCalendarTitleById,
+                            bookingCalendarEnabledById,
                             funnelId: funnel?.id || undefined,
                             funnelPageId: selectedPage.id,
                             funnelSlug: funnel?.slug || undefined,
                             funnelPageSlug: selectedPage.slug,
+                            bookingSurfacePageTitle: selectedPage.title,
+                            bookingSurfacePageIntent: selectedPage.brief || null,
+                            offers: funnel?.offers || [],
                             previewDevice,
-                            previewEmbedMode: previewMode === "preview" ? "live" : "placeholder",
+                            previewEmbedMode: "placeholder",
                             showBookingState: true,
                           },
                           editor: previewMode === "edit"
@@ -16129,14 +19001,25 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 enabled: true,
                                 selectedBlockId,
                                 hoveredBlockId,
+                                selectedPricingGridItemIndex: focusedPricingGridCard?.blockId === selectedBlockId ? focusedPricingGridCard.itemIndex : null,
                                 aiFocusedBlockId: aiWorkFocus?.mode === "builder" ? aiWorkFocus.blockId : null,
                                 aiFocusedPhase: aiWorkFocus?.mode === "builder" ? aiWorkFocus.phase : null,
                                 onSelectBlockId: (id) => {
-                                  setSelectedBlockId(id);
+                                  selectCanvasBlock(id);
+                                  setSidebarPanel("structure");
+                                },
+                                onSelectPricingGridItem: (blockId, itemIndex) => {
+                                  selectCanvasBlock(blockId, itemIndex);
                                   setSidebarPanel("structure");
                                 },
                                 onHoverBlockId: (id) => setHoveredBlockId(id),
                                 onUpsertBlock: (next) => upsertBlock(next),
+                                onRequestHeaderLogoMedia: (id) => {
+                                  setSelectedBlockId(id);
+                                  setSidebarPanel("structure");
+                                  setMediaPickerTarget({ type: "header-logo", blockId: id });
+                                  setMediaPickerOpen(true);
+                                },
                                 onReorder: (dragId, dropId) => reorderBlocks(dragId, dropId),
                                 onMove: (id, dir) => moveBlock(id, dir),
                                 onRequestBookingRouting: (id) => {
@@ -16156,10 +19039,53 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         </main>
 
         {chatRailOpen && selectedPage ? (
-          <div className="hidden min-h-0 overflow-hidden border-l border-zinc-200 bg-white lg:flex lg:flex-col lg:order-3">
+          <div
+            style={{
+              transitionProperty: "box-shadow",
+              transitionDuration: chatRailResizing ? "0ms" : "320ms",
+              transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+            className={classNames(
+              "relative hidden min-h-0 overflow-hidden border-l border-zinc-200 bg-white lg:flex lg:flex-col lg:order-3 motion-reduce:transition-none",
+              chatRailResizing
+                ? "shadow-[-18px_0_40px_rgba(15,23,42,0.08)]"
+                : "shadow-[-10px_0_28px_rgba(15,23,42,0.04)]",
+            )}
+          >
+            <button
+              type="button"
+              aria-label="Resize chat panel"
+              title="Drag to resize chat panel"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                chatRailResizePointerIdRef.current = event.pointerId;
+                event.currentTarget.setPointerCapture(event.pointerId);
+                updateChatRailWidthFromClientX(event.clientX);
+                setChatRailResizing(true);
+              }}
+              onPointerUp={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+              }}
+              onPointerCancel={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+              }}
+              className="absolute inset-y-0 left-0 z-20 hidden w-3 -translate-x-1/2 touch-none cursor-col-resize lg:block"
+            >
+              <span
+                className={classNames(
+                  "absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors",
+                  chatRailResizing ? "bg-blue-400" : "bg-zinc-200 hover:bg-zinc-300",
+                )}
+              />
+            </button>
             {chatRailMode === "threads" ? (
               <ThreadRailSurface
-                heading="Chats"
+                heading="Choose thread"
+                subheading="Threads stay attached to the page they belong to. Opening one from another page brings that page with it."
                 actions={(
                   <div className="flex items-center gap-1.5">
                     <button
@@ -16174,39 +19100,35 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       }}
                       className="rounded-full px-3 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950"
                     >
-                      New chat
+                      New thread
                     </button>
                     <button
                       type="button"
                       onClick={() => setChatRailMode("chat")}
                       className="rounded-full px-3 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950"
                     >
-                      Done
+                      Current thread
                     </button>
                   </div>
                 )}
                 items={(
                   <>
-                    <div className="rounded-xl bg-zinc-50 px-3 py-2 text-[11px] leading-5 text-zinc-500">
-                      Other-page chats switch the canvas with them so the discussion stays tied to the right page.
-                    </div>
-
                     {currentPageThreads.length ? (
                       <div>
-                        <div className="mb-1.5 text-[11px] font-medium text-zinc-400">This page</div>
+                        <div className="mb-1.5 text-[11px] font-medium text-zinc-400">Page threads</div>
                         <div className="space-y-2">
                           {currentPageThreads.map((thread) => (
                             <ThreadTransitionCard
                               key={thread.id}
-                              title={getThreadDisplayTitle(thread, selectedPage.id, pageTitleById.get(thread.pageId || "") || "")}
+                              title={getThreadDisplayTitle(thread, selectedPage.id, pageTitleById.get(thread.pageId || "") || "", {
+                                scopeSequence: threadScopeSequence.sequenceById.get(thread.id) || 1,
+                                scopeThreadCount: threadScopeSequence.countByScopeId.get(thread.pageId || "__funnel__") || 1,
+                              })}
                               scopeLabel={getThreadScopeLabel(thread, selectedPage.id, pageTitleById.get(thread.pageId || "") || "")}
                               meta={formatThreadLastActive(thread.lastMessageAt)}
-                              preview={buildThreadPreview(thread.messages as Array<{ role: string; content: string }>)}
+                              preview={buildThreadPreviewSummary(thread)}
                               active={thread.id === selectedThreadId}
-                              onClick={() => {
-                                setSelectedThreadId(thread.id);
-                                setChatRailMode("chat");
-                              }}
+                              onClick={() => openThreadFromRail(thread)}
                             />
                           ))}
                         </div>
@@ -16215,20 +19137,20 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                     {funnelWideThreads.length ? (
                       <div>
-                        <div className="mb-1.5 text-[11px] font-medium text-zinc-400">Funnel</div>
+                        <div className="mb-1.5 text-[11px] font-medium text-zinc-400">Funnel-wide threads</div>
                         <div className="space-y-2">
                           {funnelWideThreads.map((thread) => (
                             <ThreadTransitionCard
                               key={thread.id}
-                              title={getThreadDisplayTitle(thread, selectedPage.id, "")}
+                              title={getThreadDisplayTitle(thread, selectedPage.id, "", {
+                                scopeSequence: threadScopeSequence.sequenceById.get(thread.id) || 1,
+                                scopeThreadCount: threadScopeSequence.countByScopeId.get("__funnel__") || 1,
+                              })}
                               scopeLabel={getThreadScopeLabel(thread, selectedPage.id, "")}
                               meta={formatThreadLastActive(thread.lastMessageAt)}
-                              preview={buildThreadPreview(thread.messages as Array<{ role: string; content: string }>)}
+                              preview={buildThreadPreviewSummary(thread)}
                               active={thread.id === selectedThreadId}
-                              onClick={() => {
-                                setSelectedThreadId(thread.id);
-                                setChatRailMode("chat");
-                              }}
+                              onClick={() => openThreadFromRail(thread)}
                             />
                           ))}
                         </div>
@@ -16237,22 +19159,22 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                     {otherPageThreads.length ? (
                       <div>
-                        <div className="mb-1.5 text-[11px] font-medium text-zinc-400">Other pages</div>
+                        <div className="mb-1.5 text-[11px] font-medium text-zinc-400">Other page threads</div>
                         <div className="space-y-2">
                           {otherPageThreads.map((thread) => {
                             const threadPageTitle = pageTitleById.get(thread.pageId || "") || String((thread.context as Record<string, unknown> | null)?.pageTitle || "").trim();
                             return (
                               <ThreadTransitionCard
                                 key={thread.id}
-                                title={getThreadDisplayTitle(thread, selectedPage.id, threadPageTitle)}
+                                title={getThreadDisplayTitle(thread, selectedPage.id, threadPageTitle, {
+                                  scopeSequence: threadScopeSequence.sequenceById.get(thread.id) || 1,
+                                  scopeThreadCount: threadScopeSequence.countByScopeId.get(thread.pageId || "__funnel__") || 1,
+                                })}
                                 scopeLabel={getThreadScopeLabel(thread, selectedPage.id, threadPageTitle)}
                                 meta={formatThreadLastActive(thread.lastMessageAt)}
-                                preview={buildThreadPreview(thread.messages as Array<{ role: string; content: string }>)}
+                                preview={buildThreadPreviewSummary(thread)}
                                 active={thread.id === selectedThreadId}
-                                onClick={() => {
-                                  setSelectedThreadId(thread.id);
-                                  setChatRailMode("chat");
-                                }}
+                                  onClick={() => openThreadFromRail(thread)}
                               />
                             );
                           })}
@@ -16272,8 +19194,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       className="-ml-2 flex min-w-0 flex-1 items-center gap-2 rounded-full px-2 py-1.5 text-left transition hover:bg-zinc-100"
                     >
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-(--color-brand-blue)" />
-                      <span className="truncate text-sm font-medium text-zinc-950">{selectedThreadDisplayTitle}</span>
-                      <span className="truncate text-[11px] text-zinc-500">{selectedThreadMeta}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page assistant</span>
+                        <span className="mt-0.5 flex min-w-0 items-center gap-2">
+                          <span className="truncate text-sm font-medium text-zinc-950">{selectedThreadDisplayTitle}</span>
+                          <span className="truncate text-[11px] text-zinc-500">{selectedThreadMeta}</span>
+                        </span>
+                      </span>
                     </button>
                     <div className="flex shrink-0 items-center gap-1">
                       <button
@@ -16288,16 +19215,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         }}
                           className="rounded-full px-3 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950"
                       >
-                        New chat
+                          New thread
                       </button>
                     </div>
                   </div>
                 </div>
                 <DirectionWorkbenchPanel
                   routeLabel={selectedPageRouteLabel}
+                  pageType={pageIntentProfile.pageType}
                   pageTypeLabel={PAGE_INTENT_TYPE_LABELS[pageIntentProfile.pageType]}
                   assumption={foundationArtifact?.assumption || null}
                   pageConversionFocus={pageConversionFocus}
+                  transactionReadiness={pageTransactionReadiness}
                   shellFrame={selectedShellFrame
                     ? {
                         label: selectedShellFrame.label,
@@ -16323,10 +19252,54 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   embedded
                   onOpenBrief={() => setBriefPanelOpen(true)}
                   onAsk={(prompt) => { void runAiChat(prompt); }}
+                  onJumpToBlock={(blockId) => {
+                    if (selectedPageSupportsBlocksSurface) setBuilderMode("blocks");
+                    setPageLensStage("page");
+                    setPageCanvasView("preview");
+                    setSelectedBlockId(blockId);
+                    setSidebarPanel("structure");
+                  }}
                   onAttach={() => setAiContextOpen(true)}
                   onPaste={handleAiContextPaste}
                   attachCount={aiReferenceCount}
-                  onPrepareDraft={(promptHint, displayPrompt) => {
+                  assistantContext={assistantContext}
+                  selectedTargetLabel={assistantSelectedEditTarget?.label || null}
+                  selectedTargetContextLine={assistantSelectedEditTarget?.contextLine || null}
+                  selectionTools={(() => {
+                    if (selectedBlock?.type === "pricingGrid" && pagePreviewEditSelectionActive) {
+                      const pricingItems = Array.isArray(selectedBlock.props.items) ? selectedBlock.props.items : [];
+                      if (pricingItems.length === 0) return null;
+                      const focusedCard = focusedPricingGridCard?.blockId === selectedBlock.id
+                        ? pricingItems[focusedPricingGridCard.itemIndex] || null
+                        : null;
+                      return (
+                        <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1 text-xs text-zinc-600">
+                              {focusedCard
+                                ? `Pricing editor ready for ${String(focusedCard.name || `Package ${focusedPricingGridCard!.itemIndex + 1}`).trim() || `Package ${focusedPricingGridCard!.itemIndex + 1}`}.`
+                                : `${pricingItems.length} packages in this section.`}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setPricingEditorOpen(true)}
+                              className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                            >
+                              Open pricing editor
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })()}
+                  onPrepareDraft={(promptHint, displayPrompt, opts) => {
+                    if (opts?.sourceActionPlan) {
+                      void runAi(promptHint, { sourceActionPlan: opts.sourceActionPlan, displayPrompt: displayPrompt || promptHint });
+                      return;
+                    }
+
                     void runAi(`${composePromptFromIntent("draft")}\n\nStructural redesign instruction:\nTreat this as a structural redesign pass on the current page HTML, not a small patch. Rework section structure, spacing, hierarchy, proof placement, and CTA anchoring wherever needed to satisfy the direction below while preserving only what is clearly working.\n\nDirection for this pass:\n${promptHint}`, { sourceActionPlan: pendingSourceActionPlan, displayPrompt: displayPrompt || promptHint });
                   }}
                 />

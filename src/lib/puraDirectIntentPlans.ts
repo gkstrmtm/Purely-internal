@@ -55,6 +55,92 @@ function makeSlug(value: string): string {
     .slice(0, 60);
 }
 
+type DirectLandingPageSeed = {
+  slug: string;
+  title: string;
+  contentMarkdown: string;
+};
+
+function buildDirectLandingPageSeed(compactPrompt: string): DirectLandingPageSeed {
+  const text = String(compactPrompt || "").trim().toLowerCase();
+
+  if (/\b(webinar|workshop|masterclass|save your seat|save their seat|register)\b/.test(text)) {
+    return {
+      slug: "webinar-signup",
+      title: "Free Webinar Registration",
+      contentMarkdown: [
+        "# Free Webinar Registration",
+        "",
+        "Reserve your seat for the live session.",
+        "",
+        "## Page job",
+        "Register qualified attendees for the webinar without mixing in pricing or checkout posture too early.",
+        "",
+        "## What to clarify",
+        "- what the webinar covers",
+        "- who the webinar is for",
+        "- what attendees leave with",
+        "",
+        "## CTA",
+        "Invite the visitor to reserve a seat.",
+      ].join("\n"),
+    };
+  }
+
+  if (/\b(book|booking|schedule|strategy call|consult|consultation|demo call|discovery call)\b/.test(text)) {
+    return {
+      slug: "book-call",
+      title: "Book a Strategy Call",
+      contentMarkdown: [
+        "# Book a Strategy Call",
+        "",
+        "Choose a time for the conversation.",
+        "",
+        "## Page job",
+        "Move qualified visitors into a clear booking handoff with a concrete next step.",
+        "",
+        "## What to clarify",
+        "- who the call is for",
+        "- what the call helps resolve",
+        "- what happens after booking",
+      ].join("\n"),
+    };
+  }
+
+  if (/\b(download|guide|checklist|template|lead magnet|resource)\b/.test(text)) {
+    return {
+      slug: "download",
+      title: "Get the Resource",
+      contentMarkdown: [
+        "# Get the Resource",
+        "",
+        "Download the guide and get the next step by email.",
+        "",
+        "## Page job",
+        "Trade a focused resource for a lead capture handoff without drifting into a sales page.",
+        "",
+        "## What to clarify",
+        "- what the resource helps with",
+        "- who it is for",
+        "- what the reader gets next",
+      ].join("\n"),
+    };
+  }
+
+  return {
+    slug: "landing-page",
+    title: "Landing Page",
+    contentMarkdown: [
+      "# Landing Page",
+      "",
+      "Clarify the page job, the core promise, and the next step.",
+      "",
+      "## Page job",
+      "State the primary conversion outcome before adding supporting sections.",
+    ].join("\n"),
+  };
+}
+
 export function getPuraDirectActionPlan(opts: {
   prompt: string;
   signals: PuraDirectIntentSignals;
@@ -120,14 +206,15 @@ export function getPuraDirectActionPlan(opts: {
   }
 
   if (signals.shouldCreateLandingPage && threadContext.lastFunnel?.id) {
+    const seed = buildDirectLandingPageSeed(signals.compactPrompt);
     return {
       action: "funnel_builder.pages.create",
       traceTitle: "Create Funnel Landing Page",
       args: {
         funnelId: String(threadContext.lastFunnel.id).trim(),
-        slug: "webinar-signup",
-        title: "Free Webinar Signup",
-        contentMarkdown: "# Free Webinar Signup\n\nReserve your spot for the webinar.",
+        slug: seed.slug,
+        title: seed.title,
+        contentMarkdown: seed.contentMarkdown,
       },
     };
   }

@@ -23,6 +23,7 @@ import { assessFunnelSceneQuality, buildFragmentSceneAnatomy } from "@/lib/funne
 import { resolveFunnelShellFrame } from "@/lib/funnelShellFrames";
 import { buildFunnelVisualWhyBlock } from "@/lib/funnelVisualWhy";
 import { extractSourceActionChatPayload, mergeSourceActionPlans, type SourceActionPlan, type SourceActionPlanMove } from "@/lib/funnelSourceActionPlan";
+import { normalizeFunnelThreadMessages } from "@/lib/funnelThreads";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -213,6 +214,18 @@ type ObservedPageDiffSignal = {
   sectionCount: number;
 };
 
+type BookingRuntimeSlotObservation = {
+  slotName: string;
+  role: "primary" | "secondary" | "other";
+  sectionHeading: string;
+  title: string;
+  kicker: string;
+  body: string;
+  note: string;
+  proofLabel: string;
+  proofBody: string;
+};
+
 function collectObservedSectionsFromHtml(html: string): ObservedSection[] {
   const raw = String(html || "").trim();
   if (!raw) return [];
@@ -317,6 +330,178 @@ function analyzeObservedPageDiffs(html: string, observedSections: ObservedSectio
   };
 }
 
+function readBookingRuntimeAttr(attrs: string, name: string) {
+  const match = new RegExp(`\\b${name}=["']([^"']*)["']`, "i").exec(attrs);
+  return match ? String(match[1] || "").trim() : "";
+}
+
+function extractSectionHeading(sectionHtml: string) {
+  const headingMatch = /<h([1-4])\b[^>]*>([\s\S]*?)<\/h\1>/i.exec(sectionHtml);
+  return headingMatch ? htmlToPlainText(headingMatch[2] || "").trim().slice(0, 160) : "";
+}
+
+function classifyBookingRuntimeSlotRole(input: { slotName: string; sectionHeading: string; title: string; kicker: string }, index: number) {
+  const combined = `${input.slotName} ${input.sectionHeading} ${input.title} ${input.kicker}`.toLowerCase();
+  if (/\b(primary|main|dominant)\b/.test(combined)) return "primary" as const;
+  if (/\b(secondary|fallback|quiet|calm|later)\b/.test(combined)) return "secondary" as const;
+  return index === 0 ? "primary" as const : "other" as const;
+}
+
+function extractBookingRuntimeSlotsFromHtml(html: string) {
+  const raw = String(html || "").trim();
+  if (!raw) return [] as BookingRuntimeSlotObservation[];
+
+  const slots: BookingRuntimeSlotObservation[] = [];
+  const sectionPattern = /<section\b[^>]*>[\s\S]*?<\/section>/gi;
+  let sectionMatch: RegExpExecArray | null;
+
+  while ((sectionMatch = sectionPattern.exec(raw)) !== null && slots.length < 8) {
+    const sectionHtml = sectionMatch[0] || "";
+    const sectionHeading = extractSectionHeading(sectionHtml);
+    const hostPattern = /<([a-z0-9:-]+)\b([^>]*\bdata-pa-booking-runtime=["']([^"']+)["'][^>]*)>/gi;
+    let hostMatch: RegExpExecArray | null;
+
+    while ((hostMatch = hostPattern.exec(sectionHtml)) !== null && slots.length < 8) {
+      const attrs = hostMatch[2] || "";
+      const slotName = String(hostMatch[3] || "").trim() || `slot-${slots.length + 1}`;
+      const title = readBookingRuntimeAttr(attrs, "data-pa-booking-title");
+      const kicker = readBookingRuntimeAttr(attrs, "data-pa-booking-kicker");
+      const body = readBookingRuntimeAttr(attrs, "data-pa-booking-body");
+      const note = readBookingRuntimeAttr(attrs, "data-pa-booking-note");
+      const proofLabel = readBookingRuntimeAttr(attrs, "data-pa-booking-proof-label");
+      const proofBody = readBookingRuntimeAttr(attrs, "data-pa-booking-proof-body");
+
+      slots.push({
+        slotName,
+        role: classifyBookingRuntimeSlotRole({ slotName, sectionHeading, title, kicker }, slots.length),
+        sectionHeading,
+        title,
+        kicker,
+        body,
+        note,
+        proofLabel,
+        proofBody,
+      });
+    }
+  }
+
+  return slots;
+}
+
+function buildBookingRuntimeContextBlock(slots: BookingRuntimeSlotObservation[]) {
+  if (!slots.length) return "";
+
+  return [
+    "BOOKING_RUNTIME_CONTEXT:",
+    `- Runtime mounts detected: ${slots.length}`,
+    ...slots.map((slot, index) => {
+      const details = [
+        `${slot.role} slot '${slot.slotName}'`,
+        slot.sectionHeading ? `section '${slot.sectionHeading}'` : "section heading unknown",
+        slot.kicker ? `kicker '${slot.kicker}'` : "",
+        slot.title ? `title '${slot.title}'` : "",
+        slot.note ? `note '${slot.note}'` : "",
+      ].filter(Boolean);
+      return `- Slot ${index + 1}: ${details.join("; ")}`;
+    }),
+    "- Page shell owns section framing, proof placement, CTA hierarchy, slot posture, reassurance copy, and why each slot exists in the funnel flow.",
+    "- Booking runtime owns scheduler mechanics: availability, date and time selection, booking form state, submission, and confirmation behavior.",
+  ].join("\n");
+}
+
+function wantsBookingRuntimeBoundaryAnswer(prompt: string) {
+  return /\b(shell versus the booking runtime|page shell versus the booking runtime|only styling around the scheduler|redesigned calendar experience|calendar experience|booking runtime|supports a redesigned calendar)\b/i.test(prompt);
+}
+
+function buildBookingRuntimeBoundarySourceActionPlan(input: {
+  slots: BookingRuntimeSlotObservation[];
+  selectedRegion: { key: string; label: string; summary: string } | null;
+}) {
+  if (!input.slots.length) return null;
+
+  const primarySlot = input.slots.find((slot) => slot.role === "primary") || input.slots[0];
+  const secondarySlot = input.slots.find((slot) => slot.role === "secondary") || input.slots[1] || null;
+  const moves: SourceActionPlanMove[] = [
+    {
+      key: "booking-runtime-boundary",
+      target: primarySlot.sectionHeading || primarySlot.title || "booking handoff",
+      change: "Keep the page shell responsible for the booking story while moving calendar experience changes into the runtime itself.",
+      why: "The shell should decide why and where the visitor books, while the runtime should decide how the actual scheduler behaves after the visitor commits.",
+      priority: "primary",
+      executionMode: "model-led",
+      confidence: "high",
+      diff: [
+        "Shell work: section framing, proof, CTA hierarchy, reassurance copy -> keep in the funnel page",
+        "Runtime work: availability layout, time selection states, booking submission and confirmation -> redesign inside the scheduler runtime",
+      ],
+    },
+    {
+      key: "primary-slot-story",
+      target: primarySlot.sectionHeading || primarySlot.title || "primary booking handoff",
+      change: "Tighten the primary slot so its reassurance and proof cues make the dominant booking handoff feel earned before the scheduler UI takes over.",
+      why: "The main slot should carry the clearest next-step promise and the strongest booking posture before the visitor interacts with the calendar mechanics.",
+      priority: "primary",
+      executionMode: "bounded-edit",
+      confidence: "high",
+      diff: [
+        `${primarySlot.kicker || "Primary booking path"}: generic handoff label -> explicit dominant consultation handoff`,
+        `${primarySlot.title || "Primary booking slot"}: simple scheduler title -> clearer value and next-step framing`,
+      ],
+    },
+  ];
+
+  if (secondarySlot) {
+    moves.push({
+      key: "secondary-slot-quiet-fallback",
+      target: secondarySlot.sectionHeading || secondarySlot.title || "secondary fallback slot",
+      change: "Keep the secondary slot quieter and more objection-aware so it reads as a calm fallback instead of a second competing CTA.",
+      why: "The later slot should preserve momentum for hesitant visitors without stealing attention from the main booking handoff.",
+      priority: "secondary",
+      executionMode: "bounded-edit",
+      confidence: "high",
+      diff: [
+        `${secondarySlot.kicker || "Fallback booking path"}: generic second CTA -> softer fallback framing tied to objections`,
+        `${secondarySlot.note || "Secondary note"}: loose reminder copy -> explicit reason this later slot exists and why it stays lower priority`,
+      ],
+    });
+  }
+
+  return ensurePlanAnchorsSelectedRegion(
+    {
+      summary: moves[0]?.change || "Clarify shell versus runtime ownership for the booking experience.",
+      moves,
+      watchouts: [
+        "Do not let the fallback slot become visually louder than the primary handoff.",
+        "Do not describe calendar mechanics as if they are controlled by page-shell copy alone.",
+      ],
+    },
+    input.selectedRegion,
+  );
+}
+
+function buildBookingRuntimeBoundaryAssistantReply(input: {
+  slots: BookingRuntimeSlotObservation[];
+}) {
+  if (!input.slots.length) return "";
+
+  const primarySlot = input.slots.find((slot) => slot.role === "primary") || input.slots[0];
+  const secondarySlot = input.slots.find((slot) => slot.role === "secondary") || input.slots[1] || null;
+  const lines: string[] = [
+    "This page can support a redesigned calendar experience because the shell and the booking runtime already have separate jobs. The page shell owns the section framing, proof placement, CTA rhythm, and slot-specific reassurance. The booking runtime owns the actual scheduler behavior: availability, date and time selection, submission states, and confirmation flow.",
+    "",
+    "What should change next:",
+    `- ${primarySlot.sectionHeading || primarySlot.title || "Primary booking handoff"}: keep this as the dominant consultation path and tighten the promise, proof cue, and reassurance immediately around the runtime host before the scheduler UI takes over.`,
+  ];
+
+  if (secondarySlot) {
+    lines.push(`- ${secondarySlot.sectionHeading || secondarySlot.title || "Secondary fallback slot"}: keep this quieter than the first slot and rewrite it as objection-aware fallback framing, not a second competing booking ask.`);
+  }
+
+  lines.push("- Booking runtime: redesign the in-calendar experience at the runtime layer if you want different availability presentation, time-pick states, or confirmation behavior. Do not treat those mechanics as page-shell styling only.");
+
+  return lines.join("\n");
+}
+
 function normalizePlanTextWithResolvedTarget(text: string, originalTarget: string, resolvedTarget: string) {
   const compact = String(text || "");
   const original = String(originalTarget || "").trim();
@@ -356,7 +541,12 @@ function vetSourceActionPlanAgainstObservedStructure(plan: SourceActionPlan | nu
   const moves: SourceActionPlanMove[] = [];
   for (const move of plan.moves) {
     const resolvedTarget = resolvePlanTargetAgainstObservedSections(move.target, observedSections);
-    if (!resolvedTarget) continue;
+    if (!resolvedTarget) {
+      if (move.executionMode === "bounded-edit") {
+        moves.push(move);
+      }
+      continue;
+    }
 
     moves.push({
       ...move,
@@ -418,6 +608,241 @@ function coerceSelectedRegion(rawRegion: unknown) {
     label: typeof entry.label === "string" ? entry.label.trim().slice(0, 120) : key,
     summary: typeof entry.summary === "string" ? entry.summary.trim().slice(0, 240) : "",
   };
+}
+
+function coerceSelectedTarget(rawTarget: unknown) {
+  if (!rawTarget || typeof rawTarget !== "object" || Array.isArray(rawTarget)) return null;
+  const entry = rawTarget as Record<string, unknown>;
+  const label = typeof entry.label === "string" ? entry.label.trim().slice(0, 160) : "";
+  if (!label) return null;
+  const blockType = typeof entry.blockType === "string" ? entry.blockType.trim().slice(0, 80) : "";
+  const blockId = typeof entry.blockId === "string" ? entry.blockId.trim().slice(0, 160) : "";
+  const summary = typeof entry.summary === "string" ? entry.summary.trim().slice(0, 400) : "";
+  const itemIndex = typeof entry.itemIndex === "number" && Number.isFinite(entry.itemIndex) ? Math.max(0, Math.floor(entry.itemIndex)) : null;
+  const currentState = coerceSelectedTargetCurrentState(entry.currentState);
+  return {
+    label,
+    summary,
+    blockType,
+    blockId,
+    itemIndex,
+    currentState,
+  };
+}
+
+function extractStrictSelectedTargetReplacement(prompt: string) {
+  const colonMatch = String(prompt || "").match(/:\s*["“]?([^\n"”]+)["”]?\s*$/);
+  return colonMatch?.[1]?.trim() || "";
+}
+
+function isStrictSelectedTargetEditPrompt(
+  prompt: string,
+  selectedTarget: ReturnType<typeof coerceSelectedTarget>,
+) {
+  if (!selectedTarget) return false;
+  const text = String(prompt || "").trim().toLowerCase();
+  if (!text) return false;
+
+  const localAction = /\b(change|replace|rewrite|update|edit|fix|shorten|tighten|make)\b/.test(text);
+  const localScope = /\b(only|just|this|selected)\b/.test(text);
+  const targetLanguage = /\b(heading|headline|title|cta|button|card|section|paragraph|text|copy)\b/.test(text);
+  return localAction && (localScope || targetLanguage);
+}
+
+function ensurePlanAnchorsSelectedTarget(
+  plan: SourceActionPlan | null,
+  selectedTarget: ReturnType<typeof coerceSelectedTarget>,
+  prompt: string,
+) {
+  if (!selectedTarget) return plan;
+
+  const targetNeedle = `${selectedTarget.label} ${selectedTarget.blockType || ""}`.toLowerCase();
+  const existingMoves = plan?.moves || [];
+  const alreadyAnchored = existingMoves.some((move) => {
+    const haystack = `${move.target} ${move.change} ${move.why} ${move.selectorHint || ""}`.toLowerCase();
+    return targetNeedle
+      .split(/\s+/)
+      .filter(Boolean)
+      .some((token) => token.length > 2 && haystack.includes(token));
+  });
+  if (alreadyAnchored) return plan;
+
+  const replacement = extractStrictSelectedTargetReplacement(prompt);
+  const targetLabel = selectedTarget.label;
+  const move: SourceActionPlanMove = {
+    key: `selected-target-${slugifyPlanKey(selectedTarget.blockId || targetLabel)}`,
+    target: targetLabel,
+    change: replacement
+      ? `Change only ${targetLabel} to: ${replacement}.`
+      : `Change only ${targetLabel} and keep the rest of the page untouched.`,
+    why: "The user selected this exact target and asked for a bounded local change, so the next pass should stay scoped there.",
+    priority: "primary",
+    executionMode: "bounded-edit",
+    confidence: "high",
+  };
+
+  return {
+    summary: move.change,
+    moves: [move, ...existingMoves].slice(0, 5),
+    watchouts: [
+      ...(plan?.watchouts || []).filter(Boolean).slice(0, 2),
+      "Do not widen this into a broader page strategy pass.",
+    ],
+  };
+}
+
+function buildStrictSelectedTargetAssistantReply(
+  prompt: string,
+  selectedTarget: NonNullable<ReturnType<typeof coerceSelectedTarget>>,
+) {
+  const replacement = extractStrictSelectedTargetReplacement(prompt);
+  const targetType = selectedTarget.blockType ? ` ${selectedTarget.blockType}` : " target";
+  return replacement
+    ? `Keeping this scoped to ${selectedTarget.label}. Pura will change only this${targetType} to: ${replacement}. The rest of the page stays untouched.`
+    : `Keeping this scoped to ${selectedTarget.label}. Pura will change only this${targetType} and leave the rest of the page untouched.`;
+}
+
+function coerceAssistantContext(rawContext: unknown) {
+  if (!rawContext || typeof rawContext !== "object" || Array.isArray(rawContext)) return null;
+  const entry = rawContext as Record<string, unknown>;
+  const next: Record<string, string> = {};
+
+  for (const [key, maxLen] of [
+    ["funnel", 160],
+    ["page", 160],
+    ["surface", 40],
+    ["mode", 40],
+    ["state", 80],
+    ["booking", 160],
+    ["tracking", 160],
+    ["seo", 160],
+    ["commerce", 160],
+  ] as const) {
+    const value = typeof entry[key] === "string" ? String(entry[key]).trim().slice(0, maxLen) : "";
+    if (value) next[key] = value;
+  }
+
+  return Object.keys(next).length ? next : null;
+}
+
+function formatAssistantContext(context: Record<string, string>) {
+  const pageModel = [
+    context.funnel ? `Funnel ${context.funnel}` : "",
+    context.page ? `Page ${context.page}` : "",
+    context.surface ? `Surface ${context.surface}` : "",
+    context.mode ? `Mode ${context.mode}` : "",
+    context.state ? `State ${context.state}` : "",
+  ].filter(Boolean);
+
+  const operationalModel = [
+    context.booking ? `Booking ${context.booking}` : "",
+    context.tracking ? `Tracking ${context.tracking}` : "",
+    context.seo ? `SEO ${context.seo}` : "",
+    context.commerce ? `Commerce ${context.commerce}` : "",
+  ].filter(Boolean);
+
+  return [pageModel.join(" | "), operationalModel.join(" | ")].filter(Boolean).join("\n");
+}
+
+function coerceSelectedTargetCurrentState(rawState: unknown) {
+  if (!rawState || typeof rawState !== "object" || Array.isArray(rawState)) return null;
+  const entry = rawState as Record<string, unknown>;
+  const stringField = (value: unknown, maxLen: number) => (typeof value === "string" ? value.trim().slice(0, maxLen) : "");
+  const numberField = (value: unknown, max: number) => (typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(max, Math.floor(value))) : null);
+  const next: Record<string, string | number | string[]> = {};
+
+  const scope = stringField(entry.scope, 40);
+  if (scope) next.scope = scope;
+
+  for (const [key, maxLen] of [
+    ["name", 120],
+    ["price", 80],
+    ["billingPeriod", 80],
+    ["description", 220],
+    ["badge", 80],
+    ["ctaText", 120],
+    ["ctaHref", 220],
+    ["routeKind", 80],
+    ["calendarTitle", 160],
+    ["text", 120],
+    ["anchorId", 120],
+    ["mediaType", 40],
+    ["logoState", 80],
+  ] as const) {
+    const value = stringField(entry[key], maxLen);
+    if (value) next[key] = value;
+  }
+
+  const featureCount = numberField(entry.featureCount, 20);
+  if (featureCount !== null) next.featureCount = featureCount;
+
+  const cardCount = numberField(entry.cardCount, 20);
+  if (cardCount !== null) next.cardCount = cardCount;
+
+  if (Array.isArray(entry.features)) {
+    const features = entry.features
+      .map((item) => (typeof item === "string" ? item.trim().slice(0, 120) : ""))
+      .filter(Boolean)
+      .slice(0, 6);
+    if (features.length) next.features = features;
+  }
+
+  return Object.keys(next).length ? next : null;
+}
+
+function formatSelectedTargetCurrentState(state: Record<string, string | number | string[]>) {
+  const stringValue = (key: string) => (typeof state[key] === "string" ? String(state[key]) : "");
+  const numberValue = (key: string) => (typeof state[key] === "number" ? Number(state[key]) : null);
+  const arrayValue = (key: string) => (Array.isArray(state[key]) ? (state[key] as string[]) : []);
+  const parts: string[] = [];
+
+  const name = stringValue("name");
+  if (name) parts.push(`name ${name}`);
+
+  const price = stringValue("price");
+  const billingPeriod = stringValue("billingPeriod");
+  if (price) parts.push(`price ${[price, billingPeriod].filter(Boolean).join(" ")}`.trim());
+  else if (billingPeriod) parts.push(`billing ${billingPeriod}`);
+
+  const badge = stringValue("badge");
+  if (badge) parts.push(`badge ${badge}`);
+
+  const ctaText = stringValue("ctaText");
+  const ctaHref = stringValue("ctaHref");
+  if (ctaText) parts.push(`CTA ${ctaText}`);
+  else if (ctaHref) parts.push(`CTA href ${ctaHref}`);
+
+  const routeKind = stringValue("routeKind");
+  if (routeKind) parts.push(`routing ${routeKind}`);
+
+  const calendarTitle = stringValue("calendarTitle");
+  if (calendarTitle) parts.push(`calendar ${calendarTitle}`);
+
+  const text = stringValue("text");
+  if (text) parts.push(`text ${text}`);
+
+  const anchorId = stringValue("anchorId");
+  if (anchorId) parts.push(`anchor ${anchorId}`);
+
+  const mediaType = stringValue("mediaType");
+  if (mediaType) parts.push(`media ${mediaType}`);
+
+  const logoState = stringValue("logoState");
+  if (logoState) parts.push(`logo ${logoState}`);
+
+  const cardCount = numberValue("cardCount");
+  if (cardCount !== null) parts.push(`${cardCount} pricing cards`);
+
+  const featureCount = numberValue("featureCount");
+  if (featureCount !== null) parts.push(`${featureCount} features`);
+
+  const features = arrayValue("features");
+  if (features.length) parts.push(`features ${features.join(" | ")}`);
+
+  const description = stringValue("description");
+  if (description) parts.push(`description ${description}`);
+
+  return parts.slice(0, 8).join("; ");
 }
 
 type ContextMedia = {
@@ -825,6 +1250,9 @@ function buildIntentAwareFallbackSourceActionPlan(input: {
   const hasClearBookingHandoff = /\b(book|booking|schedule|available times|scheduler|consultation|strategy call)\b/.test(text);
   const hasOfferSpecificity = /\b(audit|assessment|consultation|implementation|workflow|automation|strategy)\b/.test(text);
   const hasScaffoldCopy = /frame the consultation|provide trust markers|book a call|hero|proofstrip|testimonialgrid|ctasection/.test(text);
+  const hasAudienceFitSection = /\b(who this is for|best for|property managers|regional operators|leasing and marketing)\b/.test(text);
+  const hasAgendaSection = /\b(agenda|what attendees will learn|what this session covers|what you will learn|outcomes)\b/.test(text);
+  const hasRegistrationTruth = /\b(placeholder test form|not a webinar registration flow|temporary connection|temporary handoff|still need to be finalized)\b/.test(text);
   const moves: SourceActionPlanMove[] = [];
 
   if (pageType === "booking" || input.intentProfile.formStrategy === "booking") {
@@ -895,6 +1323,67 @@ function buildIntentAwareFallbackSourceActionPlan(input: {
     }
   }
 
+  if (pageType === "webinar") {
+    moves.push({
+      key: `webinar-hero-${slugifyPlanKey(selectedLabel)}`,
+      target: selectedLabel,
+      change: `Shorten and sharpen ${selectedLabel} so the event promise, audience fit, and first registration action land in one scan for ${input.foundation.audience}.`,
+      why: `The resolved webinar shell expects a specific promise-to-registration opening, but the current top of page still works harder at explanation than conversion posture for ${input.foundation.offer}.`,
+      priority: "primary",
+      executionMode: "model-led",
+      confidence: "high",
+      ...(input.selectedRegion ? { selectorHint: `#${input.selectedRegion.key}` } : {}),
+    });
+
+    if (!hasAgendaSection || sections >= 5) {
+      moves.push({
+        key: "webinar-agenda-outcomes",
+        target: "agenda and outcomes",
+        change: "Turn the learning payload into a tighter agenda or outcome strip near the top so the visitor sees what the webinar unlocks before the longer operational sections.",
+        why: "Webinar registration pages convert better when the event value is scannable early instead of being buried inside later explanation blocks.",
+        priority: "primary",
+        executionMode: "model-led",
+        confidence: "high",
+      });
+    }
+
+    if (!hasAudienceFitSection || sections >= 5) {
+      moves.push({
+        key: "webinar-audience-fit",
+        target: "audience fit section",
+        change: "Make the audience-fit section more decisive by separating who the webinar is for from who should not treat this as a generic inspiration event.",
+        why: "A webinar page should help the right operator self-qualify quickly instead of making every visitor read the whole page to understand fit.",
+        priority: "secondary",
+        executionMode: "model-led",
+        confidence: "high",
+      });
+    }
+
+    moves.push({
+      key: "webinar-registration-handoff",
+      target: "registration handoff",
+      change: "Restage the registration handoff as a visually distinct RSVP section that keeps the placeholder honesty explicit while clarifying what happens next after someone raises their hand.",
+      why: hasRegistrationTruth
+        ? "The current page is honest about the temporary form route, but the handoff still needs to feel like a clear interim registration step rather than a warning repeated throughout the page."
+        : "The registration section needs explicit truth about the current route and a clearer next-step explanation before the visitor clicks through.",
+      priority: "primary",
+      executionMode: "model-led",
+      confidence: "high",
+    });
+
+    if (sections >= 6) {
+      moves.push({
+        key: "webinar-compression",
+        target: "lower page sequence",
+        change: "Compress repeated lower-page warnings into one cleaner FAQ and one final CTA so the page stops restating the same temporary-state caveats in multiple sections.",
+        why: "Repetition makes the page feel draft-heavy and cheap even when the underlying message is truthful.",
+        priority: "secondary",
+        executionMode: "model-led",
+        confidence: "medium",
+      });
+    }
+  }
+
   if (!moves.length) return null;
 
   return {
@@ -910,9 +1399,11 @@ function buildObservedPageDiffSourceActionPlan(input: {
   currentHtml: string;
   observedSections: ObservedSection[];
   foundation: ReturnType<typeof buildResolvedFunnelFoundation>;
+  pageType: FunnelPageIntentProfile["pageType"];
   selectedRegion: { key: string; label: string; summary: string } | null;
   visualPolishRequested: boolean;
 }): SourceActionPlan | null {
+  if (input.pageType === "webinar") return null;
   const observed = analyzeObservedPageDiffs(input.currentHtml, input.observedSections);
   if (!observed.pageLooksBooking) return null;
 
@@ -1119,6 +1610,46 @@ function ensurePlanAnchorsSelectedRegion(
   };
 }
 
+function buildDirectPromptSourceActionPlan(input: {
+  prompt: string;
+  selectedRegion: { key: string; label: string; summary: string } | null;
+}): SourceActionPlan | null {
+  const prompt = String(input.prompt || "").trim();
+  if (!prompt) return null;
+
+  const headlineRewriteMatch = prompt.match(/change(?: only)? the top page headline from ["']([^"']+)["'] to ["']([^"']+)["']/i);
+  if (headlineRewriteMatch) {
+    const fromText = String(headlineRewriteMatch[1] || "").trim();
+    const toText = String(headlineRewriteMatch[2] || "").trim();
+    if (!toText) return null;
+    return {
+      summary: `Change the top page headline from "${fromText}" to "${toText}" and leave the rest of the page untouched.`,
+      moves: [
+        {
+          key: "replace-top-page-headline",
+          target: "top page headline",
+          change: `Change the top page headline from "${fromText}" to "${toText}" and leave the rest of the page untouched.`,
+          why: "The user asked for one explicit headline replacement, so the next pass should make that exact text change without widening scope.",
+          priority: "primary",
+          executionMode: "bounded-edit",
+          confidence: "high",
+          selectorHint: input.selectedRegion ? `#${input.selectedRegion.key}` : "h1",
+          diff: [`Heading text: "${fromText}" -> "${toText}"`],
+        },
+      ],
+      watchouts: ["Do not change any other page copy, layout, booking, cart, or CTA behavior in this pass."],
+    };
+  }
+
+  return null;
+}
+
+function buildDirectPromptAssistantReply(plan: SourceActionPlan | null) {
+  const move = plan?.moves?.[0];
+  if (!move) return "";
+  return `${move.change} This pass stays local to that headline and leaves the rest of the page untouched.`;
+}
+
 function buildStructuredAssistantReply(input: {
   sceneQuality: ReturnType<typeof assessFunnelSceneQuality>;
   plan: SourceActionPlan | null;
@@ -1148,6 +1679,7 @@ function buildStructuredAssistantReply(input: {
 function shouldForceStructuredAssistantReply(text: string, plan: SourceActionPlan | null) {
   const compact = String(text || "").trim();
   if (!compact) return true;
+  if (plan?.moves?.length === 1 && plan.moves[0]?.executionMode === "bounded-edit") return false;
   if (isThinAssistantReply(compact)) return true;
   if (/(^|\n)\s*[-*]/.test(compact)) return false;
   if (/what i would change next:/i.test(compact)) return false;
@@ -1177,6 +1709,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const currentHtmlFromClient = typeof body?.currentHtml === "string" ? body.currentHtml : "";
   const clientSectionPlanItems = coerceSectionPlanItems(body?.sectionPlanItems);
   const selectedRegion = coerceSelectedRegion(body?.selectedRegion);
+  const selectedTarget = coerceSelectedTarget(body?.selectedTarget);
+  const strictSelectedTargetEdit = isStrictSelectedTargetEditPrompt(prompt, selectedTarget);
+  const assistantContext = coerceAssistantContext(body?.assistantContext);
   const allRegions = coerceRegionSummaryList(body?.allRegions);
   const contextMedia = coerceContextMedia(body?.contextMedia);
   const designContext = sanitizeFunnelDesignContext(body?.designContext);
@@ -1254,11 +1789,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     ? currentHtmlFromClient
     : (currentHtmlFromClient.trim() ? currentHtmlFromClient : getFunnelPageCurrentHtml(normalizedPage));
   const observedSections = collectObservedSectionsFromHtml(currentHtml);
+  const bookingRuntimeSlots = extractBookingRuntimeSlotsFromHtml(currentHtml);
   const observedSectionPlanItems = collectObservedSectionLabelsFromHtml(currentHtml);
   const critiqueSectionPlanItems = observedSectionPlanItems.length ? observedSectionPlanItems : sectionPlanItems;
   const visualPolishRequested = wantsVisualPolishReview(prompt);
+  const bookingRuntimeBoundaryRequested = wantsBookingRuntimeBoundaryAnswer(prompt);
   const visualPolishAnalysis = analyzeVisualPolish(currentHtml);
   const specificitySignal = assessChatSpecificitySignal({ currentHtml, businessContext, sectionPlanItems: critiqueSectionPlanItems });
+  const directPromptPlan = buildDirectPromptSourceActionPlan({ prompt, selectedRegion });
   const sceneQuality = assessFunnelSceneQuality({
     pageAnatomy: buildFragmentSceneAnatomy(currentHtml, ""),
     proofResolved: hasLikelyProofSurface(currentHtml),
@@ -1277,6 +1815,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       currentHtml,
       observedSections,
       foundation,
+      pageType: intentProfile.pageType,
       selectedRegion,
       visualPolishRequested,
     });
@@ -1315,13 +1854,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   };
 
   // Build prior chat history for context window (last 10 messages, strip intent-only messages)
-  const prevChat = Array.isArray(normalizedPage.customChatJson)
-    ? (stripFunnelPageIntentMessages<Record<string, unknown>>(normalizedPage.customChatJson) as Array<{
+  const prevChat = stripFunnelPageIntentMessages<Record<string, unknown>>(
+    normalizeFunnelThreadMessages(normalizedPage.customChatJson) as Array<Record<string, unknown>>,
+  ) as Array<{
         role: string;
         content: string;
         at?: string;
-      }>)
-    : [];
+      }>;
 
   const chatHistory = prevChat
     .filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
@@ -1358,7 +1897,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     useLiveState ? "State anchor: use the exact live draft state from the editor for this turn, not the last saved server snapshot." : "",
     critiqueSectionPlanItems.length ? `Current observed sections: ${critiqueSectionPlanItems.join(" -> ")}` : "",
     sectionPlanItems.length ? `Stored builder sections: ${sectionPlanItems.join(" -> ")}` : "",
+    assistantContext ? `Editor surface context:\n${formatAssistantContext(assistantContext)}` : "",
     selectedRegion ? `Current focus region: ${selectedRegion.label}${selectedRegion.summary ? ` - ${selectedRegion.summary}` : ""}` : "",
+    selectedTarget ? `Current selected edit target: ${selectedTarget.label}${selectedTarget.blockType ? ` [${selectedTarget.blockType}]` : ""}${typeof selectedTarget.itemIndex === "number" ? ` card ${selectedTarget.itemIndex + 1}` : ""}${selectedTarget.summary ? ` - ${selectedTarget.summary}` : ""}` : "",
+    selectedTarget?.currentState ? `Selected target current state: ${formatSelectedTargetCurrentState(selectedTarget.currentState)}` : "",
     allRegions.length ? `Current source regions: ${allRegions.map((region) => `${region.label}${region.summary ? ` (${region.summary})` : ""}`).join(" | ")}` : "",
     buildPageHtmlContextBlock(currentHtml, selectedRegion),
   ]
@@ -1391,6 +1933,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       ].join("\n")
     : "";
   const designContextBlock = buildFunnelDesignContextPromptBlock(designContext);
+  const bookingRuntimeBlock = buildBookingRuntimeContextBlock(bookingRuntimeSlots);
   const contextImageUrls = contextMedia
     .filter((item) => isContextMediaImage(item))
     .map((item) => toAbsoluteUrl(req, item.url))
@@ -1417,6 +1960,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "If the user wants to book more clients or has a business goal: translate that goal into page-level moves. Tell them what on the page is costing them and what to change first.",
     "Treat the funnel as a system with required jobs: attention, belief building, proof, mechanism, CTA, reinforcement, and handoff. Work out which jobs are weak or missing before proposing style changes.",
     "When stored brief, page intent, shell frame, or foundation context exists, treat it as the intended blueprint. Compare the live page to that blueprint and return diffs, not generic advice.",
+    "If booking runtime mounts are present, explicitly separate page-shell ownership from booking-runtime ownership. Do not talk as if the whole booking experience lives only in shell copy or only in scheduler mechanics.",
+    "If there is more than one booking runtime mount, explain the role of the dominant slot and the quieter fallback slot separately. Preserve their hierarchy instead of flattening them into duplicate CTAs.",
+    strictSelectedTargetEdit
+      ? [
+          "Strict local edit mode is active for this turn.",
+          "Treat the selected edit target as the only allowed scope unless the user explicitly asks to widen scope.",
+          "Do not ask broad strategy, offer, or page-level clarification questions when the prompt already names a direct local edit.",
+          "If the user provides replacement wording for a heading, CTA, or text target, treat that wording as sufficient instruction.",
+          "assistantText should confirm the exact local change and state that the rest of the page stays untouched.",
+          "sourceActionPlan should start with one bounded-edit move anchored to the selected edit target.",
+        ].join("\n")
+      : "",
 
     // Move quality rules
     "When enough page context exists, sourceActionPlan should contain 3-5 concrete moves tied to the current page structure.",
@@ -1451,6 +2006,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     designContextBlock,
     visualWhyBlock,
     contextMediaBlock,
+    bookingRuntimeBlock,
     pageContextBlock,
 
     // JSON output instruction — placed last so the model follows it
@@ -1484,6 +2040,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
   let assistantText: string;
   let sourceActionPlan: SourceActionPlan | null = null;
+  const fallbackChatPlan = buildFallbackChatPlan();
   try {
     const runTextOnlyChat = () => generateText({
       system,
@@ -1507,20 +2064,42 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         })
       : await runTextOnlyChat();
     const parsed = extractSourceActionChatPayload(raw);
-    sourceActionPlan = parsed?.sourceActionPlan || null;
-    assistantText = (parsed?.assistantText || "").trim();
+    sourceActionPlan = directPromptPlan || parsed?.sourceActionPlan || null;
+    assistantText = directPromptPlan ? buildDirectPromptAssistantReply(directPromptPlan) : (parsed?.assistantText || "").trim();
     if (!assistantText) {
-      sourceActionPlan = sourceActionPlan || buildFallbackChatPlan();
+      sourceActionPlan = sourceActionPlan || fallbackChatPlan;
       assistantText = "";
+    } else if (!directPromptPlan && fallbackChatPlan && (specificitySignal.underSpecified || !sourceActionPlan || sourceActionPlan.moves.length < 3)) {
+      sourceActionPlan = mergeSourceActionPlans(fallbackChatPlan, sourceActionPlan);
     }
-  } catch (err) {
-    sourceActionPlan = buildFallbackChatPlan();
-    assistantText = "";
+  } catch {
+    sourceActionPlan = directPromptPlan || fallbackChatPlan;
+    assistantText = directPromptPlan ? buildDirectPromptAssistantReply(directPromptPlan) : "";
   }
 
   sourceActionPlan = vetSourceActionPlanAgainstCurrentPage(sourceActionPlan, currentHtml, critiqueSectionPlanItems);
   sourceActionPlan = vetSourceActionPlanAgainstObservedStructure(sourceActionPlan, observedSections);
   sourceActionPlan = ensurePlanAnchorsSelectedRegion(sourceActionPlan, selectedRegion);
+  if (strictSelectedTargetEdit && selectedTarget) {
+    sourceActionPlan = ensurePlanAnchorsSelectedTarget(sourceActionPlan, selectedTarget, prompt);
+    if (!assistantText.trim() || /\?|what is|what's|which|should it|offer or service/i.test(assistantText)) {
+      assistantText = buildStrictSelectedTargetAssistantReply(prompt, selectedTarget);
+    }
+  }
+
+  if (bookingRuntimeBoundaryRequested) {
+    const boundaryPlan = buildBookingRuntimeBoundarySourceActionPlan({
+      slots: bookingRuntimeSlots,
+      selectedRegion,
+    });
+    sourceActionPlan = mergeSourceActionPlans(boundaryPlan, sourceActionPlan);
+
+    if (!/page shell|booking runtime|runtime owns|shell owns/i.test(assistantText)) {
+      assistantText = buildBookingRuntimeBoundaryAssistantReply({
+        slots: bookingRuntimeSlots,
+      });
+    }
+  }
 
   if (shouldForceStructuredAssistantReply(assistantText, sourceActionPlan)) {
     assistantText = buildStructuredAssistantReply({
@@ -1541,11 +2120,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     at: new Date().toISOString(),
     ...(sourceActionPlan ? { sourceActionPlan } : {}),
   };
-  const nextChat = [
+  const nextChat = normalizeFunnelThreadMessages([
     ...(Array.isArray(normalizedPage.customChatJson) ? (normalizedPage.customChatJson as any[]) : []),
     userMsg,
     assistantMsg,
-  ].slice(-40);
+  ]);
 
   const updated = await prisma.creditFunnelPage.update({
     where: { id: normalizedPage.id },
@@ -1569,6 +2148,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     ok: true,
     assistantText,
     sourceActionPlan,
-    page: normalizeDraftHtml(updated),
+    page: {
+      ...normalizeDraftHtml(updated),
+      customChatJson: normalizeFunnelThreadMessages(updated.customChatJson),
+    },
   });
 }

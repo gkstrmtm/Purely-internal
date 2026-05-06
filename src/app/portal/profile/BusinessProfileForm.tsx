@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { useToast } from "@/components/ToastProvider";
+import { assessBusinessProfileContextHealth } from "@/lib/businessProfileContextHealth";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { applyFontPresetToStyle, fontPresetKeyFromStyle } from "@/lib/fontPresets";
 
@@ -211,6 +212,39 @@ export function BusinessProfileForm({
   const brandFontPresetKey = brandFontPresetKeyRaw === "custom" ? "default" : brandFontPresetKeyRaw;
 
   const canSave = useMemo(() => !readOnly && businessName.trim().length >= 2, [businessName, readOnly]);
+  const contextHealth = useMemo(() => assessBusinessProfileContextHealth({
+    businessName,
+    websiteUrl,
+    industry,
+    businessModel,
+    primaryGoals,
+    targetCustomer,
+    brandVoice,
+    businessContext,
+    logoUrl,
+    brandPrimaryHex,
+    brandSecondaryHex,
+    brandAccentHex,
+    brandTextHex,
+    brandFontFamily,
+    brandFontGoogleFamily,
+  }), [
+    businessName,
+    websiteUrl,
+    industry,
+    businessModel,
+    primaryGoals,
+    targetCustomer,
+    brandVoice,
+    businessContext,
+    logoUrl,
+    brandPrimaryHex,
+    brandSecondaryHex,
+    brandAccentHex,
+    brandTextHex,
+    brandFontFamily,
+    brandFontGoogleFamily,
+  ]);
 
   const currentSig = useMemo(() => {
     const normalize = (v: string) => String(v || "").trim();
@@ -613,6 +647,30 @@ export function BusinessProfileForm({
           </div>
         </>
       ) : null}
+
+      <div className={(embedded ? "mt-3" : "mt-5") + " rounded-3xl border border-zinc-200 bg-zinc-50/80 p-4 sm:p-5"}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Company context health</div>
+            <div className="mt-2 flex items-center gap-3">
+              <div className="text-2xl font-semibold text-zinc-950">{contextHealth.score}</div>
+              <span className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">{contextHealth.label}</span>
+            </div>
+          </div>
+          <div className="max-w-xl text-sm leading-6 text-zinc-600">{contextHealth.explanation}</div>
+        </div>
+
+        {contextHealth.nextSteps.length ? (
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Smallest next steps</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {contextHealth.nextSteps.map((step) => (
+                <span key={step} className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-700">{step}</span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
 
       <div className={(embedded ? "mt-2" : "mt-5") + " grid grid-cols-1 gap-4 sm:grid-cols-2"}>
         <div className="sm:col-span-2">

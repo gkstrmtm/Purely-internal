@@ -26,6 +26,7 @@ import {
   writeFunnelCreditFunnelTrackingSettings,
   writeFunnelPageCreditFunnelTrackingSettings,
 } from "@/lib/funnelEventTracking";
+import { normalizeFunnelOffers, readFunnelOffers, writeFunnelOffers } from "@/lib/funnelOffers";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -197,7 +198,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
 
   const funnel = await prisma.creditFunnel.findFirst({
     where: { id, ownerId: auth.session.user.id },
-    select: { id: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
+    select: { id: true, ownerId: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
   });
 
   if (!funnel) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
@@ -210,6 +211,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
   const seo = readFunnelSeo(settings?.dataJson ?? null, funnel.id);
   const brief = readFunnelBrief(settings?.dataJson ?? null, funnel.id);
   const exhibitArchetypePack = readFunnelExhibitArchetypePack(settings?.dataJson ?? null, funnel.id);
+  const offers = readFunnelOffers(settings?.dataJson ?? null, funnel.id);
 
   const bookingRouting = readFunnelBookingRouting(settings?.dataJson ?? null, funnel.id);
 
@@ -220,6 +222,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
       assignedDomain: funnelDomains[funnel.id] ?? null,
       seo,
       brief,
+      offers,
       exhibitArchetypePack,
       bookingCalendarId: bookingRouting?.calendarId ?? null,
       bookingDefaults: resolveFunnelBookingDefaults(bookingRouting ?? null),
@@ -280,6 +283,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     : undefined;
   if (wantsBriefUpdate && requestedBriefRaw !== null && requestedBrief === undefined) {
     return NextResponse.json({ ok: false, error: "Invalid brief" }, { status: 400 });
+  }
+
+  const wantsOffersUpdate = Object.prototype.hasOwnProperty.call(body ?? {}, "offers");
+  const requestedOffersRaw = wantsOffersUpdate ? (body as any).offers : undefined;
+  const requestedOffers = wantsOffersUpdate
+    ? requestedOffersRaw === null
+      ? []
+      : normalizeFunnelOffers(requestedOffersRaw)
+    : undefined;
+  if (wantsOffersUpdate && requestedOffersRaw !== null && !Array.isArray(requestedOffersRaw)) {
+    return NextResponse.json({ ok: false, error: "Invalid offers" }, { status: 400 });
   }
 
   const wantsTrackingUpdate = Object.prototype.hasOwnProperty.call(body ?? {}, "metaPixelId");
@@ -365,6 +379,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     assignedDomain: string | null;
     seo: FunnelSeo | null;
     brief: ReturnType<typeof readFunnelBrief>;
+    offers: ReturnType<typeof readFunnelOffers>;
     bookingCalendarId: string | null;
     bookingDefaults: ReturnType<typeof resolveFunnelBookingDefaults>;
     trackingSettings: ReturnType<typeof readCreditFunnelTrackingSettings>;
@@ -389,13 +404,14 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
       if (!funnel) return null;
 
       let settingsJson = await getCreditFunnelBuilderSettingsTx(tx, auth.session.user.id);
-      if (wantsDomainUpdate || wantsSeoUpdate || wantsBriefUpdate || wantsBookingCalendarUpdate || wantsBookingDefaultsUpdate || wantsTrackingUpdate) {
+      if (wantsDomainUpdate || wantsSeoUpdate || wantsBriefUpdate || wantsOffersUpdate || wantsBookingCalendarUpdate || wantsBookingDefaultsUpdate || wantsTrackingUpdate) {
         settingsJson = (
           await mutateCreditFunnelBuilderSettingsTx(tx, auth.session.user.id, (current) => {
             let nextJson: any = current;
             if (wantsDomainUpdate) nextJson = writeFunnelDomain(nextJson, funnel.id, requestedDomain);
             if (wantsSeoUpdate) nextJson = writeFunnelSeo(nextJson, funnel.id, (requestedSeo as any) ?? null);
             if (wantsBriefUpdate) nextJson = writeFunnelBrief(nextJson, funnel.id, requestedBrief ?? null);
+            if (wantsOffersUpdate) nextJson = writeFunnelOffers(nextJson, funnel.id, requestedOffers ?? []);
             if (wantsTrackingUpdate) nextJson = writeFunnelCreditFunnelTrackingSettings(nextJson, funnel.id, { metaPixelId: requestedTrackingPixelId });
             if (wantsBookingCalendarUpdate || wantsBookingDefaultsUpdate) {
               const existingBookingRouting = readFunnelBookingRouting(nextJson, funnel.id);
@@ -416,6 +432,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
         assignedDomain: funnelDomains[funnel.id] ?? null,
         seo: readFunnelSeo(settingsJson, funnel.id),
         brief: readFunnelBrief(settingsJson, funnel.id),
+        offers: readFunnelOffers(settingsJson, funnel.id),
         bookingCalendarId: readFunnelBookingRouting(settingsJson, funnel.id)?.calendarId ?? null,
         bookingDefaults: resolveFunnelBookingDefaults(readFunnelBookingRouting(settingsJson, funnel.id) ?? null),
         trackingSettings: readCreditFunnelTrackingSettings(settingsJson, funnel.id, null),
@@ -436,6 +453,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
       assignedDomain: result.assignedDomain,
       seo: result.seo,
       brief: result.brief,
+      offers: result.offers,
       bookingCalendarId: result.bookingCalendarId,
       bookingDefaults: result.bookingDefaults,
       trackingSettings: result.trackingSettings,
@@ -468,6 +486,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ funnelId: s
       nextJson = writeFunnelDomain(nextJson, existing.id, null);
       nextJson = writeFunnelSeo(nextJson, existing.id, null);
       nextJson = writeFunnelBrief(nextJson, existing.id, null);
+      nextJson = writeFunnelOffers(nextJson, existing.id, null);
       nextJson = writeFunnelExhibitArchetypePack(nextJson, existing.id, null);
       nextJson = writeFunnelCreditFunnelTrackingSettings(nextJson, existing.id, { metaPixelId: null });
       nextJson = writeFunnelBookingRouting(nextJson, existing.id, null);

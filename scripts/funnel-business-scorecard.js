@@ -10,6 +10,8 @@ const OUTPUT_PATH = process.env.FUNNEL_SCORECARD_OUT
   ? path.resolve(process.cwd(), process.env.FUNNEL_SCORECARD_OUT)
   : null;
 const REQUEST_TIMEOUT_MS = Number(process.env.FUNNEL_SCORECARD_TIMEOUT_MS || 210000);
+const KEEP_SCORECARD_FUNNELS = process.env.FUNNEL_SCORECARD_KEEP_FUNNELS === "1";
+const createdFunnelIds = new Set();
 
 const SCORE_DIMENSIONS = [
   "intentInterpretation",
@@ -18,7 +20,9 @@ const SCORE_DIMENSIONS = [
   "proofCredibility",
   "leadDataCaptureReadiness",
   "bookingOrCheckoutReadiness",
+  "conversionSurfaceFit",
   "publishOperationalReadiness",
+  "hostedPerformanceReadiness",
   "visualAutonomy",
   "artDirectionStrength",
   "spatialDiscipline",
@@ -146,7 +150,26 @@ async function login() {
 async function createFunnel(cookie, input) {
   const response = await request("POST", "/api/portal/funnel-builder/funnels", input, cookie);
   const json = parseJson(response.body);
+  const funnelId = json && json.funnel ? String(json.funnel.id || "").trim() : "";
+  if (response.status >= 200 && response.status < 300 && funnelId) createdFunnelIds.add(funnelId);
   return { status: response.status, json };
+}
+
+async function deleteFunnel(cookie, funnelId) {
+  const response = await request("DELETE", `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, null, cookie);
+  return { status: response.status, json: parseJson(response.body) };
+}
+
+async function cleanupCreatedFunnels(cookie) {
+  if (KEEP_SCORECARD_FUNNELS || !cookie || !createdFunnelIds.size) return;
+  for (const funnelId of [...createdFunnelIds].reverse()) {
+    try {
+      await deleteFunnel(cookie, funnelId);
+    } catch (error) {
+      console.error(`[scorecard] cleanup failed for ${funnelId}: ${error && error.message ? error.message : String(error)}`);
+    }
+  }
+  createdFunnelIds.clear();
 }
 
 async function getFunnels(cookie) {
@@ -279,6 +302,115 @@ function analyzeHtml(html) {
   };
 }
 
+function inferConversionSurfaceType(html) {
+  const text = htmlToPlainText(html);
+  const cta = extractPrimaryCtaText(html);
+  const blob = `${cta} ${text}`;
+
+  if (/\b(signature|sign here|draw your signature|signature capture)\b/i.test(blob)) return "signature";
+  if (/\b(waitlist|join the waitlist|notify me when spots open)\b/i.test(blob)) return "waitlist";
+  if (/\b(application|apply now|submit your application)\b/i.test(blob)) return "application";
+  if (/\b(checkout|purchase|buy now|pay now|complete order)\b/i.test(blob)) return "checkout";
+  if (/\b(webinar|reserve my spot|reserve your spot|save my seat|save your seat|register now|event signup)\b/i.test(blob)) return "webinar";
+  if (/\b(book|schedule|calendar|consultation|strategy call|discovery call)\b/i.test(blob)) return "booking";
+  if (/\b(download|guide|report|lead magnet|get the checklist|email me the guide)\b/i.test(blob)) return "lead-capture";
+  return "generic";
+}
+
+function analyzeConversionSurface(html) {
+  const text = htmlToPlainText(html);
+  const primaryCtaText = extractPrimaryCtaText(html);
+  const inferredSurface = inferConversionSurfaceType(html);
+  const captureFieldSignals = {
+    name: /\bname\b/i.test(text),
+    email: /\bemail\b/i.test(text),
+    phone: /\bphone\b/i.test(text),
+    company: /\b(company|property|community)\b/i.test(text),
+    role: /\brole\b/i.test(text),
+  };
+  const confirmationSignals = countMatches(text, /\b(confirm|confirmation|thank you|what happens next|reminder|next step)\b/gi);
+  const signatureSignals = countMatches(text, /\b(signature|sign here|draw your signature)\b/gi);
+
+  return {
+    inferredSurface,
+    primaryCtaText,
+    captureFieldSignals,
+    confirmationSignals,
+    signatureSignals,
+    hasMinimalWebinarFields: captureFieldSignals.name && captureFieldSignals.email,
+  };
+}
+
+function scoreConversionSurfaceFit(surface, expectedIntent) {
+  let points = 0;
+
+  if (surface.inferredSurface === expectedIntent) points += 2;
+  else if (expectedIntent === "booking" && /book|schedule|call|consult/i.test(surface.primaryCtaText)) points += 1;
+  else if (expectedIntent === "webinar" && /reserve|seat|register/i.test(surface.primaryCtaText)) points += 1;
+
+  if (expectedIntent === "webinar") {
+    if (surface.hasMinimalWebinarFields) points += 1;
+    if (surface.confirmationSignals >= 1) points += 1;
+  }
+
+  if (expectedIntent === "booking" && surface.confirmationSignals >= 1) points += 1;
+  if (surface.signatureSignals > 0 && expectedIntent !== "signature") points -= 2;
+
+  return clampScore(points >= 4 ? 3 : points >= 2 ? 2 : points >= 1 ? 1 : 0);
+}
+
+function analyzeHostedPerformanceReadiness(html) {
+  const source = String(html || "");
+  const hasHtml = source.trim().length > 0;
+  const scriptTags = countMatches(source, /<script\b/gi);
+  const blockingScriptTags = countMatches(source, /<script\b(?![^>]*\b(?:async|defer|type=["']module["']))[^>]*>/gi);
+  const mediaTags = countMatches(source, /<(img|picture|video)\b/gi);
+  const lazyMediaSignals = countMatches(source, /(loading=["']lazy["']|decoding=["']async["']|fetchpriority=["']low["'])/gi);
+  const motionSignals = countMatches(source, /(transition\s*:|transition-duration\s*:|:hover\b|transform\s*:)/gi);
+  const riskyAnimationSignals = countMatches(source, /(@keyframes|animation\s*:|animation-name\s*:|transition\s*:\s*all\b)/gi);
+  const externalEmbedSignals = countMatches(source, /<(iframe|script)\b[^>]*(youtube|vimeo|calendly|facebook|hubspot|stripe|intercom|widget)/gi);
+  const inlineHandlerSignals = countMatches(source, /\son(click|submit|change|mouseover|mouseenter)=/gi);
+  const htmlBytes = Buffer.byteLength(source, "utf8");
+
+  const mediaOptimizationCoverage = mediaTags === 0 ? 2 : lazyMediaSignals >= Math.max(1, mediaTags - 1) ? 2 : lazyMediaSignals > 0 ? 1 : 0;
+  const scriptDiscipline = blockingScriptTags === 0 && scriptTags <= 2;
+  const calmInteractionQuality = motionSignals >= 2 && riskyAnimationSignals === 0;
+  const lightweightDocument = hasHtml && htmlBytes <= 140000;
+
+  return {
+    hasHtml,
+    scriptTags,
+    blockingScriptTags,
+    mediaTags,
+    lazyMediaSignals,
+    motionSignals,
+    riskyAnimationSignals,
+    externalEmbedSignals,
+    inlineHandlerSignals,
+    htmlBytes,
+    mediaOptimizationCoverage,
+    scriptDiscipline,
+    calmInteractionQuality,
+    lightweightDocument,
+  };
+}
+
+function scoreHostedPerformanceReadiness(runtime, htmlAnalysis) {
+  if (!runtime.hasHtml) return 0;
+
+  let points = 0;
+  if (runtime.scriptDiscipline) points += 1;
+  if (runtime.mediaOptimizationCoverage >= 1) points += 1;
+  if (runtime.calmInteractionQuality) points += 1;
+  if (runtime.lightweightDocument) points += 1;
+  if (htmlAnalysis.hasSpatialDiscipline) points += 1;
+  if (runtime.externalEmbedSignals > 0 && runtime.lazyMediaSignals === 0) points -= 1;
+  if (runtime.riskyAnimationSignals > 0) points -= 1;
+  if (runtime.inlineHandlerSignals > 4) points -= 1;
+
+  return clampScore(points >= 4 ? 3 : points >= 2 ? 2 : points >= 1 ? 1 : 0);
+}
+
 function extractPrimaryCtaText(html) {
   const tagPattern = /<(a|button)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
   let match;
@@ -356,7 +488,9 @@ function gradeBlankCreate(result) {
     proofCredibility: 1,
     leadDataCaptureReadiness: 1,
     bookingOrCheckoutReadiness: 1,
+    conversionSurfaceFit: hasPage ? 1 : 0,
     publishOperationalReadiness: created && hasFunnel && hasPage ? 2 : 0,
+    hostedPerformanceReadiness: hasPage ? 1 : 0,
     visualAutonomy: hasPage ? 1 : 0,
     artDirectionStrength: hasPage ? 1 : 0,
     spatialDiscipline: hasPage ? 1 : 0,
@@ -410,7 +544,9 @@ function gradeDiscuss(result) {
     proofCredibility: /proof|testimonial|review|results|credibility/i.test(assistantBlob) ? 2 : 1,
     leadDataCaptureReadiness: /booking|calendar|form|qualification|handoff/i.test(assistantBlob) ? 2 : 1,
     bookingOrCheckoutReadiness: /book|booking|calendar|call|schedule/i.test(assistantBlob) ? 2 : 1,
+    conversionSurfaceFit: /booking|calendar|call|qualification|handoff/i.test(assistantBlob) ? 2 : 1,
     publishOperationalReadiness: result.status >= 200 && result.status < 300 ? 2 : 0,
+    hostedPerformanceReadiness: /clamp|overflow|readable width|container|performance|load/i.test(assistantBlob) ? 2 : 1,
     visualAutonomy: designSignals >= 4 ? 2 : designSignals >= 2 ? 1 : 0,
     artDirectionStrength: /art direction|typography|contrast|surface|mood|composition/i.test(assistantBlob) ? 2 : designSignals >= 1 ? 1 : 0,
     spatialDiscipline: spatialSignals >= 2 ? 2 : spatialSignals >= 1 ? 1 : 0,
@@ -451,6 +587,8 @@ function gradeCtaPrecision(result) {
   const originalPrimaryCta = extractPrimaryCtaText(beforeHtml);
   const beforeAnalysis = analyzeHtml(beforeHtml);
   const afterAnalysis = analyzeHtml(afterHtml);
+  const afterSurface = analyzeConversionSurface(afterHtml);
+  const afterRuntime = analyzeHostedPerformanceReadiness(afterHtml);
   const structureStable =
     Math.abs(beforeAnalysis.sections - afterAnalysis.sections) <= 1
     && Math.abs(beforeAnalysis.forms - afterAnalysis.forms) <= 1
@@ -472,10 +610,12 @@ function gradeCtaPrecision(result) {
     proofCredibility: Math.max(beforeAnalysis.proofSignals ? 2 : 1, afterAnalysis.proofSignals ? 2 : 1),
     leadDataCaptureReadiness: afterAnalysis.forms > 0 || afterAnalysis.bookingSignals > 0 ? 2 : 1,
     bookingOrCheckoutReadiness: afterAnalysis.bookingSignals > 0 ? 2 : 1,
+    conversionSurfaceFit: scoreConversionSurfaceFit(afterSurface, "booking"),
     publishOperationalReadiness:
       result.status >= 200 && result.status < 300 && changed
         ? result.generateMs > 45000 ? 1 : 2
         : 0,
+    hostedPerformanceReadiness: scoreHostedPerformanceReadiness(afterRuntime, afterAnalysis),
     visualAutonomy: afterAnalysis.hasDistinctVisualDirection ? 2 : beforeAnalysis.hasDistinctVisualDirection ? 2 : 1,
     artDirectionStrength: afterAnalysis.hasAwardLevelArtDirection ? 2 : afterAnalysis.hasDistinctVisualDirection ? 1 : beforeAnalysis.hasDistinctVisualDirection ? 1 : 0,
     spatialDiscipline: afterAnalysis.hasSpatialDiscipline ? 2 : beforeAnalysis.hasSpatialDiscipline ? 2 : 1,
@@ -510,6 +650,8 @@ function gradeBookingGeneration(result) {
   const html = String(result.html || "");
   const review = result.review || {};
   const analysis = analyzeHtml(html);
+  const surface = analyzeConversionSurface(html);
+  const runtime = analyzeHostedPerformanceReadiness(html);
   const warningCount = Array.isArray(review.warnings) ? review.warnings.length : 0;
   const strengths = Array.isArray(review.strengths) ? review.strengths.length : 0;
 
@@ -525,8 +667,10 @@ function gradeBookingGeneration(result) {
       analysis.forms > 0 || analysis.captureSignals >= 3 ? 2 : analysis.bookingSignals >= 2 ? 1 : 0,
     bookingOrCheckoutReadiness:
       analysis.bookingSignals >= 4 && analysis.hasSinglePrimaryCtaLanguage ? 2 : analysis.bookingSignals >= 2 ? 1 : 0,
+    conversionSurfaceFit: scoreConversionSurfaceFit(surface, "booking"),
     publishOperationalReadiness:
       result.generateStatus >= 200 && result.reviewStatus >= 200 && strengths >= 0 ? 2 : 0,
+    hostedPerformanceReadiness: scoreHostedPerformanceReadiness(runtime, analysis),
     visualAutonomy:
       analysis.hasDistinctVisualDirection && warningCount === 0 ? 3 : analysis.hasDistinctVisualDirection ? 2 : html ? 1 : 0,
     artDirectionStrength:
@@ -554,6 +698,9 @@ function gradeBookingGeneration(result) {
   if (!analysis.hasNextStepClarity) {
     scores.publishOperationalReadiness = Math.max(0, scores.publishOperationalReadiness - 1);
   }
+  if (surface.signatureSignals > 0) {
+    scores.conversionSurfaceFit = Math.max(0, scores.conversionSurfaceFit - 1);
+  }
   if (warningCount >= 2) {
     scores.visualAutonomy = Math.max(0, scores.visualAutonomy - 1);
     scores.artDirectionStrength = Math.max(0, scores.artDirectionStrength - 1);
@@ -568,13 +715,18 @@ function gradeBookingGeneration(result) {
   if (result.generateMs > 120000) {
     scores.publishOperationalReadiness = Math.max(0, scores.publishOperationalReadiness - 1);
   }
+  if (runtime.blockingScriptTags > 0 || runtime.riskyAnimationSignals > 0) {
+    scores.hostedPerformanceReadiness = Math.max(0, scores.hostedPerformanceReadiness - 1);
+  }
 
   const failures = [];
   if (!(result.generateStatus >= 200 && result.generateStatus < 300)) failures.push("Booking generation route failed.");
   if (!html) failures.push("Booking generation returned no page HTML.");
   if (analysis.proofSignals === 0) failures.push("Generated booking page did not stage concrete proof signals.");
   if (analysis.bookingSignals < 2) failures.push("Generated booking page did not create a clear booking handoff.");
+  if (scores.conversionSurfaceFit === 0) failures.push("Generated page does not match the expected conversion surface or CTA intent.");
   if (!analysis.hasNextStepClarity) failures.push("Generated booking page lacks confirmation or next-step language.");
+  if (scores.hostedPerformanceReadiness <= 1) failures.push("Generated page is not yet meeting hosted performance readiness standards.");
   if (warningCount >= 3) failures.push("Visual review still reports multiple unresolved structural watchouts.");
   if (result.generateMs > 120000) failures.push(`Booking generation took ${result.generateMs}ms, which is too slow for a business-ready fallback path.`);
 
@@ -589,7 +741,13 @@ function gradeBookingGeneration(result) {
       sections: analysis.sections,
       proofSignals: analysis.proofSignals,
       bookingSignals: analysis.bookingSignals,
+      conversionSurface: surface.inferredSurface,
+      primaryCtaText: truncate(surface.primaryCtaText, 120),
       nextStepSignals: analysis.confirmationSignals,
+      scriptTags: runtime.scriptTags,
+      blockingScriptTags: runtime.blockingScriptTags,
+      lazyMediaSignals: runtime.lazyMediaSignals,
+      riskyAnimationSignals: runtime.riskyAnimationSignals,
       layeredSurfaceSignals: analysis.layeredSurfaceSignals,
       clampSignals: analysis.clampSignals,
       riskyLayoutSignals: analysis.riskyLayoutSignals,
@@ -613,7 +771,9 @@ function gradeBuilderUiAudit(result) {
     proofCredibility: 1,
     leadDataCaptureReadiness: result.buttons.some((label) => /save|publish|preview/i.test(label)) ? 2 : 1,
     bookingOrCheckoutReadiness: 1,
+    conversionSurfaceFit: result.buttons.some((label) => /save|publish|preview|open live/i.test(label)) ? 1 : 0,
     publishOperationalReadiness: !result.consoleErrors.length && !result.pageErrors.length && !result.failedRequests.length ? 2 : 0,
+    hostedPerformanceReadiness: !result.failedRequests.length && result.iframeCount <= 1 ? 2 : 1,
     visualAutonomy: 1,
     artDirectionStrength: 1,
     spatialDiscipline: 1,
@@ -745,194 +905,199 @@ async function run() {
   if (!auth.ok) {
     throw new Error(`Login failed with status ${auth.status}`);
   }
-
-  logStep("blank funnel create");
-  const blankCreateOutcome = await safely(async () => {
-    const created = await createFunnel(auth.cookie, {
-      slug: createSlug("blank-audit"),
-      name: "Blank Audit",
+  try {
+    logStep("blank funnel create");
+    const blankCreateOutcome = await safely(async () => {
+      const created = await createFunnel(auth.cookie, {
+        slug: createSlug("blank-audit"),
+        name: "Blank Audit",
+      });
+      const funnelId = created.json && created.json.funnel ? created.json.funnel.id : null;
+      const pages = funnelId ? await getPages(auth.cookie, funnelId) : { status: 0, json: null };
+      const page = pages.json && Array.isArray(pages.json.pages) ? pages.json.pages[0] : null;
+      return { created, funnelId, pages, page };
     });
-    const funnelId = created.json && created.json.funnel ? created.json.funnel.id : null;
-    const pages = funnelId ? await getPages(auth.cookie, funnelId) : { status: 0, json: null };
-    const page = pages.json && Array.isArray(pages.json.pages) ? pages.json.pages[0] : null;
-    return { created, funnelId, pages, page };
-  });
 
-  logStep("discuss truthfulness scenario");
-  const discussOutcome = await safely(async () => {
-    const seed = await createBookingScenario(auth.cookie, "discuss-audit");
-    const result = seed.funnelId && seed.pageId
-      ? await discussPage(auth.cookie, seed.funnelId, seed.pageId, DISCUSS_TRUTHFULNESS_PROMPT)
-      : { status: 0, json: null };
-    return { seed, result };
-  });
+    logStep("discuss truthfulness scenario");
+    const discussOutcome = await safely(async () => {
+      const seed = await createBookingScenario(auth.cookie, "discuss-audit");
+      const result = seed.funnelId && seed.pageId
+        ? await discussPage(auth.cookie, seed.funnelId, seed.pageId, DISCUSS_TRUTHFULNESS_PROMPT)
+        : { status: 0, json: null };
+      return { seed, result };
+    });
 
-  logStep("cta-only scenario");
-  const ctaOutcome = await safely(async () => {
-    const seed = await createBookingScenario(auth.cookie, "cta-audit");
-    const beforeHtml = String((seed.page && (seed.page.draftHtml || seed.page.customHtml)) || "");
-    const generateStartedAt = Date.now();
-    const result = seed.funnelId && seed.pageId
-      ? await generateHtml(auth.cookie, seed.funnelId, seed.pageId, {
-          prompt: NARROW_EDIT_PROMPT,
-          currentHtml: beforeHtml,
-        })
-      : { status: 0, json: null };
-    const afterHtml = String(
-      (result.json && result.json.page && (result.json.page.draftHtml || result.json.page.customHtml)) || "",
-    );
-    return { seed, beforeHtml, result, afterHtml, generateMs: Date.now() - generateStartedAt };
-  });
+    logStep("cta-only scenario");
+    const ctaOutcome = await safely(async () => {
+      const seed = await createBookingScenario(auth.cookie, "cta-audit");
+      const beforeHtml = String((seed.page && (seed.page.draftHtml || seed.page.customHtml)) || "");
+      const generateStartedAt = Date.now();
+      const result = seed.funnelId && seed.pageId
+        ? await generateHtml(auth.cookie, seed.funnelId, seed.pageId, {
+            prompt: NARROW_EDIT_PROMPT,
+            currentHtml: beforeHtml,
+          })
+        : { status: 0, json: null };
+      const afterHtml = String(
+        (result.json && result.json.page && (result.json.page.draftHtml || result.json.page.customHtml)) || "",
+      );
+      return { seed, beforeHtml, result, afterHtml, generateMs: Date.now() - generateStartedAt };
+    });
 
-  logStep("booking generation plus visual review");
-  const bookingOutcome = await safely(async () => {
-    const seed = await createBookingScenario(auth.cookie, "booking-audit");
-    const generateStartedAt = Date.now();
-    const generateResult = seed.funnelId && seed.pageId
-      ? await generateHtml(auth.cookie, seed.funnelId, seed.pageId, {
-          prompt: FREEFORM_BOOKING_PROMPT,
-          currentHtml: "",
-          contextKeys: ["hero", "proof", "cta"],
-          intentProfile: {
-            pageType: "booking",
-            audience: "operators evaluating automation help",
-            offer: "a strategic automation consultation",
-            primaryCta: "Book a call",
-          },
-        })
-      : { status: 0, json: null };
-    const generateMs = Date.now() - generateStartedAt;
-    const html = String(
-      (generateResult.json && generateResult.json.page && (generateResult.json.page.draftHtml || generateResult.json.page.customHtml)) || "",
-    );
-    const reviewImage = html ? await screenshotHtml(html) : "";
-    const reviewResult = seed.funnelId && seed.pageId && reviewImage
-      ? await visualReview(auth.cookie, {
-          funnelId: seed.funnelId,
-          pageId: seed.pageId,
-          surface: "source",
-          prompt: FREEFORM_BOOKING_PROMPT,
-          html,
-          css: "",
-          previewImageDataUrl: reviewImage,
-          intentProfile: {
-            pageType: "booking",
-            audience: "operators evaluating automation help",
-            offer: "a strategic automation consultation",
-            primaryCta: "Book a call",
-          },
-        })
-      : { status: 0, json: null };
-    return { seed, generateResult, html, reviewResult, generateMs };
-  });
+    logStep("booking generation plus visual review");
+    const bookingOutcome = await safely(async () => {
+      const seed = await createBookingScenario(auth.cookie, "booking-audit");
+      const generateStartedAt = Date.now();
+      const generateResult = seed.funnelId && seed.pageId
+        ? await generateHtml(auth.cookie, seed.funnelId, seed.pageId, {
+            prompt: FREEFORM_BOOKING_PROMPT,
+            currentHtml: "",
+            contextKeys: ["hero", "proof", "cta"],
+            intentProfile: {
+              pageType: "booking",
+              audience: "operators evaluating automation help",
+              offer: "a strategic automation consultation",
+              primaryCta: "Book a call",
+            },
+          })
+        : { status: 0, json: null };
+      const generateMs = Date.now() - generateStartedAt;
+      const html = String(
+        (generateResult.json && generateResult.json.page && (generateResult.json.page.draftHtml || generateResult.json.page.customHtml)) || "",
+      );
+      const reviewImage = html ? await screenshotHtml(html) : "";
+      const reviewResult = seed.funnelId && seed.pageId && reviewImage
+        ? await visualReview(auth.cookie, {
+            funnelId: seed.funnelId,
+            pageId: seed.pageId,
+            surface: "source",
+            prompt: FREEFORM_BOOKING_PROMPT,
+            html,
+            css: "",
+            previewImageDataUrl: reviewImage,
+            intentProfile: {
+              pageType: "booking",
+              audience: "operators evaluating automation help",
+              offer: "a strategic automation consultation",
+              primaryCta: "Book a call",
+            },
+          })
+        : { status: 0, json: null };
+      return { seed, generateResult, html, reviewResult, generateMs };
+    });
 
-  logStep("builder ui audit");
-  const uiOutcome = await safely(async () => {
-    const seed = await createBookingScenario(auth.cookie, "ui-audit");
-    const audit = seed.funnelId ? await runBuilderUiAudit(auth.cookie, seed.funnelId) : {
-      url: "",
-      headings: [],
-      buttons: [],
-      tabs: [],
-      iframeCount: 0,
-      consoleErrors: ["Builder UI audit could not start because no funnel was created."],
-      pageErrors: [],
-      failedRequests: [],
+    logStep("builder ui audit");
+    const uiOutcome = await safely(async () => {
+      const seed = await createBookingScenario(auth.cookie, "ui-audit");
+      const audit = seed.funnelId ? await runBuilderUiAudit(auth.cookie, seed.funnelId) : {
+        url: "",
+        headings: [],
+        buttons: [],
+        tabs: [],
+        iframeCount: 0,
+        consoleErrors: ["Builder UI audit could not start because no funnel was created."],
+        pageErrors: [],
+        failedRequests: [],
+      };
+      return { seed, audit };
+    });
+
+    const scenarios = [
+      blankCreateOutcome.ok
+        ? gradeBlankCreate({
+            createStatus: blankCreateOutcome.value.created.status,
+            funnelId: blankCreateOutcome.value.funnelId,
+            pageId: blankCreateOutcome.value.page ? blankCreateOutcome.value.page.id : null,
+            pageCount: blankCreateOutcome.value.pages.json && Array.isArray(blankCreateOutcome.value.pages.json.pages) ? blankCreateOutcome.value.pages.json.pages.length : 0,
+            initializationSummary:
+              blankCreateOutcome.value.created.json && blankCreateOutcome.value.created.json.initialization
+                ? blankCreateOutcome.value.created.json.initialization.summary
+                : "",
+          })
+        : buildFailureScenario("blank-funnel-create", blankCreateOutcome.error),
+      discussOutcome.ok
+        ? gradeDiscuss({
+            status: discussOutcome.value.result.status,
+            assistantText: discussOutcome.value.result.json ? discussOutcome.value.result.json.assistantText : "",
+            summary:
+              discussOutcome.value.result.json && discussOutcome.value.result.json.sourceActionPlan
+                ? discussOutcome.value.result.json.sourceActionPlan.summary
+                : "",
+            moves:
+              discussOutcome.value.result.json && discussOutcome.value.result.json.sourceActionPlan
+                ? discussOutcome.value.result.json.sourceActionPlan.moves
+                : [],
+            pageText: htmlToPlainText((discussOutcome.value.seed.page && (discussOutcome.value.seed.page.draftHtml || discussOutcome.value.seed.page.customHtml)) || ""),
+          })
+        : buildFailureScenario("discuss-truthfulness-new-booking-funnel", discussOutcome.error),
+      ctaOutcome.ok
+        ? gradeCtaPrecision({
+            status: ctaOutcome.value.result.status,
+            beforeHtml: ctaOutcome.value.beforeHtml,
+            afterHtml: ctaOutcome.value.afterHtml,
+            generateMs: ctaOutcome.value.generateMs,
+            aiSummary: ctaOutcome.value.result.json && ctaOutcome.value.result.json.aiResult ? ctaOutcome.value.result.json.aiResult.summary : "",
+          })
+        : buildFailureScenario("targeted-cta-only-update", ctaOutcome.error),
+      bookingOutcome.ok
+        ? gradeBookingGeneration({
+            generateStatus: bookingOutcome.value.generateResult.status,
+            reviewStatus: bookingOutcome.value.reviewResult.status,
+            generateMs: bookingOutcome.value.generateMs,
+            html: bookingOutcome.value.html,
+            visualReviewed: Boolean(bookingOutcome.value.reviewResult.json && bookingOutcome.value.reviewResult.json.visualReviewed),
+            review: bookingOutcome.value.reviewResult.json || {},
+          })
+        : buildFailureScenario("booking-generation-plus-visual-review", bookingOutcome.error),
+      uiOutcome.ok
+        ? gradeBuilderUiAudit(uiOutcome.value.audit)
+        : buildFailureScenario("builder-ui-audit", uiOutcome.error),
+    ];
+
+    const categorySummary = SCORE_DIMENSIONS.reduce((acc, key) => {
+      const values = scenarios.map((scenario) => scenario.scores[key] || 0);
+      acc[key] = {
+        average: Number(average(values).toFixed(2)),
+        min: Math.min(...values),
+        failures: scenarios.filter((scenario) => (scenario.scores[key] || 0) === 0).map((scenario) => scenario.name),
+      };
+      return acc;
+    }, {});
+
+    const targetScenario = scenarios.find((scenario) => scenario.name === "booking-generation-plus-visual-review");
+    const output = {
+      generatedAt: startedAt,
+      baseUrl: BASE_URL,
+      requiredScenariosRun: scenarios.map((scenario) => scenario.name),
+      categorySummary,
+      targetScenario: targetScenario
+        ? {
+            name: targetScenario.name,
+            average: targetScenario.average,
+            noZeroDimensions: targetScenario.zeroDimensions.length === 0,
+            readyToWiden: targetScenario.average >= 2.3 && targetScenario.zeroDimensions.length === 0,
+            conversionSurfaceReady: (targetScenario.scores.conversionSurfaceFit || 0) >= 2,
+            hostedPerformanceReady: (targetScenario.scores.hostedPerformanceReadiness || 0) >= 2,
+            visualAutonomyReady:
+              (targetScenario.scores.visualAutonomy || 0) >= 2
+              && (targetScenario.scores.artDirectionStrength || 0) >= 2
+              && (targetScenario.scores.spatialDiscipline || 0) >= 2,
+            zeroDimensions: targetScenario.zeroDimensions,
+          }
+        : null,
+      scenarios,
     };
-    return { seed, audit };
-  });
 
-  const scenarios = [
-    blankCreateOutcome.ok
-      ? gradeBlankCreate({
-          createStatus: blankCreateOutcome.value.created.status,
-          funnelId: blankCreateOutcome.value.funnelId,
-          pageId: blankCreateOutcome.value.page ? blankCreateOutcome.value.page.id : null,
-          pageCount: blankCreateOutcome.value.pages.json && Array.isArray(blankCreateOutcome.value.pages.json.pages) ? blankCreateOutcome.value.pages.json.pages.length : 0,
-          initializationSummary:
-            blankCreateOutcome.value.created.json && blankCreateOutcome.value.created.json.initialization
-              ? blankCreateOutcome.value.created.json.initialization.summary
-              : "",
-        })
-      : buildFailureScenario("blank-funnel-create", blankCreateOutcome.error),
-    discussOutcome.ok
-      ? gradeDiscuss({
-          status: discussOutcome.value.result.status,
-          assistantText: discussOutcome.value.result.json ? discussOutcome.value.result.json.assistantText : "",
-          summary:
-            discussOutcome.value.result.json && discussOutcome.value.result.json.sourceActionPlan
-              ? discussOutcome.value.result.json.sourceActionPlan.summary
-              : "",
-          moves:
-            discussOutcome.value.result.json && discussOutcome.value.result.json.sourceActionPlan
-              ? discussOutcome.value.result.json.sourceActionPlan.moves
-              : [],
-          pageText: htmlToPlainText((discussOutcome.value.seed.page && (discussOutcome.value.seed.page.draftHtml || discussOutcome.value.seed.page.customHtml)) || ""),
-        })
-      : buildFailureScenario("discuss-truthfulness-new-booking-funnel", discussOutcome.error),
-    ctaOutcome.ok
-      ? gradeCtaPrecision({
-          status: ctaOutcome.value.result.status,
-          beforeHtml: ctaOutcome.value.beforeHtml,
-          afterHtml: ctaOutcome.value.afterHtml,
-          generateMs: ctaOutcome.value.generateMs,
-          aiSummary: ctaOutcome.value.result.json && ctaOutcome.value.result.json.aiResult ? ctaOutcome.value.result.json.aiResult.summary : "",
-        })
-      : buildFailureScenario("targeted-cta-only-update", ctaOutcome.error),
-    bookingOutcome.ok
-      ? gradeBookingGeneration({
-          generateStatus: bookingOutcome.value.generateResult.status,
-          reviewStatus: bookingOutcome.value.reviewResult.status,
-          generateMs: bookingOutcome.value.generateMs,
-          html: bookingOutcome.value.html,
-          visualReviewed: Boolean(bookingOutcome.value.reviewResult.json && bookingOutcome.value.reviewResult.json.visualReviewed),
-          review: bookingOutcome.value.reviewResult.json || {},
-        })
-      : buildFailureScenario("booking-generation-plus-visual-review", bookingOutcome.error),
-    uiOutcome.ok
-      ? gradeBuilderUiAudit(uiOutcome.value.audit)
-      : buildFailureScenario("builder-ui-audit", uiOutcome.error),
-  ];
+    if (OUTPUT_PATH) {
+      fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
+      fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2));
+    }
 
-  const categorySummary = SCORE_DIMENSIONS.reduce((acc, key) => {
-    const values = scenarios.map((scenario) => scenario.scores[key] || 0);
-    acc[key] = {
-      average: Number(average(values).toFixed(2)),
-      min: Math.min(...values),
-      failures: scenarios.filter((scenario) => (scenario.scores[key] || 0) === 0).map((scenario) => scenario.name),
-    };
-    return acc;
-  }, {});
-
-  const targetScenario = scenarios.find((scenario) => scenario.name === "booking-generation-plus-visual-review");
-  const output = {
-    generatedAt: startedAt,
-    baseUrl: BASE_URL,
-    requiredScenariosRun: scenarios.map((scenario) => scenario.name),
-    categorySummary,
-    targetScenario: targetScenario
-      ? {
-          name: targetScenario.name,
-          average: targetScenario.average,
-          noZeroDimensions: targetScenario.zeroDimensions.length === 0,
-          readyToWiden: targetScenario.average >= 2.3 && targetScenario.zeroDimensions.length === 0,
-          visualAutonomyReady:
-            (targetScenario.scores.visualAutonomy || 0) >= 2
-            && (targetScenario.scores.artDirectionStrength || 0) >= 2
-            && (targetScenario.scores.spatialDiscipline || 0) >= 2,
-          zeroDimensions: targetScenario.zeroDimensions,
-        }
-      : null,
-    scenarios,
-  };
-
-  if (OUTPUT_PATH) {
-    fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
-    fs.writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2));
+    logStep("complete");
+    console.log(JSON.stringify(output, null, 2));
+  } finally {
+    await cleanupCreatedFunnels(auth.cookie);
   }
-
-  logStep("complete");
-  console.log(JSON.stringify(output, null, 2));
 }
 
 run().catch((error) => {

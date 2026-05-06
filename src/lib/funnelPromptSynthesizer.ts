@@ -2,7 +2,13 @@ import { generateText } from "@/lib/ai";
 import { buildDesignTokenContractBlock } from "@/lib/funnelDesignTokenGuard";
 import { buildFunnelDesignContextPromptBlock, type FunnelDesignContext } from "@/lib/funnelDesignContext";
 import { getExhibitDesignAdvisory } from "@/lib/exhibitDesignAdvisor.server";
-import { buildFunnelFoundationOverview, type FunnelBriefProfile, type FunnelPageIntentProfile } from "@/lib/funnelPageIntent";
+import {
+  buildFunnelFoundationOverview,
+  defaultAudienceForPageType,
+  defaultOfferForPageType,
+  type FunnelBriefProfile,
+  type FunnelPageIntentProfile,
+} from "@/lib/funnelPageIntent";
 
 type SynthesisSurface = "page-html" | "custom-code";
 
@@ -45,6 +51,15 @@ export type FunnelPromptSynthesisResult = {
   prompt: string;
   usedAi: boolean;
   exhibitAdvisory: NonNullable<Awaited<ReturnType<typeof getExhibitDesignAdvisory>>> | null;
+  clarifyingQuestion?: string | null;
+  businessSpecificityScore?: number;
+  contextGaps?: string[];
+};
+
+type BusinessContextCoverage = {
+  businessSpecificityScore: number;
+  contextGaps: string[];
+  clarifyingQuestion: string | null;
 };
 
 type PromptSynthesisGenerateText = (opts: {
@@ -64,6 +79,19 @@ type FunnelPromptSynthesisOptions = {
 type FallbackPromptOptions = {
   exhibitAdvisory?: Awaited<ReturnType<typeof getExhibitDesignAdvisory>> | null;
 };
+
+type SanitizedExhibitAdvisory = NonNullable<Awaited<ReturnType<typeof getExhibitDesignAdvisory>>>;
+
+const EXHIBIT_RULE_LEVEL_PATTERNS = [
+  /^exhibit library guidance:/i,
+  /^exhibit foundation rules:/i,
+  /^exhibit cta rules:/i,
+  /^exhibit input rules:/i,
+  /^exhibit anti-patterns:/i,
+  /^exhibit form-flow rules:/i,
+  /^exhibit commerce rules:/i,
+  /^exhibit reference anchors:/i,
+];
 
 function cleanText(value: unknown, max = 1200) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
@@ -100,6 +128,29 @@ function cleanHistory(value: unknown, maxItems = 6, maxLen = 240) {
     if (out.length >= maxItems) break;
   }
   return out;
+}
+
+function sanitizeExhibitAdvisory(
+  advisory: Awaited<ReturnType<typeof getExhibitDesignAdvisory>> | null | undefined,
+): SanitizedExhibitAdvisory | null {
+  if (!advisory) return null;
+
+  const cleanedLines = String(advisory.guidance || "")
+    .split(/\r?\n+/)
+    .map((line) => cleanText(line, 320))
+    .filter(Boolean);
+
+  const retainedLines = cleanedLines.filter((line) => EXHIBIT_RULE_LEVEL_PATTERNS.some((pattern) => pattern.test(line)));
+
+  return {
+    ...advisory,
+    guidance: [
+      "Exhibit usage rule: treat Exhibit as secondary design advisory only.",
+      "Use Exhibit for spacing, typography, density, elevation, anti-pattern avoidance, and reference anchors.",
+      "If Exhibit conflicts with business context, the current page state, runtime truth, or the newest user direction, ignore the conflicting Exhibit guidance.",
+      ...Array.from(new Set(retainedLines)),
+    ].join("\n"),
+  };
 }
 
 function hasRequestSignal(value: string, pattern: RegExp) {
@@ -265,6 +316,12 @@ function buildConversionBlueprintBlock(input: FunnelPromptSynthesisInput) {
   const proofLine = hasBookingMotion
     ? "Proof rule: attach proof beside the first CTA and repeat reassurance at the booking handoff so the scheduler feels earned, native, and safe."
     : "Proof rule: attach proof beside or immediately after the first CTA beat, then restage trust before the final action so belief does not collapse at the ask.";
+  const schedulerLine = hasBookingMotion
+    ? "Scheduler discipline: default to one dominant booking runtime on the page. Do not place a second full calendar or scheduler lower in the page unless the user explicitly asks for multiple booking slots, fallback scheduling, or side-by-side calendar paths."
+    : "";
+  const fallbackLine = hasBookingMotion
+    ? "Fallback handoff rule: if the page needs a softer second chance to book, use objection handling plus a quieter return-to-booking CTA or jump link back to the main scheduler instead of duplicating the full scheduling UI."
+    : "";
   const operatorLine = "Operator-first rule: default to 80% completion with minimal edits required. Infer layout, section ordering, CTA copy, proof placement, and conversion framing automatically instead of asking the user to design.";
   const designerLine = "Designer override rule: allow later section overrides or art-direction refinements, but do not weaken the default operator-first completeness of the initial output.";
   const layoutLine = "Visual discipline: avoid generic stacked-card SaaS shells, repetitive boxed sections, and border-heavy scaffolds. Prefer full-width composition, decisive hierarchy, clean spacing, restrained contrast shifts, and a curated visual rhythm.";
@@ -279,6 +336,8 @@ function buildConversionBlueprintBlock(input: FunnelPromptSynthesisInput) {
     `- ${headlineLine}`,
     `- ${ctaLine}`,
     `- ${proofLine}`,
+    schedulerLine ? `- ${schedulerLine}` : "",
+    fallbackLine ? `- ${fallbackLine}` : "",
     `- ${decisionLine}`,
     `- ${layoutLine}`,
     `- ${designerLine}`,
@@ -362,6 +421,90 @@ function countStructuredSignals(input: FunnelPromptSynthesisInput) {
   ].filter((value) => cleanText(value, 40)).length;
 }
 
+function normalizeIntentValue(value: string) {
+  return cleanText(value, 240).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function extractAnsweredBusinessContext(requestPrompt: string) {
+  const prompt = cleanText(requestPrompt, 2400);
+  if (!prompt) return { offer: "", outcome: "", audience: "" };
+
+  const read = (patterns: RegExp[]) => {
+    for (const pattern of patterns) {
+      const match = prompt.match(pattern);
+      const value = cleanText(match?.[1], 220);
+      if (value) return value;
+    }
+    return "";
+  };
+
+  return {
+    offer: read([
+      /\b(?:the\s+)?(?:actual\s+)?(?:offer|service)\s+is\s+(.+?)(?:[.?!]|$)/i,
+      /\b(?:this|the)\s+page\s+should\s+frame\s+(.+?)(?:[.?!]|$)/i,
+      /\bframe\s+the\s+page\s+around\s+(.+?)(?:[.?!]|$)/i,
+    ]),
+    outcome: read([
+      /\b(?:the\s+)?(?:result|outcome)\s+is\s+(.+?)(?:[.?!]|$)/i,
+      /\bhelp\s+the\s+buyer\s+get\s+(.+?)(?:[.?!]|$)/i,
+      /\bmove\s+someone\s+toward\s+(.+?)(?:[.?!]|$)/i,
+    ]),
+    audience: read([
+      /\b(?:the\s+)?audience\s+is\s+(.+?)(?:[.?!]|$)/i,
+      /\bthis\s+is\s+for\s+(.+?)(?:[.?!]|$)/i,
+      /\bfor\s+(.+?)\s+who\s+need\b/i,
+    ]),
+  };
+}
+
+function resolveBusinessContextCoverage(input: FunnelPromptSynthesisInput): BusinessContextCoverage {
+  const requestPrompt = cleanText(input.requestPrompt, 2400);
+  const promptAnsweredContext = extractAnsweredBusinessContext(requestPrompt);
+  const intent = input.intentProfile;
+  const brief = input.funnelBrief;
+  const pageType = intent?.pageType;
+  const offer = cleanText(intent?.offer, 180) || cleanText(brief?.offerSummary, 180) || promptAnsweredContext.offer;
+  const audience = cleanText(intent?.audience, 180) || cleanText(brief?.audienceSummary, 180) || promptAnsweredContext.audience;
+  const defaultOffer = pageType ? defaultOfferForPageType(pageType) : "";
+  const defaultAudience = pageType ? defaultAudienceForPageType(pageType) : "";
+  const hasDefaultOffer = Boolean(defaultOffer) && normalizeIntentValue(offer) === normalizeIntentValue(defaultOffer);
+  const hasDefaultAudience = Boolean(defaultAudience) && normalizeIntentValue(audience) === normalizeIntentValue(defaultAudience);
+  const businessContext = compactParagraph(input.businessContext, 2400);
+  const isBusinessContextThin = businessContext.length < 180;
+  const hasCurrent = Boolean(cleanText(input.currentHtml, 40) || cleanText(input.currentCss, 40));
+  const needsOfferSpecificity = /(offer|offers|service|services|product|products|package|packages|plan|plans|pricing|price|prices|quote|quotes|consultation|demo|program|programs)/i.test(requestPrompt);
+  const genericPricingRewriteRequest = /(clearer pricing|pricing packages|package tiers|pricing section|make the offer stronger|stronger offer)/i.test(requestPrompt);
+  const needsBroadGeneration = !hasCurrent || /(rebuild|rewrite|regenerate|generate|create|build|from scratch|whole page|entire page|full page|consultation funnel|sales page|booking page)/i.test(requestPrompt);
+  const contextGaps: string[] = [];
+
+  if (!offer || hasDefaultOffer) contextGaps.push("offer");
+  if (!audience || hasDefaultAudience) contextGaps.push("audience");
+  if (isBusinessContextThin && !promptAnsweredContext.outcome) contextGaps.push("business context");
+
+  const filledCount = 3 - contextGaps.length;
+  const businessSpecificityScore = Math.max(0, Math.min(1, filledCount / 3));
+
+  const missingOfferSignal = (!offer || hasDefaultOffer) && !promptAnsweredContext.offer;
+  const missingAudienceSignal = !audience || hasDefaultAudience;
+
+  let clarifyingQuestion: string | null = null;
+  if (requestPrompt && needsOfferSpecificity && needsBroadGeneration) {
+    if (missingOfferSignal || genericPricingRewriteRequest) {
+      clarifyingQuestion = "What is the actual offer or service this page should frame, and what result should it help the buyer get?";
+    } else if (missingAudienceSignal && isBusinessContextThin) {
+      clarifyingQuestion = "Who is the exact audience this page should speak to, and what makes them a strong fit?";
+    } else if (isBusinessContextThin && contextGaps.length >= 2) {
+      clarifyingQuestion = "What does this business specifically do, and what outcome should this page move someone toward?";
+    }
+  }
+
+  return {
+    businessSpecificityScore,
+    contextGaps,
+    clarifyingQuestion,
+  };
+}
+
 function shouldUseAiPromptSynthesis(input: FunnelPromptSynthesisInput) {
   const requestPrompt = cleanText(input.requestPrompt, 2400);
   const wordCount = requestPrompt ? requestPrompt.split(/\s+/).filter(Boolean).length : 0;
@@ -383,6 +526,7 @@ function shouldUseAiPromptSynthesis(input: FunnelPromptSynthesisInput) {
 }
 
 function fallbackPrompt(input: FunnelPromptSynthesisInput, options: FallbackPromptOptions = {}) {
+  const exhibitAdvisory = sanitizeExhibitAdvisory(options.exhibitAdvisory);
   const requestPrompt = cleanText(input.requestPrompt, 2400);
   const requestInterpretationBlock = buildRequestInterpretationBlock(requestPrompt);
   const routeLabel = cleanText(input.routeLabel, 160) || "/page";
@@ -425,6 +569,8 @@ function fallbackPrompt(input: FunnelPromptSynthesisInput, options: FallbackProm
           "Booking-first draft rule: treat booking as a real native product surface, not just a CTA label.",
           "Design a guided top-to-bottom flow: promise and fit -> proof -> what happens next -> anchored booking section -> reassurance.",
           "The first viewport should make the booking motion obvious, and the main CTA should drive into a real booking section rather than leaving scheduling implied.",
+          "Default to one dominant scheduler on the page. Do not duplicate the full booking UI in a later section unless the user explicitly asked for multi-slot or fallback scheduling.",
+          "If a later fallback beat is useful, make it a quieter objection-handling section with a return-to-booking CTA instead of a second full calendar.",
           "If the account has a native booking runtime or calendar configured, design around that concrete scheduling handoff instead of inventing a disconnected intake form.",
           "If exact pricing or package details are still soft, keep the booking path decisive anyway and let the consultation carry the next-step detail.",
         ].join(" ")
@@ -447,10 +593,10 @@ function fallbackPrompt(input: FunnelPromptSynthesisInput, options: FallbackProm
     intent?.shellConcept ? `Baseline shell: ${intent.shellConcept}.` : "",
     intent?.sectionPlan ? `Section plan: ${intent.sectionPlan}.` : "",
     foundation.designDirectives.length ? `Design directives: ${foundation.designDirectives.join(" ")}` : "",
-    options.exhibitAdvisory?.source ? `Exhibit advisory source: ${options.exhibitAdvisory.source}.` : "",
-    options.exhibitAdvisory?.designProfileId ? `Exhibit design profile: ${options.exhibitAdvisory.designProfileId}.` : "",
-    options.exhibitAdvisory?.categories.length ? `Exhibit categories: ${options.exhibitAdvisory.categories.join(", ")}.` : "",
-    options.exhibitAdvisory?.guidance ? `Exhibit guidance: ${options.exhibitAdvisory.guidance}` : "",
+    exhibitAdvisory?.source ? `Exhibit advisory source: ${exhibitAdvisory.source}.` : "",
+    exhibitAdvisory?.designProfileId ? `Exhibit design profile: ${exhibitAdvisory.designProfileId}.` : "",
+    exhibitAdvisory?.categories.length ? `Exhibit categories: ${exhibitAdvisory.categories.join(", ")}.` : "",
+    exhibitAdvisory?.guidance ? `Exhibit guidance: ${exhibitAdvisory.guidance}` : "",
     continuity.recentIterationMemory.length ? `Recent iteration memory: ${continuity.recentIterationMemory.join(" ")}` : "",
     continuity.historySummary ? `Recent thread continuity: ${continuity.historySummary}` : "",
     continuity.lastUserDirection ? `Newest unresolved user direction: ${continuity.lastUserDirection}` : "",
@@ -481,6 +627,7 @@ export async function synthesizeFunnelGenerationPrompt(
   input: FunnelPromptSynthesisInput,
   options: FunnelPromptSynthesisOptions = {},
 ): Promise<FunnelPromptSynthesisResult> {
+  const contextCoverage = resolveBusinessContextCoverage(input);
   const requestPrompt = cleanText(input.requestPrompt, 2400);
   const routeLabel = cleanText(input.routeLabel, 160) || "/page";
   const funnelName = cleanText(input.funnelName, 160) || "this funnel";
@@ -514,7 +661,25 @@ export async function synthesizeFunnelGenerationPrompt(
   const functionalComponentDisciplineBlock = buildFunctionalComponentDisciplineBlock();
 
   if (!requestPrompt && !intent && !brief) {
-    return { prompt: fallbackPrompt(input), usedAi: false, exhibitAdvisory: null };
+    return {
+      prompt: fallbackPrompt(input),
+      usedAi: false,
+      exhibitAdvisory: null,
+      clarifyingQuestion: null,
+      businessSpecificityScore: contextCoverage.businessSpecificityScore,
+      contextGaps: contextCoverage.contextGaps,
+    };
+  }
+
+  if (contextCoverage.clarifyingQuestion) {
+    return {
+      prompt: fallbackPrompt(input),
+      usedAi: false,
+      exhibitAdvisory: null,
+      clarifyingQuestion: contextCoverage.clarifyingQuestion,
+      businessSpecificityScore: contextCoverage.businessSpecificityScore,
+      contextGaps: contextCoverage.contextGaps,
+    };
   }
 
   let exhibitAdvisory: Awaited<ReturnType<typeof getExhibitDesignAdvisory>> | null = null;
@@ -545,10 +710,19 @@ export async function synthesizeFunnelGenerationPrompt(
     exhibitAdvisory = null;
   }
 
+  exhibitAdvisory = sanitizeExhibitAdvisory(exhibitAdvisory);
+
   const fallback = fallbackPrompt(input, { exhibitAdvisory });
 
   if (!shouldUseAiPromptSynthesis(input)) {
-    return { prompt: fallback, usedAi: false, exhibitAdvisory };
+    return {
+      prompt: fallback,
+      usedAi: false,
+      exhibitAdvisory,
+      clarifyingQuestion: null,
+      businessSpecificityScore: contextCoverage.businessSpecificityScore,
+      contextGaps: contextCoverage.contextGaps,
+    };
   }
 
   const system = [
@@ -565,6 +739,10 @@ export async function synthesizeFunnelGenerationPrompt(
     "If older saved direction conflicts with the actual current page or the latest clearer context, reinterpret or replace the stale parts instead of repeating them blindly.",
     "Treat recent thread history and iteration-memory notes as continuity anchors, especially when the newest user turn says something was still missing, weak, or not fixed last time.",
     "If the prior assistant move did not satisfy the user, explicitly correct that miss in the next prompt instead of summarizing it neutrally.",
+    "Treat Exhibit as optional secondary design advisory only.",
+    "Use Exhibit for design rules, spacing, density, typography, elevation, anti-pattern avoidance, and reference anchors, not as the source of business posture or page reasoning.",
+    "Never let Exhibit override stronger local signals such as business context, current page state, live runtime truth, or the newest user direction.",
+    "If any Exhibit guidance is generic, off-posture, or conflicts with stronger context, ignore the conflicting part instead of blending it into the brief.",
     "If pricing, packaging, proof, or offer specifics are still incomplete, do not stall. Frame the best workable assumption so generation can move forward and the user can refine later.",
     "Keep the prompt concise enough for another model to act on, but rich enough to shape tone, hierarchy, proof, and conversion logic.",
     "Default to operator-first funnel generation. The downstream model should produce a near-complete, production-ready funnel layout rather than a customizable starter page.",
@@ -646,6 +824,13 @@ export async function synthesizeFunnelGenerationPrompt(
           ]
         : []),
     ].join("\n"),
+      [
+        "EXHIBIT_PRECEDENCE_RULES:",
+        "- Raw business context, the current page state, live runtime behavior, and the newest user direction outrank Exhibit advice.",
+        "- Use Exhibit only to sharpen design discipline, spacing, density, typography, elevation, anti-pattern avoidance, and reference anchors.",
+        "- Do not let Exhibit set offer logic, business posture, booking-vs-commerce behavior, or shell direction when stronger local context already answers those choices.",
+        "- If Exhibit sounds generic or weak, down-rank it instead of mimicking it.",
+      ].join("\n"),
     exhibitAdvisory
       ? [
           "EXHIBIT_ADVISORY:",
@@ -685,9 +870,32 @@ export async function synthesizeFunnelGenerationPrompt(
     const runGenerateText = options.generateTextImpl ?? generateText;
     const raw = await runGenerateText({ system, user, temperature: 0.35 });
     const parsedPrompt = parseJsonPrompt(raw);
-    if (!parsedPrompt) return { prompt: fallback, usedAi: false, exhibitAdvisory };
-    return { prompt: parsedPrompt, usedAi: true, exhibitAdvisory };
+    if (!parsedPrompt) {
+      return {
+        prompt: fallback,
+        usedAi: false,
+        exhibitAdvisory,
+        clarifyingQuestion: null,
+        businessSpecificityScore: contextCoverage.businessSpecificityScore,
+        contextGaps: contextCoverage.contextGaps,
+      };
+    }
+    return {
+      prompt: parsedPrompt,
+      usedAi: true,
+      exhibitAdvisory,
+      clarifyingQuestion: null,
+      businessSpecificityScore: contextCoverage.businessSpecificityScore,
+      contextGaps: contextCoverage.contextGaps,
+    };
   } catch {
-    return { prompt: fallback, usedAi: false, exhibitAdvisory };
+    return {
+      prompt: fallback,
+      usedAi: false,
+      exhibitAdvisory,
+      clarifyingQuestion: null,
+      businessSpecificityScore: contextCoverage.businessSpecificityScore,
+      contextGaps: contextCoverage.contextGaps,
+    };
   }
 }

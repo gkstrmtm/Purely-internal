@@ -588,7 +588,7 @@ function defaultFunnelGoalForPageType(pageType: FunnelPageIntentType) {
   return "Frame the offer clearly and move the visitor to the primary CTA";
 }
 
-function defaultAudienceForPageType(pageType: FunnelPageIntentType) {
+export function defaultAudienceForPageType(pageType: FunnelPageIntentType) {
   if (pageType === "booking") return "high-intent visitors who are close to taking action";
   if (pageType === "sales") return "buyers already aware of the offer and weighing the purchase";
   if (pageType === "checkout") return "ready-to-buy visitors who need reassurance, not another pitch";
@@ -599,7 +599,7 @@ function defaultAudienceForPageType(pageType: FunnelPageIntentType) {
   return "the best-fit audience for this page";
 }
 
-function defaultOfferForPageType(pageType: FunnelPageIntentType) {
+export function defaultOfferForPageType(pageType: FunnelPageIntentType) {
   if (pageType === "booking") return "a consultation, demo, or strategic call";
   if (pageType === "sales") return "the paid offer being sold in this funnel";
   if (pageType === "checkout") return "the offer the visitor is about to purchase";

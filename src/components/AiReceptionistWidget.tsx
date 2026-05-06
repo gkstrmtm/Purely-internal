@@ -290,6 +290,7 @@ function renderMarkdownish(text: string): React.ReactNode {
 function AiReceptionistWidgetContent() {
   const pathnameRaw = usePathname();
   const pathname = pathnameRaw ?? "";
+  const pathnameReady = pathname.length > 0;
   const hiddenByPreviewPath = pathname === "/pura-preview";
 
   const [hostname, setHostname] = useState<string>("");
@@ -366,8 +367,13 @@ function AiReceptionistWidgetContent() {
     pathname.startsWith("/book/") ||
     hiddenByPublicBusinessPath;
 
+  const hiddenByFunnelBuilderPath =
+    pathname.startsWith("/portal/app/services/funnel-builder") ||
+    pathname.startsWith("/credit/app/services/funnel-builder") ||
+    pathname.startsWith("/app/services/funnel-builder");
+
   // Never show the Purely marketing chat widget on customer custom-domain pages.
-  const hidden = hiddenByPreviewPath || hiddenByPath || !isPlatformHost;
+  const hidden = !pathnameReady || hiddenByPreviewPath || hiddenByFunnelBuilderPath || hiddenByPath || !isPlatformHost;
 
   const phone = process.env.NEXT_PUBLIC_AI_RECEPTIONIST_PHONE || "980-238-3381";
   const telHref = useMemo(() => toTelHref(phone), [phone]);

@@ -1,5 +1,7 @@
 import type { FunnelFoundationBusinessContext } from "@/lib/funnelPageIntent";
 
+import { assessBusinessProfileContextHealth } from "@/lib/businessProfileContextHealth";
+import { deriveBusinessProfileTemplateVars } from "@/lib/businessProfileTemplateVars";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 
@@ -177,68 +179,7 @@ export async function getBusinessProfileTemplateVars(ownerId: string): Promise<R
   const profile = await prisma.businessProfile.findUnique({ where: { ownerId: id }, select: select as any }).catch(() => null);
   if (!profile) return {};
 
-  const businessName = safeLine((profile as any).businessName, 200);
-  const websiteUrl = flags.websiteUrl ? safeUrl((profile as any).websiteUrl, 400) : "";
-  const industry = flags.industry ? safeLine((profile as any).industry, 160) : "";
-  const businessModel = flags.businessModel ? safeLine((profile as any).businessModel, 240) : "";
-  const targetCustomer = flags.targetCustomer ? safeLine((profile as any).targetCustomer, 240) : "";
-  const brandVoice = flags.brandVoice ? safeLine((profile as any).brandVoice, 240) : "";
-  const businessContext = flags.businessContext ? safeParagraph((profile as any).businessContext, 2400) : "";
-  const logoUrl = flags.logoUrl ? safeUrl((profile as any).logoUrl, 500) : "";
-  const brandPrimaryHex = flags.brandPrimaryHex ? safeLine((profile as any).brandPrimaryHex, 16) : "";
-  const brandSecondaryHex = flags.brandSecondaryHex ? safeLine((profile as any).brandSecondaryHex, 16) : "";
-  const brandAccentHex = flags.brandAccentHex ? safeLine((profile as any).brandAccentHex, 16) : "";
-  const brandTextHex = flags.brandTextHex ? safeLine((profile as any).brandTextHex, 16) : "";
-  const brandFontFamily = flags.brandFontFamily ? safeLine((profile as any).brandFontFamily, 120) : "";
-  const brandFontGoogleFamily = flags.brandFontGoogleFamily ? safeLine((profile as any).brandFontGoogleFamily, 160) : "";
-
-  const vars: Record<string, string> = {
-    // Canonical / dotted
-    "business.name": businessName,
-    "business.websiteUrl": websiteUrl,
-    "business.industry": industry,
-    "business.businessModel": businessModel,
-    "business.targetCustomer": targetCustomer,
-    "business.brandVoice": brandVoice,
-    "business.context": businessContext,
-    "business.logoUrl": logoUrl,
-    "business.brandPrimaryHex": brandPrimaryHex,
-    "business.brandSecondaryHex": brandSecondaryHex,
-    "business.brandAccentHex": brandAccentHex,
-    "business.brandTextHex": brandTextHex,
-    "business.brandFontFamily": brandFontFamily,
-    "business.brandFontGoogleFamily": brandFontGoogleFamily,
-
-    // Common aliases (legacy + UI)
-    businessName,
-    business_name: businessName,
-    websiteUrl,
-    website_url: websiteUrl,
-    website: websiteUrl,
-    industry,
-    niche: industry,
-    businessModel,
-    targetCustomer,
-    brandVoice,
-    businessContext,
-    logoUrl,
-    logo_url: logoUrl,
-    brandPrimaryHex,
-    brand_primary_hex: brandPrimaryHex,
-    brandSecondaryHex,
-    brand_secondary_hex: brandSecondaryHex,
-    brandAccentHex,
-    brand_accent_hex: brandAccentHex,
-    brandTextHex,
-    brand_text_hex: brandTextHex,
-    brandFontFamily,
-    brand_font_family: brandFontFamily,
-    brandFontGoogleFamily,
-    brand_font_google_family: brandFontGoogleFamily,
-    business_context: businessContext,
-  };
-
-  return vars;
+  return deriveBusinessProfileTemplateVars(profile);
 }
 
 export async function getBusinessProfileAiContext(ownerId: string): Promise<string> {
@@ -285,10 +226,31 @@ export async function getBusinessProfileAiContext(ownerId: string): Promise<stri
   const brandTextHex = flags.brandTextHex ? safeLine((profile as any).brandTextHex, 16) : "";
   const brandFontFamily = flags.brandFontFamily ? safeLine((profile as any).brandFontFamily, 120) : "";
   const brandFontGoogleFamily = flags.brandFontGoogleFamily ? safeLine((profile as any).brandFontGoogleFamily, 160) : "";
+  const health = assessBusinessProfileContextHealth({
+    businessName,
+    websiteUrl,
+    industry,
+    businessModel,
+    primaryGoals,
+    targetCustomer,
+    brandVoice,
+    businessContext,
+    logoUrl,
+    brandPrimaryHex,
+    brandSecondaryHex,
+    brandAccentHex,
+    brandTextHex,
+    brandFontFamily,
+    brandFontGoogleFamily,
+  });
 
   const lines = [
     "BUSINESS_PROFILE (use as context; do not invent missing details):",
     `- Name: ${businessName}`,
+    `- Context health: ${health.score}/100 (${health.label})`,
+    `- Context health note: ${health.explanation}`,
+    `- Assistant confidence guidance: ${health.assistantGuidance}`,
+    health.nextSteps.length ? `- Smallest next steps: ${health.nextSteps.join("; ")}` : "",
     websiteUrl ? `- Website: ${websiteUrl}` : "",
     industry ? `- Industry: ${industry}` : "",
     businessModel ? `- Business model: ${businessModel}` : "",

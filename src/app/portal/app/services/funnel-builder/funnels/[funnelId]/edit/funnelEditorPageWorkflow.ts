@@ -1,6 +1,11 @@
 import type { CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { buildFunnelPageGraph, isCustomHtmlFunnelPage, isManagedFunnelPage } from "@/lib/funnelPageGraph";
-import { getFunnelPageCurrentHtml, hasFunnelPageDraft, type FunnelPageHtmlState } from "@/lib/funnelPageState";
+import {
+  getFunnelPageCurrentHtml,
+  getFunnelPagePublishedHtml,
+  isFunnelPageDraftNewerThanLive,
+  type FunnelPageHtmlState,
+} from "@/lib/funnelPageState";
 
 export type FunnelEditorWorkflowPage = FunnelPageHtmlState & {
   id: string;
@@ -12,6 +17,7 @@ export type FunnelEditorWorkflowPage = FunnelPageHtmlState & {
 export type FunnelEditorPageSaveUpdate = {
   editorMode?: "BLOCKS" | "CUSTOM_HTML";
   blocksJson?: CreditFunnelBlock[];
+  customHtml?: string;
   draftHtml?: string;
   customChatJson?: unknown;
 };
@@ -73,6 +79,7 @@ export async function saveCurrentFunnelEditorPage(opts: {
     return savePage({
       editorMode: "BLOCKS",
       blocksJson: saveableBlocks,
+      customHtml: getFunnelPagePublishedHtml(selectedPage),
     });
   }
 
@@ -95,14 +102,15 @@ export function getFunnelEditorPageSelectionDecision(opts: {
   selectedPageId: string | null;
   selectedPage: FunnelEditorWorkflowPage | null;
   selectedPageDirty: boolean;
+  sourceHasPendingChanges: boolean;
 }): FunnelEditorPageSelectionDecision {
-  const { busy, savingPage, nextPageId, selectedPageId, selectedPage, selectedPageDirty } = opts;
+  const { busy, savingPage, nextPageId, selectedPageId, selectedPage, selectedPageDirty, sourceHasPendingChanges } = opts;
 
   if (busy || savingPage || nextPageId === selectedPageId) {
     return { kind: "ignore" };
   }
 
-  if (selectedPage?.id && selectedPageDirty) {
+  if (selectedPage?.id && (selectedPageDirty || sourceHasPendingChanges)) {
     return { kind: "confirm-leave", nextPageId };
   }
 
@@ -112,38 +120,53 @@ export function getFunnelEditorPageSelectionDecision(opts: {
 export function getFunnelEditorWorkflowViewModel(opts: {
   selectedPage: FunnelEditorWorkflowPage | null;
   selectedPageDirty: boolean;
+  sourceHasPendingChanges: boolean;
   customCodeModeActive: boolean;
   savingPage: boolean;
   publishingPage: boolean;
   selectedPageIsEntryPage: boolean;
 }) {
-  const { selectedPage, selectedPageDirty, customCodeModeActive, savingPage, publishingPage, selectedPageIsEntryPage } = opts;
+  const { selectedPage, selectedPageDirty, sourceHasPendingChanges, customCodeModeActive, savingPage, publishingPage, selectedPageIsEntryPage } = opts;
   const pageGraph = buildFunnelPageGraph(selectedPage);
+  const savedDraftIsNewerThanLive = Boolean(selectedPage && isFunnelPageDraftNewerThanLive(selectedPage));
+  const hasPendingDraftChanges = Boolean(selectedPageDirty || sourceHasPendingChanges);
 
-  const hasDeployableDraft = Boolean(
-    selectedPage && pageGraph.sourceMode === "custom-html" && (selectedPageDirty || hasFunnelPageDraft(selectedPage)),
-  );
+  const hasDeployableDraft = Boolean(selectedPage && pageGraph.sourceMode !== "markdown" && (selectedPageDirty || savedDraftIsNewerThanLive));
   const saveButtonLabel = savingPage
     ? "Saving"
-    : selectedPageDirty
-      ? customCodeModeActive
-        ? "Save draft"
-        : "Update live page"
-      : customCodeModeActive
+    : hasPendingDraftChanges
+      ? "Save draft"
+      : hasDeployableDraft || customCodeModeActive
         ? "Draft saved"
-        : "Live up to date";
+        : "Live matches draft";
   const saveButtonTitle = customCodeModeActive
-    ? "Save the current page as draft. Draft changes do not go live until you publish."
-    : "Save the current block page and update the public page immediately.";
-  const publishButtonLabel = publishingPage ? "Publishing" : selectedPageDirty ? "Save draft and publish" : "Publish draft";
+    ? sourceHasPendingChanges
+      ? "Save the staged source changes as draft. Draft changes do not go live until you publish."
+      : selectedPageDirty
+        ? "Save the current page as draft. Draft changes do not go live until you publish."
+        : savedDraftIsNewerThanLive
+          ? "This draft is saved, but the live page is still older. Publish when you want Open live to match this draft."
+          : "This draft is saved and matches the live page."
+    : selectedPageDirty
+      ? "Save the current block page as draft. Open live keeps showing the last published version until you publish."
+      : savedDraftIsNewerThanLive
+        ? "A saved block draft is ready. Publish when you want Open live to match it."
+        : sourceHasPendingChanges
+          ? "Save the staged source changes as draft before leaving or publishing."
+          : "This page's live version already matches the last saved draft.";
+  const publishButtonLabel = publishingPage
+    ? "Publishing"
+    : hasDeployableDraft
+      ? selectedPageDirty
+        ? "Save draft and publish"
+        : "Publish live"
+      : "Live matches draft";
   const workflowStatusTone = !selectedPage
     ? "muted"
-    : selectedPageDirty
+    : hasPendingDraftChanges
       ? "amber"
-      : customCodeModeActive
-        ? hasFunnelPageDraft(selectedPage)
-          ? "blue"
-          : "emerald"
+      : savedDraftIsNewerThanLive
+        ? "blue"
         : "emerald";
   const workflowStatusClassName =
     workflowStatusTone === "amber"
@@ -155,34 +178,40 @@ export function getFunnelEditorWorkflowViewModel(opts: {
           : "border-zinc-200 bg-zinc-50 text-zinc-600";
   const workflowStatusLabel = !selectedPage
     ? "No page selected"
-    : selectedPageDirty
-      ? customCodeModeActive
-        ? "Draft changes not saved"
-        : "Live update not saved"
-      : customCodeModeActive
-        ? hasFunnelPageDraft(selectedPage)
-          ? "Draft ready to publish"
-          : "Live page"
-        : "Live on save";
+    : hasPendingDraftChanges
+      ? "Unsaved changes"
+      : savedDraftIsNewerThanLive
+        ? "Draft newer than live"
+        : "Live matches draft";
   const workflowSummary = !selectedPage
     ? "Choose a page to edit."
     : customCodeModeActive
-      ? selectedPageDirty
-        ? "You are editing a private draft. Preview and Source stay on that draft here. Save draft to keep it, then publish when you want the public page replaced."
-        : hasFunnelPageDraft(selectedPage)
-          ? "You are looking at the saved draft for this page. The public page stays unchanged until you publish this draft."
-          : "You are looking at the current public page. Your next edit creates a draft here first."
-      : selectedPageDirty
-        ? "You are editing the next live version. Preview shows those changes here, and saving updates the public page immediately."
-        : "Layout view edits the live hosted page directly. Saving updates the public page immediately.";
-  const liveLinkLabel = selectedPageIsEntryPage ? "Open live" : "Open live page";
-  const liveLinkHint = selectedPageIsEntryPage
-    ? "Open the public version of this funnel in a new tab."
-    : "Open the main public page for this funnel in a new tab.";
-  const leavePageSummary = customCodeModeActive
-    ? "You have unsaved full-page changes. Save them now if you want to keep this draft before switching pages."
-    : "You have unsaved block changes. Save now if you want them to update the live page before you switch.";
-  const leavePageConfirmLabel = customCodeModeActive ? "Save draft and continue" : "Update live page and continue";
+      ? sourceHasPendingChanges
+        ? "You have staged source changes. Save draft to keep them, then publish when you want the live page replaced."
+        : selectedPageDirty
+        ? "You are editing a private draft. Page and Source stay on that draft here. Save draft to keep it, then publish when you want the public page replaced."
+        : savedDraftIsNewerThanLive
+          ? "You are looking at the saved draft for this page. Open live still shows the live page until you publish this draft."
+          : "You are looking at the saved draft for this page, and it already matches the live page."
+      : hasPendingDraftChanges
+        ? "You have unsaved block changes. Save draft to keep them private, then publish when you want the public page updated."
+        : savedDraftIsNewerThanLive
+          ? "A saved block draft is ready. Open live still shows the live page until you publish this draft."
+          : "The live page already matches the last saved draft.";
+  const liveLinkLabel = "Open live page";
+  const liveLinkHint = customCodeModeActive && (selectedPageDirty || savedDraftIsNewerThanLive)
+    ? selectedPageIsEntryPage
+      ? "Open the published public version of this funnel. Draft edits in Page and Source stay private until you publish."
+      : "Open this page's published public version. Saved drafts in Page and Source stay private until you publish."
+    : selectedPageIsEntryPage
+      ? "Open the current public version of this funnel in a new tab."
+      : "Open this page's current public version in a new tab.";
+  const leavePageSummary = sourceHasPendingChanges
+    ? "You have staged source changes. Save draft now if you want to keep them before leaving this page."
+    : customCodeModeActive
+      ? "You have unsaved full-page changes. Save them now if you want to keep this draft before switching pages."
+      : "You have unsaved block changes. Save draft now if you want to keep them before switching pages.";
+  const leavePageConfirmLabel = "Save draft and continue";
 
   return {
     hasDeployableDraft,

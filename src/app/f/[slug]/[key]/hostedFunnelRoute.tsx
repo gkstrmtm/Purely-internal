@@ -7,11 +7,14 @@ import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
 import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
 import { readCreditFunnelTrackingSettings } from "@/lib/funnelEventTracking";
+import { readFunnelOffers } from "@/lib/funnelOffers";
+import { resolveFunnelBookingSurfaceContext } from "@/lib/funnelBookingSurface";
 import { resolveFunnelPageRenderState } from "@/lib/funnelPageGraph";
 import { publicKeyFromId } from "@/lib/publicHostedKeys";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
+import { FunnelCustomHtmlRuntimeSurface } from "@/components/funnel/FunnelCustomHtmlRuntimeSurface";
 import { HostedFunnelTracker } from "@/components/funnel/HostedFunnelTracker";
 
 type FunnelSeo = {
@@ -167,6 +170,7 @@ export async function fetchHostedFunnelRoute(slug: string, key: string, pageSlug
   const seo = mergeSeo(seoSettings, seoFromCustomHtml);
   const tracking = readCreditFunnelTrackingSettings(settings?.dataJson ?? null, funnel.id, page?.id ?? null);
   const defaultBookingCalendarId = readFunnelBookingRouting(settings?.dataJson ?? null, funnel.id)?.calendarId ?? null;
+  const offers = readFunnelOffers(settings?.dataJson ?? null, funnel.id);
   const renderedHtmlWithRuntime =
     renderState.kind === "html" && renderedCustomHtml
       ? injectHostedRuntimeScripts(renderedCustomHtml, {
@@ -178,7 +182,7 @@ export async function fetchHostedFunnelRoute(slug: string, key: string, pageSlug
         })
       : renderedCustomHtml;
 
-  return { funnel, page, seo, renderedCustomHtml: renderedHtmlWithRuntime, renderState, tracking, defaultBookingCalendarId };
+  return { funnel, page, seo, renderedCustomHtml: renderedHtmlWithRuntime, renderState, tracking, defaultBookingCalendarId, offers };
 }
 
 export function buildHostedFunnelMetadata(loaded: NonNullable<Awaited<ReturnType<typeof fetchHostedFunnelRoute>>>): Metadata {
@@ -208,7 +212,7 @@ export async function renderHostedFunnelRoute(opts: {
   const { loaded, slug, key } = opts;
   const s = String(slug || "").trim().toLowerCase();
   const k = String(key || "").trim();
-  const { funnel, page, renderedCustomHtml, renderState, tracking, defaultBookingCalendarId } = loaded;
+  const { funnel, page, renderedCustomHtml, renderState, tracking, defaultBookingCalendarId, offers } = loaded;
   const markdownBlocks = renderState.kind === "markdown" ? parseBlogContent(renderState.markdown) : [];
 
   const billingModel = funnel.ownerId
@@ -230,12 +234,27 @@ export async function renderHostedFunnelRoute(opts: {
       {page ? (
         <>
           {renderState.kind === "html" ? (
-            <iframe
-              title={page.title}
-              sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
-              allow="microphone"
-              srcDoc={renderedCustomHtml || ""}
-              className="h-screen w-full bg-white"
+            <FunnelCustomHtmlRuntimeSurface
+              html={renderedCustomHtml || ""}
+              bookingTarget={defaultBookingCalendarId
+                ? {
+                    kind: "calendar",
+                    ownerId: funnel.ownerId,
+                    calendarId: defaultBookingCalendarId,
+                    funnelId: funnel.id,
+                    pageId: page.id,
+                    themeStage: "published",
+                  }
+                : null}
+              surfaceContext={resolveFunnelBookingSurfaceContext({
+                posture: "published",
+                routeKind: defaultBookingCalendarId ? "funnel-default" : "placeholder",
+                pageTitle: page.title,
+                calendarTitle: defaultBookingCalendarId || null,
+                pageIntent: "brief" in page ? page.brief || null : null,
+              })}
+              injectImplicitBooking={Boolean(defaultBookingCalendarId)}
+              className="min-h-screen w-full bg-white"
             />
           ) : renderState.kind === "blocks" ? (
             <div>
@@ -247,10 +266,14 @@ export async function renderHostedFunnelRoute(opts: {
                   defaultBookingCalendarId: defaultBookingCalendarId || undefined,
                   funnelId: funnel.id,
                   funnelPageId: page.id,
+                  bookingThemeStage: "published",
                   funnelSlug: s,
                   funnelPathBase: `/f/${encodeURIComponent(s)}/${encodeURIComponent(k)}`,
                   funnelPageSlug: page.slug,
+                  bookingSurfacePageTitle: page.title,
+                  bookingSurfacePageIntent: "brief" in page ? page.brief || null : null,
                   metaPixelId: tracking.resolvedPixelId,
+                  offers,
                 },
               })}
             </div>

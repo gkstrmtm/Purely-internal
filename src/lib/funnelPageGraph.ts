@@ -58,22 +58,36 @@ function normalizeString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
-function normalizeSourceMode(editorMode: unknown): FunnelPageGraphSourceMode {
+function hasStructuredLayoutBlocks(blocks: CreditFunnelBlock[]): boolean {
+  const walk = (items: CreditFunnelBlock[]): boolean => {
+    for (const block of items) {
+      if (!block) continue;
+      if (block.type !== "page" && block.type !== "customCode") return true;
+    }
+
+    return false;
+  };
+
+  return walk(blocks);
+}
+
+function normalizeSourceMode(editorMode: unknown, blocks: CreditFunnelBlock[]): FunnelPageGraphSourceMode {
   const value = typeof editorMode === "string" ? editorMode.trim().toUpperCase() : "";
   if (value === "BLOCKS") return "managed";
-  if (value === "CUSTOM_HTML") return "custom-html";
+  if (value === "CUSTOM_HTML") return hasStructuredLayoutBlocks(blocks) ? "managed" : "custom-html";
   return "markdown";
 }
 
 export function buildFunnelPageGraph(page: FunnelPageGraphInput | null | undefined): FunnelPageGraph {
-  const sourceMode = normalizeSourceMode(page?.editorMode);
+  const managedBlocks = coerceBlocksJson(page?.blocksJson);
+  const sourceMode = normalizeSourceMode(page?.editorMode, managedBlocks);
 
   return {
     version: 1,
     pageId: normalizeString(page?.id),
     title: normalizeString(page?.title),
     sourceMode,
-    managedBlocks: coerceBlocksJson(page?.blocksJson),
+    managedBlocks,
     html: {
       published: getFunnelPagePublishedHtml(page),
       draft: getFunnelPageDraftHtml(page),

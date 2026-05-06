@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { parseCreditFunnelTrackingContext, trackCreditFunnelEvent } from "@/lib/funnelEventTracking";
+import { readFunnelOffers, resolveFunnelOffer, type FunnelOffer } from "@/lib/funnelOffers";
 import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { stripeGetWithKey } from "@/lib/stripeFetchWithKey.server";
 import { stripePostWithKey } from "@/lib/stripeFetchWithKey.server";
@@ -38,22 +39,37 @@ const postSchema = z
     }
   });
 
-function collectAllowedPriceIds(blocks: CreditFunnelBlock[]): Set<string> {
+function collectAllowedPriceIds(blocks: CreditFunnelBlock[], offers: FunnelOffer[]): Set<string> {
   const out = new Set<string>();
+
+  const addResolvedPriceId = (value: { priceId?: unknown; offerId?: unknown }) => {
+    const directPriceId = typeof value.priceId === "string" ? String(value.priceId).trim() : "";
+    if (directPriceId) out.add(directPriceId);
+
+    const offerId = typeof value.offerId === "string" ? String(value.offerId).trim() : "";
+    if (!offerId) return;
+    const offer = resolveFunnelOffer(offers, offerId);
+    const resolvedPriceId = typeof offer?.priceId === "string" ? String(offer.priceId).trim() : "";
+    if (resolvedPriceId) out.add(resolvedPriceId);
+  };
 
   const walk = (arr: CreditFunnelBlock[]) => {
     for (const b of arr) {
       if (!b || typeof b !== "object") continue;
 
       if (b.type === "salesCheckoutButton") {
-        const priceId = typeof (b.props as any)?.priceId === "string" ? String((b.props as any).priceId).trim() : "";
-        if (priceId) out.add(priceId);
+        addResolvedPriceId(b.props as any);
         continue;
       }
 
       if (b.type === "addToCartButton") {
-        const priceId = typeof (b.props as any)?.priceId === "string" ? String((b.props as any).priceId).trim() : "";
-        if (priceId) out.add(priceId);
+        addResolvedPriceId(b.props as any);
+        continue;
+      }
+
+      if (b.type === "pricingGrid") {
+        const items: any[] = Array.isArray((b.props as any)?.items) ? ((b.props as any).items as any[]) : [];
+        for (const item of items) addResolvedPriceId(item || {});
         continue;
       }
 
@@ -147,7 +163,12 @@ export async function POST(req: Request) {
     }
 
     const blocks = coerceBlocksJson(page.blocksJson);
-    const allowed = collectAllowedPriceIds(blocks);
+    const settings = page.funnel?.ownerId
+      ? await prisma.creditFunnelBuilderSettings
+          .findUnique({ where: { ownerId: page.funnel.ownerId }, select: { dataJson: true } })
+          .catch(() => null)
+      : null;
+    const allowed = collectAllowedPriceIds(blocks, readFunnelOffers(settings?.dataJson ?? null, page.funnelId));
 
     const requestedItemsRaw =
       Array.isArray((parsed.data as any).items) && (parsed.data as any).items.length

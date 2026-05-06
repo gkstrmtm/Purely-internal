@@ -32,6 +32,13 @@ export function hasFunnelPageDraft(page: FunnelPageHtmlState | null | undefined)
   return getFunnelPageDraftHtml(page).trim().length > 0;
 }
 
+export function isFunnelPageDraftNewerThanLive(page: FunnelPageHtmlState | null | undefined): boolean {
+  const draft = getFunnelPageDraftHtml(page).trim();
+  if (!draft) return false;
+  const published = getFunnelPagePublishedHtml(page).trim();
+  return draft !== published;
+}
+
 export function getFunnelPageCurrentHtml(page: FunnelPageHtmlState | null | undefined): string {
   const draft = getFunnelPageDraftHtml(page);
   if (draft.trim()) return draft;

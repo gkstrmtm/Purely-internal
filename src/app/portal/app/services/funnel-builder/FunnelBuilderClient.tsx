@@ -24,7 +24,7 @@ import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingL
 import { useToast } from "@/components/ToastProvider";
 import { IconCopy, IconEdit } from "@/app/portal/PortalIcons";
 import { hostedFunnelPath, hostedFormPath } from "@/lib/publicHostedKeys";
-import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+import { toPurelyHostedUrl, toRuntimeHostedUrl } from "@/lib/publicHostedOrigin";
 import { CreditFormTemplatePreview } from "@/components/CreditFormTemplatePreview";
 
 import { CREDIT_FORM_TEMPLATES, coerceCreditFormTemplateKey, getCreditFormTemplate, type CreditFormTemplateKey } from "@/lib/creditFormTemplates";
@@ -694,6 +694,11 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     return h === "localhost" || h.endsWith(".local") || h === "127.0.0.1";
   }, [platformTargetHost]);
 
+  const runtimeHostedOrigin = useMemo(() => {
+    if (typeof window !== "undefined") return window.location.origin || null;
+    return null;
+  }, []);
+
   const getFunnelLiveHref = useCallback(
     (assignedDomain: string | null | undefined, slug: string, funnelId: string) => {
       const cleanSlug = String(slug || "").trim();
@@ -707,9 +712,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       }
 
       const hostedPath = hostedFunnelPath(cleanSlug, cleanId);
-      return hostedPath ? toPurelyHostedUrl(hostedPath) : null;
+      return hostedPath ? toRuntimeHostedUrl(hostedPath, runtimeHostedOrigin) : null;
     },
-    [isLocalPreview],
+    [isLocalPreview, runtimeHostedOrigin],
   );
 
   const getFormLiveHref = useCallback((slug: string, formId: string) => {
@@ -1363,7 +1368,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 +
               </div>
               <div className="mt-3 text-base font-semibold text-brand-ink">Create funnel</div>
-              <div className="mt-1 text-sm text-zinc-600">Start with AI guidance, then refine the funnel in the builder.</div>
+              <div className="mt-1 text-sm text-zinc-600">Start from a guided scaffold or a custom draft, then refine the funnel in the builder.</div>
             </button>
 
             {(funnels || []).map((f) => {
@@ -1407,7 +1412,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           ? isLocalPreview
                             ? `${platformTargetHost || ""}/domain-router/${assignedDomainClean}/${f.slug}`
                             : `https://${assignedDomainClean}/${f.slug}`
-                          : toPurelyHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`)}
+                          : toRuntimeHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin)}
                       </div>
                       {assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? (
                         <div
@@ -1487,7 +1492,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               </Link>
 
                               <Link
-                                href={toPurelyHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`)}
+                                href={toRuntimeHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin)}
                                 target="_blank"
                                 className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-zinc-50"
                                 onClick={() => setOpenFunnelMenuId(null)}
@@ -2228,7 +2233,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 <div className="text-lg font-bold text-brand-ink">{creatingKind === "funnel" ? "Create funnel" : "Create form"}</div>
                 <p className="mt-1 text-sm text-zinc-600">
                   {creatingKind === "funnel"
-                    ? "Describe the funnel job, let AI suggest the right structure, then open it in the builder."
+                    ? "Set the offer, audience, and CTA, then choose whether the first draft should start from a guided scaffold or a custom draft."
                     : "Choose a URL slug. You can rename it later."}
                 </p>
               </div>
@@ -2311,7 +2316,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                     </div>
 
                     <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">How should we start?</div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">First draft path</div>
                       <div className="mt-1 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
                         <button
                           type="button"
@@ -2321,7 +2326,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             !createFunnelPreferCustomMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:bg-white/70",
                           )}
                         >
-                          Let AI choose
+                          Guided scaffold
                         </button>
                         <button
                           type="button"
@@ -2331,13 +2336,13 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             createFunnelPreferCustomMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:bg-white/70",
                           )}
                         >
-                          Start custom
+                          Custom draft
                         </button>
                       </div>
                       <div className="mt-1 text-xs text-zinc-500">
                         {createFunnelPreferCustomMode
-                          ? "Use this when you do not want a recommended stencil deciding the first structure."
-                          : "Use this when you want the builder to pick the cleanest first funnel shape for you."}
+                          ? "Start with a simple draft page and shape the structure yourself from chat or source."
+                          : "Let the builder seed the first draft with the strongest scaffold it can infer from the offer."}
                       </div>
                     </div>
                   </div>
@@ -2419,16 +2424,16 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Best starting point right now</div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Recommended first draft</div>
                           <div className="mt-1 text-sm font-semibold text-zinc-900">
                             {funnelInitializationDecision.mode === "stencil"
-                              ? `Start with the ${funnelInitializationDecision.label} flow`
-                              : "Start with a custom setup"}
+                              ? `Seed the draft with the ${funnelInitializationDecision.label} scaffold`
+                              : "Start from a custom draft"}
                           </div>
                           <div className="mt-1 text-sm text-zinc-700">
                             {funnelInitializationDecision.mode === "stencil"
-                              ? `When you click Create, we will open the builder with a ${(funnelInitializationDecision.label || "guided").toLowerCase()} structure already in place.`
-                              : "When you click Create, we will open the builder with a simple custom starting page you can shape from chat."}
+                              ? `When you click Create, the builder will open with a ${(funnelInitializationDecision.label || "guided").toLowerCase()} first draft already seeded.`
+                              : "When you click Create, the builder will open with one simple page and leave the structure decisions to you."}
                           </div>
                           <div className="mt-1 text-sm text-zinc-600">{funnelInitializationDecision.reason}</div>
                           {funnelInitializationDecision.question ? (
@@ -2436,7 +2441,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           ) : null}
                           {funnelCreateNeedsDirectionChoice ? (
                             <div className="mt-2 text-sm font-medium text-amber-900">
-                              Pick the closest funnel type below, or switch to Start custom if you want to shape it yourself.
+                              Pick the closest scaffold below, or switch to Custom draft if you want to shape the first page yourself.
                             </div>
                           ) : null}
                           {funnelInitializationDecision.suggestions.length ? (

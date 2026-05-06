@@ -12,6 +12,7 @@ import {
   readFunnelPageBrief,
   writeFunnelPageBrief,
 } from "@/lib/funnelPageIntent";
+import { normalizeFunnelThreadMessages } from "@/lib/funnelThreads";
 import {
   dbHasCreditFunnelPageDraftHtmlColumn,
   normalizeDraftHtml,
@@ -137,6 +138,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
 
   const pagesWithSeo = normalizeDraftHtmlList(pages).map((p) => ({
     ...p,
+    customChatJson: normalizeFunnelThreadMessages(p.customChatJson),
     seo: readFunnelPageSeo(settings?.dataJson ?? null, p.id),
     brief: readFunnelPageBrief(settings?.dataJson ?? null, p.id),
     trackingSettings: (() => readCreditFunnelTrackingSettings(settings?.dataJson ?? null, funnelId, p.id))(),

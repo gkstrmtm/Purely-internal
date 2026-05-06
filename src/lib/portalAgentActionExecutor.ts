@@ -6357,17 +6357,45 @@ async function runDirectAction(opts: {
         wantsCheckout: boolean;
         wantsCalendar: boolean;
         wantsChatbot: boolean;
+        wantsPricing: boolean;
+        wantsTestimonialGrid: boolean;
+        wantsSyncedReviews: boolean;
         any: boolean;
       } {
         const s = String(text || "").toLowerCase();
-        const wantsShop = /\b(shop|store|product|products|pricing|buy now|buy\b)/.test(s);
-        const wantsCart = /\b(cart|add to cart)\b/.test(s);
-        const wantsCheckout = /\b(checkout|purchase|pay now)\b/.test(s);
-        const wantsCalendar = /\b(calendar|schedule|booking|book a call|book a meeting|appointment)\b/.test(s);
-        const wantsChatbot = /\b(chatbot|chat bot|live chat|website chat)\b/.test(s);
-        const looksLikeDesignEdit = /\b(style|styling|restyle|redesign|design|layout|look|visual|brand|branding|theme|color|colors|font|fonts|spacing|hero|headline|modern|polish|refresh|improve|all pages|page design)\b/.test(s);
-        const any = (wantsShop || wantsCart || wantsCheckout || wantsCalendar || wantsChatbot) && !looksLikeDesignEdit;
-        return { wantsShop, wantsCart, wantsCheckout, wantsCalendar, wantsChatbot, any };
+        const embedVerb = /(add|insert|embed|connect|wire|hook up|place|drop in|include|use my|set up|attach)/;
+        const shopNoun = /(shop|store|product|products|buy now|buy\b|cart|checkout|stripe|payment link|price id)/;
+        const calendarNoun = /(calendar|scheduler|schedule|appointment|booking widget|booking calendar|calendar embed|book a meeting|book a call)/;
+        const chatbotNoun = /(chatbot|chat bot|live chat|website chat|chat widget)/;
+        const pricingSurface = /\b(pricing (section|grid|cards?|table)|plan comparison|pricing tiers?|plans? section|packages? section)\b/;
+        const testimonialSurface = /\b(testimonials? (section|grid|cards?)|social proof section|proof section|case stud(?:y|ies) section)\b/;
+        const syncedReviewSurface = /\b(synced reviews?|live reviews?|real reviews?|reviews? (section|block|feed|grid)|customer reviews? section)\b/;
+        const designLedCue = /\b(design|redesign|restyle|style|styling|visual|layout|look|feel|vibe|tone|premium|polished|unique|brand|art direction|concept|hero)\b/;
+        const removeVerb = /(remove|strip|delete|drop|cut|eliminate|without|avoid|not|no)/;
+        const negativeCommerceCue = new RegExp(
+          String.raw`\b(?:not\s+a|not\s+an|not|no|without|remove|strip|delete|drop|cut|eliminate|avoid|stop)\b[^.]{0,80}\b(?:shop|store|cart|checkout|purchase|buy\s*now|buy-now|add\s*to\s*cart|add-to-cart|payment\s+link|stripe\s+checkout)\b`,
+        ).test(s);
+        const negativeCalendarCue = new RegExp(
+          String.raw`\b(?:remove|strip|delete|drop|cut|eliminate|avoid)\b[^.]{0,80}\b(?:calendar|scheduler|booking\s+calendar|booking\s+widget|booking|appointment)\b`,
+        ).test(s);
+        const pricingOnly = /\bpricing\b/.test(s) && !shopNoun.test(s.replace(/pricing/g, ""));
+        const wantsShop = !negativeCommerceCue && !pricingOnly && ((embedVerb.test(s) && shopNoun.test(s)) || /\b(add to cart|checkout|payment link|stripe checkout)\b/.test(s));
+        const wantsCart = !negativeCommerceCue && /\b(add to cart|cart)\b/.test(s) && (embedVerb.test(s) || /\bcheckout\b/.test(s));
+        const wantsCheckout = !negativeCommerceCue && /\b(checkout|purchase|pay now|stripe checkout)\b/.test(s) && (embedVerb.test(s) || /\bstripe\b/.test(s));
+        const wantsCalendar = !negativeCalendarCue && ((embedVerb.test(s) && calendarNoun.test(s)) || /\bembed my calendar\b/.test(s));
+        const wantsChatbot = (embedVerb.test(s) && chatbotNoun.test(s)) || /\bembed my chatbot\b/.test(s);
+        const wantsPricing = pricingSurface.test(s) || (embedVerb.test(s) && /\bpricing\b/.test(s) && /\b(section|grid|cards?|table|plans?)\b/.test(s));
+        const wantsTestimonialGrid = testimonialSurface.test(s) || (embedVerb.test(s) && /\btestimonials?\b/.test(s));
+        const wantsSyncedReviews = syncedReviewSurface.test(s) || (embedVerb.test(s) && /\breviews?\b/.test(s));
+        const explicitRuntimeOnlyCue =
+          /\b(?:just|only|simply)\s+(?:add|insert|embed|connect|wire|hook up|place|drop in|include|use|set up|attach)\b/.test(s) ||
+          /\bdirectly\s+(?:add|insert|embed|connect|wire|attach|place|drop in)\b/.test(s) ||
+          (removeVerb.test(s) && !designLedCue.test(s) && /(calendar|chatbot|checkout|cart|shop)/.test(s) && embedVerb.test(s));
+        const designLedRequest = designLedCue.test(s) && !explicitRuntimeOnlyCue;
+        const any =
+          !designLedRequest &&
+          (wantsShop || wantsCart || wantsCheckout || wantsCalendar || wantsChatbot || wantsPricing || wantsTestimonialGrid || wantsSyncedReviews);
+        return { wantsShop, wantsCart, wantsCheckout, wantsCalendar, wantsChatbot, wantsPricing, wantsTestimonialGrid, wantsSyncedReviews, any };
       }
 
       function normalizeAgentId(raw: unknown): string {
@@ -6428,6 +6456,33 @@ async function runDirectAction(opts: {
         intent: ReturnType<typeof detectInteractiveIntent>;
       }): CreditFunnelBlock[] {
         const blocks: CreditFunnelBlock[] = [];
+        const commerceMode = Boolean(opts.intent.wantsShop || opts.intent.wantsCart || opts.intent.wantsCheckout);
+        const heroChildren: CreditFunnelBlock[] = [
+          {
+            id: newBlockId("h1"),
+            type: "heading",
+            props: { text: opts.pageTitle || opts.funnelName || "Welcome", level: 1 },
+          },
+          {
+            id: newBlockId("p"),
+            type: "paragraph",
+            props: {
+              text: commerceMode
+                ? "Explore what we offer below, compare options, and move into checkout from the page when you are ready."
+                : opts.intent.wantsCalendar
+                  ? "Use the sections below to understand the offer, qualify the fit, and book the next conversation without extra friction."
+                  : "Use the sections below to explain the offer, build confidence, and move people into the right next step.",
+            },
+          },
+        ];
+
+        if (commerceMode) {
+          heroChildren.push({
+            id: newBlockId("cart"),
+            type: "cartButton",
+            props: { text: "Cart" },
+          });
+        }
 
         blocks.push({ id: newBlockId("page"), type: "page", props: {} });
 
@@ -6445,30 +6500,11 @@ async function runDirectAction(opts: {
           id: newBlockId("hero"),
           type: "section",
           props: {
-            children: [
-              {
-                id: newBlockId("h1"),
-                type: "heading",
-                props: { text: opts.pageTitle || opts.funnelName || "Welcome", level: 1 },
-              },
-              {
-                id: newBlockId("p"),
-                type: "paragraph",
-                props: {
-                  text:
-                    "Explore what we offer below. Add items to your cart, checkout securely, or book a time to talk. You can do it all on this page.",
-                },
-              },
-              {
-                id: newBlockId("cart"),
-                type: "cartButton",
-                props: { text: "Cart" },
-              },
-            ],
+            children: heroChildren,
           },
         });
 
-        if (opts.intent.wantsShop || opts.intent.wantsCart || opts.intent.wantsCheckout) {
+        if (commerceMode) {
           const purchasable = opts.stripeProducts.filter((p) => p && p.defaultPriceId).slice(0, 6);
 
           if (purchasable.length) {
@@ -6744,7 +6780,25 @@ async function runDirectAction(opts: {
       const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
       const stripeProducts = await getStripeProductsForOwner(ownerId).catch(() => ({ ok: false as const, products: [] as any[] }));
 
-      const intent = detectInteractiveIntent(prompt);
+      const rawIntent = detectInteractiveIntent(prompt);
+      const bookingFirstPage = /\b(book|booking|schedule|call|consult|consultation|appointment|demo)\b/i.test(
+        `${String(page.title || "")} ${String(page.slug || "")} ${prompt}`,
+      );
+      const intent = bookingFirstPage
+        ? {
+            ...rawIntent,
+            wantsShop: false,
+            wantsCart: false,
+            wantsCheckout: false,
+            any: Boolean(
+              (rawIntent as any).wantsCalendar ||
+                (rawIntent as any).wantsChatbot ||
+                (rawIntent as any).wantsPricing ||
+                (rawIntent as any).wantsTestimonialGrid ||
+                (rawIntent as any).wantsSyncedReviews,
+            ),
+          }
+        : rawIntent;
       if (intent.any) {
         const bookingCalendars = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1 as const, calendars: [] as any[] }));
         const allCalendars = Array.isArray((bookingCalendars as any).calendars)

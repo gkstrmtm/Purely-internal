@@ -1,5 +1,6 @@
 import React from "react";
 
+import { PublicBookingClient } from "@/app/book/[slug]/PublicBookingClient";
 import { ConvaiChatWidget } from "@/components/ConvaiChatWidget";
 import { SafeClientBoundary } from "@/components/SafeClientBoundary";
 import { AddToCartButton } from "@/components/funnel/AddToCartButton";
@@ -16,6 +17,12 @@ import { SyncedReviewsBlock } from "@/components/funnel/SyncedReviewsBlock";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
 import { appendCreditFunnelTrackingParams } from "@/lib/funnelEventTracking";
+import { resolveFunnelOffer, type FunnelOffer } from "@/lib/funnelOffers";
+import {
+  resolveFunnelBookingSurfaceContext,
+  type BookingSurfaceContext,
+  type BookingSurfaceIntentProfile,
+} from "@/lib/funnelBookingSurface";
 
 export type BlockStyle = {
   textColor?: string;
@@ -58,6 +65,8 @@ export type PricingGridItem = {
   features?: string[];
   ctaText?: string;
   ctaHref?: string;
+  ctaMode?: "link" | "checkout";
+  offerId?: string;
   priceId?: string;
   featured?: boolean;
 };
@@ -114,6 +123,7 @@ export type CreditFunnelBlock =
       id: string;
       type: "salesCheckoutButton";
       props: {
+        offerId?: string;
         priceId: string;
         quantity?: number;
         productName?: string;
@@ -126,6 +136,7 @@ export type CreditFunnelBlock =
       id: string;
       type: "addToCartButton";
       props: {
+        offerId?: string;
         priceId: string;
         quantity?: number;
         productName?: string;
@@ -337,6 +348,8 @@ function coercePricingGridItems(v: unknown): PricingGridItem[] | undefined {
       const features = coerceStringList(rec.features, 8, 160);
       const ctaText = coerceShortString(rec.ctaText, 120);
       const ctaHref = sanitizeHref(typeof rec.ctaHref === "string" ? rec.ctaHref : undefined);
+      const ctaMode = rec.ctaMode === "checkout" ? "checkout" : rec.ctaMode === "link" ? "link" : undefined;
+      const offerId = coerceShortString(rec.offerId, 80);
       const priceId = coerceShortString(rec.priceId, 140);
       const featured = coerceBool(rec.featured);
       if (!name || !price) return null;
@@ -349,6 +362,8 @@ function coercePricingGridItems(v: unknown): PricingGridItem[] | undefined {
         ...(features ? { features } : {}),
         ...(ctaText ? { ctaText } : {}),
         ...(ctaHref ? { ctaHref } : {}),
+        ...(ctaMode ? { ctaMode } : {}),
+        ...(offerId ? { offerId } : {}),
         ...(priceId ? { priceId } : {}),
         ...(featured !== undefined ? { featured } : {}),
       };
@@ -898,6 +913,7 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
     }
 
     if (type === "salesCheckoutButton") {
+      const offerId = typeof props?.offerId === "string" ? props.offerId.trim().slice(0, 80) : "";
       const priceId = typeof props?.priceId === "string" ? props.priceId.trim().slice(0, 128) : "";
       const quantity = clampNum((props as any)?.quantity, 1, 20);
       const productName = typeof props?.productName === "string" ? props.productName.trim().slice(0, 140) : "";
@@ -908,6 +924,7 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
         id,
         type,
         props: {
+          ...(offerId ? { offerId } : {}),
           priceId,
           ...(quantity ? { quantity } : {}),
           ...(productName ? { productName } : {}),
@@ -920,6 +937,7 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
     }
 
     if (type === "addToCartButton") {
+      const offerId = typeof props?.offerId === "string" ? props.offerId.trim().slice(0, 80) : "";
       const priceId = typeof props?.priceId === "string" ? props.priceId.trim().slice(0, 128) : "";
       const quantity = clampNum((props as any)?.quantity, 1, 20);
       const productName = typeof props?.productName === "string" ? props.productName.trim().slice(0, 140) : "";
@@ -930,6 +948,7 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
         id,
         type,
         props: {
+          ...(offerId ? { offerId } : {}),
           priceId,
           ...(quantity ? { quantity } : {}),
           ...(productName ? { productName } : {}),
@@ -1438,12 +1457,17 @@ export function renderCreditFunnelBlocks({
     defaultBookingCalendarId?: string;
     defaultBookingCalendarTitle?: string;
     bookingCalendarTitleById?: Record<string, string>;
+    bookingCalendarEnabledById?: Record<string, boolean>;
     funnelId?: string;
     funnelPageId?: string;
+    bookingThemeStage?: "current" | "published";
     funnelSlug?: string;
     funnelPathBase?: string;
     funnelPageSlug?: string;
+    bookingSurfacePageTitle?: string;
+    bookingSurfacePageIntent?: BookingSurfaceIntentProfile | null;
     metaPixelId?: string | null;
+    offers?: FunnelOffer[];
     previewDevice?: "desktop" | "mobile";
     previewEmbedMode?: "live" | "placeholder";
     showBookingState?: boolean;
@@ -1452,20 +1476,32 @@ export function renderCreditFunnelBlocks({
     enabled?: boolean;
     selectedBlockId?: string | null;
     hoveredBlockId?: string | null;
+    selectedPricingGridItemIndex?: number | null;
     aiFocusedBlockId?: string | null;
     aiFocusedPhase?: "pending" | "settled" | null;
     onSelectBlockId?: (id: string) => void;
+    onSelectPricingGridItem?: (blockId: string, itemIndex: number) => void;
     onHoverBlockId?: (id: string | null) => void;
     onUpsertBlock?: (next: CreditFunnelBlock) => void;
     onReorder?: (dragId: string, dropId: string) => void;
     onMove?: (id: string, dir: "up" | "down") => void;
     onRequestBookingRouting?: (id: string) => void;
+    onRequestHeaderLogoMedia?: (id: string) => void;
     canMove?: (id: string, dir: "up" | "down") => boolean;
   };
 }): React.ReactNode {
   const first = blocks[0];
   const pageStyleBlock = first && first.type === "page" ? first : null;
   const renderBlocks = pageStyleBlock ? blocks.slice(1) : blocks;
+  const funnelOffers = Array.isArray(context?.offers) ? context.offers : [];
+  const resolveOfferBinding = (offerIdRaw: unknown, fallbackPriceIdRaw: unknown) => {
+    const offer = resolveFunnelOffer(funnelOffers, offerIdRaw);
+    const fallbackPriceId = typeof fallbackPriceIdRaw === "string" ? fallbackPriceIdRaw.trim() : "";
+    return {
+      offer,
+      priceId: String(offer?.priceId || fallbackPriceId || "").trim(),
+    };
+  };
   const googleCss = (() => {
     const families = new Set<string>();
 
@@ -1548,7 +1584,7 @@ export function renderCreditFunnelBlocks({
       React.createElement(
         "div",
         {
-          className: "overflow-hidden rounded-[28px] border border-zinc-200 bg-white shadow-sm",
+            className: "overflow-hidden rounded-[28px] border border-zinc-200 bg-white",
           style: { minHeight: opts.height },
         },
         React.createElement(
@@ -1571,7 +1607,7 @@ export function renderCreditFunnelBlocks({
         React.createElement(
           "div",
           {
-            className: "flex h-full min-h-[inherit] items-center justify-center bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] px-5 py-8 text-center",
+            className: "flex h-full min-h-[inherit] items-center justify-center bg-zinc-50 px-5 py-8 text-center",
           },
           React.createElement(
             "div",
@@ -1695,11 +1731,22 @@ export function renderCreditFunnelBlocks({
 
   const leadingHeader = renderBlocks[0]?.type === "headerNav" ? (renderBlocks[0] as CreditFunnelBlock) : null;
   const bodyBlocks = leadingHeader ? renderBlocks.slice(1) : renderBlocks;
+  const pageContentMaxWidth =
+    typeof pageStyleBlock?.props?.style?.maxWidthPx === "number" && pageStyleBlock.props.style.maxWidthPx > 0
+      ? pageStyleBlock.props.style.maxWidthPx
+      : 1180;
+  const pageGutterPx = isMobilePreview ? 16 : 24;
+  const bookingContentMaxWidth = Math.min(pageContentMaxWidth, 980);
 
   const pageCss = [
+    `.funnel-page{--funnel-page-content-max:${pageContentMaxWidth}px;--funnel-page-gutter:${pageGutterPx}px;--funnel-booking-max:${bookingContentMaxWidth}px;}`,
     // Tailwind's `space-y-4` adds margin-top between siblings; remove the default gap directly after a header block.
     ".funnel-blocks > .funnel-header-block + :not([hidden]){margin-top:0!important;}",
     ".space-y-4 > .funnel-header-block + :not([hidden]){margin-top:0!important;}",
+    ".funnel-blocks > :not(.funnel-header-block):not(section){width:100%;max-width:calc(var(--funnel-page-content-max) + (var(--funnel-page-gutter) * 2));margin-inline:auto;padding-inline:var(--funnel-page-gutter);box-sizing:border-box;}",
+    ".funnel-blocks > section{width:100%;max-width:none;padding-inline:var(--funnel-page-gutter);box-sizing:border-box;}",
+    ".funnel-blocks > section > .funnel-section-inner{width:100%;max-width:var(--funnel-page-content-max);margin-inline:auto;box-sizing:border-box;}",
+    ".funnel-page .funnel-booking-clamp{width:100%;max-width:var(--funnel-booking-max);margin-inline:auto;box-sizing:border-box;}",
     "@keyframes funnel-editor-ai-pulse{0%,100%{transform:translateY(0) scale(1);opacity:1}50%{transform:translateY(-1px) scale(1.003);opacity:1}}",
     "@keyframes funnel-editor-ai-settle{0%{transform:translateY(-1px) scale(1.006)}100%{transform:translateY(0) scale(1)}}",
   ].join("\n");
@@ -1708,8 +1755,7 @@ export function renderCreditFunnelBlocks({
     if (!isEditor) return null;
     if (!editor?.onMove) return null;
     const selected = editor?.selectedBlockId === id;
-    const hovered = editor?.hoveredBlockId === id;
-    if (!selected && !hovered) return null;
+    if (!selected) return null;
 
     const canUp = editor?.canMove ? editor.canMove(id, "up") : true;
     const canDown = editor?.canMove ? editor.canMove(id, "down") : true;
@@ -1718,7 +1764,7 @@ export function renderCreditFunnelBlocks({
       "div",
       {
         key: `${id}_move_controls`,
-        className: "absolute right-2 top-2 z-[45] flex flex-col gap-1",
+        className: "absolute right-3 top-3 z-[45] flex flex-col gap-1",
       },
       React.createElement(
         "button",
@@ -1735,7 +1781,7 @@ export function renderCreditFunnelBlocks({
             editor.onMove?.(id, "up");
           },
           className:
-            "h-7 w-7 rounded-lg border border-zinc-200 bg-white text-xs font-bold text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40",
+            "h-6 w-6 rounded-md border border-zinc-200 bg-white/95 text-[10px] font-bold text-zinc-600 shadow-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40",
           title: "Move up",
           "aria-label": "Move up",
         },
@@ -1756,7 +1802,7 @@ export function renderCreditFunnelBlocks({
             editor.onMove?.(id, "down");
           },
           className:
-            "h-7 w-7 rounded-lg border border-zinc-200 bg-white text-xs font-bold text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40",
+            "h-6 w-6 rounded-md border border-zinc-200 bg-white/95 text-[10px] font-bold text-zinc-600 shadow-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40",
           title: "Move down",
           "aria-label": "Move down",
         },
@@ -1773,16 +1819,14 @@ export function renderCreditFunnelBlocks({
     const aiPhase = editor?.aiFocusedPhase || null;
     if (!selected && !hovered && !aiFocused) return undefined;
     const color = selected
-      ? "var(--color-brand-blue)"
+      ? "rgba(15, 23, 42, 0.26)"
       : aiFocused
-        ? "rgba(24, 24, 27, 0.42)"
-        : "rgba(15, 23, 42, 0.25)";
+        ? "rgba(24, 24, 27, 0.28)"
+        : "rgba(15, 23, 42, 0.12)";
     return {
-      boxShadow: aiFocused
-        ? `0 0 0 ${selected ? 2 : 1.5}px ${color}, 0 16px 32px rgba(15, 23, 42, 0.08)`
-        : `0 0 0 ${selected ? 2 : 1}px ${color}`,
-      borderRadius: 12,
-      transition: "box-shadow 180ms ease, transform 180ms ease",
+      boxShadow: selected || aiFocused ? `0 0 0 1.5px ${color}` : `0 0 0 1px ${color}`,
+      borderRadius: 14,
+      transition: "box-shadow 180ms ease",
       animation: aiFocused
         ? aiPhase === "pending"
           ? "funnel-editor-ai-pulse 1.15s ease-in-out infinite"
@@ -1807,9 +1851,10 @@ export function renderCreditFunnelBlocks({
       "data-block-id": id,
       className: "relative",
       onMouseDownCapture: (e: any) => {
-        // Always select on click/tap, even if the target is an interactive widget.
-        // Don't preventDefault/stopPropagation so the widget remains usable.
+        // Let marked interactive controls handle their own first click without a parent
+        // selection rerender racing ahead of their click handlers.
         if (typeof e?.button === "number" && e.button !== 0) return;
+        if (isInteractiveTarget(e?.target)) return;
         editor?.onSelectBlockId?.(id);
       },
       onClick: (e: any) => {
@@ -1849,7 +1894,6 @@ export function renderCreditFunnelBlocks({
     currentText: string,
   ): Record<string, any> => {
     if (!isEditor) return {};
-    if (editor?.selectedBlockId !== block.id) return {};
     const upsert = editor?.onUpsertBlock;
     if (!upsert) return {};
     const nextTextFromEl = (el: any) => (typeof el?.textContent === "string" ? el.textContent : "");
@@ -1858,6 +1902,13 @@ export function renderCreditFunnelBlocks({
       contentEditable: true,
       suppressContentEditableWarning: true,
       spellCheck: true,
+      onFocus: () => {
+        editor?.onSelectBlockId?.(block.id);
+      },
+      onMouseDown: (e: any) => {
+        e.stopPropagation?.();
+        editor?.onSelectBlockId?.(block.id);
+      },
       onKeyDown: (e: any) => {
         if (e.key === "Enter") {
           e.preventDefault?.();
@@ -1905,12 +1956,12 @@ export function renderCreditFunnelBlocks({
 
       if (b.type === "salesCheckoutButton") {
         const pageId = typeof context?.funnelPageId === "string" ? context.funnelPageId : "";
-        const priceId = String((b.props as any)?.priceId || "").trim();
+        const { offer, priceId } = resolveOfferBinding((b.props as any)?.offerId, (b.props as any)?.priceId);
         const quantityRaw = (b.props as any)?.quantity;
         const quantity = typeof quantityRaw === "number" && Number.isFinite(quantityRaw) ? Math.max(1, Math.min(20, quantityRaw)) : undefined;
-        const productName = typeof (b.props as any)?.productName === "string" ? String((b.props as any).productName).trim() : "";
+        const productName = String(offer?.productName || (b.props as any)?.productName || "").trim();
         const productDescription =
-          typeof (b.props as any)?.productDescription === "string" ? String((b.props as any).productDescription).trim() : "";
+          String(offer?.productDescription || (b.props as any)?.productDescription || "").trim();
         const text = typeof (b.props as any)?.text === "string" ? String((b.props as any).text) : "Buy now";
 
         if (!isEditor && (!pageId || !priceId)) return null;
@@ -1950,32 +2001,6 @@ export function renderCreditFunnelBlocks({
             ...wrapProps(b.id),
           },
           renderMoveControls(b.id),
-          productName || productDescription
-            ? React.createElement(
-                "div",
-                { className: "mb-3" },
-                productName
-                  ? React.createElement(
-                      "div",
-                      {
-                        className: "text-base font-semibold text-zinc-900",
-                        style: { ...(s?.fontFamily ? { fontFamily: s.fontFamily } : {}) },
-                      },
-                      productName,
-                    )
-                  : null,
-                productDescription
-                  ? React.createElement(
-                      "div",
-                      {
-                        className: "mt-1 text-sm text-zinc-600",
-                        style: { ...(s?.fontFamily ? { fontFamily: s.fontFamily } : {}) },
-                      },
-                      productDescription,
-                    )
-                  : null,
-              )
-            : null,
           React.createElement(
             SafeClientBoundary,
             { name: "Sales checkout button" },
@@ -2078,6 +2103,12 @@ export function renderCreditFunnelBlocks({
               mobileTrigger,
               mobileTriggerLabel: mobileTriggerLabel || undefined,
               disabled: isEditor,
+              onLogoClick: isEditor
+                ? () => {
+                    editor?.onSelectBlockId?.(b.id);
+                    editor?.onRequestHeaderLogoMedia?.(b.id);
+                  }
+                : undefined,
               funnelPathBase: typeof context?.funnelPathBase === "string" ? context.funnelPathBase : undefined,
               style: Object.keys(headerStyle).some((k) => (headerStyle as any)[k] !== undefined) ? headerStyle : undefined,
             }),
@@ -2110,12 +2141,12 @@ export function renderCreditFunnelBlocks({
 
       if (b.type === "addToCartButton") {
         const pageId = typeof context?.funnelPageId === "string" ? context.funnelPageId : "";
-        const priceId = String((b.props as any)?.priceId || "").trim();
+        const { offer, priceId } = resolveOfferBinding((b.props as any)?.offerId, (b.props as any)?.priceId);
         const quantityRaw = (b.props as any)?.quantity;
         const quantity = typeof quantityRaw === "number" && Number.isFinite(quantityRaw) ? Math.max(1, Math.min(20, quantityRaw)) : undefined;
-        const productName = typeof (b.props as any)?.productName === "string" ? String((b.props as any).productName).trim() : "";
+        const productName = String(offer?.productName || (b.props as any)?.productName || "").trim();
         const productDescription =
-          typeof (b.props as any)?.productDescription === "string" ? String((b.props as any).productDescription).trim() : "";
+          String(offer?.productDescription || (b.props as any)?.productDescription || "").trim();
         const text = typeof (b.props as any)?.text === "string" ? String((b.props as any).text) : "Add to cart";
 
         if (!isEditor && (!pageId || !priceId)) return null;
@@ -2155,32 +2186,6 @@ export function renderCreditFunnelBlocks({
             ...wrapProps(b.id),
           },
           renderMoveControls(b.id),
-          productName || productDescription
-            ? React.createElement(
-                "div",
-                { className: "mb-3" },
-                productName
-                  ? React.createElement(
-                      "div",
-                      {
-                        className: "text-base font-semibold text-zinc-900",
-                        style: { ...(s?.fontFamily ? { fontFamily: s.fontFamily } : {}) },
-                      },
-                      productName,
-                    )
-                  : null,
-                productDescription
-                  ? React.createElement(
-                      "div",
-                      {
-                        className: "mt-1 text-sm text-zinc-600",
-                        style: { ...(s?.fontFamily ? { fontFamily: s.fontFamily } : {}) },
-                      },
-                      productDescription,
-                    )
-                  : null,
-              )
-            : null,
           React.createElement(
             SafeClientBoundary,
             { name: "Add to cart button" },
@@ -2324,7 +2329,7 @@ export function renderCreditFunnelBlocks({
 
         if (!agentId && !isEditor) return null;
 
-        if (isEditor) {
+        if (isEditor || previewUsesEmbedPlaceholders) {
           return React.createElement(
             "div",
             {
@@ -2344,7 +2349,9 @@ export function renderCreditFunnelBlocks({
                 "div",
                 { className: "mt-1 text-xs text-zinc-600" },
                 agentId
-                  ? "Floating widget preview is shown on the page. Click the launcher to select."
+                  ? previewUsesEmbedPlaceholders
+                    ? "Launcher preview is paused in builder preview. Open the live page to test the real chat widget."
+                    : "Floating widget preview is shown on the page. Click the launcher to select."
                   : "Set an Agent ID in the sidebar to enable live chat.",
               ),
             ),
@@ -2567,17 +2574,30 @@ export function renderCreditFunnelBlocks({
             "div",
             { className: `${b.props.heading || b.props.intro || b.props.eyebrow ? "mt-6 " : ""}${gridClassName}`.trim() },
             ...items.map((item, index) => {
-              const ctaText = item.ctaText || (item.priceId ? "Buy now" : item.ctaHref ? "Learn more" : "");
+              const { offer, priceId } = resolveOfferBinding(item.offerId, item.priceId);
+              const checkoutMode = item.ctaMode === "checkout";
+              const ctaText = item.ctaText || (checkoutMode && priceId ? "Buy now" : item.ctaHref ? "Learn more" : "");
+              const pricingCardSelected = editor?.selectedBlockId === b.id && editor?.selectedPricingGridItemIndex === index;
               return React.createElement(
                 "article",
                 {
                   key: `${b.id}-pricing-${index}`,
+                  "data-funnel-editor-interactive": isEditor ? "true" : undefined,
                   className: [
-                    "flex h-full flex-col rounded-[30px] border p-6",
+                    "group/pricing relative flex h-full flex-col rounded-[30px] border p-6 transition-shadow duration-150",
+                    pricingCardSelected ? "ring-2 ring-zinc-900/10 ring-offset-2 ring-offset-white" : isEditor ? "hover:shadow-[0_0_0_1px_rgba(15,23,42,0.12)]" : "",
                     item.featured
-                      ? "border-zinc-950 bg-zinc-950 text-white shadow-[0_22px_48px_rgba(15,23,42,0.18)]"
-                      : "border-zinc-200 bg-white text-zinc-900 shadow-[0_16px_40px_rgba(15,23,42,0.06)]",
+                      ? "border-zinc-900/15 bg-[linear-gradient(180deg,#fcfcfd_0%,#f8fafc_100%)] text-zinc-950 shadow-[0_10px_26px_rgba(15,23,42,0.06)]"
+                      : "border-zinc-200 bg-white text-zinc-900 shadow-[0_6px_18px_rgba(15,23,42,0.04)]",
                   ].join(" "),
+                  onClick: isEditor
+                    ? (e: any) => {
+                        e.preventDefault?.();
+                        e.stopPropagation?.();
+                        editor?.onSelectBlockId?.(b.id);
+                        editor?.onSelectPricingGridItem?.(b.id, index);
+                      }
+                    : undefined,
                 },
                 item.badge
                   ? React.createElement(
@@ -2586,29 +2606,29 @@ export function renderCreditFunnelBlocks({
                         className: [
                           "mb-4 inline-flex w-fit rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]",
                           item.featured
-                            ? "border-white/20 bg-white/10 text-white"
+                            ? "border-zinc-900/10 bg-white text-zinc-700"
                             : "border-zinc-200 bg-zinc-50 text-zinc-600",
                         ].join(" "),
                       },
                       item.badge,
                     )
                   : null,
-                React.createElement("div", { className: item.featured ? "text-sm font-semibold text-white/78" : "text-sm font-semibold text-zinc-600" }, item.name),
+                React.createElement("div", { className: item.featured ? "text-sm font-semibold text-zinc-700" : "text-sm font-semibold text-zinc-600" }, item.name),
                 React.createElement(
                   "div",
                   { className: "mt-3 flex items-end gap-2" },
-                  React.createElement("div", { className: "text-4xl font-semibold tracking-tight" }, item.price),
-                  item.billingPeriod
-                    ? React.createElement("div", { className: item.featured ? "pb-1 text-sm text-white/72" : "pb-1 text-sm text-zinc-500" }, item.billingPeriod)
+                  React.createElement("div", { className: "text-4xl font-semibold tracking-tight" }, item.price || offer?.displayPrice || ""),
+                  (item.billingPeriod || offer?.billingPeriod)
+                    ? React.createElement("div", { className: item.featured ? "pb-1 text-sm text-zinc-500" : "pb-1 text-sm text-zinc-500" }, item.billingPeriod || offer?.billingPeriod)
                     : null,
                 ),
-                item.description
-                  ? React.createElement("p", { className: item.featured ? "mt-3 text-sm leading-7 text-white/78" : "mt-3 text-sm leading-7 text-zinc-600" }, item.description)
+                (item.description || offer?.productDescription)
+                  ? React.createElement("p", { className: item.featured ? "mt-3 text-sm leading-7 text-zinc-600" : "mt-3 text-sm leading-7 text-zinc-600" }, item.description || offer?.productDescription)
                   : null,
                 item.features?.length
                   ? React.createElement(
                       "ul",
-                      { className: item.featured ? "mt-5 space-y-3 text-sm text-white/88" : "mt-5 space-y-3 text-sm text-zinc-700" },
+                      { className: "mt-5 space-y-3 text-sm text-zinc-700" },
                       ...item.features.map((feature: string, featureIndex: number) =>
                         React.createElement(
                           "li",
@@ -2618,7 +2638,7 @@ export function renderCreditFunnelBlocks({
                             {
                               className: [
                                 "mt-[7px] h-1.5 w-1.5 rounded-full",
-                                item.featured ? "bg-white" : "bg-zinc-900",
+                                item.featured ? "bg-zinc-900" : "bg-zinc-900",
                               ].join(" "),
                             },
                           ),
@@ -2630,10 +2650,10 @@ export function renderCreditFunnelBlocks({
                 React.createElement(
                   "div",
                   { className: "mt-6" },
-                  item.priceId
+                  checkoutMode && priceId
                     ? React.createElement(SalesCheckoutButton, {
                         pageId: context?.funnelPageId || "",
-                        priceId: item.priceId,
+                    priceId,
                         text: ctaText || "Buy now",
                         className: "w-full",
                         disabled: !context?.funnelPageId,
@@ -3072,12 +3092,20 @@ export function renderCreditFunnelBlocks({
           const inheritedCalendarId = String(context?.defaultBookingCalendarId || "").trim();
           const calendarId = String(blockCalendarId || inheritedCalendarId || "").trim();
           const showBookingState = Boolean(context?.showBookingState);
+          const bookingPageIntent = context?.bookingSurfacePageIntent || null;
+          const bookingFirstPage =
+            String(bookingPageIntent?.pageType || "").trim() === "booking" ||
+            /\b(book|booking|schedule|call|consult|consultation|appointment|demo)\b/i.test(
+              `${String(bookingPageIntent?.primaryCta || "")} ${String(context?.bookingSurfacePageTitle || "")}`,
+            );
           const calendarTitleById = context?.bookingCalendarTitleById || {};
+          const calendarEnabledById = context?.bookingCalendarEnabledById || {};
           const resolvedCalendarTitle = blockCalendarId
             ? String(calendarTitleById[blockCalendarId] || blockCalendarId)
             : inheritedCalendarId
               ? String(context?.defaultBookingCalendarTitle || calendarTitleById[inheritedCalendarId] || inheritedCalendarId)
               : "";
+          const resolvedCalendarEnabled = calendarId ? calendarEnabledById[calendarId] !== false : false;
           const bookingRouteLabel = blockCalendarId
             ? "Linked to this step"
             : inheritedCalendarId
@@ -3092,13 +3120,22 @@ export function renderCreditFunnelBlocks({
               ? "This step is inheriting the funnel's default calendar."
               : "This step is still waiting for a funnel or step-specific calendar.";
           const bookingRouteDetail = blockCalendarId
-            ? "Preview is routed through the calendar pinned directly to this step."
+            ? resolvedCalendarEnabled
+              ? "Preview is routed through the calendar pinned directly to this step."
+              : "Preview is routed through this step's calendar, but that calendar is not currently accepting bookings."
             : inheritedCalendarId
-              ? "Preview is routed through the funnel-linked calendar for this step."
-              : "Create or attach a calendar and this preview will switch from placeholder to a routed booking state automatically.";
+              ? resolvedCalendarEnabled
+                ? "Preview is routed through the funnel-linked calendar for this step."
+                : "Preview is routed through the funnel-linked calendar for this step, but that calendar is not currently accepting bookings."
+              : bookingFirstPage
+                ? "Create or attach a calendar and this preview will switch from placeholder to a routed booking state automatically."
+                : "This page includes a booking block, but no routed calendar is attached yet.";
           const bookingRouteActionLabel = blockCalendarId || inheritedCalendarId
             ? "Change or configure route"
             : "Choose or create calendar";
+          const bookingStatusLabel = blockCalendarId || inheritedCalendarId
+            ? (resolvedCalendarEnabled ? "Accepting bookings" : "Not accepting bookings")
+            : (bookingFirstPage ? "Needs setup" : "Missing");
           const pausedCalendarSubtitle = blockCalendarId
             ? "Step-specific calendar"
             : inheritedCalendarId
@@ -3109,7 +3146,7 @@ export function renderCreditFunnelBlocks({
             : inheritedCalendarId
               ? `${resolvedCalendarTitle || "This calendar"} is linked at the funnel level, so this step inherits it automatically. The live booking surface stays paused in editor preview so the routing context stays visible while the canvas remains fast.`
               : "This block is still a booking placeholder with no routed calendar yet. Once you create or attach a calendar, this preview will reflect that route automatically.";
-          const bookingStateCard = showBookingState
+          const bookingStateCard = showBookingState && isEditor
             ? React.createElement(
                 "div",
                 {
@@ -3120,12 +3157,25 @@ export function renderCreditFunnelBlocks({
                 },
                 React.createElement(
                   "div",
-                  {
-                    className: blockCalendarId || inheritedCalendarId
-                      ? "text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700"
-                      : "text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700",
-                  },
-                  bookingRouteLabel,
+                  { className: "flex flex-wrap items-center justify-between gap-2" },
+                  React.createElement(
+                    "div",
+                    {
+                      className: blockCalendarId || inheritedCalendarId
+                        ? "text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700"
+                        : "text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700",
+                    },
+                    bookingRouteLabel,
+                  ),
+                  React.createElement(
+                    "div",
+                    {
+                      className: blockCalendarId || inheritedCalendarId
+                        ? "rounded-full border border-emerald-200 bg-white px-3 py-1 text-[11px] font-semibold text-emerald-900"
+                        : "rounded-full border border-amber-200 bg-white px-3 py-1 text-[11px] font-semibold text-amber-900",
+                    },
+                    bookingStatusLabel,
+                  ),
                 ),
                 React.createElement(
                   "div",
@@ -3154,6 +3204,7 @@ export function renderCreditFunnelBlocks({
                           onClick: (e: any) => {
                             e.preventDefault?.();
                             e.stopPropagation?.();
+                            editor?.onSelectBlockId?.(b.id);
                             editor.onRequestBookingRouting?.(b.id);
                           },
                           className:
@@ -3177,27 +3228,31 @@ export function renderCreditFunnelBlocks({
               ...wrapProps(b.id),
             },
             renderMoveControls(b.id),
-              bookingStateCard,
             React.createElement(
               "div",
-              {
-                className:
-                  "rounded-2xl border border-dashed border-amber-300 bg-[linear-gradient(180deg,#fffdf5_0%,#fff7ed_100%)] px-4 py-8 text-center text-sm text-zinc-700",
-              },
+              { className: "funnel-booking-clamp space-y-3" },
+              bookingStateCard,
               React.createElement(
                 "div",
-                { className: "text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700" },
-                "Booking placeholder",
-              ),
-              React.createElement(
-                "div",
-                { className: "mt-2 text-base font-semibold text-zinc-900" },
-                "This booking step is waiting for a calendar route.",
-              ),
-              React.createElement(
-                "div",
-                { className: "mx-auto mt-2 max-w-md leading-6 text-zinc-600" },
-                "Create or attach a funnel calendar and this preview will switch from placeholder to the linked booking route automatically.",
+                {
+                  className:
+                    "rounded-2xl border border-dashed border-amber-300 bg-amber-50/45 px-4 py-8 text-center text-sm text-zinc-700",
+                },
+                React.createElement(
+                  "div",
+                  { className: "text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700" },
+                  "Booking placeholder",
+                ),
+                React.createElement(
+                  "div",
+                  { className: "mt-2 text-base font-semibold text-zinc-900" },
+                  "This booking step is waiting for a calendar route.",
+                ),
+                React.createElement(
+                  "div",
+                  { className: "mx-auto mt-2 max-w-md leading-6 text-zinc-600" },
+                  "Create or attach a funnel calendar and this preview will switch from placeholder to the linked booking route automatically.",
+                ),
               ),
             ),
           );
@@ -3207,14 +3262,22 @@ export function renderCreditFunnelBlocks({
         const effectiveHeight = previewEmbedHeight(height, 760, 620);
         const slug = context?.bookingSiteSlug ? String(context.bookingSiteSlug).trim() : "";
         const ownerId = context?.bookingOwnerId ? String(context.bookingOwnerId).trim() : "";
+        const funnelId = context?.funnelId ? String(context.funnelId).trim() : "";
+        const pageId = context?.funnelPageId ? String(context.funnelPageId).trim() : "";
+        const bookingThemeStage: "current" | "published" = context?.bookingThemeStage === "published" ? "published" : "current";
         const srcBase = slug
           ? `/book/${encodeURIComponent(slug)}/c/${encodeURIComponent(calendarId)}`
           : ownerId
             ? `/book/u/${encodeURIComponent(ownerId)}/${encodeURIComponent(calendarId)}`
             : "";
+        const srcParams = new URLSearchParams();
+        if (funnelId) srcParams.set("funnelId", funnelId);
+        if (pageId) srcParams.set("pageId", pageId);
+        srcParams.set("themeStage", bookingThemeStage);
+        const srcBaseWithFunnel = srcBase ? `${srcBase}${srcParams.toString() ? `?${srcParams.toString()}` : ""}` : "";
         const src = srcBase
           ? appendCreditFunnelTrackingParams({
-              url: srcBase,
+              url: srcBaseWithFunnel,
               context: context?.funnelPageId
                 ? {
                     funnelId: context?.funnelId || null,
@@ -3238,14 +3301,18 @@ export function renderCreditFunnelBlocks({
               ...wrapProps(b.id),
             },
             renderMoveControls(b.id),
-            bookingStateCard,
             React.createElement(
               "div",
-              {
-                className:
-                  "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-600",
-              },
-              "Calendar embed: missing booking context.",
+              { className: "funnel-booking-clamp space-y-3" },
+              bookingStateCard,
+              React.createElement(
+                "div",
+                {
+                  className:
+                    "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-600",
+                },
+                "Calendar embed: missing booking context.",
+              ),
             ),
           );
         }
@@ -3271,34 +3338,71 @@ export function renderCreditFunnelBlocks({
             ...wrapProps(b.id),
           },
           renderMoveControls(b.id),
-          bookingStateCard,
-          isEditor
-            ? React.createElement(
-                "div",
-                { style: { position: "relative" } },
-                React.createElement("iframe", {
-                  title: `Calendar ${calendarId}`,
-                  src,
-                  className: "w-full rounded-2xl border border-zinc-200 bg-white",
-                  style: { height: effectiveHeight },
-                  sandbox: "allow-forms allow-scripts allow-same-origin",
+          React.createElement(
+            "div",
+            { className: "funnel-booking-clamp space-y-3" },
+            bookingStateCard,
+            (() => {
+              const target = ownerId
+                ? {
+                    kind: "calendar" as const,
+                    ownerId,
+                    calendarId,
+                    funnelId: funnelId || null,
+                    pageId: pageId || null,
+                    themeStage: bookingThemeStage,
+                  }
+                : {
+                    kind: "slug" as const,
+                    slug,
+                    funnelId: funnelId || null,
+                    pageId: pageId || null,
+                    themeStage: bookingThemeStage,
+                  };
+
+              const inlineBookingSurface = React.createElement(PublicBookingClient, {
+                target,
+                showBranding: false,
+                presentation: "inline",
+                surfaceContext: resolveFunnelBookingSurfaceContext({
+                  posture: isEditor ? "editor-preview" : "block",
+                  routeKind: blockCalendarId ? "step-specific" : inheritedCalendarId ? "funnel-default" : "placeholder",
+                  pageTitle: context?.bookingSurfacePageTitle || null,
+                  pageIntent: context?.bookingSurfacePageIntent || null,
+                  calendarTitle: resolvedCalendarTitle || null,
+                  previewDevice: context?.previewDevice || null,
+                  preferredShellStyle: isEditor || bookingFirstPage ? "editorial" : "showcase",
+                  preferredShellDensity: bookingFirstPage ? "compact" : null,
+                  overrides: {
+                    kicker: bookingRouteLabel,
+                    body: bookingRouteDetail,
+                    proofLabel: blockCalendarId ? "Step route" : inheritedCalendarId ? "Funnel route" : "Booking status",
+                    proofBody: bookingRouteContext,
+                    note:
+                      blockCalendarId || inheritedCalendarId
+                        ? "Change the linked calendar in Funnel Builder if this step should route differently."
+                        : "Attach a funnel calendar to replace this placeholder with a routed booking surface.",
+                  } satisfies BookingSurfaceContext,
                 }),
-                React.createElement("div", {
-                  style: {
-                    position: "absolute",
-                    inset: 0,
-                    cursor: "pointer",
-                    background: "transparent",
-                  },
-                }),
-              )
-            : React.createElement("iframe", {
-                title: `Calendar ${calendarId}`,
-                src,
-                className: "w-full rounded-2xl border border-zinc-200 bg-white",
-                style: { height: effectiveHeight },
-                sandbox: "allow-forms allow-scripts allow-same-origin",
-              }),
+              });
+
+              return isEditor
+                ? React.createElement(
+                    "div",
+                    { style: { position: "relative" } },
+                    inlineBookingSurface,
+                    React.createElement("div", {
+                      style: {
+                        position: "absolute",
+                        inset: 0,
+                        cursor: "pointer",
+                        background: "transparent",
+                      },
+                    }),
+                  )
+                : inlineBookingSurface;
+            })(),
+          ),
         );
       }
 
@@ -3411,7 +3515,7 @@ export function renderCreditFunnelBlocks({
             React.createElement(
               "div",
               {
-                className: hasBgVideo ? "relative z-10" : undefined,
+                className: hasBgVideo ? "relative z-10 funnel-section-inner" : "funnel-section-inner",
               },
               React.createElement(
                 "div",
@@ -3450,7 +3554,7 @@ export function renderCreditFunnelBlocks({
           hasBgVideo ? backgroundVideoNode(b.props.style) : null,
           React.createElement(
             "div",
-            { className: hasBgVideo ? "relative z-10" : undefined },
+            { className: hasBgVideo ? "relative z-10 funnel-section-inner" : "funnel-section-inner" },
             b.props.children?.length
               ? React.createElement(
                   "div",
