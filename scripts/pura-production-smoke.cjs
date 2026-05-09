@@ -195,6 +195,12 @@ const directActionCases = [
     expectAction: "ai_receptionist.settings.update",
     expectArgs: { settings: { greeting: "Hello, you've reached Purely Automation. We can help schedule appointments and answer service questions." } },
   },
+  {
+    label: "weekly recurring plus start now",
+    prompt: "Once a week create a newsletter called Pura Quality Smoke Weekly for an online guru audience and start now.",
+    expectAction: "ai_chat.scheduled.create",
+    expectSteps: ["ai_chat.scheduled.create", "newsletter.newsletters.create"],
+  },
 ];
 
 const signalCases = [

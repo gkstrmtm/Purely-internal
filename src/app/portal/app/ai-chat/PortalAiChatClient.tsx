@@ -1486,11 +1486,15 @@ function normalizeThreadResponseProfile(raw: unknown): PuraAiProfile {
   return normalizePuraAiProfile(raw);
 }
 
+function isLiveStatusRunning(status: LiveStatus | null | undefined) {
+  return Boolean(status?.canInterrupt && status?.runId && status?.label);
+}
+
 function threadRunBadgeMeta(thread: Thread, liveStatus: LiveStatus | null) {
-  if (liveStatus?.label) {
+  if (isLiveStatusRunning(liveStatus)) {
     return {
       label: "Running",
-      title: liveStatus.label || "Pura is working",
+      title: liveStatus?.label || "Pura is working",
       dotClassName: "bg-brand-blue animate-pulse",
       badgeClassName: "border-brand-blue/15 bg-blue-50 text-brand-blue",
     };
@@ -1790,7 +1794,7 @@ function LiveProgressCard({ status, onInterrupt, interrupting }: { status: LiveS
         {onInterrupt ? (
           <button
             type="button"
-            className="rounded-2xl border border-zinc-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+            className={frostedRedButtonClassName("compact")}
             onClick={onInterrupt}
             disabled={Boolean(interrupting)}
           >
@@ -2048,7 +2052,7 @@ function frostedBlueStrongButtonClassName(size: "compact" | "regular" = "regular
 
 function frostedRedButtonClassName(size: "compact" | "regular" = "regular") {
   return classNames(
-    "inline-flex items-center justify-center gap-1 rounded-2xl bg-[rgba(239,68,68,0.12)] text-red-700 backdrop-blur-md shadow-[0_10px_24px_rgba(239,68,68,0.12)] transition-colors duration-150 hover:bg-[rgba(239,68,68,0.18)]",
+    "inline-flex items-center justify-center gap-1 rounded-2xl bg-red-50 text-red-800 transition-colors duration-150 hover:bg-red-100 disabled:opacity-60",
     size === "compact" ? "px-2 py-1 text-[11px] font-semibold" : "px-3 py-2 text-sm font-semibold",
   );
 }
@@ -2740,7 +2744,7 @@ export function PortalAiChatClient({
   }, [activityView, sortedRunLedgerRows]);
   const showActiveLiveProgressCard = useMemo(() => {
     if (!activeThreadId || !activeLiveStatus) return false;
-    return sending || hasThinkingMessage || regenerating || Boolean(runningActionKey) || Boolean(activeLiveStatus.label);
+    return sending || hasThinkingMessage || regenerating || Boolean(runningActionKey) || isLiveStatusRunning(activeLiveStatus);
   }, [activeLiveStatus, activeThreadId, hasThinkingMessage, regenerating, runningActionKey, sending]);
   const activeThreadMemorySignature = useMemo(() => threadMemorySignature(activeWorkingMemory), [activeWorkingMemory]);
   const showThreadMemoryNotice = useMemo(() => {
@@ -2877,11 +2881,12 @@ export function PortalAiChatClient({
           const liveStatus = threadLiveStatusById[thread.id] ?? null;
           const nextStepContext = threadNextStepContextById[thread.id] ?? null;
           const preview = nextStepPreviewText(nextStepContext);
+          const liveLabel = isLiveStatusRunning(liveStatus) ? String(liveStatus?.label || "").trim() : "";
           return {
             key: `recent:${thread.id}`,
             thread,
             label: thread.title || "New chat",
-            meta: item.query || liveStatus?.label || preview || (thread.updatedAt ? `Updated ${fmtShortTime(thread.updatedAt)}` : "Recent chat"),
+            meta: item.query || liveLabel || preview || (thread.updatedAt ? `Updated ${fmtShortTime(thread.updatedAt)}` : "Recent chat"),
           };
         })
         .filter(Boolean) as Array<{ key: string; thread: Thread; label: string; meta: string }>;
@@ -2893,7 +2898,7 @@ export function PortalAiChatClient({
         const title = String(thread.title || "New chat").trim() || "New chat";
         const liveStatus = threadLiveStatusById[thread.id] ?? null;
         const nextStepContext = threadNextStepContextById[thread.id] ?? null;
-        const liveLabel = String(liveStatus?.label || "").trim();
+        const liveLabel = isLiveStatusRunning(liveStatus) ? String(liveStatus?.label || "").trim() : "";
         const nextStepTitle = String(nextStepContext?.workTitle || nextStepContext?.objective || "").trim();
         const nextStepPreview = String(nextStepPreviewText(nextStepContext) || "").trim();
         const searchable = `${title} ${thread.id} ${liveLabel} ${nextStepTitle} ${nextStepPreview}`.toLowerCase();
@@ -2973,7 +2978,7 @@ export function PortalAiChatClient({
 
   const setChatModeForCurrentThread = useCallback(
     async (nextMode: ChatMode) => {
-      if (activeThreadId && (sending || regenerating || Boolean(runningActionKey) || Boolean(activeLiveStatus?.label))) {
+      if (activeThreadId && (sending || regenerating || Boolean(runningActionKey) || isLiveStatusRunning(activeLiveStatus))) {
         toast.error("Wait for the current run to finish before changing mode.");
         return;
       }
@@ -2999,7 +3004,7 @@ export function PortalAiChatClient({
         toast.error(e instanceof Error ? e.message : String(e));
       }
     },
-    [activeLiveStatus?.label, activeThreadId, applyThreadChatMode, effectiveResponseProfile, persistDraftPreferences, portalFetch, regenerating, runningActionKey, sending, toast],
+    [activeLiveStatus, activeThreadId, applyThreadChatMode, effectiveResponseProfile, persistDraftPreferences, portalFetch, regenerating, runningActionKey, sending, toast],
   );
 
   const setResponseProfileForCurrentThread = useCallback(
@@ -4961,7 +4966,7 @@ export function PortalAiChatClient({
               const threadLiveStatus = threadLiveStatusById[t.id] ?? null;
               const threadNextStep = threadNextStepContextById[t.id] ?? null;
               const threadLiveMeta = describeLiveStatusMeta(threadLiveStatus);
-              const isWorking = Boolean(threadLiveStatus?.label);
+              const isWorking = isLiveStatusRunning(threadLiveStatus);
               const threadBadge = threadRunBadgeMeta(t, threadLiveStatus);
               const continuityBadge = !isWorking && !threadBadge ? nextStepBadgeMeta(threadNextStep) : null;
               const continuityPreview = !isWorking && !threadBadge ? nextStepPreviewText(threadNextStep) : null;
@@ -5068,7 +5073,7 @@ export function PortalAiChatClient({
                 const threadLiveStatus = threadLiveStatusById[t.id] ?? null;
                 const threadNextStep = threadNextStepContextById[t.id] ?? null;
                 const threadLiveMeta = describeLiveStatusMeta(threadLiveStatus);
-                const isWorking = Boolean(threadLiveStatus?.label);
+                const isWorking = isLiveStatusRunning(threadLiveStatus);
                 const threadBadge = threadRunBadgeMeta(t, threadLiveStatus);
                 const continuityBadge = !isWorking && !threadBadge ? nextStepBadgeMeta(threadNextStep) : null;
                 const continuityPreview = !isWorking && !threadBadge ? nextStepPreviewText(threadNextStep) : null;
@@ -7445,11 +7450,11 @@ export function PortalAiChatClient({
                         </span>
                         <span
                           className={classNames(
-                            "rounded-full border px-2 py-0.5",
+                            "rounded-full px-2 py-0.5",
                             r.lastRunOk === true
-                              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                              ? "bg-emerald-50 text-emerald-800"
                               : r.lastRunOk === false
-                                ? "border-amber-200 bg-amber-50 text-amber-900"
+                                ? "bg-red-50 text-red-800"
                                 : "border-zinc-200 bg-zinc-50",
                           )}
                         >

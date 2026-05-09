@@ -405,6 +405,7 @@ export async function planPuraActions(opts: {
     "  - Put the real action(s) to run inside envelope.steps (usually inbox.send_sms).",
     "  - Do NOT include scheduling language like 'every weekday' inside the envelope (avoid rescheduling loops).",
     "  - If the user asks to 'trigger one now as a test', ALSO send an immediate inbox.send_sms now (do not give steps).",
+    "  - If the user asks for a recurring weekly schedule and also says to start/run one now, include BOTH the ai_chat.scheduled.create step and the immediate action steps for the same cleaned request.",
     "  - Only create automations when the user explicitly asks for an Automation.",
     "- Only use tasks.create / tasks.create_for_all when the user explicitly wants an internal human to-do item in the Tasks service.",
     "- Do NOT turn generic work requests, follow-ups, audits, fixes, outreach, edits, or portal changes into tasks.* just because they are written as a batch.",

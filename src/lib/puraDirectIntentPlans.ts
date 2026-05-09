@@ -43,6 +43,13 @@ type DirectAiChatScheduledReminderIntent = {
   text: string;
 };
 
+type DirectRecurringAiChatIntent = {
+  cleanedPrompt: string;
+  runNow: boolean;
+  repeatEveryMinutes: number;
+  sendAtIso: string;
+};
+
 type DirectBookingReminderSettingsIntent = {
   enabled: boolean;
   settings: {
@@ -1635,6 +1642,66 @@ function buildAiChatScheduledReminderPlan(intent: DirectAiChatScheduledReminderI
   };
 }
 
+function directPlanSteps(plan: PuraDirectActionPlan | null | undefined): PuraDirectActionStep[] {
+  if (!plan) return [];
+  return Array.isArray(plan.steps) && plan.steps.length ? plan.steps : [plan];
+}
+
+function extractDirectRecurringAiChatIntent(prompt: string): DirectRecurringAiChatIntent | null {
+  const raw = String(prompt || "").trim();
+  if (!raw) return null;
+
+  const lower = raw.toLowerCase();
+  const hasWeeklyCadence = /\b(?:once a week|every week)\b/.test(lower) || (/\bweekly\b/.test(lower) && /\b(?:schedule|scheduled|repeat|recurring|remind)\b/.test(lower));
+  if (!hasWeeklyCadence) return null;
+
+  const runNow = /\b(?:also\s+)?(?:start|run|trigger|do)(?:\s+(?:it|one))?\s+now\b/i.test(raw);
+  const cleanedPrompt = cleanQuotedText(
+    raw
+      .replace(/\b(?:once\s+a\s+week|every\s+week)\b/gi, " ")
+      .replace(/\bweekly\b/gi, " ")
+      .replace(/(?:\s|,|;)+(?:and\s+)?(?:also\s+)?(?:start|run|trigger|do)(?:\s+(?:it|one))?\s+now\b/gi, " ")
+      .replace(/\b(?:please\s+)?(?:can you|could you|would you)\s+/i, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
+  if (!cleanedPrompt || cleanedPrompt.toLowerCase() === raw.toLowerCase()) return null;
+
+  return {
+    cleanedPrompt,
+    runNow,
+    repeatEveryMinutes: 7 * 24 * 60,
+    sendAtIso: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
+
+function buildRecurringAiChatPlan(intent: DirectRecurringAiChatIntent, immediatePlan: PuraDirectActionPlan | null): PuraDirectActionPlan | null {
+  const immediateSteps = directPlanSteps(immediatePlan).filter((step) => step.action !== "ai_chat.scheduled.create");
+  if (intent.runNow && !immediateSteps.length) return null;
+
+  const scheduledText = immediateSteps.length
+    ? encodeScheduledActionEnvelope({
+        workTitle: immediateSteps[0]?.traceTitle || "Scheduled chat run",
+        steps: immediateSteps.map((step) => ({ key: step.action, title: step.traceTitle, args: step.args })),
+      })
+    : intent.cleanedPrompt;
+
+  const steps: PuraDirectActionStep[] = [
+    {
+      action: "ai_chat.scheduled.create",
+      traceTitle: "Create Weekly Scheduled Chat",
+      args: {
+        text: scheduledText,
+        sendAtIso: intent.sendAtIso,
+        repeatEveryMinutes: intent.repeatEveryMinutes,
+      },
+    },
+    ...(intent.runNow ? immediateSteps : []),
+  ];
+
+  return { ...steps[0], steps };
+}
+
 function extractOutboundGoal(prompt: string): string {
   const match =
     prompt.match(/\bwith\s+(?:the\s+)?goal\s+(?:of|to)?\s+([\s\S]+?)\s*$/i) ||
@@ -1916,6 +1983,7 @@ export function getPuraDirectActionPlan(opts: {
   const directEmailSendIntent = extractDirectEmailSendIntent(prompt);
   const directWeekdayScheduledSmsIntent = extractDirectWeekdayScheduledSmsIntent(prompt);
   const directAiChatScheduledReminderIntent = extractDirectAiChatScheduledReminderIntent(prompt, timeZoneHint);
+  const directRecurringAiChatIntent = extractDirectRecurringAiChatIntent(prompt);
   const directBookingReminderSettingsIntent = extractDirectBookingReminderSettingsIntent(prompt);
   const directBookingSettingsUpdateIntent = extractDirectBookingSettingsUpdateIntent(prompt);
   const directAiReceptionistGreetingIntent = extractDirectAiReceptionistGreetingIntent(prompt);
@@ -2005,6 +2073,17 @@ export function getPuraDirectActionPlan(opts: {
   const directAiReceptionistSettingsGetIntent = isDirectAiReceptionistSettingsGetIntent(prompt);
   const directAiOutboundCampaignIntent = extractDirectAiOutboundCampaignIntent(prompt);
   const directAiOutboundManualCallIntent = extractDirectAiOutboundManualCallIntent(prompt);
+
+  if (directRecurringAiChatIntent) {
+    const recurringSignals = detectPuraDirectIntentSignals(directRecurringAiChatIntent.cleanedPrompt, threadContext);
+    const immediateRecurringPlan = getPuraDirectActionPlan({
+      prompt: directRecurringAiChatIntent.cleanedPrompt,
+      signals: recurringSignals,
+      threadContext,
+    });
+    const recurringPlan = buildRecurringAiChatPlan(directRecurringAiChatIntent, immediateRecurringPlan);
+    if (recurringPlan) return recurringPlan;
+  }
 
   const bundledDirectSteps: PuraDirectActionStep[] = [];
   if (signals.reviewReplyIntent) bundledDirectSteps.push(buildReviewReplyPlan(signals.reviewReplyIntent));
