@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { persistPortalAiChatRun } from "@/lib/portalAiChatRunLedger";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { isPortalAiChatThreadOwner } from "@/lib/portalAiChatSharing";
 import { PURA_AI_PROFILE_VALUES, normalizePuraAiProfile } from "@/lib/puraAiProfile";
@@ -28,11 +29,12 @@ function normalizeThreadLiveStatus(raw: unknown) {
   const title = typeof (raw as any).title === "string" ? String((raw as any).title).trim().slice(0, 200) : null;
   const updatedAt = typeof (raw as any).updatedAt === "string" ? String((raw as any).updatedAt).trim().slice(0, 80) : null;
   const runId = typeof (raw as any).runId === "string" ? String((raw as any).runId).trim().slice(0, 120) : null;
+  const canInterrupt = Boolean((raw as any).canInterrupt);
   const round = Number.isFinite(Number((raw as any).round)) ? Math.max(1, Math.min(99, Math.floor(Number((raw as any).round)))) : null;
   const completedSteps = Number.isFinite(Number((raw as any).completedSteps)) ? Math.max(0, Math.min(99, Math.floor(Number((raw as any).completedSteps)))) : null;
   const lastCompletedTitle = typeof (raw as any).lastCompletedTitle === "string" ? String((raw as any).lastCompletedTitle).trim().slice(0, 200) : null;
-  if (!phase && !label && !actionKey && !title && !updatedAt && !runId && round == null && completedSteps == null && !lastCompletedTitle) return null;
-  return { phase, label, actionKey, title, updatedAt, runId, canInterrupt: Boolean(runId), round, completedSteps, lastCompletedTitle };
+  if (!phase && !label && !actionKey && !title && !updatedAt && !runId && !canInterrupt && round == null && completedSteps == null && !lastCompletedTitle) return null;
+  return { phase, label, actionKey, title, updatedAt, runId, canInterrupt, round, completedSteps, lastCompletedTitle };
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
@@ -121,10 +123,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   if (action === "interrupt") {
     const ctxJson = thread.contextJson && typeof thread.contextJson === "object" && !Array.isArray(thread.contextJson) ? (thread.contextJson as any) : {};
     const liveStatus = ctxJson.liveStatus && typeof ctxJson.liveStatus === "object" && !Array.isArray(ctxJson.liveStatus) ? (ctxJson.liveStatus as any) : null;
-    const runId = typeof liveStatus?.runId === "string" ? String(liveStatus.runId).trim() : typeof ctxJson.currentRunId === "string" ? String(ctxJson.currentRunId).trim() : "";
+    const runId = typeof liveStatus?.runId === "string" ? String(liveStatus.runId).trim() : "";
+    const canInterrupt = Boolean(runId && liveStatus && liveStatus.canInterrupt !== false);
 
-    if (!runId) {
-      return NextResponse.json({ ok: true, interrupted: false, liveStatus: null });
+    if (!canInterrupt) {
+      return NextResponse.json({ ok: true, interrupted: false, liveStatus: normalizeThreadLiveStatus(liveStatus) });
     }
 
     const nextCtx = {
@@ -142,6 +145,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     await (prisma as any).portalAiChatThread.update({
       where: { id: threadId },
       data: { contextJson: nextCtx },
+    });
+
+    await persistPortalAiChatRun({
+      ownerId,
+      threadId,
+      runId,
+      upsertByRunId: true,
+      triggerKind: "chat",
+      status: "interrupted",
+      runTrace: {
+        at: typeof liveStatus?.updatedAt === "string" && liveStatus.updatedAt.trim() ? String(liveStatus.updatedAt).trim() : new Date().toISOString(),
+        workTitle: typeof liveStatus?.title === "string" && liveStatus.title.trim() ? String(liveStatus.title).trim().slice(0, 200) : null,
+      },
+      summaryText: "Interrupt requested",
+      interruptedAt: new Date(),
     });
 
     return NextResponse.json({ ok: true, interrupted: true, liveStatus: normalizeThreadLiveStatus(nextCtx.liveStatus) });

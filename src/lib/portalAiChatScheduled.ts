@@ -3,6 +3,7 @@ import { persistPortalAiChatRun } from "@/lib/portalAiChatRunLedger";
 import { ensurePortalAiChatRunAiSummary } from "@/lib/portalAiChatRunSummary";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction } from "@/lib/portalAgentActionMeta";
+import { normalizeAssistantLinkUrl } from "@/lib/portalAssistantLinks";
 import { deriveThreadContextPatchFromAction, executePortalAgentAction } from "@/lib/portalAgentActionExecutor";
 import type { PortalAgentActionKey } from "@/lib/portalAgentActions";
 import { tryParseScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
@@ -702,6 +703,7 @@ export async function processDuePortalAiChatScheduledMessages(
               "- If something failed, say what failed and the next step.",
               "- If you need more info, ask ONE specific question.",
               "- Never output bare relative paths like /portal/app/... . If you mention a URL, always use the full https://purelyautomation.com/... absolute URL.",
+              "- If canvasUrl is present, never invent a placeholder like <canvasUrl> or substitute a different URL; either use the exact provided canvasUrl or omit the link.",
             ].join("\n"),
             user: `Scheduled run results (JSON):\n${JSON.stringify(
               {
@@ -721,6 +723,22 @@ export async function processDuePortalAiChatScheduledMessages(
       }
 
       assistantText = absolutizeAssistantTextLinks(assistantText);
+      const absoluteCanvasUrl = normalizeAssistantLinkUrl(canvasUrl);
+      if (assistantText && absoluteCanvasUrl) {
+        assistantText = assistantText
+          .replace(/the live booking link is available here\.?/i, `the live booking link is available [here](${absoluteCanvasUrl}).`)
+          .replace(/the live booking page is available here\.?/i, `the live booking page is available [here](${absoluteCanvasUrl}).`)
+          .replace(/the booking site information is also accessible at this link\.?/i, `The live booking link is [here](${absoluteCanvasUrl}).`);
+        if (/\/book\//i.test(absoluteCanvasUrl) && !new RegExp(absoluteCanvasUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(assistantText)) {
+          assistantText = `${assistantText.trim()}\n\nThe live booking link is [here](${absoluteCanvasUrl}).`;
+        }
+      }
+
+      if (assistantText && /ai-receptionist/i.test(String(canvasUrl || ""))) {
+        assistantText = assistantText
+          .replace(/(greeting now says\s+")([^".!?\n]+)(")/i, (_match, prefix, greeting, suffix) => `${prefix}${greeting.trim()}.${suffix}`)
+          .replace(/(Current greeting:\s+")([^".!?\n]+)(")/i, (_match, prefix, greeting, suffix) => `${prefix}${greeting.trim()}.${suffix}`);
+      }
 
       if (assistantText.trim()) {
         await (prisma as any).portalAiChatMessage.create({

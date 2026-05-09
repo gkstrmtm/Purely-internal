@@ -7,10 +7,12 @@ import remarkGfm from "remark-gfm";
 
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import GlassSurface from "@/components/GlassSurface";
+import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
-import { IconChevron, IconCopy, IconEdit, IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { IconCheckGlyph, IconChevron, IconCloseGlyph, IconCopy, IconEdit, IconMoreGlyph, IconPlusGlyph, IconSchedule, IconSearch, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { PURA_AI_PROFILE_OPTIONS, normalizePuraAiProfile, type PuraAiProfile } from "@/lib/puraAiProfile";
@@ -402,6 +404,41 @@ const PURA_CHAT_DEFAULT_MODE_STORAGE_KEY = "pura.chat.defaultMode";
 const PURA_CHAT_DEFAULT_PROFILE_STORAGE_KEY = "pura.chat.defaultProfile";
 const PURA_CHAT_WELCOME_PROMPT_HISTORY_STORAGE_KEY = "pura.chat.welcomePromptHistory";
 const PURA_CHAT_WELCOME_PROMPT_ROTATION_STORAGE_KEY = "pura.chat.welcomePromptRotation";
+const PURA_CHAT_RECENT_THREAD_SEARCHES_STORAGE_KEY = "pura.chat.recentThreadSearches";
+
+type RecentThreadSearch = {
+  threadId: string;
+  query: string;
+};
+
+function readStoredRecentThreadSearches(): RecentThreadSearch[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(PURA_CHAT_RECENT_THREAD_SEARCHES_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => {
+        const threadId = String(entry?.threadId || "").trim();
+        const query = String(entry?.query || "").trim();
+        if (!threadId) return null;
+        return { threadId, query } satisfies RecentThreadSearch;
+      })
+      .filter(Boolean)
+      .slice(0, 8) as RecentThreadSearch[];
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredRecentThreadSearches(entries: RecentThreadSearch[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PURA_CHAT_RECENT_THREAD_SEARCHES_STORAGE_KEY, JSON.stringify(entries.slice(0, 8)));
+  } catch {
+    // ignore
+  }
+}
 
 function createEmptyThreadUiState(): ThreadUiState {
   return {
@@ -1099,10 +1136,10 @@ function ThinkingStatePanel({
         compact ? "px-3 py-2" : "px-3.5 py-3",
       )}
     >
-      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+      <div className="flex items-center gap-2 text-[10px] font-semibold text-zinc-500">
         <ThinkingDots />
         <span>Pura</span>
-        <span className="rounded-md border border-zinc-200 bg-white/80 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-zinc-400">ACTIVE</span>
+        <span className="rounded-md border border-zinc-200 bg-white/80 px-1.5 py-0.5 font-mono text-[9px] text-zinc-400">ACTIVE</span>
       </div>
       <div className={classNames("font-medium text-zinc-900", compact ? "mt-1.5 text-xs" : "mt-2 text-sm")}>{label}</div>
       {meta ? <div className={classNames("text-zinc-500", compact ? "mt-1 text-[11px]" : "mt-1.5 text-xs")}>{meta}</div> : null}
@@ -1151,7 +1188,7 @@ function MessageBubble({
       {isUser ? (
         scheduledEnv ? (
           <div className="space-y-1">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-white/80">Scheduled task</div>
+            <div className="text-[11px] font-semibold text-white/80">Scheduled task</div>
             <div className="whitespace-pre-wrap font-semibold">{scheduledEnv.title}</div>
             {scheduledEnv.stepsCount > 0 ? (
               <div className="text-[11px] text-white/80">{scheduledEnv.stepsCount} step{scheduledEnv.stepsCount === 1 ? "" : "s"}</div>
@@ -1160,7 +1197,7 @@ function MessageBubble({
         ) : (
           <div className="space-y-2">
             {Array.isArray(msg.visibleContextBadges) && msg.visibleContextBadges.length ? (
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-white/80">
+              <div className="text-[11px] font-semibold text-white/80">
                 {formatVisibleContextBadgeLine(msg.visibleContextBadges)}
               </div>
             ) : null}
@@ -1319,7 +1356,7 @@ function MessageBubble({
 
       {!isUser && !isThinking && runTrace && runTraceSteps.length && runTraceTone ? (
         <div className={classNames("mt-3 rounded-2xl px-3 py-2", runTraceTone.cardClassName)}>
-          <div className={classNames("flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-wide", runTraceTone.headerClassName)}>
+          <div className={classNames("flex items-center justify-between gap-3 text-[11px] font-semibold", runTraceTone.headerClassName)}>
             <span>{runTrace.workTitle || "Pura work trace"}</span>
             <span>{runTraceSteps.length} step{runTraceSteps.length === 1 ? "" : "s"}</span>
           </div>
@@ -1745,10 +1782,10 @@ function LiveProgressCard({ status, onInterrupt, interrupting }: { status: LiveS
   return (
     <div className="rounded-3xl border border-zinc-900/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,247,250,0.96))] px-4 py-3 text-zinc-800 shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+        <div className="flex items-center gap-2 text-[10px] font-semibold text-zinc-500">
           <ThinkingDots />
           <span>Pura active</span>
-          <span className="rounded-md border border-zinc-200 bg-white/90 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-zinc-400">RUNNING</span>
+          <span className="rounded-md border border-zinc-200 bg-white/90 px-1.5 py-0.5 font-mono text-[9px] text-zinc-400">RUNNING</span>
         </div>
         {onInterrupt ? (
           <button
@@ -1797,15 +1834,15 @@ function UnresolvedRunCard({ unresolvedRun, onContinue, onOpenCanvas, sending }:
     <div className={classNames(
       "rounded-3xl px-4 py-3 text-zinc-800",
       needsInput
-        ? "border border-orange-300 bg-orange-50/95 shadow-[0_8px_30px_rgba(234,88,12,0.12)]"
-        : "border border-amber-200 bg-amber-50/80 shadow-[0_8px_30px_rgba(217,119,6,0.08)]",
+        ? "bg-[rgba(255,247,237,0.95)] shadow-[0_8px_24px_rgba(234,88,12,0.08)]"
+        : "bg-[rgba(255,251,235,0.92)] shadow-[0_8px_24px_rgba(217,119,6,0.06)]",
     )}>
       <div className="flex items-center justify-between gap-3">
-        <div className={classNames("flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em]", needsInput ? "text-orange-700" : "text-amber-700")}>
+        <div className={classNames("flex items-center gap-2 text-xs font-semibold", needsInput ? "text-orange-700" : "text-amber-700")}>
           <ThinkingDots />
           <span>{needsInput ? "Missing detail" : "Unfinished work"}</span>
         </div>
-        <div className={classNames("rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold", needsInput ? "border border-orange-200 text-orange-800" : "border border-amber-200 text-amber-800")}>
+        <div className={classNames("px-1 text-[11px] font-semibold", needsInput ? "text-orange-800" : "text-amber-800")}>
           {needsInput ? "One detail needed" : formatRunStatusLabel(unresolvedRun.status)}
         </div>
       </div>
@@ -1816,7 +1853,7 @@ function UnresolvedRunCard({ unresolvedRun, onContinue, onOpenCanvas, sending }:
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
-          className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+          className="rounded-2xl bg-brand-blue px-3 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
           disabled={Boolean(sending)}
           onClick={() => onContinue(cta.prompt)}
         >
@@ -1845,7 +1882,7 @@ function NextStepCard({ nextStepContext, onContinue, onOpenCanvas, sending }: { 
   return (
     <div className="rounded-3xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-zinc-800 shadow-[0_8px_30px_rgba(5,150,105,0.08)]">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+        <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700">
           <ThinkingDots />
           <span>Ready next step</span>
         </div>
@@ -2002,6 +2039,27 @@ function frostedBlueButtonClassName(size: "compact" | "regular" = "regular") {
   );
 }
 
+function frostedBlueStrongButtonClassName(size: "compact" | "regular" = "regular") {
+  return classNames(
+    "inline-flex items-center justify-center gap-1 rounded-2xl bg-[rgba(29,78,216,0.18)] text-brand-blue backdrop-blur-md shadow-[0_10px_26px_rgba(29,78,216,0.18)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.26)]",
+    size === "compact" ? "px-2 py-1 text-[11px] font-semibold" : "px-3 py-2 text-sm font-semibold",
+  );
+}
+
+function frostedRedButtonClassName(size: "compact" | "regular" = "regular") {
+  return classNames(
+    "inline-flex items-center justify-center gap-1 rounded-2xl bg-[rgba(239,68,68,0.12)] text-red-700 backdrop-blur-md shadow-[0_10px_24px_rgba(239,68,68,0.12)] transition-colors duration-150 hover:bg-[rgba(239,68,68,0.18)]",
+    size === "compact" ? "px-2 py-1 text-[11px] font-semibold" : "px-3 py-2 text-sm font-semibold",
+  );
+}
+
+function frostedYellowButtonClassName(size: "compact" | "regular" = "regular") {
+  return classNames(
+    "inline-flex items-center justify-center gap-1 rounded-2xl bg-[rgba(250,204,21,0.18)] text-amber-800 backdrop-blur-md shadow-[0_10px_24px_rgba(245,158,11,0.14)] transition-colors duration-150 hover:bg-[rgba(250,204,21,0.28)]",
+    size === "compact" ? "px-2 py-1 text-[11px] font-semibold" : "px-3 py-2 text-sm font-semibold",
+  );
+}
+
 function conciseActivitySummary(raw: string | null | undefined): string | null {
   const normalized = String(raw || "")
     .replace(/\[[^\]]+\]\(([^)]+)\)/g, "$1")
@@ -2134,7 +2192,7 @@ function ThreadMemoryDetail({
   return (
     <div className="rounded-3xl bg-[rgba(29,78,216,0.12)] px-4 py-4 text-zinc-800 shadow-[0_8px_24px_rgba(29,78,216,0.14)]">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-brand-blue/80">
+        <div className="flex items-center gap-2 text-xs font-semibold text-brand-blue/80">
           <span>Thread Memory</span>
         </div>
         {updatedLabel ? <div className="text-[11px] font-medium text-brand-blue/70">Updated {updatedLabel}</div> : null}
@@ -2160,36 +2218,6 @@ function ThreadMemoryDetail({
       ) : null}
     </div>
   );
-}
-
-function describeLiveWorkLabel(opts: {
-  text: string;
-  canvasUrl?: string | null;
-  actionKey?: string | null;
-  mode: ChatMode;
-  isRetry?: boolean;
-}): string | null {
-  const haystack = [String(opts.actionKey || ""), String(opts.text || ""), String(opts.canvasUrl || "")]
-    .filter(Boolean)
-    .join("\n")
-    .toLowerCase();
-  if (!haystack.trim()) return null;
-
-  const prefix = opts.mode === "work" ? (opts.isRetry ? "Reworking" : "Working") : opts.isRetry ? "Rethinking" : "Thinking through";
-
-  if (/\bbooking\.calendars\.get\b|\bcalendar|booking|appointment|availability|meeting\b/.test(haystack)) return `${prefix} booking context`;
-  if (/\btasks?\.|task|todo|checklist|follow[-\s]?up\b/.test(haystack)) return `${prefix} task context`;
-  if (/\binbox\.|\binbox|email|sms|text message|conversation|thread\b/.test(haystack)) return `${prefix} inbox context`;
-  if (/\bcontacts?\.|\bcontact|lead|customer|client|prospect\b/.test(haystack)) return `${prefix} contact context`;
-  if (/\bpeople\.users\.list\b|\bteam|staff|employee|member|owner|user\b/.test(haystack)) return `${prefix} team context`;
-  if (/\bmedia\.|\bmedia|asset|image|photo|video|upload|folder|library\b/.test(haystack)) return `${prefix} media context`;
-  if (/\breporting\.|\breporting|dashboard|analytics|metrics|revenue|sales|stripe|payment\b/.test(haystack)) return `${prefix} reporting context`;
-  if (/\bai_chat\.|\bai chat|chat thread|conversation history\b/.test(haystack)) return `${prefix} chat context`;
-  if (/\bfunnel|landing page|page builder|website|checkout|upsell|downsell|thank you\b/.test(haystack) || String(opts.canvasUrl || "").toLowerCase().includes("/funnel")) {
-    return `${prefix} funnel context`;
-  }
-
-  return null;
 }
 
 export function PortalAiChatClient({
@@ -2487,6 +2515,11 @@ export function PortalAiChatClient({
     setThreadMenuThreadId(null);
   }, []);
 
+  const closeChatSearch = useCallback(() => {
+    setChatSearchMenu(null);
+    setChatSearchQuery("");
+  }, []);
+
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [runningActionKey, setRunningActionKey] = useState<string | null>(null);
   const [interruptingThreadIds, setInterruptingThreadIds] = useState<Set<string>>(() => new Set());
@@ -2553,8 +2586,16 @@ export function PortalAiChatClient({
   >([]);
 
   type RepeatUnit = "minutes" | "hours" | "days" | "weeks";
-  const [scheduledEditing, setScheduledEditing] = useState<Record<string, { sendAtLocal: string; repeatEvery: string; repeatUnit: RepeatUnit }>>({});
+  type ScheduledEditDraft = { taskText: string; sendAtLocal: string; repeatEvery: string; repeatUnit: RepeatUnit };
+  const [scheduledEditing, setScheduledEditing] = useState<Record<string, ScheduledEditDraft>>({});
+  const [scheduledTitleEditingIds, setScheduledTitleEditingIds] = useState<Set<string>>(() => new Set());
+  const [scheduledTextEditingIds, setScheduledTextEditingIds] = useState<Set<string>>(() => new Set());
   const [scheduledSavingIds, setScheduledSavingIds] = useState<Set<string>>(() => new Set());
+  const [chatSearchMenu, setChatSearchMenu] = useState<FixedMenuStyle | null>(null);
+  const [chatSearchQuery, setChatSearchQuery] = useState("");
+  const [recentThreadSearches, setRecentThreadSearches] = useState<RecentThreadSearch[]>(() => readStoredRecentThreadSearches());
+  const openScheduledTasksRef = useRef<() => void>(() => {});
+  const chatSearchInputRef = useRef<HTMLInputElement | null>(null);
   const [runsOpen, setRunsOpen] = useState(false);
   const [activityView, setActivityView] = useState<ActivityView>({ kind: "list" });
   const [runsLoading, setRunsLoading] = useState(false);
@@ -2569,6 +2610,27 @@ export function PortalAiChatClient({
   const [shareCreatorUserId, setShareCreatorUserId] = useState<string | null>(null);
   const [shareSelectedUserIds, setShareSelectedUserIds] = useState<Set<string>>(() => new Set());
   const [shareQuery, setShareQuery] = useState("");
+
+  useEffect(() => {
+    writeStoredRecentThreadSearches(recentThreadSearches);
+  }, [recentThreadSearches]);
+
+  useEffect(() => {
+    if (!chatSearchMenu) return;
+    const id = window.requestAnimationFrame(() => chatSearchInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(id);
+  }, [chatSearchMenu]);
+
+  useEffect(() => {
+    if (!chatSearchMenu) return;
+    const close = () => closeChatSearch();
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [chatSearchMenu, closeChatSearch]);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -2642,28 +2704,6 @@ export function PortalAiChatClient({
   const composerHydratingRequestedThread = Boolean(requestedThreadId && !requestedThreadHydrated && (threadsLoading || messagesLoading));
   const composerLocked = sending || composerAwaitingRequestedThread || composerHydratingRequestedThread;
   const hasThinkingMessage = messages.some((msg) => msg.role === "assistant" && String(msg.id || "").startsWith("optimistic-assistant-"));
-  const latestPendingUserText = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const msg = messages[i];
-      if (!msg || msg.role !== "user") continue;
-      const text = String(msg.text || "").trim();
-      if (!text) continue;
-      return text;
-    }
-    return "";
-  }, [messages]);
-  const inferredWorkStatusLabel = useMemo(() => {
-    return describeLiveWorkLabel({
-      text: input || latestPendingUserText,
-      canvasUrl,
-      actionKey: runningActionKey,
-      mode: effectiveChatMode,
-      isRetry: regenerating,
-    });
-  }, [canvasUrl, effectiveChatMode, input, latestPendingUserText, regenerating, runningActionKey]);
-  const liveWorkStatusLabel = useMemo(() => {
-    return activeLiveStatus?.label?.trim() || null;
-  }, [activeLiveStatus]);
   const activeCanInterrupt = useMemo(() => {
     return Boolean(activeThreadId && activeLiveStatus?.canInterrupt && activeLiveStatus?.runId);
   }, [activeLiveStatus?.canInterrupt, activeLiveStatus?.runId, activeThreadId]);
@@ -2707,14 +2747,6 @@ export function PortalAiChatClient({
     if (!activeThreadId || !activeWorkingMemory || !activeThreadMemorySignature) return false;
     return acknowledgedThreadMemoryById[activeThreadId] !== activeThreadMemorySignature;
   }, [acknowledgedThreadMemoryById, activeThreadId, activeThreadMemorySignature, activeWorkingMemory]);
-  const workStatusLabel = useMemo(() => {
-    if (liveWorkStatusLabel) return liveWorkStatusLabel;
-    if (regenerating && regeneratingTarget?.messageId) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Reworking that response" : "Redoing that response");
-    if (runningActionKey) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Working through the next step" : "Thinking through the next step");
-    if (sending || hasThinkingMessage) return inferredWorkStatusLabel || (effectiveChatMode === "work" ? "Working on it" : "Thinking it through");
-    return null;
-  }, [effectiveChatMode, hasThinkingMessage, inferredWorkStatusLabel, liveWorkStatusLabel, regenerating, regeneratingTarget?.messageId, runningActionKey, sending]);
-
   const closeActivityModal = useCallback(() => {
     setRunsOpen(false);
     setActivityView({ kind: "list" });
@@ -2800,6 +2832,103 @@ export function PortalAiChatClient({
     },
     [basePath, currentHref, router],
   );
+
+  const pushRecentThreadSearch = useCallback((thread: Pick<Thread, "id" | "title">, queryRaw: string | null | undefined) => {
+    const threadId = String(thread.id || "").trim();
+    if (!threadId) return;
+    const query = String(queryRaw || "").trim() || String(thread.title || "").trim() || "Chat";
+    setRecentThreadSearches((prev) => [{ threadId, query }, ...prev.filter((item) => item.threadId !== threadId)].slice(0, 8));
+  }, []);
+
+  const openChatSearch = useCallback((anchor: HTMLElement) => {
+    const rect = anchor.getBoundingClientRect();
+    setScheduledOpen(false);
+    closeThreadMenu();
+    setAttachMenu(null);
+    setChatSearchQuery("");
+    setChatSearchMenu(
+      computeFixedMenuStyle({
+        rect,
+        width: 360,
+        estHeight: 420,
+        alignX: rect.left > window.innerWidth / 2 ? "right" : "left",
+        minHeight: 220,
+        gapPx: 8,
+      }),
+    );
+  }, [closeThreadMenu]);
+
+  const openThreadFromSearch = useCallback(
+    (thread: Thread, queryRaw?: string | null) => {
+      pushRecentThreadSearch(thread, queryRaw);
+      closeChatSearch();
+      navigateToThread(thread, "push");
+    },
+    [closeChatSearch, navigateToThread, pushRecentThreadSearch],
+  );
+
+  const chatSearchSuggestions = useMemo(() => {
+    const query = chatSearchQuery.trim().toLowerCase();
+    if (!query) {
+      return recentThreadSearches
+        .map((item) => {
+          const thread = threads.find((entry) => entry.id === item.threadId);
+          if (!thread) return null;
+          const liveStatus = threadLiveStatusById[thread.id] ?? null;
+          const nextStepContext = threadNextStepContextById[thread.id] ?? null;
+          const preview = nextStepPreviewText(nextStepContext);
+          return {
+            key: `recent:${thread.id}`,
+            thread,
+            label: thread.title || "New chat",
+            meta: item.query || liveStatus?.label || preview || (thread.updatedAt ? `Updated ${fmtShortTime(thread.updatedAt)}` : "Recent chat"),
+          };
+        })
+        .filter(Boolean) as Array<{ key: string; thread: Thread; label: string; meta: string }>;
+    }
+
+    const tokens = query.split(/\s+/g).filter(Boolean);
+    return threads
+      .map((thread) => {
+        const title = String(thread.title || "New chat").trim() || "New chat";
+        const liveStatus = threadLiveStatusById[thread.id] ?? null;
+        const nextStepContext = threadNextStepContextById[thread.id] ?? null;
+        const liveLabel = String(liveStatus?.label || "").trim();
+        const nextStepTitle = String(nextStepContext?.workTitle || nextStepContext?.objective || "").trim();
+        const nextStepPreview = String(nextStepPreviewText(nextStepContext) || "").trim();
+        const searchable = `${title} ${thread.id} ${liveLabel} ${nextStepTitle} ${nextStepPreview}`.toLowerCase();
+        if (!tokens.every((token) => searchable.includes(token))) return null;
+        const meta = liveLabel
+          ? liveLabel
+          : nextStepPreview
+            ? nextStepPreview
+            : nextStepTitle
+              ? `Ready next: ${nextStepTitle}`
+              : thread.updatedAt
+                ? `Updated ${fmtShortTime(thread.updatedAt)}`
+                : thread.lastMessageAt
+                  ? `Active ${fmtShortTime(thread.lastMessageAt)}`
+                  : `Created ${fmtShortTime(thread.createdAt)}`;
+
+        const rank =
+          (title.toLowerCase().includes(query) ? 8 : 0) +
+          (nextStepTitle.toLowerCase().includes(query) ? 5 : 0) +
+          (nextStepPreview.toLowerCase().includes(query) ? 4 : 0) +
+          (liveLabel.toLowerCase().includes(query) ? 3 : 0) +
+          (thread.isPinned ? 1 : 0);
+
+        return {
+          key: `match:${thread.id}`,
+          thread,
+          label: title,
+          meta,
+          rank,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => (b?.rank || 0) - (a?.rank || 0))
+      .slice(0, 12) as Array<{ key: string; thread: Thread; label: string; meta: string }>;
+  }, [chatSearchQuery, recentThreadSearches, threadLiveStatusById, threadNextStepContextById, threads]);
 
   const rememberMessageDisplayMode = useCallback((messageId: string | null | undefined, mode: ChatMode | null | undefined) => {
     if (!messageId || !mode) return;
@@ -3425,21 +3554,16 @@ export function PortalAiChatClient({
     if (openedThreadAutoScrollDoneRef.current.has(activeThreadId)) return;
 
     openedThreadAutoScrollDoneRef.current.add(activeThreadId);
-    forceScrollToBottomRef.current = false;
+    pendingInitialThreadScrollRef.current = activeThreadId;
+    forceScrollToBottomRef.current = true;
     shouldStickToBottomRef.current = false;
-
-    const attemptScroll = () => {
-      if (activeThreadIdRef.current !== activeThreadId) return;
-      scrollToBottom(true, false);
-    };
+    manualScrollHoldUntilRef.current = 0;
 
     requestAnimationFrame(() => {
-      attemptScroll();
-      window.setTimeout(attemptScroll, 80);
-      window.setTimeout(attemptScroll, 220);
-      window.setTimeout(attemptScroll, 480);
+      if (activeThreadIdRef.current !== activeThreadId) return;
+      completeInitialThreadScroll(activeThreadId);
     });
-  }, [activeThreadId, messages, messagesLoading, scrollToBottom]);
+  }, [activeThreadId, completeInitialThreadScroll, messages, messagesLoading]);
 
   useEffect(() => {
     void loadThreads();
@@ -4120,7 +4244,7 @@ export function PortalAiChatClient({
           });
 
           if ((json as any)?.openScheduledTasks) {
-            setScheduledOpen(true);
+            openScheduledTasksRef.current();
           }
 
           void loadThreads();
@@ -4308,7 +4432,7 @@ export function PortalAiChatClient({
         });
 
         if ((json as any)?.openScheduledTasks) {
-          setScheduledOpen(true);
+          openScheduledTasksRef.current();
         }
 
         void loadThreads();
@@ -4521,7 +4645,7 @@ export function PortalAiChatClient({
           updateThreadMessages(threadIdForAction, (prev) => [...prev, assistantMessage]);
         }
         if ((json as any)?.openScheduledTasks) {
-          setScheduledOpen(true);
+          openScheduledTasksRef.current();
         }
         const nextCanvasUrl = typeof json?.linkUrl === "string" && json.linkUrl.trim() ? String(json.linkUrl).trim() : null;
         if (nextCanvasUrl && activeThreadIdRef.current === threadIdForAction) {
@@ -4790,13 +4914,22 @@ export function PortalAiChatClient({
     <div className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 px-3 pb-2 pt-3">
         <div className="flex items-center justify-between">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Chats</div>
+          <div className="text-xs font-semibold text-zinc-500">Chats</div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-all duration-100 hover:scale-105 hover:bg-zinc-50"
+              onClick={(event) => openChatSearch(event.currentTarget)}
+              aria-label="Search chats"
+              title="Search chats"
+            >
+              <IconSearch size={17} />
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-all duration-100 hover:scale-105 hover:bg-zinc-50"
               onClick={() => {
-                setScheduledOpen(true);
+                openScheduledTasksRef.current();
               }}
               aria-label="Scheduled tasks"
               title="Scheduled tasks"
@@ -4805,12 +4938,12 @@ export function PortalAiChatClient({
             </button>
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-blue text-white transition-all duration-100 hover:scale-105 hover:opacity-95"
+              className={classNames(frostedBlueStrongButtonClassName("regular"), "h-9 w-9 px-0")}
               onClick={createThread}
               aria-label="New chat"
               title="New chat"
             >
-              <span className="text-lg font-semibold leading-none">＋</span>
+              <IconPlusGlyph size={18} className="text-brand-blue" />
             </button>
           </div>
         </div>
@@ -4869,7 +5002,7 @@ export function PortalAiChatClient({
                         ) : null}
                         {isWorking ? (
                           <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
-                            <span className="inline-flex items-center gap-2 rounded-full border border-brand-blue/15 bg-[rgba(29,78,216,0.08)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-blue">
+                            <span className="inline-flex items-center gap-2 rounded-full border border-brand-blue/15 bg-[rgba(29,78,216,0.08)] px-2 py-1 text-[10px] font-semibold text-brand-blue">
                               <ThinkingDots className="text-brand-blue" />
                               <span>Working</span>
                             </span>
@@ -4907,7 +5040,7 @@ export function PortalAiChatClient({
                       );
                     }}
                   >
-                    <span className="text-lg font-semibold leading-none">⋯</span>
+                    <IconMoreGlyph size={18} />
                   </button>
                 </div>
               );
@@ -4917,7 +5050,7 @@ export function PortalAiChatClient({
       </div>
     </div>
     ),
-    [activeThreadId, closeThreadMenu, createThread, navigateToThread, selectThread, setScheduledOpen, threadLiveStatusById, threadMenu, threadMenuThreadId, threadNextStepContextById, threads, threadsLoading],
+    [activeThreadId, closeThreadMenu, createThread, navigateToThread, openChatSearch, selectThread, threadLiveStatusById, threadMenu, threadMenuThreadId, threadNextStepContextById, threads, threadsLoading],
   );
 
   const mobileSidebar = useMemo(
@@ -4979,7 +5112,7 @@ export function PortalAiChatClient({
                           ) : null}
                           {isWorking ? (
                             <div className="mt-1 flex items-center gap-2 text-[11px] font-medium text-zinc-600">
-                              <span className="inline-flex items-center gap-2 rounded-full border border-brand-blue/15 bg-[rgba(29,78,216,0.08)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-blue">
+                              <span className="inline-flex items-center gap-2 rounded-full border border-brand-blue/15 bg-[rgba(29,78,216,0.08)] px-2 py-1 text-[10px] font-semibold text-brand-blue">
                                 <ThinkingDots className="text-brand-blue" />
                                 <span>Working</span>
                               </span>
@@ -5016,7 +5149,7 @@ export function PortalAiChatClient({
                         );
                       }}
                     >
-                      <span className="text-lg font-semibold leading-none">⋯</span>
+                      <IconMoreGlyph size={18} />
                     </button>
                   </div>
                 );
@@ -5123,10 +5256,11 @@ export function PortalAiChatClient({
 
       setScheduledRows(normalized);
 
-      const nextEditing: Record<string, { sendAtLocal: string; repeatEvery: string; repeatUnit: RepeatUnit }> = {};
+      const nextEditing: Record<string, ScheduledEditDraft> = {};
       for (const r of normalized) {
         const split = splitRepeatEveryMinutes(r.repeatEveryMinutes);
         nextEditing[r.id] = {
+          taskText: String(r.displayText || "").trim(),
           sendAtLocal: toLocalInputValue(r.sendAt),
           repeatEvery: split.repeatEvery,
           repeatUnit: split.repeatUnit,
@@ -5140,6 +5274,13 @@ export function PortalAiChatClient({
       setScheduledLoading(false);
     }
   }, [portalFetch, splitRepeatEveryMinutes, toLocalInputValue]);
+
+  useEffect(() => {
+    openScheduledTasksRef.current = () => {
+      setScheduledOpen(true);
+      void loadScheduled();
+    };
+  }, [loadScheduled]);
 
   const loadRuns = useCallback(async (opts?: { silent?: boolean }) => {
     if (!activeThreadId) {
@@ -5162,11 +5303,6 @@ export function PortalAiChatClient({
       if (!opts?.silent) setRunsLoading(false);
     }
   }, [activeThreadId, portalFetch]);
-
-  useEffect(() => {
-    if (!scheduledOpen) return;
-    void loadScheduled();
-  }, [scheduledOpen, loadScheduled]);
 
   useEffect(() => {
     if (!runsOpen) return;
@@ -5234,13 +5370,25 @@ export function PortalAiChatClient({
       const edit = scheduledEditing[id];
       if (!edit) return;
 
+      const taskText = String(edit.taskText || "").trim();
+      if (!taskText) {
+        toast.error("Enter a task or prompt before saving.");
+        return;
+      }
+
+      const sendAtDate = edit.sendAtLocal ? new Date(edit.sendAtLocal) : null;
+      if (edit.sendAtLocal && (!sendAtDate || !Number.isFinite(sendAtDate.getTime()))) {
+        toast.error("Pick a valid schedule time before saving.");
+        return;
+      }
+
       setScheduledSavingIds((prev) => {
         const next = new Set(prev);
         next.add(id);
         return next;
       });
 
-      const sendAtIso = edit.sendAtLocal ? new Date(edit.sendAtLocal).toISOString() : null;
+      const sendAtIso = sendAtDate ? sendAtDate.toISOString() : null;
       const repeatEveryMinutes = computeRepeatEveryMinutes({ repeatEvery: edit.repeatEvery, repeatUnit: edit.repeatUnit });
 
       try {
@@ -5249,13 +5397,20 @@ export function PortalAiChatClient({
           {
             method: "PATCH",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ sendAtIso, repeatEveryMinutes, clientTimeZone }),
+            body: JSON.stringify({ text: taskText, sendAtIso, repeatEveryMinutes, clientTimeZone }),
           },
         );
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Unable to save schedule");
+        setScheduledTextEditingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
         toast.success("Saved");
         void loadScheduled();
+      } catch (error) {
+        toast.error(error instanceof Error && error.message ? error.message : "Unable to save schedule");
       } finally {
         setScheduledSavingIds((prev) => {
           const next = new Set(prev);
@@ -5307,6 +5462,15 @@ export function PortalAiChatClient({
     () => composerServiceSuggestions.filter((entry) => Boolean(entry.match)).slice(0, 3),
     [composerServiceSuggestions],
   );
+
+  const threadTitleById = useMemo(() => {
+    const next = new Map<string, string>();
+    for (const thread of threads) {
+      const title = String(thread.title || "").trim() || "Chat";
+      next.set(String(thread.id), title);
+    }
+    return next;
+  }, [threads]);
 
   const composerScheduleSuggestion = useMemo(() => findComposerScheduleSuggestion(input), [input]);
 
@@ -5759,7 +5923,7 @@ export function PortalAiChatClient({
                 aria-label="Remove attachment"
                 title="Remove"
               >
-                ×
+                <IconCloseGlyph size={14} />
               </button>
             </div>
           ))}
@@ -5790,7 +5954,7 @@ export function PortalAiChatClient({
             aria-label="Add attachment"
             title="Add attachment"
           >
-            <span className="text-lg font-semibold">＋</span>
+            <IconPlusGlyph size={18} />
           </button>
         </div>
 
@@ -5865,7 +6029,7 @@ export function PortalAiChatClient({
                       aria-label="Dismiss connect popover"
                       title="Dismiss"
                     >
-                      ×
+                      <IconCloseGlyph size={14} />
                     </button>
                   </div>
                 </GlassSurface>
@@ -5942,7 +6106,7 @@ export function PortalAiChatClient({
                       aria-label="Dismiss disconnect popover"
                       title="Dismiss"
                     >
-                      ×
+                      <IconCloseGlyph size={14} />
                     </button>
                   </div>
                 </GlassSurface>
@@ -6077,7 +6241,16 @@ export function PortalAiChatClient({
         <button
           type="button"
           className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white/95 text-zinc-700 shadow-sm backdrop-blur hover:bg-zinc-50"
-          onClick={() => setScheduledOpen(true)}
+          onClick={(event) => openChatSearch(event.currentTarget)}
+          aria-label="Search chats"
+          title="Search chats"
+        >
+          <IconSearch size={18} />
+        </button>
+        <button
+          type="button"
+          className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white/95 text-zinc-700 shadow-sm backdrop-blur hover:bg-zinc-50"
+          onClick={() => openScheduledTasksRef.current()}
           aria-label="Scheduled tasks"
           title="Scheduled tasks"
         >
@@ -6085,12 +6258,12 @@ export function PortalAiChatClient({
         </button>
         <button
           type="button"
-          className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-blue text-white shadow-sm transition-all duration-100 hover:opacity-95"
+          className={classNames("pointer-events-auto h-10 w-10 px-0 shadow-sm", frostedBlueStrongButtonClassName("regular"))}
           onClick={createThread}
           aria-label="New chat"
           title="New chat"
         >
-          <span className="text-lg font-semibold leading-none">＋</span>
+          <IconPlusGlyph size={18} className="text-brand-blue" />
         </button>
       </div>
 
@@ -6100,13 +6273,78 @@ export function PortalAiChatClient({
           onMouseDown={() => {
             setAttachMenu(null);
             closeThreadMenu();
+            closeChatSearch();
           }}
           onTouchStart={() => {
             setAttachMenu(null);
             closeThreadMenu();
+            closeChatSearch();
           }}
           aria-hidden
         />
+      ) : null}
+
+      {chatSearchMenu ? (
+        <>
+          <div className="fixed inset-0 z-140" onMouseDown={closeChatSearch} onTouchStart={closeChatSearch} aria-hidden />
+          <div
+            className="fixed z-141 w-[min(360px,calc(100vw-1.5rem))]"
+            style={{ left: chatSearchMenu.left, top: chatSearchMenu.top }}
+          >
+            <LiquidGlassPopupSurface className="overflow-hidden rounded-[28px] p-0 shadow-[0_26px_70px_rgba(15,23,42,0.18)]">
+              <div className="border-b border-white/45 bg-[rgba(255,255,255,0.66)] px-4 py-3 backdrop-blur-xl">
+                <label className="flex items-center gap-2 rounded-2xl border border-white/60 bg-white/75 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]">
+                  <IconSearch size={16} className="text-zinc-500" />
+                  <input
+                    ref={chatSearchInputRef}
+                    value={chatSearchQuery}
+                    onChange={(event) => setChatSearchQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        closeChatSearch();
+                        return;
+                      }
+                      if (event.key === "Enter" && chatSearchSuggestions[0]) {
+                        event.preventDefault();
+                        openThreadFromSearch(chatSearchSuggestions[0].thread, chatSearchQuery);
+                      }
+                    }}
+                    placeholder="Search chats"
+                    className="w-full border-0 bg-transparent p-0 text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                  />
+                </label>
+              </div>
+              <div className="max-h-[min(60vh,420px)] overflow-y-auto px-2 py-2">
+                <div className="px-2 pb-2 pt-1 text-xs font-semibold text-zinc-500">
+                  {chatSearchQuery.trim() ? "Matches" : "Recent searches"}
+                </div>
+                {chatSearchSuggestions.length ? (
+                  <div className="space-y-1">
+                    {chatSearchSuggestions.map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        className="flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition-colors hover:bg-white/70"
+                        onClick={() => openThreadFromSearch(item.thread, chatSearchQuery || item.meta)}
+                      >
+                        <div className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-[rgba(59,130,246,0.12)] text-brand-blue">
+                          <IconSearch size={14} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold text-zinc-900">{item.label}</div>
+                          <div className="truncate text-xs text-zinc-500">{item.meta}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-3 py-5 text-sm text-zinc-500">No chats match that search yet.</div>
+                )}
+              </div>
+            </LiquidGlassPopupSurface>
+          </div>
+        </>
       ) : null}
 
       {attachMenu ? (
@@ -6171,7 +6409,7 @@ export function PortalAiChatClient({
               >
                 Schedule task
               </button>
-              <div className="mt-2 border-t border-[rgba(191,219,254,0.7)] px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Connect</div>
+              <div className="mt-2 border-t border-[rgba(191,219,254,0.7)] px-3 py-2 text-xs font-semibold text-zinc-500">Connect</div>
               {attachMenuServiceOptions.map((service) => {
                 const selected = selectedContextServiceSlugs.includes(service.slug);
                 return (
@@ -6259,7 +6497,7 @@ export function PortalAiChatClient({
                     const t = scheduleTaskText.trim();
                     setScheduleTaskOpen(false);
                     if (!t) return;
-                    setScheduledOpen(true);
+                    openScheduledTasksRef.current();
                     void send(t).then(() => loadScheduled());
                   }}
                 >
@@ -6423,23 +6661,6 @@ export function PortalAiChatClient({
               </GlassSurface>
 
               <div className="pointer-events-auto ml-auto flex items-center gap-2">
-                {workStatusLabel ? (
-                  <div className="hidden sm:block">
-                    <ThinkingStatePanel label={workStatusLabel} meta="Active thread status" compact />
-                  </div>
-                ) : null}
-
-                {activeCanInterrupt && activeThreadId ? (
-                  <button
-                    type="button"
-                    className="inline-flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 shadow-[0_10px_24px_rgba(0,0,0,0.06)] hover:bg-zinc-50 disabled:opacity-60"
-                    onClick={() => void interruptActiveRun()}
-                    disabled={interruptingThreadIds.has(activeThreadId)}
-                  >
-                    {interruptingThreadIds.has(activeThreadId) ? "Stopping…" : "Stop"}
-                  </button>
-                ) : null}
-
                 <button
                   type="button"
                   className="inline-flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 shadow-[0_10px_24px_rgba(0,0,0,0.06)] hover:bg-zinc-50 sm:hidden"
@@ -6837,7 +7058,7 @@ export function PortalAiChatClient({
                     setCanvasModalOpen(false);
                   }}
                 >
-                  ×
+                  <IconCloseGlyph size={14} />
                 </button>
               </div>
             ) : null}
@@ -6901,7 +7122,7 @@ export function PortalAiChatClient({
                       aria-label="Close canvas"
                       title="Close"
                     >
-                      ×
+                      <IconCloseGlyph size={14} />
                     </button>
                   </div>
                 </div>
@@ -7001,14 +7222,14 @@ export function PortalAiChatClient({
 
                   {selectedActivityRun.summaryText || selectedActivityRun.steps.length || selectedActivityRun.workTitle ? (
                     <div className="mt-4 rounded-2xl bg-zinc-50 px-4 py-3">
-                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Summary</div>
+                      <div className="mb-2 text-xs font-semibold text-zinc-500">Summary</div>
                       <PuraMarkdownBlock text={summarizeRunForActivity(selectedActivityRun)} className="text-zinc-700" />
                     </div>
                   ) : null}
 
                   {selectedActivityRun.steps.length ? (
                     <div className="mt-4 rounded-2xl bg-zinc-50 px-4 py-3">
-                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Steps</div>
+                      <div className="mb-2 text-xs font-semibold text-zinc-500">Steps</div>
                       <div className="space-y-3">
                         {selectedActivityRun.steps.map((step, idx) => {
                           const tone = activityStepTone(selectedActivityRun.status, step.ok);
@@ -7121,6 +7342,7 @@ export function PortalAiChatClient({
         description="Manage upcoming scheduled chat runs."
         onClose={() => setScheduledOpen(false)}
         widthClassName="w-[min(900px,calc(100vw-32px))]"
+        zIndex={130100}
         closeVariant="x"
         hideHeaderDivider
       >
@@ -7134,6 +7356,7 @@ export function PortalAiChatClient({
               const defaults = (() => {
                 const split = splitRepeatEveryMinutes(r.repeatEveryMinutes || 0);
                 return {
+                  taskText: String(r.displayText || "").trim(),
                   sendAtLocal: toLocalInputValue(r.sendAt),
                   repeatEvery: split.repeatEvery,
                   repeatUnit: split.repeatUnit,
@@ -7141,23 +7364,85 @@ export function PortalAiChatClient({
               })();
 
               const edit = scheduledEditing[r.id] || defaults;
+              const titleEditing = scheduledTitleEditingIds.has(r.id);
+              const taskTextEditing = scheduledTextEditingIds.has(r.id);
               const saving = scheduledSavingIds.has(r.id);
               const nextRepeatEveryMinutes = computeRepeatEveryMinutes({ repeatEvery: edit.repeatEvery, repeatUnit: edit.repeatUnit });
-              const isDirty = edit.sendAtLocal !== defaults.sendAtLocal || nextRepeatEveryMinutes !== (r.repeatEveryMinutes || 0);
+              const displayThreadTitle = threadTitleById.get(r.threadId) || r.threadTitle || "Chat";
+              const displayTaskName = edit.taskText.trim() || "Untitled task";
+              const setTitleEditing = (open: boolean) => {
+                setScheduledTitleEditingIds((prev) => {
+                  const next = new Set(prev);
+                  if (open) next.add(r.id);
+                  else next.delete(r.id);
+                  return next;
+                });
+              };
+              const setTaskTextEditing = (open: boolean) => {
+                setScheduledTextEditingIds((prev) => {
+                  const next = new Set(prev);
+                  if (open) next.add(r.id);
+                  else next.delete(r.id);
+                  return next;
+                });
+              };
+              const handleTitleBlur = (event: React.FocusEvent<HTMLElement>) => {
+                const root = event.currentTarget.closest(`[data-scheduled-title-editor-root="${r.id}"]`);
+                window.requestAnimationFrame(() => {
+                  const active = document.activeElement;
+                  if (root && active instanceof Node && root.contains(active)) return;
+                  setTitleEditing(false);
+                });
+              };
+              const handleTaskTextBlur = (event: React.FocusEvent<HTMLElement>) => {
+                const root = event.currentTarget.closest(`[data-scheduled-text-editor-root="${r.id}"]`);
+                window.requestAnimationFrame(() => {
+                  const active = document.activeElement;
+                  if (root && active instanceof Node && root.contains(active)) return;
+                  setTaskTextEditing(false);
+                });
+              };
+              const isDirty =
+                edit.taskText.trim() !== defaults.taskText.trim() ||
+                edit.sendAtLocal !== defaults.sendAtLocal ||
+                nextRepeatEveryMinutes !== (r.repeatEveryMinutes || 0);
+              const canSave = Boolean(edit.taskText.trim()) && (!edit.sendAtLocal || Number.isFinite(new Date(edit.sendAtLocal).getTime()));
               const isRepeating = (r.repeatEveryMinutes || 0) > 0;
               return (
-                <div key={r.id} className="rounded-3xl border border-zinc-200 bg-white p-4">
+                <div key={r.id} data-scheduled-row-id={r.id} className="rounded-3xl border border-zinc-200 bg-white p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-zinc-900">{r.threadTitle}</div>
-                      <div className="mt-1 line-clamp-2 text-sm text-zinc-600">{r.displayText || "(scheduled task)"}</div>
+                      {titleEditing ? (
+                        <div data-scheduled-title-editor-root={r.id} className="w-full max-w-full">
+                          <input
+                            autoFocus
+                            type="text"
+                            value={edit.taskText}
+                            onChange={(event) =>
+                              setScheduledEditing((prev) => ({
+                                ...prev,
+                                [r.id]: { ...edit, taskText: event.target.value },
+                              }))
+                            }
+                            onBlur={handleTitleBlur}
+                            placeholder="Untitled task"
+                            className="w-full max-w-full rounded-2xl border border-zinc-200 bg-white px-2 py-1 text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300"
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="max-w-full cursor-text rounded-2xl px-2 py-1 text-left text-sm font-semibold text-zinc-900 transition-all duration-150 hover:bg-zinc-50 hover:shadow-[inset_0_0_0_1px_rgba(29,78,216,0.14)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.18)]"
+                          onClick={() => setTitleEditing(true)}
+                        >
+                          <span className="block truncate">{displayTaskName}</span>
+                        </button>
+                      )}
+                      <div className="mt-1 truncate text-xs text-zinc-500">From {displayThreadTitle}</div>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                         <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
                           Next: {r.sendAt ? formatLocalDateTime(new Date(r.sendAt)) : "-"}
                         </span>
-                        {r.recurrenceTimeZone ? (
-                          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">TZ: {r.recurrenceTimeZone}</span>
-                        ) : null}
                         <span
                           className={classNames(
                             "rounded-full border px-2 py-0.5",
@@ -7184,7 +7469,7 @@ export function PortalAiChatClient({
                     <div className="shrink-0">
                       <button
                         type="button"
-                        className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+                        className={frostedRedButtonClassName("regular")}
                         onClick={() => void cancelScheduledRow(r.id)}
                       >
                         Stop
@@ -7192,65 +7477,119 @@ export function PortalAiChatClient({
                     </div>
                   </div>
 
-                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                  <div className="mt-3 space-y-3" data-scheduled-text-editor-root={r.id}>
                     <div>
-
-                      <div className="text-xs font-semibold text-zinc-500">Schedule</div>
-                      <LocalDateTimePicker
-                        value={edit.sendAtLocal}
-                        onChange={(v) =>
-                          setScheduledEditing((prev) => ({
-                            ...prev,
-                            [r.id]: { ...edit, sendAtLocal: v },
-                          }))
-                        }
-                        disablePast
-                        buttonClassName="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-left text-sm text-zinc-900 hover:bg-zinc-50"
-                      />
-                    </div>
-
-                    <div>
-                      <div className="text-xs font-semibold text-zinc-500">Frequency</div>
-                      <div className="mt-1 flex gap-2">
-                        <input
-                          inputMode="numeric"
-                          value={edit.repeatEvery}
-                          onChange={(e) =>
+                      <div className="text-xs font-semibold text-zinc-500">Task or prompt</div>
+                      {taskTextEditing ? (
+                        <textarea
+                          autoFocus
+                          value={edit.taskText}
+                          onChange={(event) =>
                             setScheduledEditing((prev) => ({
                               ...prev,
-                              [r.id]: { ...edit, repeatEvery: e.target.value },
+                              [r.id]: { ...edit, taskText: event.target.value },
                             }))
                           }
-                          placeholder="Leave blank for one-time"
-                          className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                          onBlur={handleTaskTextBlur}
+                          rows={3}
+                          placeholder="What should Pura do when this scheduled task runs?"
+                          className="mt-1 w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
                         />
-                        <select
-                          value={edit.repeatUnit}
-                          onChange={(e) =>
-                            setScheduledEditing((prev) => ({
-                              ...prev,
-                              [r.id]: { ...edit, repeatUnit: e.target.value as RepeatUnit },
-                            }))
-                          }
-                          className="h-11 w-36 rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                      ) : (
+                        <button
+                          type="button"
+                          data-scheduled-task-display="true"
+                          className="mt-1 flex min-h-20 w-full cursor-text items-start rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-left text-sm text-zinc-900 transition-all duration-150 hover:bg-zinc-50 hover:shadow-[inset_0_0_0_1px_rgba(29,78,216,0.14)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.18)]"
+                          onClick={() => setTaskTextEditing(true)}
                         >
-                          <option value="minutes">minutes</option>
-                          <option value="hours">hours</option>
-                          <option value="days">days</option>
-                          <option value="weeks">weeks</option>
-                        </select>
-                      </div>
+                          <div className="w-full">
+                            <div className={classNames("whitespace-pre-wrap wrap-break-word", edit.taskText.trim() ? "text-zinc-900" : "text-zinc-400")}>
+                              {edit.taskText.trim() || "Click to add the task prompt"}
+                            </div>
+                          </div>
+                        </button>
+                      )}
                     </div>
 
-                    <div className="flex items-end justify-end">
-                      <button
-                        type="button"
-                        className="h-11 rounded-2xl bg-brand-blue px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                        onClick={() => void saveScheduledRow(r.id)}
-                        disabled={!isDirty || saving}
-                      >
-                        {saving ? "Saving…" : "Save"}
-                      </button>
+                    <div className="grid gap-3 lg:grid-cols-[minmax(320px,1.35fr)_minmax(300px,1fr)_auto] lg:items-end">
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-500">Schedule</div>
+                        <LocalDateTimePicker
+                          value={edit.sendAtLocal}
+                          onChange={(v) =>
+                            setScheduledEditing((prev) => ({
+                              ...prev,
+                              [r.id]: { ...edit, sendAtLocal: v },
+                            }))
+                          }
+                          disablePast
+                          liveDraftUpdates
+                          buttonClassName="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-left text-sm text-zinc-900 hover:bg-zinc-50"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-500">Frequency</div>
+                        <div className="mt-1 flex min-w-0 gap-2">
+                          <input
+                            inputMode="numeric"
+                            value={edit.repeatEvery}
+                            onChange={(e) =>
+                              setScheduledEditing((prev) => ({
+                                ...prev,
+                                [r.id]: { ...edit, repeatEvery: e.target.value },
+                              }))
+                            }
+                            placeholder="Leave blank for one-time"
+                            className="h-11 min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                          />
+                          <PortalListboxDropdown
+                            value={edit.repeatUnit}
+                            onChange={(value) =>
+                              setScheduledEditing((prev) => ({
+                                ...prev,
+                                [r.id]: { ...edit, repeatUnit: value as RepeatUnit },
+                              }))
+                            }
+                            options={[
+                              { value: "minutes", label: "minutes" },
+                              { value: "hours", label: "hours" },
+                              { value: "days", label: "days" },
+                              { value: "weeks", label: "weeks" },
+                            ]}
+                            buttonClassName="h-11 w-32 shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 shadow-none hover:bg-zinc-50"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-end justify-end gap-2">
+                        {isDirty || saving ? (
+                          <>
+                            <button
+                              type="button"
+                              className={classNames(frostedYellowButtonClassName("regular"), "h-11 px-4")}
+                              onClick={() => {
+                                setScheduledEditing((prev) => ({
+                                  ...prev,
+                                  [r.id]: { ...defaults },
+                                }));
+                                setTaskTextEditing(false);
+                              }}
+                              disabled={saving}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              className={classNames(frostedBlueStrongButtonClassName("regular"), "h-11 px-4")}
+                              onClick={() => void saveScheduledRow(r.id)}
+                              disabled={saving || !canSave}
+                            >
+                              {saving ? "Saving…" : "Save"}
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -7340,7 +7679,7 @@ export function PortalAiChatClient({
                               )}
                               aria-hidden
                             >
-                              ✓
+                              <IconCheckGlyph size={12} />
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="truncate text-sm font-semibold text-zinc-900">{m.name || m.email}</div>

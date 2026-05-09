@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { useToast } from "@/components/ToastProvider";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { portalGlassButtonClass } from "@/components/portalGlass";
@@ -463,13 +464,7 @@ export function BusinessProfileForm({
   }
 
   if (loading) {
-    return embedded ? (
-      <div className="text-sm text-zinc-600">Loading business profile…</div>
-    ) : (
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-        Loading business profile…
-      </div>
-    );
+    return <PortalPageLoadingShell embedded={embedded} showHeader={false} sections={2} minHeightClassName="min-h-[22rem]" />;
   }
 
   const content = (

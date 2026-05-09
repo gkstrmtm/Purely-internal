@@ -3,10 +3,11 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
+import { usePortalPeopleSidebar } from "@/app/portal/app/people/PortalPeopleSidebarNav";
 import { IconEdit, IconFunnel, IconSearch } from "@/app/portal/PortalIcons";
 import { AppModal } from "@/components/AppModal";
-import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
+import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass, portalSoftBlueButtonClass } from "@/components/portalGlass";
 import { SignatureDisplay } from "@/components/SignatureDisplay";
 import { SignaturePad } from "@/components/SignaturePad";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
@@ -15,7 +16,7 @@ import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModa
 import { useToast } from "@/components/ToastProvider";
 import { parseCsv } from "@/lib/csv";
 import { normalizePortalContactCustomVarKey, type TemplateVariable } from "@/lib/portalTemplateVars";
-import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
+import { DEFAULT_TAG_COLORS, getReadableTagPillStyle } from "@/lib/tagColors.shared";
 
 const DEFAULT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "address", "city", "state", "website", "niche", "location"];
 const CREDIT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "ssn_last_four", "birth_date", "address", "signature"] as const;
@@ -363,27 +364,8 @@ function formatDuplicatesSummaryLabel(duplicateGroupsCount: number, duplicatesLo
   return "Review duplicates";
 }
 
-function isHexColor(value: string | null | undefined) {
-  return /^#[0-9a-fA-F]{6}$/.test(String(value || ""));
-}
-
-function tintTagTextColor(color: string | null | undefined) {
-  if (!isHexColor(color)) return "#3f3f46";
-  const raw = String(color);
-  const r = parseInt(raw.slice(1, 3), 16);
-  const g = parseInt(raw.slice(3, 5), 16);
-  const b = parseInt(raw.slice(5, 7), 16);
-  return `rgb(${Math.round(r * 0.58)}, ${Math.round(g * 0.58)}, ${Math.round(b * 0.58)})`;
-}
-
 function contactTagChipStyle(color: string | null) {
-  if (!isHexColor(color)) return undefined;
-  const resolvedColor = String(color);
-  return {
-    backgroundColor: `${resolvedColor}22`,
-    borderColor: "transparent",
-    color: tintTagTextColor(resolvedColor),
-  };
+  return getReadableTagPillStyle(color, { fallbackTone: "neutral" });
 }
 
 function upsertCustomVarRows(rows: CustomVarRow[], entries: Array<{ key: string; value: string }>) {
@@ -418,6 +400,7 @@ export function PortalPeopleContactsClient() {
   const toast = useToast();
   const pathname = usePathname() || "";
   const router = useRouter();
+  usePortalPeopleSidebar();
   const searchParams = useSearchParams();
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
   const isCreditApp = pathname.startsWith("/credit");
@@ -1581,11 +1564,35 @@ export function PortalPeopleContactsClient() {
 
   return (
     <div className="mx-auto w-full max-w-6xl pb-[calc(var(--pa-portal-embed-footer-offset,0px)+96px+var(--pa-portal-floating-tools-reserve,0px))] [&_button]:transition [&_button]:duration-150 [&_button]:ease-out [&_a]:transition [&_a]:duration-150 [&_a]:ease-out">
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">People</h1>
-          <p className="mt-2 text-sm text-zinc-600">Contacts and leads across your portal.</p>
-          <PortalPeopleTabs />
+          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Contacts</h1>
+        </div>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:max-w-xl sm:justify-end">
+          <div className="relative min-w-56 flex-1">
+            <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
+              <IconSearch size={18} />
+            </div>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search contacts"
+              className="h-11 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+            />
+          </div>
+
+          <button
+            type="button"
+            className="sm:hidden h-11 shrink-0 rounded-full border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+            onClick={() => setMobilePeopleFilter((prev) => (prev === "unlinked" ? "contacts" : "unlinked"))}
+            aria-label={mobilePeopleFilter === "unlinked" ? "Show contacts" : "Show unlinked leads"}
+            title={mobilePeopleFilter === "unlinked" ? "Show contacts" : "Show unlinked leads"}
+          >
+            <span className="inline-flex items-center gap-2">
+              <IconFunnel size={16} />
+              {mobilePeopleFilter === "unlinked" ? "Unlinked" : "Contacts"}
+            </span>
+          </button>
         </div>
       </div>
 
@@ -1611,39 +1618,12 @@ export function PortalPeopleContactsClient() {
         }}
       />
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-56 flex-1">
-          <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
-            <IconSearch size={18} />
-          </div>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search contacts"
-            className="h-11 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-          />
-        </div>
-
-        <button
-          type="button"
-          className="sm:hidden h-11 shrink-0 rounded-full border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-          onClick={() => setMobilePeopleFilter((prev) => (prev === "unlinked" ? "contacts" : "unlinked"))}
-          aria-label={mobilePeopleFilter === "unlinked" ? "Show contacts" : "Show unlinked leads"}
-          title={mobilePeopleFilter === "unlinked" ? "Show contacts" : "Show unlinked leads"}
-        >
-          <span className="inline-flex items-center gap-2">
-            <IconFunnel size={16} />
-            {mobilePeopleFilter === "unlinked" ? "Unlinked" : "Contacts"}
-          </span>
-        </button>
-      </div>
-
       {loading ? (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
+        <PortalPageLoadingShell showHeader={false} sections={2} minHeightClassName="min-h-[24rem]" className="mt-4 px-0 sm:px-0" />
       ) : null}
 
       {!loading && !data ? (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+        <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-base font-semibold text-zinc-900">Contacts</div>
@@ -1652,7 +1632,7 @@ export function PortalPeopleContactsClient() {
             <button
               type="button"
               onClick={openImportModal}
-              className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+              className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass)}
             >
               + New
             </button>
@@ -1662,7 +1642,7 @@ export function PortalPeopleContactsClient() {
 
       {data ? (
         <>
-          <div className="mt-6 sm:hidden">
+          <div className="mt-4 sm:hidden">
             <div className="rounded-3xl border border-zinc-200 bg-white p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -1820,7 +1800,7 @@ export function PortalPeopleContactsClient() {
                       <div className="mt-2 grid grid-cols-2 gap-2">
                         <button
                           type="button"
-                          className="w-full rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                          className={classNames("w-full rounded-xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass, "disabled:opacity-60")}
                           disabled={!bulkTagId || bulkBusy || deletingContact}
                           onClick={() =>
                             void (async () => {
@@ -1938,7 +1918,7 @@ export function PortalPeopleContactsClient() {
 
                     <button
                       type="button"
-                      className="w-full rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                      className={classNames("w-full rounded-xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass, "disabled:opacity-60")}
                       disabled={!bulkCustomKey.trim() || bulkBusy || deletingContact}
                       onClick={() => void runBulkSetCustomVariable(selectedContactIds, bulkCustomKey, bulkCustomValue)}
                     >
@@ -2096,7 +2076,7 @@ export function PortalPeopleContactsClient() {
                   <button
                     type="button"
                     onClick={openImportModal}
-                    className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                    className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass)}
                   >
                     + New
                   </button>
@@ -2183,7 +2163,7 @@ export function PortalPeopleContactsClient() {
                     <div className="lg:col-span-2 flex items-end">
                       <button
                         type="button"
-                        className="w-full rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                        className={classNames("w-full rounded-xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass, "disabled:opacity-60")}
                         disabled={!bulkTagId || bulkBusy || deletingContact}
                         onClick={() =>
                           void (async () => {
@@ -2256,7 +2236,7 @@ export function PortalPeopleContactsClient() {
                           </button>
                           <button
                             type="button"
-                            className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                            className={classNames("rounded-xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass, "disabled:opacity-60")}
                             disabled={bulkCreateTagBusy}
                             onClick={() => void createBulkOwnerTag()}
                           >
@@ -2302,7 +2282,7 @@ export function PortalPeopleContactsClient() {
                     <div className="lg:col-span-2 flex items-end">
                       <button
                         type="button"
-                        className="w-full rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                        className={classNames("w-full rounded-xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass, "disabled:opacity-60")}
                         disabled={!bulkCustomKey.trim() || bulkBusy || deletingContact}
                         onClick={() => void runBulkSetCustomVariable(selectedContactIds, bulkCustomKey, bulkCustomValue)}
                       >
@@ -2449,7 +2429,7 @@ export function PortalPeopleContactsClient() {
                             <button
                               type="button"
                               onClick={openImportModal}
-                              className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                              className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass)}
                             >
                               + New
                             </button>
@@ -2681,7 +2661,9 @@ export function PortalPeopleContactsClient() {
                 onClick={() => setAddMode("manual")}
                 className={classNames(
                   "rounded-2xl border px-4 py-2 text-sm font-semibold",
-                  addMode === "manual" ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                  addMode === "manual"
+                    ? classNames("border-transparent", portalSoftBlueButtonClass)
+                    : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
                 )}
               >
                 Manual
@@ -3070,7 +3052,7 @@ export function PortalPeopleContactsClient() {
                     }
                     className={classNames(
                       "rounded-2xl px-5 py-2.5 text-sm font-semibold",
-                      manualBusy ? "bg-zinc-200 text-zinc-600" : "bg-(--color-brand-blue) text-white hover:opacity-95",
+                      manualBusy ? "bg-zinc-200 text-zinc-600" : portalSoftBlueButtonClass,
                     )}
                   >
                     {manualBusy ? "Adding…" : "Add contact"}
@@ -3302,7 +3284,7 @@ export function PortalPeopleContactsClient() {
                 }
                 className={classNames(
                   "rounded-2xl px-5 py-2.5 text-sm font-semibold",
-                  !importFile || importBusy ? "bg-zinc-200 text-zinc-600" : "bg-(--color-brand-blue) text-white hover:opacity-95",
+                  !importFile || importBusy ? "bg-zinc-200 text-zinc-600" : portalSoftBlueButtonClass,
                 )}
               >
                 {importBusy ? "Importing…" : "Import"}
@@ -3402,7 +3384,7 @@ export function PortalPeopleContactsClient() {
                   "rounded-2xl px-5 py-2 text-sm font-semibold",
                   importDupesBusy || !importFile || importDupesRowIndexes.length === 0
                     ? "bg-zinc-200 text-zinc-600"
-                    : "bg-(--color-brand-blue) text-white hover:opacity-95",
+                    : portalSoftBlueButtonClass,
                 )}
               >
                 {importDupesBusy ? "Adding…" : "Add duplicates anyway"}
@@ -3818,7 +3800,7 @@ export function PortalPeopleContactsClient() {
                         </button>
                         <button
                           type="button"
-                          className="rounded-xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                          className={classNames("rounded-xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass, "disabled:opacity-60")}
                           onClick={() => void saveContactEdits()}
                           disabled={savingContact || !editContactDirty}
                         >

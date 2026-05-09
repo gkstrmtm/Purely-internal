@@ -161,8 +161,10 @@ function normalizeTimeLocalInput(raw: unknown): string | undefined {
 
 export const PortalAgentActionKeySchema = z.enum([
   "tasks.create",
+  "tasks.bulk_create",
   "tasks.create_for_all",
   "tasks.update",
+  "tasks.delete",
   "tasks.list",
   "tasks.assignees.list",
   "funnel.create",
@@ -172,6 +174,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "funnel_builder.domains.list",
   "funnel_builder.domains.create",
   "funnel_builder.domains.update",
+  "funnel_builder.domains.delete",
   "funnel_builder.domains.verify",
   "funnel_builder.forms.list",
   "funnel_builder.forms.create",
@@ -189,6 +192,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "funnel_builder.pages.create",
   "funnel_builder.pages.update",
   "funnel_builder.pages.delete",
+  "funnel_builder.pages.publish",
   "funnel_builder.pages.generate_html",
   "funnel_builder.pages.export_custom_html",
   "funnel_builder.pages.global_header",
@@ -235,8 +239,10 @@ export const PortalAgentActionKeySchema = z.enum([
   "newsletter.newsletters.create",
   "newsletter.newsletters.get",
   "newsletter.newsletters.update",
+  "newsletter.newsletters.delete",
   "newsletter.newsletters.send",
   "newsletter.audience.contacts.search",
+  "newsletter.audience.contacts.add",
   "newsletter.automation.settings.get",
   "newsletter.automation.settings.update",
   "newsletter.automation.cron.run",
@@ -297,6 +303,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "automations.settings.get",
   "automations.settings.update",
   "automations.test_sms",
+  "automations.test_trigger",
   "automations.cron.run",
   "contacts.list",
   "contacts.create",
@@ -377,9 +384,13 @@ export const PortalAgentActionKeySchema = z.enum([
   "follow_up.test_send",
   "follow_up.cron.run",
 
+  "lead_scraping.assignees.list",
   "lead_scraping.settings.get",
   "lead_scraping.settings.update",
   "lead_scraping.run",
+  "lead_scraping.backfill_map",
+  "lead_scraping.location_suggestions.list",
+  "lead_scraping.run.cancel",
   "lead_scraping.leads.list",
   "lead_scraping.leads.update",
   "lead_scraping.leads.delete",
@@ -440,6 +451,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "reviews.send_request_for_booking",
   "reviews.send_request_for_contact",
   "reviews.reply",
+  "reviews.delete",
 
   "reviews.settings.get",
   "reviews.settings.update",
@@ -453,6 +465,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "reviews.handle.get",
   "reviews.questions.list",
   "reviews.questions.answer",
+  "reviews.questions.delete",
   "reviews.cron.run",
   "media.folders.list",
   "media.folders.update",
@@ -480,6 +493,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "booking.calendar.create",
   "booking.availability.set_daily",
   "booking.calendars.get",
+  "booking.bootstrap.get",
   "booking.calendars.update",
   "booking.bookings.list",
   "booking.cancel",
@@ -515,11 +529,17 @@ export const PortalAgentActionKeySchema = z.enum([
   "ai_outbound_calls.campaigns.list",
   "ai_outbound_calls.campaigns.create",
   "ai_outbound_calls.campaigns.update",
+  "ai_outbound_calls.campaigns.delete",
   "ai_outbound_calls.campaigns.activity.get",
+  "ai_outbound_calls.campaigns.activity_item.get",
+  "ai_outbound_calls.campaigns.activity_item.retry",
+  "ai_outbound_calls.campaigns.activity_item.delete",
   "ai_outbound_calls.campaigns.messages_activity.get",
+  "ai_outbound_calls.campaigns.messages_activity_item.delete",
   "ai_outbound_calls.contacts.search",
   "ai_outbound_calls.manual_calls.list",
   "ai_outbound_calls.manual_calls.get",
+  "ai_outbound_calls.manual_calls.delete",
 
   "ai_outbound_calls.campaigns.enroll_message",
   "ai_outbound_calls.campaigns.generate_agent_config",
@@ -569,20 +589,28 @@ export const PortalAgentActionKeySchema = z.enum([
 
 export type PortalAgentActionKey = z.infer<typeof PortalAgentActionKeySchema>;
 
+const TaskCreateArgsSchema = z
+  .object({
+    title: z.string().trim().min(1).max(160),
+    description: z.string().trim().max(5000).optional(),
+    assignedToUserId: z.string().trim().min(1).optional().nullable(),
+    assigneeUserId: z.string().trim().min(1).optional().nullable(),
+    assignee: z.string().trim().min(1).max(160).optional().nullable(),
+    assignedTo: z.string().trim().min(1).max(160).optional().nullable(),
+    dueAtIso: z.string().trim().optional().nullable(),
+    dueAt: z.string().trim().optional().nullable(),
+    dueDate: z.string().trim().optional().nullable(),
+  })
+  .passthrough();
+
 export const PortalAgentActionArgsSchemaByKey = {
-  "tasks.create": z
+  "tasks.create": TaskCreateArgsSchema,
+
+  "tasks.bulk_create": z
     .object({
-      title: z.string().trim().min(1).max(160),
-      description: z.string().trim().max(5000).optional(),
-      assignedToUserId: z.string().trim().min(1).optional().nullable(),
-      assigneeUserId: z.string().trim().min(1).optional().nullable(),
-      assignee: z.string().trim().min(1).max(160).optional().nullable(),
-      assignedTo: z.string().trim().min(1).max(160).optional().nullable(),
-      dueAtIso: z.string().trim().optional().nullable(),
-      dueAt: z.string().trim().optional().nullable(),
-      dueDate: z.string().trim().optional().nullable(),
+      items: z.array(TaskCreateArgsSchema).min(1).max(50),
     })
-    .passthrough(),
+    .strict(),
 
   "tasks.create_for_all": z
     .object({
@@ -605,6 +633,12 @@ export const PortalAgentActionArgsSchemaByKey = {
       dueAtIso: z.string().trim().optional().nullable(),
       dueAt: z.string().trim().optional().nullable(),
       dueDate: z.string().trim().optional().nullable(),
+    })
+    .passthrough(),
+
+  "tasks.delete": z
+    .object({
+      taskId: z.string().trim().min(1).max(120),
     })
     .passthrough(),
 
@@ -884,6 +918,14 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "funnel_builder.domains.delete": z
+    .object({
+      domainId: z.string().trim().min(1).max(120).optional(),
+      domain: z.string().trim().min(1).max(253).optional(),
+    })
+    .strict()
+    .refine((value) => Boolean(value.domainId || value.domain), { message: "Provide domainId or domain" }),
+
   "funnel_builder.domains.verify": z
     .object({
       domainId: z.string().trim().min(1).max(120),
@@ -1048,6 +1090,13 @@ export const PortalAgentActionArgsSchemaByKey = {
       .strict()),
 
   "funnel_builder.pages.delete": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      pageId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "funnel_builder.pages.publish": z
     .object({
       funnelId: z.string().trim().min(1).max(120),
       pageId: z.string().trim().min(1).max(120),
@@ -1522,6 +1571,12 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .passthrough(),
 
+  "newsletter.newsletters.delete": z
+    .object({
+      newsletterId: z.string().trim().min(1).max(120),
+    })
+    .passthrough(),
+
   "newsletter.newsletters.send": z
     .object({
       newsletterId: z.string().trim().min(1).max(120),
@@ -1533,6 +1588,12 @@ export const PortalAgentActionArgsSchemaByKey = {
       q: z.string().trim().max(120).optional(),
       ids: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
       take: z.number().int().min(1).max(200).optional(),
+    })
+    .passthrough(),
+
+  "newsletter.audience.contacts.add": z
+    .object({
+      contactIds: z.array(z.string().trim().min(1).max(80)).max(200),
     })
     .passthrough(),
 
@@ -1880,6 +1941,60 @@ export const PortalAgentActionArgsSchemaByKey = {
       automationId: z.string().trim().min(1).max(200),
       from: z.string().trim().min(3).max(32),
       body: z.string().trim().min(0).max(2000).default(""),
+    })
+    .passthrough(),
+
+  "automations.test_trigger": z
+    .object({
+      automationId: z.string().trim().min(1).max(200),
+      triggerKind: z.enum([
+        "manual",
+        "inbound_sms",
+        "inbound_mms",
+        "inbound_call",
+        "inbound_email",
+        "form_submitted",
+        "new_lead",
+        "lead_scraped",
+        "tag_added",
+        "contact_created",
+        "task_added",
+        "inbound_webhook",
+        "scheduled_time",
+        "missed_appointment",
+        "appointment_ended",
+        "appointment_booked",
+        "missed_call",
+        "review_received",
+        "follow_up_sent",
+        "outbound_sent",
+      ]),
+      from: z.string().trim().max(200).optional().default(""),
+      body: z.string().trim().max(2000).optional().default(""),
+      nowIso: z.string().trim().max(64).optional(),
+      contact: z
+        .object({
+          id: z.string().trim().max(80).optional(),
+          name: z.string().trim().max(200).optional(),
+          email: z.string().trim().max(200).optional(),
+          phone: z.string().trim().max(32).optional(),
+        })
+        .optional(),
+      event: z
+        .object({
+          tagId: z.string().trim().max(120).optional(),
+          webhookKey: z.string().trim().max(200).optional(),
+          triggerNodeId: z.string().trim().max(200).optional(),
+          bookingId: z.string().trim().max(120).optional(),
+          calendarId: z.string().trim().max(120).optional(),
+          leadId: z.string().trim().max(120).optional(),
+          formId: z.string().trim().max(120).optional(),
+          formSlug: z.string().trim().max(160).optional(),
+          formName: z.string().trim().max(160).optional(),
+          submissionId: z.string().trim().max(160).optional(),
+          formData: z.record(z.string(), z.unknown()).optional(),
+        })
+        .optional(),
     })
     .passthrough(),
 
@@ -2232,6 +2347,8 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "lead_scraping.assignees.list": z.object({}).passthrough(),
+
   "lead_scraping.settings.get": z.object({}).passthrough(),
 
   "lead_scraping.settings.update": z
@@ -2269,6 +2386,24 @@ export const PortalAgentActionArgsSchemaByKey = {
         })
         .strict()
         .optional(),
+    })
+    .passthrough(),
+
+  "lead_scraping.backfill_map": z
+    .object({
+      leadIds: z.array(z.string().trim().min(1).max(120)).max(150),
+    })
+    .passthrough(),
+
+  "lead_scraping.location_suggestions.list": z
+    .object({
+      q: z.string().trim().min(1).max(120),
+    })
+    .passthrough(),
+
+  "lead_scraping.run.cancel": z
+    .object({
+      runId: z.string().trim().min(1).max(80),
     })
     .passthrough(),
 
@@ -2660,6 +2795,12 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "reviews.delete": z
+    .object({
+      reviewId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
   "reviews.settings.get": z.object({}).strict(),
 
   "reviews.settings.update": z
@@ -2713,6 +2854,12 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       id: z.string().trim().min(1).max(120),
       answer: z.string().max(2000).optional().nullable(),
+    })
+    .passthrough(),
+
+  "reviews.questions.delete": z
+    .object({
+      questionId: z.string().trim().min(1).max(120),
     })
     .passthrough(),
 
@@ -3002,6 +3149,10 @@ export const PortalAgentActionArgsSchemaByKey = {
   ),
 
   "booking.calendars.get": z
+    .object({})
+    .strict(),
+
+  "booking.bootstrap.get": z
     .object({})
     .strict(),
 
@@ -3588,10 +3739,44 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .passthrough(),
 
+  "ai_outbound_calls.campaigns.delete": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+    })
+    .passthrough(),
+
+  "ai_outbound_calls.campaigns.activity_item.get": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      activityId: z.string().trim().min(1).max(120),
+    })
+    .passthrough(),
+
+  "ai_outbound_calls.campaigns.activity_item.retry": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      activityId: z.string().trim().min(1).max(120),
+    })
+    .passthrough(),
+
+  "ai_outbound_calls.campaigns.activity_item.delete": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      activityId: z.string().trim().min(1).max(120),
+    })
+    .passthrough(),
+
   "ai_outbound_calls.campaigns.messages_activity.get": z
     .object({
       campaignId: z.string().trim().min(1).max(120),
       take: z.number().int().min(1).max(60).optional().nullable(),
+    })
+    .passthrough(),
+
+  "ai_outbound_calls.campaigns.messages_activity_item.delete": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      activityId: z.string().trim().min(1).max(120),
     })
     .passthrough(),
 
@@ -3613,6 +3798,12 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       id: z.string().trim().min(1).max(120),
       reconcileTwilio: z.boolean().optional().nullable(),
+    })
+    .passthrough(),
+
+  "ai_outbound_calls.manual_calls.delete": z
+    .object({
+      id: z.string().trim().min(1).max(120),
     })
     .passthrough(),
 
@@ -4023,6 +4214,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- tasks.create: Create a portal task (fields: title, description?, assignedToUserId?, dueAtIso?)",
     "- tasks.create_for_all: Create the same task for every team member (fields: title, description?, dueAtIso?)",
     "- tasks.update: Update a task (fields: taskId, status?, title?, description?, assignedToUserId?, dueAtIso?)",
+    "- tasks.delete: Delete a task (fields: taskId)",
     "- tasks.list: List/search tasks (fields: status=OPEN|DONE|CANCELED|ALL?, assigned=all|me?, q?, limit?)",
     "- tasks.assignees.list: List task assignees (team members)",
     "- funnel.create: Create a Funnel Builder funnel (fields: name, slug)",
@@ -4031,6 +4223,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- funnel_builder.domains.list: List Funnel Builder custom domains",
     "- funnel_builder.domains.create: Add a Funnel Builder custom domain (fields: domain)",
     "- funnel_builder.domains.update: Update domain root behavior (fields: domain, rootMode?, rootFunnelSlug?)",
+    "- funnel_builder.domains.delete: Delete a Funnel Builder custom domain (fields: domainId OR domain)",
     "- funnel_builder.domains.verify: Verify a custom domain’s DNS + hosting status (fields: domainId)",
     "- funnel_builder.forms.list: List Funnel Builder forms",
     "- funnel_builder.forms.create: Create a Funnel Builder form (fields: slug, name?)",
@@ -4048,6 +4241,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- funnel_builder.pages.create: Create a page (fields: funnelId, slug, title?, contentMarkdown?, sortOrder?)",
     "- funnel_builder.pages.update: Update a page (fields: funnelId, pageId, title?, contentMarkdown? (NOT content), sortOrder?, editorMode=MARKDOWN|BLOCKS|CUSTOM_HTML?, customHtml?, blocksJson?, customChatJson?, slug?, seo?)",
     "- funnel_builder.pages.delete: Delete a page (fields: funnelId, pageId)",
+    "- funnel_builder.pages.publish: Publish a page’s current draft HTML (fields: funnelId, pageId)",
     "- funnel_builder.pages.generate_html: Generate/update a page’s custom HTML with AI (fields: funnelId, pageId, prompt, currentHtml?, attachments?, contextKeys?, contextMedia?)",
     "- funnel_builder.pages.export_custom_html: Generate and store custom HTML from blocks (fields: funnelId, pageId, blocksJson?, title?, setEditorMode?)",
     "- hosted_pages.documents.list: List hosted page documents for a service (fields: service=all|booking|newsletter|reviews|blogs)",
@@ -4091,8 +4285,10 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- newsletter.newsletters.create: Create a newsletter (fields: kind, status?, title, excerpt, content, smsText?)",
     "- newsletter.newsletters.get: Get a newsletter (fields: newsletterId)",
     "- newsletter.newsletters.update: Update a newsletter (fields: newsletterId, title, excerpt, content, smsText?, hostedOnly?)",
+    "- newsletter.newsletters.delete: Delete a newsletter (fields: newsletterId)",
     "- newsletter.newsletters.send: Send a newsletter now (fields: newsletterId)",
     "- newsletter.audience.contacts.search: Search contacts for newsletter audience (fields: q? OR ids?, take?)",
+    "- newsletter.audience.contacts.add: Add contacts to the external newsletter audience (fields: contactIds[])",
     "- newsletter.automation.settings.get: Get newsletter automation settings (fields: kind=external|internal?)",
     "- newsletter.automation.settings.update: Update newsletter automation settings (fields: kind, enabled, frequencyDays, requireApproval?, channels?, topics?, promptAnswers?, deliveryEmailHint?, deliverySmsHint?, includeImages?, royaltyFreeImages?, includeImagesWhereNeeded?, fontKey?, audience?)",
     "- newsletter.generate_now: Generate a newsletter draft now (fields: kind=external|internal)",
@@ -4142,6 +4338,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- automations.settings.get: Get automations settings (returns webhookToken, viewer, automations)",
     "- automations.settings.update: Replace automations settings (fields: automations)",
     "- automations.test_sms: Trigger an automation as if an inbound SMS occurred (fields: automationId, from, body?)",
+    "- automations.test_trigger: Trigger an automation with any supported event payload (fields: automationId, triggerKind, from?, body?, contact?, event?, nowIso?)",
     "- contacts.list: List/search contacts (fields: q?, limit?)",
     "- contacts.create: Create a contact (fields: name, email?, phone?, tags?, customVariables?)",
     "- contacts.get: Get a contact by id with recent activity (fields: contactId)",
@@ -4214,8 +4411,12 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- follow_up.test_send: Send a test follow-up message (fields: channel, to, subject?, body)",
 
     "- lead_scraping.settings.get: Get Lead Scraping settings",
+    "- lead_scraping.assignees.list: List Lead Scraping assignees/team members",
     "- lead_scraping.settings.update: Update Lead Scraping settings (fields: settings)",
     "- lead_scraping.run: Run Lead Scraping now (fields: kind=B2B|B2C?, count?, niche?, location?, requireEmail?, requirePhone?, requireWebsite?, aiOutbound?)",
+    "- lead_scraping.run.cancel: Cancel a running Lead Scraping job (fields: runId)",
+    "- lead_scraping.location_suggestions.list: Get Lead Scraping location suggestions (fields: q)",
+    "- lead_scraping.backfill_map: Backfill saved Lead Scraping map coordinates for leads (fields: leadIds[])",
     "- lead_scraping.leads.list: List/search scraped leads (fields: take?, q?, kind?)",
     "- lead_scraping.leads.update: Update a scraped lead (fields: leadId, starred?, email?, tag?, tagColor?)",
     "- lead_scraping.leads.delete: Delete a scraped lead (fields: leadId)",
@@ -4262,6 +4463,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- reviews.send_request_for_booking: Send a review request for a completed booking (fields: bookingId)",
     "- reviews.send_request_for_contact: Send a review request to a contact (fields: contactId)",
     "- reviews.reply: Reply to a review (fields: reviewId, reply?)",
+    "- reviews.delete: Delete a collected review (fields: reviewId)",
     "- reviews.settings.get: Get review request settings",
     "- reviews.settings.update: Update review request settings (fields: settings)",
     "- reviews.site.get: Get hosted reviews site config",
@@ -4274,6 +4476,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- reviews.handle.get: Get the public reviews page handle",
     "- reviews.questions.list: List review Q&A questions",
     "- reviews.questions.answer: Answer a review question (fields: id, answer?)",
+    "- reviews.questions.delete: Delete a review question (fields: questionId)",
     "- media.folders.list: List all Media Library folders",
     "- media.folders.update: Rename/move a Media Library folder (fields: id, name?, parentId?, color?)",
     "- media.folder.ensure: Ensure a Media Library folder exists (fields: name, parentId?, color?)",
@@ -4298,6 +4501,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- booking.calendar.create: Create a booking calendar config entry (fields: title, id?, description?, durationMinutes?, meetingLocation?, meetingDetails?, notificationEmails?)",
     "- booking.availability.set_daily: Set business-hour availability for a date range (fields: startDateLocal, endDateLocal, startTimeLocal, endTimeLocal, timeZone?, isoWeekdays?, replaceExisting?)",
     "- booking.calendars.get: Get booking calendars config",
+    "- booking.bootstrap.get: Get booking bootstrap data (calendar config plus upcoming/recent bookings with contact tags)",
     "- booking.calendars.update: Update booking calendars config (fields: calendars[]; each item requires id + title; prefer booking.calendars.get then update; do NOT use this for business-hour availability)",
     "- booking.bookings.list: List upcoming/recent bookings (fields: take?)",
     "- booking.cancel: Cancel a booking (fields: bookingId)",
@@ -4331,11 +4535,17 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- ai_outbound_calls.campaigns.list: List AI outbound call campaigns (fields: lite?)",
     "- ai_outbound_calls.campaigns.create: Create an AI outbound call campaign (fields: name?)",
     "- ai_outbound_calls.campaigns.update: Update an AI outbound call campaign (fields: campaignId, name?, status?, audienceTagIds?, chatAudienceTagIds?, messageChannelPolicy?, voiceAgentId?, manualVoiceAgentId?, voiceAgentConfig?, voiceId?, knowledgeBase?, messagesKnowledgeBase?, chatAgentId?, manualChatAgentId?, chatAgentConfig?, callOutcomeTagging?, messageOutcomeTagging?)",
+    "- ai_outbound_calls.campaigns.delete: Delete an AI outbound call campaign (fields: campaignId)",
     "- ai_outbound_calls.campaigns.activity.get: Get AI outbound call campaign call activity (fields: campaignId)",
+    "- ai_outbound_calls.campaigns.activity_item.get: Get one AI outbound call activity item (fields: campaignId, activityId)",
+    "- ai_outbound_calls.campaigns.activity_item.retry: Retry one AI outbound call activity item (fields: campaignId, activityId)",
+    "- ai_outbound_calls.campaigns.activity_item.delete: Delete one AI outbound call activity item (fields: campaignId, activityId)",
     "- ai_outbound_calls.campaigns.messages_activity.get: Get AI outbound call campaign message activity (fields: campaignId, take?)",
+    "- ai_outbound_calls.campaigns.messages_activity_item.delete: Delete one AI outbound message activity item (fields: campaignId, activityId)",
     "- ai_outbound_calls.contacts.search: Search contacts (AI outbound calls) (fields: q?, take?)",
     "- ai_outbound_calls.manual_calls.list: List manual calls (fields: campaignId?, reconcileTwilio?)",
     "- ai_outbound_calls.manual_calls.get: Get a manual call (fields: id, reconcileTwilio?)",
+    "- ai_outbound_calls.manual_calls.delete: Delete a manual call (fields: id)",
     "- ai_outbound_calls.campaigns.enroll_message: Manually enroll a contact into a campaign message sequence (fields: campaignId, contactId?, target?, channelPolicy?)",
     "- ai_outbound_calls.campaigns.generate_agent_config: AI-generate a starter agent config JSON for a campaign (fields: campaignId, kind=calls|messages, context)",
     "- ai_outbound_calls.campaigns.knowledge_base.sync: Sync campaign Calls knowledge base (fields: campaignId)",

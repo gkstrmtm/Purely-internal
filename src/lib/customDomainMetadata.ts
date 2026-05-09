@@ -24,6 +24,11 @@ export const PLATFORM_METADATA: Metadata = {
   },
 };
 
+function normalizedPlatformBaseUrl() {
+  const raw = process.env.NEXT_PUBLIC_APP_CANONICAL_URL || process.env.APP_CANONICAL_URL || "https://purelyautomation.com";
+  return raw.replace(/\/+$/g, "");
+}
+
 export function hostnameFromHeader(value: string | null): string | null {
   if (!value) return null;
   const first = value.split(",")[0]?.trim().toLowerCase() || "";
@@ -44,6 +49,66 @@ function metadataBaseForHost(host: string) {
   const normalizedHost = String(host || "").trim().toLowerCase();
   const protocol = normalizedHost === "localhost" || normalizedHost === "127.0.0.1" ? "http" : "https";
   return new URL(`${protocol}://${normalizedHost}`);
+}
+
+export function platformMetadataBase() {
+  return new URL(normalizedPlatformBaseUrl());
+}
+
+export function buildPlatformHostedMetadata({
+  siteName,
+  title,
+  description,
+  path,
+  imageUrl,
+  iconUrl,
+  keywords,
+  noIndex,
+  type,
+}: {
+  siteName: string;
+  title: string;
+  description?: string;
+  path?: string;
+  imageUrl?: string | null;
+  iconUrl?: string | null;
+  keywords?: string[];
+  noIndex?: boolean;
+  type?: "website" | "article";
+}): Metadata {
+  const canonicalPath = path && path.startsWith("/") ? path : path ? `/${path}` : "/";
+  const resolvedIconUrl = iconUrl || "/icon";
+  const socialImageUrl = imageUrl || resolvedIconUrl || undefined;
+  const metadataBase = platformMetadataBase();
+  return {
+    title,
+    description,
+    metadataBase,
+    alternates: { canonical: canonicalPath },
+    keywords: Array.isArray(keywords) && keywords.length ? keywords : undefined,
+    openGraph: {
+      title,
+      description,
+      url: canonicalPath,
+      siteName,
+      images: socialImageUrl ? [{ url: socialImageUrl }] : undefined,
+      type: type || "website",
+    },
+    twitter: {
+      card: socialImageUrl ? "summary_large_image" : "summary",
+      title,
+      description,
+      images: socialImageUrl ? [socialImageUrl] : undefined,
+    },
+    icons: resolvedIconUrl
+      ? {
+          icon: resolvedIconUrl,
+          shortcut: resolvedIconUrl,
+          apple: resolvedIconUrl,
+        }
+      : undefined,
+    robots: noIndex ? { index: false, follow: false } : undefined,
+  };
 }
 
 export type CustomDomainBranding = {
@@ -85,6 +150,9 @@ export function buildCustomDomainMetadata({
   imageUrl,
   iconUrl,
   noIndex,
+  path,
+  keywords,
+  type,
 }: {
   host: string;
   siteName: string;
@@ -93,20 +161,26 @@ export function buildCustomDomainMetadata({
   imageUrl?: string | null;
   iconUrl?: string | null;
   noIndex?: boolean;
+  path?: string;
+  keywords?: string[];
+  type?: "website" | "article";
 }): Metadata {
   const resolvedIconUrl = iconUrl || "/icon";
   const socialImageUrl = imageUrl || resolvedIconUrl || undefined;
+  const canonicalPath = path && path.startsWith("/") ? path : path ? `/${path}` : "/";
   return {
     title,
     description,
     metadataBase: metadataBaseForHost(host),
+    alternates: { canonical: canonicalPath },
+    keywords: Array.isArray(keywords) && keywords.length ? keywords : undefined,
     openGraph: {
       title,
       description,
-      url: "/",
+      url: canonicalPath,
       siteName,
       images: socialImageUrl ? [{ url: socialImageUrl }] : undefined,
-      type: "website",
+      type: type || "website",
     },
     twitter: {
       card: socialImageUrl ? "summary_large_image" : "summary",

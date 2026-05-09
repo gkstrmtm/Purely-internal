@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
+import { buildCustomDomainMetadata, buildCustomDomainNotFoundMetadata, resolveCustomDomainBranding } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
@@ -54,20 +55,43 @@ export async function generateMetadata({
 }: {
   params: Promise<{ domain: string; slug: string }>;
 }): Promise<Metadata> {
-  const { domain } = await params;
+  const { domain, slug } = await params;
   const host = decodeURIComponent(String(domain || "")).trim().toLowerCase();
   if (!host) return {};
 
   const mapping = await resolveCustomDomain(host);
-  if (!mapping) return { title: host };
-  if (mapping.status !== "VERIFIED") return { title: "Domain pending verification" };
+  if (!mapping) return buildCustomDomainNotFoundMetadata(host);
+  if (mapping.status !== "VERIFIED") {
+    return buildCustomDomainMetadata({
+      host,
+      siteName: host,
+      title: "Domain pending verification",
+      description: "This domain is saved, but not verified yet.",
+      noIndex: true,
+    });
+  }
 
-  const profile = await prisma.businessProfile
-    .findUnique({ where: { ownerId: mapping.ownerId }, select: { businessName: true } })
-    .catch(() => null);
+  const [profile, hostedBookingPage, branding] = await Promise.all([
+    prisma.businessProfile.findUnique({ where: { ownerId: mapping.ownerId }, select: { businessName: true, logoUrl: true } as any }).catch(() => null),
+    (prisma as any).hostedPageDocument.findFirst({
+      where: { ownerId: mapping.ownerId, service: "BOOKING", pageKey: "booking_main" },
+      orderBy: { updatedAt: "desc" },
+      select: { seoTitle: true, seoDescription: true },
+    }).catch(() => null),
+    resolveCustomDomainBranding(host),
+  ]);
 
-  const name = profile?.businessName?.trim() || "Booking";
-  return { title: `${name} | Booking` };
+  const name = String(profile?.businessName || "").trim() || branding.siteName || "Booking";
+  return buildCustomDomainMetadata({
+    host,
+    siteName: branding.siteName,
+    title: String((hostedBookingPage as any)?.seoTitle || `${name} | Booking`).trim(),
+    description: String((hostedBookingPage as any)?.seoDescription || `Book time with ${name}.`).trim(),
+    imageUrl: branding.logoUrl,
+    iconUrl: branding.logoUrl,
+    path: `/book/${slug}`,
+    keywords: [`${name} booking`, `${name} appointment`, `${name} schedule`],
+  });
 }
 
 export default async function CustomDomainBookingPage({

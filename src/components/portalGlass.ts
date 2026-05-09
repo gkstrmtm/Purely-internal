@@ -12,3 +12,6 @@ export const portalGlassSectionClass =
 
 export const portalGlassButtonClass =
   "bg-[rgba(255,255,255,0.72)] shadow-[0_10px_24px_rgba(15,23,42,0.08)] supports-backdrop-filter:bg-[rgba(255,255,255,0.44)] supports-backdrop-filter:backdrop-blur-xl";
+
+export const portalSoftBlueButtonClass =
+  "bg-[rgba(29,78,216,0.12)] text-(--color-brand-blue) shadow-[0_8px_18px_rgba(29,78,216,0.09)] transition-all duration-150 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60";

@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AppModal } from "@/components/AppModal";
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
@@ -70,11 +71,7 @@ export function PortalOnboardingClient() {
   }, [refresh]);
 
   if (loading && !status) {
-    return (
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-        Loading onboarding…
-      </div>
-    );
+    return <PortalPageLoadingShell sections={2} minHeightClassName="min-h-[24rem]" />;
   }
 
   const businessDone = status?.businessProfileComplete ?? false;

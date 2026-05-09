@@ -40,6 +40,22 @@ const cases = [
     text: "What do I click to change the booking calendar name?",
     expect: { asksHow: true, looksImperative: false },
   },
+  {
+    text: "Hey, we need to fix the booking headline and update the thank-you note.",
+    expect: { explicitDoIt: true, asksHow: false, looksImperative: true },
+  },
+  {
+    text: "Let's clean up the newsletter draft and send it.",
+    expect: { explicitDoIt: true, asksHow: false, looksImperative: true },
+  },
+  {
+    text: "Show me the recent text threads with Jamie.",
+    expect: { explicitDoIt: true, asksHow: false, looksImperative: true },
+  },
+  {
+    text: "Bro pls check the booking page and tell me what's off.",
+    expect: { explicitDoIt: true, asksHow: false, looksImperative: true },
+  },
 ];
 
 function assertEqual(label, actual, expected) {

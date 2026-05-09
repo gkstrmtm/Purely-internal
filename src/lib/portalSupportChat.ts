@@ -129,6 +129,22 @@ export async function runPortalSupportChat(opts: {
   recentMessages?: PortalSupportChatRecentMessage[];
   threadContext?: unknown;
 }): Promise<string> {
+  const withTimeout = async <T,>(work: Promise<T>, timeoutMs: number): Promise<T | null> => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      return await Promise.race([
+        work,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), timeoutMs);
+        }),
+      ]);
+    } catch {
+      return null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
   const { message, url, meta } = opts;
   const recent = (opts.recentMessages ?? []).slice(-120);
   const threadSummary =
@@ -315,6 +331,6 @@ export async function runPortalSupportChat(opts: {
     .filter(Boolean)
     .join("\n\n");
 
-  const reply = await generateText({ system, user });
+  const reply = await withTimeout(generateText({ system, user }), 10_000);
   return String(reply || "").trim() || "Okay. Can you share one more detail?";
 }

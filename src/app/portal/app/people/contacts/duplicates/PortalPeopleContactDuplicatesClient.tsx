@@ -1,11 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
+import { usePortalPeopleSidebar } from "@/app/portal/app/people/PortalPeopleSidebarNav";
+import { portalSoftBlueButtonClass } from "@/components/portalGlass";
 import { useToast } from "@/components/ToastProvider";
+
+function classNames(...parts: Array<string | false | null | undefined>) {
+  return parts.filter(Boolean).join(" ");
+}
 
 type DuplicateGroup = {
   phoneKey: string;
@@ -35,9 +38,8 @@ async function readJsonBody(res: Response): Promise<any | null> {
 }
 
 export function PortalPeopleContactDuplicatesClient() {
-  const pathname = usePathname() || "";
   const toast = useToast();
-  const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  usePortalPeopleSidebar();
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -150,21 +152,11 @@ export function PortalPeopleContactDuplicatesClient() {
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">People</h1>
-          <p className="mt-2 text-sm text-zinc-600">Consolidate duplicate contacts by phone number.</p>
-          <PortalPeopleTabs />
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href={`${portalBase}/app/people/contacts`}
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-          >
-            Back to contacts
-          </Link>
+          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Duplicate contacts</h1>
         </div>
       </div>
 
-      <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+      <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
         <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <div className="text-base font-semibold text-zinc-900">Duplicate groups</div>
@@ -176,7 +168,7 @@ export function PortalPeopleContactDuplicatesClient() {
             type="button"
             disabled={!safeGroups.length || Boolean(busyKey)}
             onClick={() => void mergeAllSafe()}
-            className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold", portalSoftBlueButtonClass, (!safeGroups.length || Boolean(busyKey)) && "cursor-not-allowed")}
           >
             Merge all safe
           </button>

@@ -23,7 +23,7 @@ const TEMPLATE_OPTIONS: Record<HostedTemplateService, HostedTemplateOption[]> = 
     {
       pageKey: "booking_concierge",
       description: "Warm, premium booking page with serif headlines and a hospitality feel.",
-      keywords: ["concierge", "premium", "warm", "hospitality", "elevated", "luxury", "serif"],
+      keywords: ["concierge", "premium", "warm", "hospitality", "elevated", "luxury", "serif", "high end", "higher end", "white glove", "white-glove", "luxe", "upscale"],
     },
     {
       pageKey: "booking_event_night",
@@ -60,7 +60,7 @@ const TEMPLATE_OPTIONS: Record<HostedTemplateService, HostedTemplateOption[]> = 
     {
       pageKey: "newsletter_community",
       description: "Warm newsletter page with a more personal tone.",
-      keywords: ["community", "personal", "warm", "friendly", "welcoming"],
+      keywords: ["community", "community driven", "community-driven", "personal", "warm", "friendly", "welcoming", "neighborly"],
     },
   ],
   REVIEWS: [
@@ -72,7 +72,7 @@ const TEMPLATE_OPTIONS: Record<HostedTemplateService, HostedTemplateOption[]> = 
     {
       pageKey: "reviews_concierge",
       description: "Soft premium reviews page with warmer color and a refined look.",
-      keywords: ["concierge", "premium", "soft", "warm", "refined", "luxury"],
+      keywords: ["concierge", "premium", "soft", "warm", "refined", "luxury", "high end", "higher end", "white glove", "white-glove", "luxe", "upscale"],
     },
     {
       pageKey: "reviews_story_wall",
@@ -99,7 +99,7 @@ const TEMPLATE_OPTIONS: Record<HostedTemplateService, HostedTemplateOption[]> = 
     {
       pageKey: "blogs_magazine",
       description: "Magazine-style blog home with warmer tones and editorial emphasis.",
-      keywords: ["magazine", "editorial", "publication", "feature", "featured"],
+      keywords: ["magazine", "editorial", "publication", "feature", "featured", "glossy", "magazine style", "magazine-style"],
     },
     {
       pageKey: "blogs_minimal",
@@ -141,6 +141,36 @@ function normalizePromptForMatching(value: string) {
     .replace(/\bproffesional\b/g, "professional")
     .replace(/\bpremimum\b/g, "premium");
 }
+
+const HOSTED_TEMPLATE_STRONG_STYLE_HINTS = [
+  "concierge",
+  "minimal",
+  "editorial",
+  "digest",
+  "launchpad",
+  "community",
+  "story wall",
+  "journal",
+  "journalistic",
+  "magazine",
+  "featured",
+  "aftercare",
+  "event night",
+  "narrative",
+  "reading first",
+  "reading-first",
+  "publication",
+  "newsroom",
+  "story driven",
+  "story-driven",
+  "high contrast",
+  "hospitality",
+  "luxury",
+] as const;
+
+const HOSTED_GENERIC_POLISH_RE = /\b(clean this up|clean it up|make this better|make it better|polish this|polish it|improve this|improve it|make this feel|make it feel|make this look|make it look)\b/i;
+const HOSTED_CONCRETE_EDIT_RE = /\b(headline|subhead|subheadline|hero|cta|call to action|button|section|layout|copy|title|subtitle|body copy|testimonial|faq|pricing|form|calendar|review feed|archive|footer|navigation|nav|spacing|font|typography|color|colors|palette|background|border|card|embed|banner)\b/i;
+const HOSTED_AUDIENCE_HINT_RE = /\bfor\s+[a-z0-9][a-z0-9\s&'/-]{2,80}\b/i;
 
 export function hostedTemplateStyleDescription(pageKey: string) {
   for (const service of Object.keys(TEMPLATE_OPTIONS) as HostedTemplateService[]) {
@@ -204,4 +234,24 @@ export function resolveHostedTemplatePageKey(service: HostedTemplateService, pro
   if (service === "BOOKING") return "booking_main";
   if (service === "NEWSLETTER") return "newsletter_home";
   return "reviews_home";
+}
+
+export function shouldAskHostedPageClarifyingQuestion(service: HostedTemplateService, prompt: string): boolean {
+  const compactPrompt = normalizePromptForMatching(prompt);
+  if (!compactPrompt) return true;
+
+  const hasGenericPolish = HOSTED_GENERIC_POLISH_RE.test(compactPrompt);
+  if (!hasGenericPolish) return false;
+
+  const hasStrongStyleHint = HOSTED_TEMPLATE_STRONG_STYLE_HINTS.some((hint) => compactPrompt.includes(hint));
+  if (hasStrongStyleHint) return false;
+
+  if (HOSTED_CONCRETE_EDIT_RE.test(compactPrompt)) return false;
+  if (HOSTED_AUDIENCE_HINT_RE.test(compactPrompt)) return false;
+
+  const options = TEMPLATE_OPTIONS[service] || [];
+  const hasExplicitPageKey = options.some((option) => compactPrompt.includes(option.pageKey.replace(/_/g, " ")));
+  if (hasExplicitPageKey) return false;
+
+  return true;
 }

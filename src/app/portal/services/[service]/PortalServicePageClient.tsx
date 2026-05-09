@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type PortalPricing = {
@@ -203,11 +204,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
   }
 
   if (loading) {
-    return (
-      <div className="mx-auto max-w-5xl rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-        Loading…
-      </div>
-    );
+    return <PortalPageLoadingShell sections={2} minHeightClassName="min-h-[28rem]" />;
   }
 
   if (!unlocked) {

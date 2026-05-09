@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { IconChevron, IconCopy, IconEdit, IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { IconChevron, IconCopy, IconEdit, IconMoreGlyph, IconPlusGlyph, IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { PURA_WELCOME_PROMPT_LIBRARY as WELCOME_PROMPTS } from "@/lib/puraWelcomePrompts";
 
@@ -421,7 +421,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
                 aria-label="New chat"
                 title="New chat"
               >
-                <span className="text-lg font-semibold leading-none">＋</span>
+                <IconPlusGlyph size={18} />
               </button>
             </div>
           </div>
@@ -461,7 +461,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
                       aria-label="Chat options"
                       title="Chat options"
                     >
-                      <span className="text-lg font-semibold leading-none">⋯</span>
+                      <IconMoreGlyph size={18} />
                     </button>
                   </div>
                 );
@@ -483,7 +483,7 @@ export function PortalAiChatPreviewClient({ standalone = false }: { standalone?:
   const composerInner = (
     <div className="flex items-end gap-2">
       <button type="button" className={composerControlButtonClass} aria-label="Add attachment" title="Add attachment">
-        <span className="text-lg font-semibold">＋</span>
+        <IconPlusGlyph size={18} />
       </button>
 
       <textarea

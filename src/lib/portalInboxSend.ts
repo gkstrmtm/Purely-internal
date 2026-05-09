@@ -46,6 +46,13 @@ function asStringArray(input: unknown): string[] {
   return input.map((x) => String(x)).filter(Boolean);
 }
 
+function looksLikePlaceholderSmsNumber(input: string): boolean {
+  const digits = String(input || "").replace(/\D+/g, "");
+  if (!digits) return false;
+  if (/^1555\d{7}$/.test(digits)) return true;
+  return false;
+}
+
 export async function sendPortalInboxMessageNow(input: SendPortalInboxMessageInput): Promise<SendPortalInboxMessageResult> {
   const ownerId = String(input.ownerId || "").trim();
   if (!ownerId) return { ok: false, error: "Missing owner" };
@@ -176,6 +183,15 @@ export async function sendPortalInboxMessageNow(input: SendPortalInboxMessageInp
     const peer = normalizeSmsPeerKey(toRaw);
     if (peer.error) return { ok: false, error: peer.error };
     if (!peer.peer || !peer.peerKey) return { ok: false, error: "Invalid phone" };
+
+    if (looksLikePlaceholderSmsNumber(peer.peer)) {
+      const contactName = String(contactRow?.name || "").trim();
+      const contactLabel = contactName || "This contact";
+      return {
+        ok: false,
+        error: `${contactLabel} has a demo phone number on file. Add a real mobile number before sending a text.`,
+      };
+    }
 
     const metered = await recordThresholdMeterUsage({
       ownerId,

@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
 import DomainRouterBlogsPage, { generateMetadata as generateDomainRouterBlogsMetadata } from "@/app/domain-router/[domain]/blogs/page";
+import { buildPlatformHostedMetadata } from "@/lib/customDomainMetadata";
 import { hostnameFromHeader, isPlatformHostname } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { formatBlogDate } from "@/lib/blog";
@@ -38,7 +39,7 @@ export async function generateMetadata(props: PageProps) {
       ? await prisma.clientBlogSite.findFirst(
           {
             where: { OR: [{ slug: siteSlug }, { id: siteSlug }] },
-            select: { name: true, ownerId: true },
+            select: ({ name: true, ownerId: true, ...(canUseSlugColumn ? { slug: true, id: true } : { id: true }) } as any),
           } as any,
         )
       : await (async () => {
@@ -62,11 +63,15 @@ export async function generateMetadata(props: PageProps) {
     });
 
     const name = profile?.businessName || site.name;
+    const siteHandle = canUseSlugColumn ? String((site as any).slug || (site as any).id).trim() : siteSlug;
 
-    return {
+    return buildPlatformHostedMetadata({
+      siteName: name,
       title: `${name} | Blogs`,
       description: `Latest blog posts from ${name}.`,
-    };
+      path: `/${siteHandle}/blogs`,
+      keywords: [`${name} blog`, `${name} articles`, `${name} insights`],
+    });
   } catch {
     return {};
   }

@@ -8,7 +8,7 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { getBlogAppearance } from "@/lib/blogAppearance";
-import { buildCustomDomainMetadata, resolveCustomDomainBranding } from "@/lib/customDomainMetadata";
+import { buildCustomDomainMetadata, buildCustomDomainNotFoundMetadata, resolveCustomDomainBranding } from "@/lib/customDomainMetadata";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
 import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
 import { getHostedTheme } from "@/lib/hostedTheme";
@@ -64,20 +64,32 @@ export async function generateMetadata({
   if (!host) return {};
 
   const mapping = await resolveCustomDomain(host);
-  if (!mapping || mapping.status !== "VERIFIED") return { title: host };
+  if (!mapping) return buildCustomDomainNotFoundMetadata(host);
+  if (mapping.status !== "VERIFIED") {
+    return buildCustomDomainMetadata({
+      host,
+      siteName: host,
+      title: "Domain pending verification",
+      description: "This domain is saved, but not verified yet.",
+      noIndex: true,
+    });
+  }
 
   const site = await prisma.clientBlogSite
     .findUnique({ where: { ownerId: mapping.ownerId }, select: { id: true, ownerId: true, name: true } })
     .catch(() => null);
-  if (!site) return { title: host };
+  if (!site) return buildCustomDomainNotFoundMetadata(host);
 
   const post = await prisma.clientBlogPost
-    .findFirst({ where: { siteId: site.id, slug: postSlug, status: "PUBLISHED", archivedAt: null }, select: { title: true, excerpt: true, content: true } })
+    .findFirst({ where: { siteId: site.id, slug: postSlug, status: "PUBLISHED", archivedAt: null }, select: { title: true, excerpt: true, content: true, seoKeywords: true } })
     .catch(() => null);
-  if (!post) return { title: host };
+  if (!post) return buildCustomDomainNotFoundMetadata(host);
 
   const branding = await resolveCustomDomainBranding(host);
   const cover = splitLeadingCoverImage(parseBlogContent(post.content || "")).cover;
+  const keywords = Array.isArray((post as any).seoKeywords)
+    ? ((post as any).seoKeywords as unknown[]).map((item) => String(item || "").trim()).filter(Boolean).slice(0, 30)
+    : [];
   return buildCustomDomainMetadata({
     host,
     siteName: branding.siteName,
@@ -85,6 +97,9 @@ export async function generateMetadata({
     description: post.excerpt,
     imageUrl: cover?.src || branding.logoUrl,
     iconUrl: branding.logoUrl,
+    path: `/blogs/${postSlug}`,
+    keywords: [...keywords, branding.siteName, `${branding.siteName} blog`].filter(Boolean),
+    type: "article",
   });
 }
 

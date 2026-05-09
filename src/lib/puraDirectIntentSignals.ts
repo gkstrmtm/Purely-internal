@@ -115,6 +115,8 @@ export type PuraDirectIntentSignals = {
   hostedPageUpdateTarget: (HostedPageDirectTarget & { title: string | null; status: "DRAFT" | "PUBLISHED" | null }) | null;
 };
 
+import { getPuraIntentSignals } from "@/lib/puraIntent";
+
 function safeContext(raw: unknown): PuraDirectIntentContext {
   return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as PuraDirectIntentContext) : {};
 }
@@ -267,7 +269,7 @@ function extractCreateNamedResource(prompt: string, resourceTerms: string[]): st
     new RegExp(`\\b${createVerbPattern}\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+(?:called|named)\\s+'([^']{1,180})'`, "i"),
     new RegExp(`\\b${createVerbPattern}\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+["“]([^"”]{1,180})["”]`, "i"),
     new RegExp(`\\b${createVerbPattern}\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+'([^']{1,180})'`, "i"),
-    new RegExp(`\\b${createVerbPattern}\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+(?:called|named)\\s+(.+?)(?:\\.|\\s+(?:with|that|and)\\b|$)`, "i"),
+      new RegExp(`\\b${createVerbPattern}\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+(?:called|named)\\s+(.+?)(?:\\.|\\s+(?:for|with|that|and)\\b|$)`, "i"),
     new RegExp(`\\b${createVerbPattern}\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:new\\s+)?(?:${resourcePattern})\\s+["“]?(.+?)["”]?(?:\\.|\\s+(?:for|with|that|and)\\b|$)`, "i"),
   ];
   for (const pattern of patterns) {
@@ -426,12 +428,17 @@ function extractLeadRunIntent(prompt: string, hasAny: (...phrases: string[]) => 
 export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRaw: unknown): PuraDirectIntentSignals {
   const prompt = String(promptRaw || "").trim();
   const compactPrompt = compactPromptText(prompt);
+  const intentSignals = getPuraIntentSignals(prompt);
+  const shouldSuppressMutatingIntents = intentSignals.asksHow && !intentSignals.explicitDoIt;
   const ctx = safeContext(threadContextRaw);
   const { hasAny, hasAll } = makePhraseHelpers(compactPrompt);
   const hasLatestNewsletterContext = Boolean(String(ctx.lastNewsletter?.id || "").trim());
   const hasLatestBlogContext = Boolean(String(ctx.lastBlogPost?.id || "").trim());
   const hasLatestFunnelPageContext = Boolean(String(ctx.lastFunnel?.id || "").trim() && String(ctx.lastFunnelPage?.id || "").trim());
-  const smsThreadMatch = prompt.match(/\b(?:text|sms)\s+thread\s+with\s+(.+?)\s*\??$/i);
+  const smsThreadMatch =
+    prompt.match(/\b(?:recent\s+|latest\s+)?(?:text|sms)\s+threads?\s+with\s+(.+?)\s*\??$/i) ||
+    prompt.match(/\b(?:text|sms)\s+thread\s+with\s+(.+?)\s*\??$/i) ||
+    prompt.match(/\b(?:recent\s+|latest\s+)?texts?\s+with\s+(.+?)\s*\??$/i);
   const mediaImportUrlMatch = prompt.match(/https?:\/\/\S+/i);
   const mediaFolderNameMatch = prompt.match(/into\s+the\s+(.+?)\s+folder/i);
   const readinessDomainHits = ["newsletter", "blog", "nurture", "funnel", "media", "review", "booking", "lead scraping"].filter((term) => hasAny(term)).length;
@@ -452,14 +459,24 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
   const billingInboxSearchQuery = hasAny("invoice", "billing") && hasAny("inbox", "thread", "threads", "conversation", "conversations")
     ? (hasAny("invoice", "invoices") ? "invoice" : "billing")
     : null;
-  const emailThreadMatch = prompt.match(/\b(?:email|conversation|thread)\s+with\s+(.+?)\s*\??$/i);
+  const emailThreadMatch =
+    prompt.match(/\b(?:recent\s+|latest\s+)?(?:emails?|conversations?|threads?)\s+with\s+(.+?)\s*\??$/i) ||
+    prompt.match(/\b(?:email|conversation|thread)\s+with\s+(.+?)\s*\??$/i);
   const smsThreadWithName = cleanExtractedEntity(smsThreadMatch?.[1]);
   const emailThreadName = cleanExtractedEntity(emailThreadMatch?.[1]);
   const hostedPageServiceMentions = ["booking", "newsletter", "review", "reviews", "blog", "blogs"].filter((term) => compactPrompt.includes(term)).length;
+  const hostedPageSurfaceHint = hasAny("page", "pages", "document", "documents", "template", "templates", "layout", "design", "editor", "site");
+  const hostedPageStyleHint = hasAny("minimal", "journal", "journalistic", "editorial", "magazine", "concierge", "featured", "bold", "aftercare", "community", "launch", "launchpad", "luxury", "luxe", "white glove", "white-glove", "high end", "high-end", "upscale", "hospitality");
+  const hostedPageServiceStyleIntent =
+    hostedPageServiceMentions === 1 &&
+    hostedPageStyleHint &&
+    hasAny("make", "update", "refresh", "rewrite", "redesign", "polish", "clean", "restyle", "keep", "leave") &&
+    (hasAny("draft", "feel", "look", "style", "design") || /\bfeel more like\b/i.test(prompt) || /\blook more like\b/i.test(prompt));
   const mentionsHostedPageSurface =
     hasAny("hosted page", "hosted pages", "page editor", "page editors", "hosted html") ||
-    (hostedPageServiceMentions > 0 && hasAny("page", "pages", "document", "documents", "template", "templates")) ||
-    (hostedPageServiceMentions > 0 && hasAny("minimal", "journal", "journalistic", "editorial", "magazine", "concierge", "featured", "bold", "aftercare", "community", "launch", "launchpad") && hasAny("make", "create", "build", "draft", "use", "switch", "set"));
+    (hostedPageServiceMentions > 0 && hostedPageSurfaceHint) ||
+    (hostedPageServiceMentions > 0 && hostedPageSurfaceHint && hostedPageStyleHint && hasAny("make", "create", "build", "draft", "use", "switch", "set")) ||
+    hostedPageServiceStyleIntent;
   const hostedService = detectHostedPageService(compactPrompt);
   const hostedTarget = hostedService
     ? {
@@ -507,11 +524,12 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
     (hasAny("generate", "redesign", "hosted html", "premium conversion focused", "make", "create", "build") ||
       mentionsHostedPageContentRewrite ||
       ((hasAny("update", "rewrite", "refresh", "change") || /\bmake\b/i.test(prompt)) && hasAny("feel like", "feels like", "look like", "looks like", "sound like", "sounds like")) ||
-      (hasAny("minimal", "journal", "journalistic", "editorial", "magazine", "concierge", "featured", "bold", "aftercare", "community", "launch", "launchpad") && hasAny("page", "template", "blog", "blogs", "newsletter", "reviews", "booking")) ||
-      (hasAny("look", "style", "feel") && hasAny("minimal", "journal", "journalistic", "editorial", "magazine", "concierge", "featured", "bold", "aftercare", "community", "launch", "launchpad")) ||
-      (hasAny("trust bar", "stronger headline", "clearer cta", "premium", "strategy call", "luxury", "high end", "high-end") && hasAny("page design", "design", "hosted page", "booking page", "newsletter page", "reviews page", "blog page")));
-  const newsletterCreateTitle = mentionsHostedPageSurface ? "" : rawNewsletterCreateTitle;
-  const blogCreateTitle = mentionsHostedPageSurface ? "" : rawBlogCreateTitle;
+      (hasAny("minimal", "journal", "journalistic", "editorial", "magazine", "concierge", "featured", "bold", "aftercare", "community", "launch", "launchpad", "luxury", "luxe", "white glove", "white-glove", "high end", "high-end", "upscale", "hospitality") && hasAny("page", "template", "blog", "blogs", "newsletter", "reviews", "booking")) ||
+      (hasAny("look", "style", "feel") && hasAny("minimal", "journal", "journalistic", "editorial", "magazine", "concierge", "featured", "bold", "aftercare", "community", "launch", "launchpad", "luxury", "luxe", "white glove", "white-glove", "high end", "high-end", "upscale", "hospitality")) ||
+      (hasAny("trust bar", "stronger headline", "clearer cta", "premium", "strategy call", "luxury", "luxe", "white glove", "white-glove", "high end", "high-end", "upscale") && hasAny("page design", "design", "hosted page", "booking page", "newsletter page", "reviews page", "blog page")) ||
+      hostedPageServiceStyleIntent);
+  const newsletterCreateTitle = shouldSuppressMutatingIntents || mentionsHostedPageSurface ? "" : rawNewsletterCreateTitle;
+  const blogCreateTitle = shouldSuppressMutatingIntents || mentionsHostedPageSurface ? "" : rawBlogCreateTitle;
   const wantsHostedPageUpdate =
     mentionsHostedPageSurface &&
     (hasAny("update", "set", "rename") || (hasAny("change") && hasAny("title", "slug", "status", "seo")));
@@ -569,53 +587,61 @@ export function detectPuraDirectIntentSignals(promptRaw: string, threadContextRa
     nurtureCampaignCreateTitle: extractCreateNamedResource(prompt, ["nurture campaign", "campaign"]),
     newsletterCreateTitle,
     shouldTightenLatestNewsletter:
-      hasAll(["tighten", "sharpen", "improve", "refine", "polish"], ["newsletter"], ["just created", "just made", "same newsletter", "that newsletter"]) ||
-      (hasLatestNewsletterContext && hasAny("newsletter") && hasAny("tighten", "sharpen", "improve", "refine", "polish", "rewrite") && hasAny("latest", "last", "that", "this")),
-    shouldSendLatestNewsletter: hasAll(["send", "push", "ship", "blast"], ["newsletter"], ["now", "out", "send it"]),
+      !shouldSuppressMutatingIntents && (
+        hasAll(["tighten", "sharpen", "improve", "refine", "polish"], ["newsletter"], ["just created", "just made", "same newsletter", "that newsletter"]) ||
+        (hasLatestNewsletterContext && hasAny("newsletter") && hasAny("tighten", "sharpen", "improve", "refine", "polish", "rewrite") && hasAny("latest", "last", "that", "this"))
+      ),
+    shouldSendLatestNewsletter: !shouldSuppressMutatingIntents && hasAll(["send", "push", "ship", "blast"], ["newsletter"], ["now", "out", "send it"]),
     blogCreateTitle,
     shouldPolishLatestBlog:
-      hasAll(["polish", "tighten", "refine", "improve", "rewrite"], ["blog", "post", "draft"]) ||
-      (hasLatestBlogContext && hasAny("blog", "post", "draft") && hasAny("polish", "tighten", "refine", "improve", "rewrite") && hasAny("latest", "last", "that", "this")),
+      !shouldSuppressMutatingIntents && (
+        hasAll(["polish", "tighten", "refine", "improve", "rewrite"], ["blog", "post", "draft"]) ||
+        (hasLatestBlogContext && hasAny("blog", "post", "draft") && hasAny("polish", "tighten", "refine", "improve", "rewrite") && hasAny("latest", "last", "that", "this"))
+      ),
     shouldPublishLatestBlog:
+      !shouldSuppressMutatingIntents &&
       !hasExplicitBlogCreateIntent && (
         (hasExplicitPublishIntent && hasAny("blog", "blogs", "blog post", "blog draft")) ||
         (hasAny("go live with", "post live") && hasAny("blog", "blogs")) ||
         (hasExplicitPublishIntent && compactPrompt.includes("blog post draft"))
       ),
-    funnelCreateTitle: extractCreateNamedResource(prompt, ["funnel"]),
+    funnelCreateTitle: shouldSuppressMutatingIntents ? "" : extractCreateNamedResource(prompt, ["funnel"]),
     shouldCreateLandingPage:
+      !shouldSuppressMutatingIntents &&
       !looksAdvisoryFunnelCopyRequest &&
       hasAll(["create", "make", "add", "build"], ["landing page", "signup page", "opt in page"], ["funnel", "same funnel", "that funnel"]),
     shouldGenerateLandingLayout:
+      !shouldSuppressMutatingIntents &&
       !looksAdvisoryFunnelCopyRequest &&
       hasAll(["generate", "design", "build", "create"], ["layout", "page layout", "design"], ["landing page", "signup page", "page"]),
     shouldUpdateCurrentFunnelPage:
+      !shouldSuppressMutatingIntents &&
       hasLatestFunnelPageContext &&
       !looksAdvisoryFunnelCopyRequest &&
       (hasAny("funnel builder", "same page", "that page", "current page", "hero", "headline", "subheadline", "bullet benefits", "call to action", "cta", "testimonial", "proof strip", "opt-in form", "form") ||
         /\b(hero|headline|subheadline|cta|testimonial|proof strip|opt-?in form|form)\b/i.test(prompt)) &&
       hasAny("replace", "update", "change", "rewrite", "revise", "add", "embed", "use", "keep", "leave"),
-    mediaFolderCreateTitle: extractCreateNamedResource(prompt, ["media folder", "folder"]),
+    mediaFolderCreateTitle: shouldSuppressMutatingIntents ? "" : extractCreateNamedResource(prompt, ["media folder", "folder"]),
     mediaImportUrl: mediaImportUrlMatch?.[0] ? String(mediaImportUrlMatch[0]).trim() : null,
     mediaImportFolderNameHint: typeof mediaFolderNameMatch?.[1] === "string" ? String(mediaFolderNameMatch[1]).trim().replace(/[".]+$/g, "") : null,
-    shouldImportToNamedMediaFolder: hasAll(["import", "upload", "add"], ["image", "photo", "asset"], ["folder"]) && Boolean(mediaImportUrlMatch),
+    shouldImportToNamedMediaFolder: !shouldSuppressMutatingIntents && hasAll(["import", "upload", "add"], ["image", "photo", "asset"], ["folder"]) && Boolean(mediaImportUrlMatch),
     shouldListLatestMediaFolder: hasAll(["what is in", "show me", "list"], ["folder"]) && hasAny("right now", "in the folder", "inside the folder"),
     shouldListReviewsWithoutReply: hasAll(["review", "reviews"], ["without", "missing", "need"], ["business reply", "reply"]),
-    reviewReplyIntent: extractReviewReplyIntent(prompt),
-    nurtureStepIntent: extractNurtureStepIntent(prompt, ctx, hasAny),
-    leadRunIntent: extractLeadRunIntent(prompt, hasAny, hasAll),
+    reviewReplyIntent: shouldSuppressMutatingIntents ? null : extractReviewReplyIntent(prompt),
+    nurtureStepIntent: shouldSuppressMutatingIntents ? null : extractNurtureStepIntent(prompt, ctx, hasAny),
+    leadRunIntent: shouldSuppressMutatingIntents ? null : extractLeadRunIntent(prompt, hasAny, hasAll),
     shouldListLatestLeads: hasAll(["show me", "list", "what are", "what were"], ["lead", "leads"]) && hasAny("just pulled", "just found", "just scraped", "you just pulled", "you just found", "you just scraped"),
     shouldDraftLeadEmail: hasAll(["draft", "write", "create"], ["outbound email template", "email template", "outbound email"]),
     shouldSuggestBookingSlots: hasAll(["booking slots", "available slots", "slots this week", "suggest slots", "open booking times"], ["booking", "slots", "times"]),
-    shouldUpdateBookingThankYou: hasAll(["update", "change", "set"], ["booking form", "booking page form"], ["thank you", "thank-you"], ["message"]),
-    shouldSetWeekdayAvailability: hasAll(["set", "update"], ["weekday", "weekdays"], ["booking availability", "availability"], ["next 7 days", "this week", "next week"]),
+    shouldUpdateBookingThankYou: !shouldSuppressMutatingIntents && hasAll(["update", "change", "set"], ["booking form", "booking page form"], ["thank you", "thank-you"], ["message"]),
+    shouldSetWeekdayAvailability: !shouldSuppressMutatingIntents && hasAll(["set", "update"], ["weekday", "weekdays"], ["booking availability", "availability"], ["next 7 days", "this week", "next week"]),
     shouldAssessCrossSurfaceReadiness: readinessDomainHits >= 5 && hasAny("weak", "incomplete", "ready", "readiness", "status", "looks weak"),
     hostedPageListService: !shouldSuppressHostedNewsletterActions && wantsHostedPageList ? (hostedPageServiceMentions >= 2 || hasAny("all", "every") ? "ALL" : hostedService) : null,
     hostedPageGetTarget: !shouldSuppressHostedNewsletterActions && mentionsHostedPageSurface && hostedTarget && compactPrompt.includes("difference between") ? hostedTarget.service === "BLOGS" ? { service: "BLOGS", pageKey: null } : hostedTarget : null,
     hostedPagePreviewTarget: !shouldSuppressHostedNewsletterActions && wantsHostedPagePreview && hostedTarget ? hostedTarget : null,
-    hostedPagePublishTarget: !shouldSuppressHostedNewsletterActions && wantsHostedPagePublish && hostedTarget ? hostedTarget : null,
-    hostedPageResetTarget: !shouldSuppressHostedNewsletterActions && wantsHostedPageReset && hostedTarget ? hostedTarget : null,
-    hostedPageGenerateTarget: !shouldSuppressHostedNewsletterActions && wantsHostedPageGenerate && hostedTarget ? hostedTarget : null,
-    hostedPageUpdateTarget: !shouldSuppressHostedNewsletterActions && (hostedPageUpdateTitle || hostedPageUpdateStatus) && hostedTarget ? { ...hostedTarget, title: hostedPageUpdateTitle, status: hostedPageUpdateStatus } : null,
+    hostedPagePublishTarget: !shouldSuppressMutatingIntents && !shouldSuppressHostedNewsletterActions && wantsHostedPagePublish && hostedTarget ? hostedTarget : null,
+    hostedPageResetTarget: !shouldSuppressMutatingIntents && !shouldSuppressHostedNewsletterActions && wantsHostedPageReset && hostedTarget ? hostedTarget : null,
+    hostedPageGenerateTarget: !shouldSuppressMutatingIntents && !shouldSuppressHostedNewsletterActions && wantsHostedPageGenerate && hostedTarget ? hostedTarget : null,
+    hostedPageUpdateTarget: !shouldSuppressMutatingIntents && !shouldSuppressHostedNewsletterActions && (hostedPageUpdateTitle || hostedPageUpdateStatus) && hostedTarget ? { ...hostedTarget, title: hostedPageUpdateTitle, status: hostedPageUpdateStatus } : null,
   };
 }

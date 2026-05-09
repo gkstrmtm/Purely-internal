@@ -8,7 +8,7 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { getBlogAppearance } from "@/lib/blogAppearance";
-import { buildCustomDomainMetadata, resolveCustomDomainBranding } from "@/lib/customDomainMetadata";
+import { buildCustomDomainMetadata, buildCustomDomainNotFoundMetadata, resolveCustomDomainBranding } from "@/lib/customDomainMetadata";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
 import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
 import { getHostedTheme } from "@/lib/hostedTheme";
@@ -64,13 +64,21 @@ export async function generateMetadata({
   if (!host) return {};
 
   const mapping = await resolveCustomDomain(host);
-  if (!mapping) return { title: host };
-  if (mapping.status !== "VERIFIED") return { title: "Domain pending verification" };
+  if (!mapping) return buildCustomDomainNotFoundMetadata(host);
+  if (mapping.status !== "VERIFIED") {
+    return buildCustomDomainMetadata({
+      host,
+      siteName: host,
+      title: "Domain pending verification",
+      description: "This domain is saved, but not verified yet.",
+      noIndex: true,
+    });
+  }
 
   const site = await prisma.clientBlogSite
     .findUnique({ where: { ownerId: mapping.ownerId }, select: { name: true, ownerId: true } })
     .catch(() => null);
-  if (!site) return { title: host };
+  if (!site) return buildCustomDomainNotFoundMetadata(host);
 
   const branding = await resolveCustomDomainBranding(host);
   return buildCustomDomainMetadata({
@@ -80,6 +88,8 @@ export async function generateMetadata({
     description: `Latest blog posts from ${branding.siteName}.`,
     imageUrl: branding.logoUrl,
     iconUrl: branding.logoUrl,
+    path: "/blogs",
+    keywords: [`${branding.siteName} blog`, `${branding.siteName} articles`, `${branding.siteName} insights`],
   });
 }
 

@@ -27,6 +27,14 @@ function assertEqual(label, actual, expected) {
   }
 }
 
+function assertJsonEqual(label, actual, expected) {
+  const actualJson = JSON.stringify(actual);
+  const expectedJson = JSON.stringify(expected);
+  if (actualJson !== expectedJson) {
+    throw new Error(`${label} expected=${expectedJson} actual=${actualJson}`);
+  }
+}
+
 function assertMatch(label, value, pattern) {
   if (!pattern.test(String(value || ""))) {
     throw new Error(`${label} expected to match ${String(pattern)} actual=${JSON.stringify(value)}`);
@@ -102,6 +110,104 @@ const routingCases = [
     expectPageKey: "newsletter_editorial",
     expectDirectSignals: false,
   },
+  {
+    label: "casual newsletter hosted rewrite",
+    service: "NEWSLETTER",
+    prompt: "Hey bro, make my newsletter page feel more editorial for HVAC owners and keep it in draft.",
+    expectPageKey: "newsletter_editorial",
+  },
+  {
+    label: "casual booking hosted rewrite",
+    service: "BOOKING",
+    prompt: "Hey, clean up my booking page and make it minimal but still professional. Keep it draft.",
+    expectPageKey: "booking_minimal_clinic",
+  },
+  {
+    label: "booking concierge slang",
+    service: "BOOKING",
+    prompt: "Yo can you make my booking page feel more high-end and concierge but keep it draft?",
+    expectPageKey: "booking_concierge",
+  },
+  {
+    label: "reviews luxe slang",
+    service: "REVIEWS",
+    prompt: "Can you make my reviews page feel more luxe and white-glove? Leave it in draft.",
+    expectPageKey: "reviews_concierge",
+  },
+  {
+    label: "blogs magazine casual",
+    service: "BLOGS",
+    prompt: "Make my blog feel more like a magazine and keep it in draft.",
+    expectPageKey: "blogs_magazine",
+  },
+  {
+    label: "newsletter community casual",
+    service: "NEWSLETTER",
+    prompt: "Make my newsletter page feel more community-driven and warm, but keep it draft.",
+    expectPageKey: "newsletter_community",
+  },
+];
+
+const directActionCases = [
+  {
+    label: "casual task create",
+    prompt: "Hey, make me a task to call Sam tomorrow at 9am and title it Call Sam.",
+    expectAction: "tasks.create",
+    expectTitle: "Call Sam",
+  },
+  {
+    label: "casual newsletter create",
+    prompt: "Let's create a newsletter draft called HVAC Spring Push.",
+    expectAction: "newsletter.newsletters.create",
+    expectTitle: "HVAC Spring Push",
+  },
+  {
+    label: "casual newsletter create with audience",
+    prompt: "Create a newsletter called Pura Quality Smoke Weekly for an online guru audience.",
+    expectAction: "newsletter.newsletters.create",
+    expectTitle: "Pura Quality Smoke Weekly",
+  },
+  {
+    label: "casual blog create",
+    prompt: "Bro, create a blog draft called How HVAC Shops Can Book More Calls.",
+    expectAction: "blogs.posts.create",
+    expectTitle: "How HVAC Shops Can Book More Calls",
+  },
+  {
+    label: "casual booking settings update",
+    prompt: "I am already on my booking settings page. Can you rename this to Free Webinar Strategy Call, work webinar funnels and faster follow-up automation into the description, set it to 45 minutes, keep the timezone the same, and then leave me on booking settings with the live booking link handy? Don’t go listing appointments or anything else.",
+    expectAction: "booking.settings.update",
+    expectArgs: {
+      title: "Free Webinar Strategy Call",
+      description: "webinar funnels and faster follow-up automation",
+      durationMinutes: 45,
+    },
+    expectSteps: ["booking.settings.update", "booking.settings.get", "booking.site.get"],
+  },
+  {
+    label: "casual booking reminders mixed channels",
+    prompt: "Turn on booking reminders so people get an email reminder 24 hours before and a text 2 hours before the appointment.",
+    expectAction: "booking.reminders.settings.update",
+  },
+  {
+    label: "casual ai receptionist says phrasing",
+    prompt: "Update the AI receptionist so it says Hello, you've reached Purely Automation. We can help schedule appointments and answer service questions.",
+    expectAction: "ai_receptionist.settings.update",
+    expectArgs: { settings: { greeting: "Hello, you've reached Purely Automation. We can help schedule appointments and answer service questions." } },
+  },
+];
+
+const signalCases = [
+  {
+    label: "casual sms thread lookup signal",
+    prompt: "Show me the recent text threads with Jamie.",
+    expectSmsThreadWithName: "Jamie",
+  },
+  {
+    label: "casual sms thread lookup slang",
+    prompt: "Can you pull up my latest texts with Jamie?",
+    expectSmsThreadWithName: "Jamie",
+  },
 ];
 
 let passed = 0;
@@ -138,4 +244,30 @@ for (const test of routingCases) {
   passed += 1;
 }
 
-console.log(`pura-production-smoke: ${passed}/${linkCases.length + routingCases.length} passed`);
+for (const test of directActionCases) {
+  const signals = detectPuraDirectIntentSignals(test.prompt, {});
+  const plan = getPuraDirectActionPlan({ prompt: test.prompt, signals, threadContext: {} });
+  assertEqual(`${test.label} action`, plan?.action ?? null, test.expectAction);
+  assertEqual(`${test.label} traceTitle`, typeof plan?.traceTitle === 'string' && plan.traceTitle.length > 0, true);
+  if (test.expectAction === 'tasks.create') {
+    assertEqual(`${test.label} task title`, plan?.args?.title ?? null, test.expectTitle);
+  }
+  if (test.expectAction === 'newsletter.newsletters.create' || test.expectAction === 'blogs.posts.create') {
+    assertEqual(`${test.label} content title`, plan?.args?.title ?? null, test.expectTitle);
+  }
+  if (test.expectArgs) {
+    assertJsonEqual(`${test.label} args`, plan?.args ?? null, test.expectArgs);
+  }
+  if (test.expectSteps) {
+    assertJsonEqual(`${test.label} steps`, (plan?.steps || []).map((step) => step.action), test.expectSteps);
+  }
+  passed += 1;
+}
+
+for (const test of signalCases) {
+  const signals = detectPuraDirectIntentSignals(test.prompt, {});
+  assertEqual(`${test.label} smsThreadWithName`, signals.smsThreadWithName ?? null, test.expectSmsThreadWithName);
+  passed += 1;
+}
+
+console.log(`pura-production-smoke: ${passed}/${linkCases.length + routingCases.length + directActionCases.length + signalCases.length} passed`);

@@ -49,6 +49,46 @@ async function ensurePublicSlug(ownerId: string, desiredName: string, canUseSlug
   return slug;
 }
 
+async function ensureBookingSiteSlug(ownerId: string) {
+  const existing = await prisma.portalBookingSite.findUnique({
+    where: { ownerId },
+    select: { slug: true, title: true, enabled: true, updatedAt: true },
+  }).catch(() => null);
+  if (existing) return existing;
+
+  const [user, profile] = await Promise.all([
+    prisma.user.findUnique({ where: { id: ownerId }, select: { email: true, name: true, timeZone: true } }).catch(() => null),
+    prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }).catch(() => null),
+  ]);
+
+  const base = slugify(profile?.businessName ?? user?.name ?? user?.email?.split("@")[0] ?? "booking");
+  const desired = base.length >= 3 ? base : "booking";
+
+  let slug = desired;
+  const collision = await prisma.portalBookingSite.findUnique({ where: { slug }, select: { ownerId: true } }).catch(() => null);
+  if (collision?.ownerId && String(collision.ownerId) !== ownerId) {
+    slug = `${desired}-${ownerId.slice(0, 6)}`;
+  }
+
+  const title = profile?.businessName?.trim() ? `Book with ${profile.businessName.trim()}` : "Book a call";
+  return prisma.portalBookingSite.create({
+    data: {
+      ownerId,
+      slug,
+      title,
+      timeZone: user?.timeZone ?? "America/New_York",
+      durationMinutes: 30,
+      enabled: false,
+    },
+    select: { slug: true, title: true, enabled: true, updatedAt: true },
+  });
+}
+
+function buildBookingPublicUrl(slug: unknown): string | null {
+  const cleanSlug = typeof slug === "string" ? slug.trim() : "";
+  return cleanSlug ? `/book/${encodeURIComponent(cleanSlug)}` : null;
+}
+
 export async function GET() {
   const auth = await requireClientSessionForService("booking");
   if (!auth.ok) {
@@ -59,6 +99,7 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
+  const bookingSite = await ensureBookingSiteSlug(ownerId).catch(() => null);
   const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
 
   let site = (await prisma.clientBlogSite
@@ -102,14 +143,33 @@ export async function GET() {
     }
   }
 
+  const bookingSlug = typeof bookingSite?.slug === "string" ? String(bookingSite.slug).trim() : "";
+  const sitePayload = site
+    ? {
+        ...(site as any),
+        slug: bookingSlug || null,
+        publicUrl: buildBookingPublicUrl(bookingSlug),
+        bookingEnabled: typeof bookingSite?.enabled === "boolean" ? Boolean(bookingSite.enabled) : null,
+        bookingTitle: typeof bookingSite?.title === "string" ? String(bookingSite.title) : null,
+      }
+    : bookingSite
+      ? {
+          id: null,
+          name: typeof bookingSite.title === "string" ? String(bookingSite.title) : "Booking",
+          primaryDomain: null,
+          verifiedAt: null,
+          verificationToken: null,
+          updatedAt: bookingSite.updatedAt,
+          slug: bookingSlug || null,
+          publicUrl: buildBookingPublicUrl(bookingSlug),
+          bookingEnabled: typeof bookingSite.enabled === "boolean" ? Boolean(bookingSite.enabled) : null,
+          bookingTitle: typeof bookingSite.title === "string" ? String(bookingSite.title) : null,
+        }
+      : null;
+
   return NextResponse.json({
     ok: true,
-    site: site
-      ? {
-          ...(site as any),
-          slug: canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug,
-        }
-      : null,
+    site: sitePayload,
   });
 }
 
@@ -132,6 +192,7 @@ export async function POST(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+  const bookingSite = await ensureBookingSiteSlug(ownerId).catch(() => null);
   const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
 
   const existing = (await prisma.clientBlogSite
@@ -184,11 +245,15 @@ export async function POST(req: Request) {
       } as any,
     })) as any;
 
+    const bookingSlug = typeof bookingSite?.slug === "string" ? String(bookingSite.slug).trim() : "";
     return NextResponse.json({
       ok: true,
       site: {
         ...(updated as any),
-        slug: canUseSlugColumn ? ((updated as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+        slug: bookingSlug || null,
+        publicUrl: buildBookingPublicUrl(bookingSlug),
+        bookingEnabled: typeof bookingSite?.enabled === "boolean" ? Boolean(bookingSite.enabled) : null,
+        bookingTitle: typeof bookingSite?.title === "string" ? String(bookingSite.title) : null,
       },
     });
   }
@@ -248,11 +313,15 @@ export async function POST(req: Request) {
     }
   }
 
+  const bookingSlug = typeof bookingSite?.slug === "string" ? String(bookingSite.slug).trim() : "";
   return NextResponse.json({
     ok: true,
     site: {
       ...(created as any),
-      slug: canUseSlugColumn ? ((created as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+      slug: bookingSlug || null,
+      publicUrl: buildBookingPublicUrl(bookingSlug),
+      bookingEnabled: typeof bookingSite?.enabled === "boolean" ? Boolean(bookingSite.enabled) : null,
+      bookingTitle: typeof bookingSite?.title === "string" ? String(bookingSite.title) : null,
     },
   });
 }

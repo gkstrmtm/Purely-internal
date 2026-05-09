@@ -609,6 +609,12 @@ export function parseAiReceptionistSettings(
   raw: unknown,
   prev?: AiReceptionistSettings | null,
 ): AiReceptionistSettings {
+  const normalizeGreetingText = (value: string): string => {
+    const trimmed = String(value || "").trim().slice(0, MAX_GREETING_LEN);
+    if (!trimmed) return "";
+    return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+  };
+
   const base: AiReceptionistSettings = {
     version: 1,
     enabled: false,
@@ -653,7 +659,7 @@ export function parseAiReceptionistSettings(
   const mode = rec.mode === "FORWARD" ? "FORWARD" : "AI";
 
   const businessName = typeof rec.businessName === "string" ? rec.businessName.trim().slice(0, 120) : base.businessName;
-  const greeting = typeof rec.greeting === "string" ? rec.greeting.trim().slice(0, MAX_GREETING_LEN) : base.greeting;
+  const greeting = typeof rec.greeting === "string" ? normalizeGreetingText(rec.greeting) : base.greeting;
   const systemPrompt = typeof rec.systemPrompt === "string" ? rec.systemPrompt.trim().slice(0, MAX_PROMPT_LEN) : base.systemPrompt;
   const aiCanTransferToHuman =
     typeof rec.aiCanTransferToHuman === "boolean" ? rec.aiCanTransferToHuman : base.aiCanTransferToHuman;

@@ -33,6 +33,7 @@ import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModa
 import { useToast } from "@/components/ToastProvider";
 import { portalGlassButtonClass } from "@/components/portalGlass";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
+import { getReadableTagPillStyle } from "@/lib/tagColors.shared";
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 import { type OutboundContextReport } from "@/lib/portalAiOutboundIntelligence";
@@ -523,17 +524,7 @@ function buildSeededMessageThread(row: MessageActivityRow): MessageThreadMessage
 }
 
 function tagChipStyle(color: string | null) {
-  const raw = String(color || "").trim();
-  if (!/^#[0-9a-fA-F]{6}$/.test(raw)) {
-    return { backgroundColor: "#eff6ff", color: "#1d4ed8" } as const;
-  }
-  const r = parseInt(raw.slice(1, 3), 16);
-  const g = parseInt(raw.slice(3, 5), 16);
-  const b = parseInt(raw.slice(5, 7), 16);
-  return {
-    backgroundColor: `${raw}20`,
-    color: `rgb(${Math.round(r * 0.58)}, ${Math.round(g * 0.58)}, ${Math.round(b * 0.58)})`,
-  } as const;
+  return getReadableTagPillStyle(color, { fallbackTone: "brand" });
 }
 
 function campaignStatusPillClass(kind: CampaignStatus | string) {

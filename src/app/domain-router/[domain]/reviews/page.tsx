@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import type { CSSProperties } from "react";
 
 import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
+import { buildCustomDomainMetadata, buildCustomDomainNotFoundMetadata, resolveCustomDomainBranding } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
@@ -65,15 +66,34 @@ export async function generateMetadata({
   if (!host) return {};
 
   const mapping = await resolveCustomDomain(host);
-  if (!mapping) return { title: host };
-  if (mapping.status !== "VERIFIED") return { title: "Domain pending verification" };
+  if (!mapping) return buildCustomDomainNotFoundMetadata(host);
+  if (mapping.status !== "VERIFIED") {
+    return buildCustomDomainMetadata({
+      host,
+      siteName: host,
+      title: "Domain pending verification",
+      description: "This domain is saved, but not verified yet.",
+      noIndex: true,
+    });
+  }
 
-  const profile = await prisma.businessProfile
-    .findUnique({ where: { ownerId: mapping.ownerId }, select: { businessName: true } })
-    .catch(() => null);
+  const [profile, branding, data] = await Promise.all([
+    prisma.businessProfile.findUnique({ where: { ownerId: mapping.ownerId }, select: { businessName: true } }).catch(() => null),
+    resolveCustomDomainBranding(host),
+    getReviewRequestsServiceData(mapping.ownerId).catch(() => null),
+  ]);
 
-  const name = profile?.businessName?.trim() || "Reviews";
-  return { title: `${name} | Reviews` };
+  const name = profile?.businessName?.trim() || branding.siteName || "Reviews";
+  return buildCustomDomainMetadata({
+    host,
+    siteName: branding.siteName,
+    title: `${name} | Reviews`,
+    description: data?.settings?.publicPage?.description || `Read verified customer reviews for ${name}.`,
+    imageUrl: branding.logoUrl,
+    iconUrl: branding.logoUrl,
+    path: "/reviews",
+    keywords: [`${name} reviews`, `${name} testimonials`, `${name} ratings`],
+  });
 }
 
 export default async function CustomDomainReviewsPage({

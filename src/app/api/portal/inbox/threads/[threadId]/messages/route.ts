@@ -115,7 +115,7 @@ export async function GET(
     try {
       messages = await (prisma as any).portalInboxMessage.findMany({
         where: { ownerId, threadId },
-        orderBy: { createdAt: "asc" },
+        orderBy: { createdAt: "desc" },
         take,
         select: {
           ...messageSelectBase,
@@ -137,11 +137,13 @@ export async function GET(
       const fallbackTake = Math.min(120, take);
       messages = await (prisma as any).portalInboxMessage.findMany({
         where: { ownerId, threadId },
-        orderBy: { createdAt: "asc" },
+        orderBy: { createdAt: "desc" },
         take: fallbackTake,
         select: messageSelectBase,
       });
     }
+
+    messages = Array.isArray(messages) ? [...messages].reverse() : [];
 
     // Best-effort dedupe: historically, outbound SMS could be logged twice
     // (Twilio send helper + API route). Collapse by provider message id.

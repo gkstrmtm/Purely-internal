@@ -11,6 +11,7 @@ import { IconCopy } from "@/app/portal/PortalIcons";
 import { formatUsd } from "@/lib/pricing.shared";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { BuyCreditsModal } from "@/app/portal/billing/BuyCreditsModal";
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
@@ -1052,11 +1053,7 @@ export function PortalBillingClient({
   }
 
   if (loading) {
-    return (
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-        Loading…
-      </div>
-    );
+    return <PortalPageLoadingShell sections={2} minHeightClassName="min-h-[26rem]" />;
   }
 
   if (error) {

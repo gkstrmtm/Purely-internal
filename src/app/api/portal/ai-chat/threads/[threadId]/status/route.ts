@@ -7,7 +7,17 @@ import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const PORTAL_AI_CHAT_DB_TIMEOUT_MS = 8_000;
+
+class PortalAiChatDbTimeoutError extends Error {
+  constructor(message = "Portal AI chat database request timed out") {
+    super(message);
+    this.name = "PortalAiChatDbTimeoutError";
+  }
+}
+
 function isTransientPortalAiChatDbError(error: unknown): boolean {
+  if (error instanceof PortalAiChatDbTimeoutError) return true;
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P1017" || error.code === "P2024") return true;
   }
@@ -25,6 +35,23 @@ function isTransientPortalAiChatDbError(error: unknown): boolean {
   );
 }
 
+async function withPortalAiChatDbTimeout<T>(work: Promise<T>, label?: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new PortalAiChatDbTimeoutError(label || "Portal AI chat database request timed out")),
+          PORTAL_AI_CHAT_DB_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempts?: number; delayMs?: number }): Promise<T> {
   const attempts = Math.max(1, Math.min(4, Math.floor(opts?.attempts ?? 3)));
   const delayMs = Math.max(50, Math.min(2_000, Math.floor(opts?.delayMs ?? 200)));
@@ -32,7 +59,7 @@ async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempt
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await fn();
+      return await withPortalAiChatDbTimeout(fn(), `Portal AI chat database request timed out on attempt ${attempt}`);
     } catch (error) {
       lastError = error;
       if (!isTransientPortalAiChatDbError(error) || attempt >= attempts) throw error;
@@ -49,8 +76,12 @@ function normalizeThreadContext(raw: unknown) {
     typeof ctxJson.lastCanvasUrl === "string" && ctxJson.lastCanvasUrl.trim() ? String(ctxJson.lastCanvasUrl).trim().slice(0, 1200) : null;
   const lastWorkTitle =
     typeof ctxJson.lastWorkTitle === "string" && ctxJson.lastWorkTitle.trim() ? String(ctxJson.lastWorkTitle).trim().slice(0, 200) : null;
+  const currentRunId = typeof ctxJson.currentRunId === "string" && ctxJson.currentRunId.trim() ? String(ctxJson.currentRunId).trim().slice(0, 120) : null;
   const liveStatus =
     ctxJson.liveStatus && typeof ctxJson.liveStatus === "object" && !Array.isArray(ctxJson.liveStatus)
+      && currentRunId
+      && typeof ctxJson.liveStatus.runId === "string"
+      && String(ctxJson.liveStatus.runId).trim().slice(0, 120) === currentRunId
       ? {
           phase: typeof ctxJson.liveStatus.phase === "string" ? String(ctxJson.liveStatus.phase).trim().slice(0, 80) : null,
           label: typeof ctxJson.liveStatus.label === "string" ? String(ctxJson.liveStatus.label).trim().slice(0, 200) : null,

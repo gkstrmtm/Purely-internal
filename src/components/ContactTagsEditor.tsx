@@ -9,6 +9,7 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { portalGlassButtonClass } from "@/components/portalGlass";
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
+import { getReadableTagPillStyle } from "@/lib/tagColors.shared";
 
 export type ContactTag = { id: string; name: string; color: string | null };
 
@@ -71,25 +72,11 @@ async function loadContactTagDefs(variant: string, headers: HeadersInit) {
 }
 
 function pillStyle(color: string | null) {
-  const bg = color ? `${color}20` : "#0f172a12";
-  const border = color ? `${color}40` : "#0f172a22";
-  const text = color || "#0f172a";
-  return { backgroundColor: bg, borderColor: border, color: text } as const;
+  return getReadableTagPillStyle(color, { fallbackTone: "neutral" });
 }
 
 function popupPillStyle(color: string | null) {
-  const raw = String(color || "").trim();
-  if (!/^#[0-9a-fA-F]{6}$/.test(raw)) {
-    return { backgroundColor: "#0f172a12", borderColor: "transparent", color: "#334155" } as const;
-  }
-  const r = parseInt(raw.slice(1, 3), 16);
-  const g = parseInt(raw.slice(3, 5), 16);
-  const b = parseInt(raw.slice(5, 7), 16);
-  return {
-    backgroundColor: `${raw}20`,
-    borderColor: "transparent",
-    color: `rgb(${Math.round(r * 0.58)}, ${Math.round(g * 0.58)}, ${Math.round(b * 0.58)})`,
-  } as const;
+  return getReadableTagPillStyle(color, { fallbackTone: "neutral" });
 }
 
 export function ContactTagsEditor(props: Props) {

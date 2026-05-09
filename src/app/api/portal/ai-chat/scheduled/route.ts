@@ -4,7 +4,7 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { tryParseScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
-import { getScheduledRecurrenceTimeZone, withScheduledRecurrenceMetadata } from "@/lib/portalAiChatScheduledRecurrence";
+import { getScheduledRecurrenceTimeZone } from "@/lib/portalAiChatScheduledRecurrence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,49 +46,12 @@ export async function GET(req: Request) {
     },
   });
 
-  const userIds = Array.from(new Set([
-    ownerId,
-    ...rows.map((r: any) => String(r.createdByUserId || "").trim()).filter(Boolean),
-  ])).slice(0, 300);
-  const users = userIds.length
-    ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, timeZone: true } }).catch(() => [])
-    : [];
-  const timeZoneByUserId = new Map<string, string>();
-  for (const user of users) {
-    const timeZone = typeof user.timeZone === "string" ? String(user.timeZone).trim().slice(0, 80) : "";
-    if (timeZone) timeZoneByUserId.set(String(user.id), timeZone);
-  }
-
-  await Promise.all(rows.map(async (row: any) => {
-    const repeatEveryMinutes = typeof row.repeatEveryMinutes === "number" && Number.isFinite(row.repeatEveryMinutes)
-      ? Math.max(0, Math.floor(row.repeatEveryMinutes))
-      : 0;
-    if (!repeatEveryMinutes) return;
-    if (getScheduledRecurrenceTimeZone(row.attachmentsJson)) return;
-    const recurrenceTimeZone =
-      timeZoneByUserId.get(String(row.createdByUserId || "").trim()) ||
-      timeZoneByUserId.get(ownerId) ||
-      "UTC";
-    const attachmentsJson = withScheduledRecurrenceMetadata({
-      attachmentsJson: row.attachmentsJson ?? null,
-      repeatEveryMinutes,
-      recurrenceTimeZone,
-    });
-    if (attachmentsJson === (row.attachmentsJson ?? null)) return;
-    await (prisma as any).portalAiChatMessage.update({
-      where: { id: String(row.id) },
-      data: { attachmentsJson },
-    }).catch(() => null);
-    row.attachmentsJson = attachmentsJson;
-  }));
-
-  const threadIds = Array.from(new Set(rows.map((r: any) => String(r.threadId)))).slice(0, 300);
-
+  const threadIds = Array.from(new Set(rows.map((r: any) => String(r.threadId || "").trim()).filter(Boolean))).slice(0, 300);
   const threads = threadIds.length
     ? await (prisma as any).portalAiChatThread.findMany({
         where: { ownerId, id: { in: threadIds } },
         select: { id: true, title: true, contextJson: true },
-      })
+      }).catch(() => [])
     : [];
 
   const threadMetaById = new Map<string, { title: string; contextJson: unknown }>();
@@ -169,7 +132,7 @@ export async function GET(req: Request) {
     threadTitle: threadMetaById.get(String(r.threadId))?.title || "Chat",
     displayText: toDisplayText(r.text),
     sendAt: r.sendAt ? new Date(r.sendAt).toISOString() : null,
-    recurrenceTimeZone: getScheduledRecurrenceTimeZone(r.attachmentsJson) || null,
+    recurrenceTimeZone: getScheduledRecurrenceTimeZone(r.attachmentsJson) || "UTC",
     repeatEveryMinutes:
       typeof r.repeatEveryMinutes === "number" && Number.isFinite(r.repeatEveryMinutes)
         ? Math.max(0, Math.floor(r.repeatEveryMinutes))

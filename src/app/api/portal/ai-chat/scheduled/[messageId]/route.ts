@@ -12,6 +12,7 @@ export const revalidate = 0;
 
 const PatchSchema = z
   .object({
+    text: z.string().trim().min(1).max(8000).optional(),
     sendAtIso: z.string().trim().min(1).max(64).nullable().optional(),
     repeatEveryMinutes: z.number().int().min(0).max(60 * 24 * 365).nullable().optional(),
     clientTimeZone: z.string().trim().min(1).max(80).nullable().optional(),
@@ -40,12 +41,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ messageId: st
 
   const msg = await (prisma as any).portalAiChatMessage.findFirst({
     where: { id: String(messageId), ownerId, role: "user", createdByUserId: memberId },
-    select: { id: true, sentAt: true, attachmentsJson: true, repeatEveryMinutes: true, createdByUserId: true },
+    select: { id: true, sentAt: true, text: true, attachmentsJson: true, repeatEveryMinutes: true, createdByUserId: true },
   });
   if (!msg) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   if (msg.sentAt) return NextResponse.json({ ok: false, error: "Already sent" }, { status: 409 });
 
   const data: Record<string, unknown> = {};
+
+  if ("text" in parsed.data) {
+    data.text = String(parsed.data.text || "").trim().slice(0, 8000);
+  }
 
   if ("sendAtIso" in parsed.data) {
     const iso = parsed.data.sendAtIso;

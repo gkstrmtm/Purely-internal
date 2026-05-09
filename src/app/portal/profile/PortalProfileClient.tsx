@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppModal } from "@/components/AppModal";
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import {
   PORTAL_API_KEY_PERMISSION_OPTIONS,
   type PortalApiKeyPermission,
@@ -23,7 +24,7 @@ import {
   type SalesReportingProviderKey,
 } from "@/lib/salesReportingProviders";
 import { SuggestedSetupSection } from "./SuggestedSetupSection";
-import { IconChevron, IconCopy, IconEdit, IconEyeGlyph, IconEyeOffGlyph } from "@/app/portal/PortalIcons";
+import { IconChevron, IconCopy, IconEdit, IconEyeGlyph, IconEyeOffGlyph, IconMinusGlyph, IconPlusGlyph } from "@/app/portal/PortalIcons";
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type Me = {
@@ -1321,15 +1322,13 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       ) : null}
 
       {loading ? (
-        <div
-          className={
-            embedded
-              ? "mt-6 text-sm text-zinc-600"
-              : "mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600"
-          }
-        >
-          Loading…
-        </div>
+        <PortalPageLoadingShell
+          embedded={embedded}
+          showHeader={false}
+          sections={2}
+          minHeightClassName="min-h-[24rem]"
+          className="mt-6"
+        />
       ) : (
         <div className="mt-6 space-y-4">
           {showSuggestedSetup ? <SuggestedSetupSection canEdit={canEditBusinessInfo} /> : null}
@@ -1516,7 +1515,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                           aria-label={domainComposerOpen ? "Close add domain" : "Open add domain"}
                           title={domainComposerOpen ? "Close" : "Add domain"}
                         >
-                          {domainComposerOpen ? "−" : "+"}
+                          {domainComposerOpen ? <IconMinusGlyph size={18} /> : <IconPlusGlyph size={18} />}
                         </button>
                       </div>
 

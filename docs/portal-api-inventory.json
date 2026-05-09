@@ -1,5 +1,5 @@
 {
-  "generatedAtIso": "2026-04-19T06:16:51.171Z",
+  "generatedAtIso": "2026-05-06T18:51:02.275Z",
   "routes": [
     {
       "endpoint": "/api/portal/ads/claim",
@@ -185,6 +185,7 @@
     {
       "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]",
       "methods": [
+        "DELETE",
         "PATCH"
       ],
       "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/route.ts"
@@ -195,6 +196,15 @@
         "GET"
       ],
       "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/activity/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/activity/[activityId]",
+      "methods": [
+        "DELETE",
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/activity/[activityId]/route.ts"
     },
     {
       "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/enroll-message",
@@ -237,6 +247,13 @@
         "GET"
       ],
       "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-activity/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-activity/[activityId]",
+      "methods": [
+        "DELETE"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-activity/[activityId]/route.ts"
     },
     {
       "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-knowledge-base/sync",
@@ -297,6 +314,7 @@
     {
       "endpoint": "/api/portal/ai-outbound-calls/manual-calls/[id]",
       "methods": [
+        "DELETE",
         "GET",
         "POST"
       ],
@@ -458,6 +476,13 @@
         "POST"
       ],
       "file": "src/app/api/portal/automations/test-sms/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/automations/test-trigger",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/automations/test-trigger/route.ts"
     },
     {
       "endpoint": "/api/portal/billing/billing-info",
@@ -683,6 +708,13 @@
         "POST"
       ],
       "file": "src/app/api/portal/booking/bookings/[bookingId]/reschedule/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/bootstrap",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/booking/bootstrap/route.ts"
     },
     {
       "endpoint": "/api/portal/booking/calendars",
@@ -1524,6 +1556,7 @@
     {
       "endpoint": "/api/portal/newsletter/newsletters/[newsletterId]",
       "methods": [
+        "DELETE",
         "GET",
         "PUT"
       ],
@@ -1764,6 +1797,13 @@
       "file": "src/app/api/portal/reporting/stripe/route.ts"
     },
     {
+      "endpoint": "/api/portal/reviews/[reviewId]",
+      "methods": [
+        "DELETE"
+      ],
+      "file": "src/app/api/portal/reviews/[reviewId]/route.ts"
+    },
+    {
       "endpoint": "/api/portal/reviews/archive",
       "methods": [
         "POST"
@@ -1818,6 +1858,13 @@
         "GET"
       ],
       "file": "src/app/api/portal/reviews/questions/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/questions/[questionId]",
+      "methods": [
+        "DELETE"
+      ],
+      "file": "src/app/api/portal/reviews/questions/[questionId]/route.ts"
     },
     {
       "endpoint": "/api/portal/reviews/questions/answer",

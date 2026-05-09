@@ -1,6 +1,7 @@
 import { generatePuraText as generateText } from "@/lib/puraAi";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { getDefaultHostedPagePrompt, getHostedPageDocument, getHostedPagePreviewData, updateHostedPageDocument } from "@/lib/hostedPageDocuments";
+import { shouldAskHostedPageClarifyingQuestion } from "@/lib/hostedPageTemplateIntents";
 
 type HostedPageAiAttachment = {
   url: string;
@@ -45,6 +46,22 @@ function extractAiQuestion(raw: string): string | null {
   const question = typeof (parsed as any).question === "string" ? String((parsed as any).question).trim() : "";
   if (!question) return null;
   return question.slice(0, 800);
+}
+
+function extractLooseQuestion(raw: string): string | null {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  if (/<(?:html|body|section|div|main|style)\b/i.test(text)) return null;
+
+  const unfenced = text
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+
+  if (!unfenced) return null;
+  if (unfenced.length > 800) return null;
+  return unfenced;
 }
 
 function sanitizeGeneratedHtmlLinks(html: string): string {
@@ -92,7 +109,9 @@ function extractExplicitAudienceOverride(promptRaw: string): string | null {
   const patterns = [
     /\bfor\s+(.+?)(?:,|\.|\band keep\b|\bkeep\b|\band tell\b|\btell\b|\bdo not\b|\bwithout\b|$)/i,
     /\bspeaks? directly to\s+(.+?)(?:,|\.|\band\b|$)/i,
+    /\btalks? to\s+(.+?)(?:,|\.|\band\b|$)/i,
     /\btarget(?:ed)?\s+at\s+(.+?)(?:,|\.|\band\b|$)/i,
+    /\bwritten for\s+(.+?)(?:,|\.|\band\b|$)/i,
   ];
   for (const pattern of patterns) {
     const match = prompt.match(pattern);
@@ -178,6 +197,32 @@ function buildHostedPageFallbackHtml(opts: {
   ].join("\n");
 }
 
+async function generateHostedPageClarifyingQuestion(opts: {
+  document: { service: string; title: string; pageKey: string };
+  prompt: string;
+  businessContext?: string;
+}) {
+  const system = [
+    "You write one concise clarifying question for a hosted page editor request inside Purely Automation.",
+    "Return ONLY a single ```json fenced block: { \"question\": \"...\" }.",
+    "Ask about the single most important missing direction needed before rewriting the current page.",
+    "Do not write HTML, do not explain your reasoning, and do not mention implementation details.",
+  ].join("\n");
+
+  const user = [
+    opts.businessContext ? opts.businessContext : "",
+    `Hosted page service: ${opts.document.service}`,
+    `Current page title: ${opts.document.title}`,
+    `Current page key: ${opts.document.pageKey}`,
+    `User request: ${opts.prompt}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const raw = String(await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4" })).trim();
+  return extractAiQuestion(raw) ?? extractLooseQuestion(raw);
+}
+
 export async function generateHostedPageHtml(opts: {
   ownerId: string;
   documentId: string;
@@ -207,12 +252,43 @@ export async function generateHostedPageHtml(opts: {
     || !/<section\b/i.test(effectiveCurrentHtml);
   const generatorPrompt = getDefaultHostedPagePrompt(document.service, document);
   const explicitAudienceOverride = extractExplicitAudienceOverride(prompt);
+  const shouldForceClarifyingQuestion = shouldAskHostedPageClarifyingQuestion(document.service as any, prompt);
+  const prevChat = Array.isArray(document.customChatJson) ? (document.customChatJson as any[]) : [];
+  const userMsg = { role: "user", content: prompt, at: new Date().toISOString() };
+
+  if (shouldForceClarifyingQuestion) {
+    const question = await generateHostedPageClarifyingQuestion({
+      document: { service: document.service, title: document.title, pageKey: document.pageKey },
+      prompt,
+      businessContext,
+    }).catch(() => null);
+
+    if (question) {
+      const assistantMsg = { role: "assistant", content: question, at: new Date().toISOString() };
+      const updated = await updateHostedPageDocument(ownerId, documentId, {
+        customChatJson: [...prevChat, userMsg, assistantMsg].slice(-40),
+      });
+
+      return {
+        ok: true as const,
+        question,
+        document: updated ?? document,
+        generatorPrompt,
+      };
+    }
+  }
 
   const system = [
     "You generate a single self-contained HTML document for a hosted business page inside Purely Automation.",
     "If the request is ambiguous or missing key details, ask ONE concise follow-up question instead of guessing.",
+    shouldForceClarifyingQuestion
+      ? "This specific request is too vague to safely rewrite the current page. Return ONLY a single ```json fenced block with one concise clarifying question about the exact direction the user wants. Do not return HTML for this request."
+      : null,
     "If the user explicitly gives a target audience, industry, offer, tone, or style direction, treat that as authoritative and proceed without asking them to reconfirm the same change.",
     "Do not ask whether the business context should remain the same when the prompt already clearly says what audience or style to write for.",
+    explicitAudienceOverride
+      ? `An explicit audience override is present. Replace any conflicting audience, industry, or niche references from CURRENT_HTML or prior business context with ${explicitAudienceOverride}. Do not keep the old audience anywhere in the rewritten copy.`
+      : null,
     "Return EITHER:",
     "- A single ```html fenced block containing the full HTML document, OR",
     '- A single ```json fenced block: { "question": "..." }',
@@ -222,6 +298,11 @@ export async function generateHostedPageHtml(opts: {
     "- Mobile-first, polished, premium styling with clean spacing and clear hierarchy.",
     "- Use real, usable href values. Never output javascript: links, empty hrefs, placeholder domains, or # buttons.",
     "- Prefer content tailored to the business context and service rather than generic filler copy.",
+    "- Default bias: the page should move readers toward the business's actual next step, not just inform them.",
+    "- For blog surfaces, bias toward search intent, topical authority, clear headline hierarchy, descriptive copy, and a natural business CTA.",
+    "- For reviews surfaces, bias toward trust, proof, and a clear next step with the business.",
+    "- For newsletter surfaces, bias toward subscription intent, reader trust, and a clear business-value message.",
+    previewData?.primaryUrl ? `- Use ${previewData.primaryUrl} as the primary CTA destination unless the user explicitly asks for a different destination.` : null,
     "- Keep the page compatible with hosted business pages for reviews, booking, newsletter, and blogs.",
     hasCurrentHtml
       ? "Editing mode: You will be given CURRENT_HTML. Apply the user instruction and return the FULL updated HTML document."
@@ -251,7 +332,7 @@ export async function generateHostedPageHtml(opts: {
     `Document key: ${document.pageKey}`,
     `Current editor mode: ${document.editorMode}`,
     explicitAudienceOverride
-      ? `EXPLICIT USER OVERRIDE: Target the page toward ${explicitAudienceOverride}. Treat this as the new audience/context for this request and do not ask the user to reconfirm it.`
+      ? `EXPLICIT USER OVERRIDE: Target the page toward ${explicitAudienceOverride}. Treat this as the new audience/context for this request, do not ask the user to reconfirm it, do not substitute a different audience from prior business context, and replace any conflicting audience references that already exist in the current HTML.`
       : "",
     hasCurrentHtml ? ["CURRENT_HTML:", "```html", clampText(effectiveCurrentHtml, 24000), "```", ""].join("\n") : "",
     prompt,
@@ -305,10 +386,7 @@ export async function generateHostedPageHtml(opts: {
       question: null,
     };
   }
-  const question = extractAiQuestion(aiRaw);
-
-  const prevChat = Array.isArray(document.customChatJson) ? (document.customChatJson as any[]) : [];
-  const userMsg = { role: "user", content: prompt, at: new Date().toISOString() };
+  const question = extractAiQuestion(aiRaw) ?? extractLooseQuestion(aiRaw);
 
   if (question) {
     const assistantMsg = { role: "assistant", content: question, at: new Date().toISOString() };

@@ -22,6 +22,7 @@ import {
 import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
@@ -1194,9 +1195,7 @@ export function PortalBlogsClient({
     return (
       <div className="mx-auto w-full max-w-6xl">
         <PortalBackToOnboardingLink />
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-          Loading blogs…
-        </div>
+        <PortalPageLoadingShell sections={2} minHeightClassName="min-h-[28rem]" className="px-0 sm:px-0" />
       </div>
     );
   }

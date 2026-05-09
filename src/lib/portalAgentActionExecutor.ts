@@ -15,6 +15,7 @@ import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { groupPortalServices } from "@/app/portal/services/categories";
 import { prisma } from "@/lib/db";
 import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
+import { refreshAiOutboundEnrollmentArtifacts } from "@/lib/portalAiOutboundEnrollmentArtifacts";
 import { parseCsv } from "@/lib/csv";
 import { findPlaceholderIdPaths, looksLikePlaceholderId, sanitizeIdLikeObjectDeep } from "@/lib/agentIdSanitizer";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
@@ -30,7 +31,7 @@ import {
 import { hasPortalServiceCapability, normalizePortalPermissions, type PortalServiceCapability } from "@/lib/portalPermissions";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
 import { PortalAgentActionArgsSchemaByKey, type PortalAgentActionKey } from "@/lib/portalAgentActions";
-import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction } from "@/lib/portalAgentActionMeta";
+import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction, portalInboxUiUrl } from "@/lib/portalAgentActionMeta";
 import { resolvePlanArgs } from "@/lib/puraResolver";
 import { addCredits, addCreditsTx, consumeCredits, consumeCreditsOnce, getCreditsLifecycleForOwner, getCreditsState, setAutoTopUp } from "@/lib/credits";
 import { recordThresholdMeterUsage } from "@/lib/creditsMetering";
@@ -179,6 +180,7 @@ import {
   createFunnelPageBlockSnapshotUpdate,
   createFunnelPageDraftUpdate,
   createFunnelPageMirroredHtmlUpdate,
+  createFunnelPagePublishUpdate,
   getFunnelPageCurrentHtml,
 } from "@/lib/funnelPageState";
 import {
@@ -238,6 +240,7 @@ import { clampSalesRangeKey, getSalesReportForOwner } from "@/lib/salesReporting
 import { validateSalesCredentials, type ConnectCredentialsInput } from "@/lib/salesReportingReport.server";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 import { getOrCreatePortalReferralCode, getPortalReferralStats, rotatePortalReferralCode } from "@/lib/portalReferrals.server";
+import { normalizeLeadScrapeRunId, requestLeadScrapeRunCancellation } from "@/lib/leadScrapeRunControl";
 import { normalizePortalAiChatRunRecord } from "@/lib/portalAiChatRunLedger";
 import { buildSuggestedSetupPreviewForOwner } from "@/lib/suggestedSetup/server";
 import { applySuggestedSetupActions } from "@/lib/suggestedSetup/executor";
@@ -788,9 +791,26 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       return args;
     }
 
+    case "ai_outbound_calls.campaigns.delete": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign", "id"]);
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      return args;
+    }
+
     case "ai_outbound_calls.campaigns.activity.get": {
       const campaignId = pickFirstDefined(args, ["campaignId", "campaign", "id"]);
       if (campaignId !== undefined) args.campaignId = campaignId;
+      return args;
+    }
+
+    case "ai_outbound_calls.campaigns.activity_item.get":
+    case "ai_outbound_calls.campaigns.activity_item.retry":
+    case "ai_outbound_calls.campaigns.activity_item.delete":
+    case "ai_outbound_calls.campaigns.messages_activity_item.delete": {
+      const campaignId = pickFirstDefined(args, ["campaignId", "campaign", "id"]);
+      const activityId = pickFirstDefined(args, ["activityId", "activity", "itemId", "enrollmentId", "messageEnrollmentId"]);
+      if (campaignId !== undefined) args.campaignId = campaignId;
+      if (activityId !== undefined) args.activityId = activityId;
       return args;
     }
 
@@ -819,7 +839,8 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
     }
 
     case "ai_outbound_calls.manual_calls.get":
-    case "ai_outbound_calls.manual_calls.refresh": {
+    case "ai_outbound_calls.manual_calls.refresh":
+    case "ai_outbound_calls.manual_calls.delete": {
       const id = pickFirstDefined(args, ["id", "manualCallId", "call", "callId"]);
       const reconcileTwilio = normalizeLooseBoolean(pickFirstDefined(args, ["reconcileTwilio", "reconcile", "refresh"]));
       if (id !== undefined) args.id = id;
@@ -1129,6 +1150,7 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       return args;
     }
 
+    case "lead_scraping.assignees.list":
     case "lead_scraping.settings.get":
     case "lead_scraping.cron.run": {
       return args;
@@ -1220,6 +1242,24 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
             : {}),
         };
       }
+      return args;
+    }
+
+    case "lead_scraping.backfill_map": {
+      const leadIds = pickFirstDefined(args, ["leadIds", "ids", "leads"]);
+      if (leadIds !== undefined) args.leadIds = Array.isArray(leadIds) ? leadIds : splitLooseStringList(leadIds);
+      return args;
+    }
+
+    case "lead_scraping.location_suggestions.list": {
+      const q = pickFirstDefined(args, ["q", "query", "search", "text", "location"]);
+      if (q !== undefined) args.q = q;
+      return args;
+    }
+
+    case "lead_scraping.run.cancel": {
+      const runId = pickFirstDefined(args, ["runId", "id", "jobId"]);
+      if (runId !== undefined) args.runId = runId;
       return args;
     }
 
@@ -1396,6 +1436,24 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       return args;
     }
 
+    case "automations.test_trigger": {
+      const automationId = pickFirstDefined(args, ["automationId", "automation", "workflowId", "workflow", "flowId", "flow", "id"]);
+      const triggerKind = pickFirstDefined(args, ["triggerKind", "trigger", "eventKind", "kind"]);
+      const from = pickFirstDefined(args, ["from", "phone", "contactPhone", "sender", "number", "email"]);
+      const body = pickFirstDefined(args, ["body", "message", "text", "sms"]);
+      const nowIso = pickFirstDefined(args, ["nowIso", "timestamp", "at"]);
+      const contact = pickFirstDefined(args, ["contact"]);
+      const event = pickFirstDefined(args, ["event", "payload"]);
+      if (automationId !== undefined) args.automationId = automationId;
+      if (triggerKind !== undefined) args.triggerKind = triggerKind;
+      if (from !== undefined) args.from = from;
+      if (body !== undefined) args.body = body;
+      if (nowIso !== undefined) args.nowIso = nowIso;
+      if (contact !== undefined) args.contact = contact;
+      if (event !== undefined) args.event = event;
+      return args;
+    }
+
     case "contacts.list": {
       const q = pickFirstDefined(args, ["q", "query", "search", "text", "name", "contact"]);
       const limit = pickFirstDefined(args, ["limit", "take", "count"]);
@@ -1415,6 +1473,12 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       if (assigned !== undefined) args.assigned = assigned;
       if (assignee !== undefined) args.assignee = assignee;
       if (limit !== undefined) args.limit = limit;
+      return args;
+    }
+
+    case "tasks.delete": {
+      const taskId = pickFirstDefined(args, ["taskId", "task", "id"]);
+      if (taskId !== undefined) args.taskId = taskId;
       return args;
     }
 
@@ -1481,6 +1545,12 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       return args;
     }
 
+    case "reviews.delete": {
+      const reviewId = pickFirstDefined(args, ["reviewId", "review", "id"]);
+      if (reviewId !== undefined) args.reviewId = reviewId;
+      return args;
+    }
+
     case "inbox.threads.list": {
       const channel = pickFirstDefined(args, ["channel", "type"]);
       const q = pickFirstDefined(args, ["q", "query", "search", "text", "name", "contact", "phone", "email", "subject"]);
@@ -1524,6 +1594,12 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       const answer = pickFirstDefined(args, ["answer", "response", "text"]);
       if (questionId !== undefined) args.id = questionId;
       if (answer !== undefined) args.answer = answer;
+      return args;
+    }
+
+    case "reviews.questions.delete": {
+      const questionId = pickFirstDefined(args, ["questionId", "question", "reviewQuestionId", "id"]);
+      if (questionId !== undefined) args.questionId = questionId;
       return args;
     }
 
@@ -1941,6 +2017,7 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       return args;
     }
 
+    case "newsletter.newsletters.delete":
     case "newsletter.newsletters.update": {
       const newsletterId = pickFirstDefined(args, [
         "newsletterId",
@@ -1974,6 +2051,12 @@ function normalizePortalAgentActionArgs(action: PortalAgentActionKey, input: Rec
       if (take !== undefined) args.take = take;
       if (ids !== undefined) args.ids = Array.isArray(ids) ? ids : splitLooseStringList(ids);
       if (q !== undefined) args.q = q;
+      return args;
+    }
+
+    case "newsletter.audience.contacts.add": {
+      const contactIds = pickFirstDefined(args, ["contactIds", "ids", "contacts"]);
+      if (contactIds !== undefined) args.contactIds = Array.isArray(contactIds) ? contactIds : splitLooseStringList(contactIds);
       return args;
     }
 
@@ -2199,6 +2282,136 @@ function stripAssistantVisibleAccountingFields(value: unknown): unknown {
   return walk(value, 6);
 }
 
+function sanitizeAssistantVisibleResult(action: PortalAgentActionKey, value: unknown): unknown {
+  const base = stripAssistantVisibleAccountingFields(value);
+  if (!base || typeof base !== "object" || Array.isArray(base)) return base;
+
+  const result = base as Record<string, unknown>;
+  const lowSignalLabelPattern = /\b(?:qa|test|testing|demo|sweep|phase\s+\d+)\b/i;
+
+  const preferUserFacingTitles = (rows: Record<string, unknown>[]) => {
+    const mapped = rows
+      .map((row) => {
+        const title = String(row?.title || "").trim();
+        if (!title) return null;
+        return {
+          title,
+          lowSignal: lowSignalLabelPattern.test(title),
+        };
+      })
+      .filter(Boolean) as Array<{ title: string; lowSignal: boolean }>;
+    const preferred = mapped.some((item) => !item.lowSignal) ? mapped.filter((item) => !item.lowSignal) : mapped;
+    const seen = new Set<string>();
+    return preferred.filter((item) => {
+      const key = item.title.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  if (action === "ai_chat.threads.list") {
+    const threads = Array.isArray(result.threads) ? (result.threads as Record<string, unknown>[]) : [];
+    const preferred = threads
+      .map((thread) => {
+        const title = String(thread?.title || "").trim();
+        if (!title || lowSignalLabelPattern.test(title)) return null;
+        return { title };
+      })
+      .filter(Boolean) as Array<{ title: string }>;
+    return {
+      ...result,
+      totalThreads: threads.length,
+      threads: preferred.map((thread) => ({ title: thread.title })),
+    };
+  }
+
+  if (action === "ai_chat.threads.status.list") {
+    const threads = Array.isArray(result.threads) ? (result.threads as Record<string, unknown>[]) : [];
+    const preferred = preferUserFacingTitles(threads);
+    return {
+      ...result,
+      totalThreads: threads.length,
+      threads: preferred.map((thread) => {
+        const original = threads.find((candidate) => String(candidate?.title || "").trim() === thread.title) || null;
+        return {
+          title: thread.title,
+          status: original?.status ?? null,
+          pinned: original?.pinned ?? null,
+        };
+      }),
+    };
+  }
+
+  if (action === "media.list.get") {
+    const folders = Array.isArray(result.folders) ? (result.folders as Record<string, unknown>[]) : [];
+    const items = Array.isArray(result.items) ? (result.items as Record<string, unknown>[]) : [];
+    return {
+      ...result,
+      folder: result.folder && typeof result.folder === "object" && !Array.isArray(result.folder)
+        ? { name: (result.folder as any).name ?? null, color: (result.folder as any).color ?? null }
+        : null,
+      breadcrumbs: Array.isArray(result.breadcrumbs)
+        ? (result.breadcrumbs as Record<string, unknown>[]).map((crumb) => ({ name: crumb?.name ?? null, color: crumb?.color ?? null }))
+        : [],
+      folders: folders.map((folder) => ({ name: folder?.name ?? null, color: folder?.color ?? null })),
+      items: items.map((item) => ({ fileName: item?.fileName ?? null, mimeType: item?.mimeType ?? null, fileSize: item?.fileSize ?? null })),
+    };
+  }
+
+  if (action === "tasks.assignees.list") {
+    const members = Array.isArray(result.members) ? (result.members as Record<string, unknown>[]) : [];
+    return {
+      ...result,
+      members: members.map((member) => ({
+        role: member?.role ?? null,
+        implicit: member?.implicit ?? null,
+        user: member?.user && typeof member.user === "object" && !Array.isArray(member.user)
+          ? {
+              name: (member.user as any).name ?? null,
+              email: (member.user as any).email ?? null,
+              active: (member.user as any).active ?? null,
+            }
+          : null,
+      })),
+    };
+  }
+
+  if (action === "credit.contacts.list") {
+    const contacts = Array.isArray(result.contacts) ? (result.contacts as Record<string, unknown>[]) : [];
+    const ordered = [...contacts].sort((a, b) => {
+      const aLabel = String(a?.name || a?.email || a?.phone || "");
+      const bLabel = String(b?.name || b?.email || b?.phone || "");
+      const aLow = lowSignalLabelPattern.test(aLabel) ? 1 : 0;
+      const bLow = lowSignalLabelPattern.test(bLabel) ? 1 : 0;
+      if (aLow !== bLow) return aLow - bLow;
+      const aRich = (String(a?.email || "").trim() ? 2 : 0) + (String(a?.phone || "").trim() ? 1 : 0);
+      const bRich = (String(b?.email || "").trim() ? 2 : 0) + (String(b?.phone || "").trim() ? 1 : 0);
+      return bRich - aRich;
+    });
+    return {
+      ...result,
+      contacts: ordered.map((contact) => ({ name: contact?.name ?? null, email: contact?.email ?? null, phone: contact?.phone ?? null })),
+    };
+  }
+
+  if (action === "ai_outbound_calls.manual_calls.list") {
+    const calls = Array.isArray(result.manualCalls) ? (result.manualCalls as Record<string, unknown>[]) : [];
+    return {
+      ...result,
+      manualCalls: calls.map((call) => ({
+        toNumberE164: call?.toNumberE164 ?? null,
+        status: call?.status ?? null,
+        recordingDurationSec: call?.recordingDurationSec ?? null,
+        createdAtIso: call?.createdAtIso ?? null,
+        updatedAtIso: call?.updatedAtIso ?? null,
+      })),
+    };
+  }
+
+  return base;
+}
+
 function sanitizeThreadContextPatch(patch: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) return null;
   const sanitized = sanitizeIdLikeObjectDeep(patch);
@@ -2367,10 +2580,24 @@ function rejectIfPlaceholderIdsPresent(action: PortalAgentActionKey, args: Recor
 }
 
 function deriveLinkUrlForAction(action: PortalAgentActionKey, json: any, args?: Record<string, unknown>): string | undefined {
+  if (action === "inbox.send_email") {
+    const threadId = String(json?.threadId || args?.threadId || "").trim();
+    if (threadId) {
+      return portalInboxUiUrl({ channel: "email", threadId, compose: false });
+    }
+  }
+
+  if (action === "inbox.send_sms") {
+    const threadId = String(json?.threadId || args?.threadId || "").trim();
+    if (threadId) {
+      return portalInboxUiUrl({ channel: "sms", threadId, compose: false });
+    }
+  }
+
   const linkUrl = typeof json?.linkUrl === "string" ? String(json.linkUrl).trim() : "";
   if (linkUrl) return linkUrl;
 
-  if (action === "tasks.create" || action === "tasks.update" || action === "tasks.list") return "/portal/app/tasks";
+  if (action === "tasks.create" || action === "tasks.bulk_create" || action === "tasks.update" || action === "tasks.list") return "/portal/app/tasks";
 
   if (action === "funnel.create" && json?.funnel?.id) {
     const id = String(json.funnel.id).trim();
@@ -2449,6 +2676,1583 @@ async function generateAssistantTextForActionResult(opts: {
   linkUrl?: string | null;
   clientUiAction?: any;
 }): Promise<string> {
+  function pluralize(value: number, singular: string, plural = `${singular}s`) {
+    return `${value} ${value === 1 ? singular : plural}`;
+  }
+
+  function trimSentence(value: unknown, maxLen: number) {
+    return String(value || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, maxLen)
+      .replace(/[\s.,;:!?-]+$/g, "")
+      .trim();
+  }
+
+  function trimSentencePreserveTerminalPunctuation(value: unknown, maxLen: number) {
+    const raw = String(value || "").replace(/\s+/g, " ").trim();
+    if (!raw) return "";
+    const sliced = raw.slice(0, maxLen).trim();
+    const punctuationMatch = sliced.match(/([.!?])["'`)\]]*\s*$/);
+    const normalized = sliced.replace(/[\s.,;:!?-]+$/g, "").trim();
+    if (!normalized) return "";
+    if (punctuationMatch?.[1]) return `${normalized}${punctuationMatch[1]}`;
+    return /[A-Za-z0-9]$/.test(normalized) ? `${normalized}.` : normalized;
+  }
+
+  function formatDelay(delay: unknown): string | null {
+    if (!delay || typeof delay !== "object" || Array.isArray(delay)) return null;
+    const value = Number((delay as any).value);
+    const unit = String((delay as any).unit || "").trim().toLowerCase();
+    if (!Number.isFinite(value) || value < 0) return null;
+    if (unit === "weeks") return `${pluralize(value, "week")} after an appointment`;
+    if (unit === "days") return `${pluralize(value, "day")} after an appointment`;
+    if (unit === "hours") return `${pluralize(value, "hour")} after an appointment`;
+    if (unit === "minutes") return `${pluralize(value, "minute")} after an appointment`;
+    return null;
+  }
+
+  function formatDelayMinutes(delayMinutes: unknown): string | null {
+    const value = Number(delayMinutes);
+    if (!Number.isFinite(value) || value < 0) return null;
+    if (value % (7 * 24 * 60) === 0) return `${pluralize(value / (7 * 24 * 60), "week")} after an appointment`;
+    if (value % (24 * 60) === 0) return `${pluralize(value / (24 * 60), "day")} after an appointment`;
+    if (value % 60 === 0) return `${pluralize(value / 60, "hour")} after an appointment`;
+    return `${pluralize(value, "minute")} after an appointment`;
+  }
+
+  function buildDeterministicAssistantText(): string | null {
+    if (!opts.ok || opts.status < 200 || opts.status >= 300) return null;
+    const result = opts.result && typeof opts.result === "object" ? (opts.result as Record<string, unknown>) : null;
+    const isLowSignalSummaryLabel = (value: unknown) => {
+      const label = trimSentence(value, 160);
+      if (!label) return true;
+      if (/\b(?:qa|test|testing|demo|sweep|phase\s+\d+|matrix|pass)\b/i.test(label)) return true;
+      if (/\b\d{8,}\b/.test(label)) return true;
+      if (/^pura scheduled[_\s-]/i.test(label)) return true;
+      if (/^qa[-_]/i.test(label)) return true;
+      if (/^portal-media-/i.test(label)) return true;
+      if (/^(?:new campaign|untitled|sample|draft)\b/i.test(label)) return true;
+      return false;
+    };
+
+    function formatMoneyFromCents(cents: unknown, currencyRaw: unknown): string | null {
+      const amount = Number(cents);
+      if (!Number.isFinite(amount)) return null;
+      const currency = String(currencyRaw || "usd").trim().toUpperCase() || "USD";
+      return `${currency} ${(amount / 100).toFixed(2)}`;
+    }
+
+    if (String(opts.action) === "tasks.list") {
+      const tasks = Array.isArray(result?.tasks) ? (result?.tasks as Record<string, unknown>[]) : [];
+      if (!tasks.length) return "There are no tasks in your list right now.";
+      const openTasks = tasks.filter((task) => String(task?.status || "").trim().toUpperCase() !== "DONE");
+      const examples = openTasks
+        .map((task) => {
+          const title = trimSentence(task?.title, 120);
+          if (!title || isLowSignalSummaryLabel(title)) return "";
+          const dueAt = trimSentence(task?.dueAt || task?.dueDate, 80);
+          if (dueAt) {
+            const parsed = new Date(dueAt);
+            if (Number.isFinite(parsed.getTime())) {
+              return `${title}, due ${parsed.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
+            }
+          }
+          return title;
+        })
+        .filter(Boolean)
+        .slice(0, 2);
+      const pieces = [
+        `You have ${pluralize(openTasks.length || tasks.length, "open task")} right now.`,
+      ];
+      if (examples.length) pieces.push(`Notable ones include ${examples.map((item) => `"${item}"`).join(" and ")}.`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "tasks.assignees.list") {
+      const members = Array.isArray(result?.members) ? (result?.members as Record<string, unknown>[]) : [];
+      if (!members.length) return "There are no task assignees available right now.";
+      const owners = members.filter((member) => String(member?.role || "").trim().toUpperCase() === "OWNER");
+      const admins = members.filter((member) => String(member?.role || "").trim().toUpperCase() === "ADMIN");
+      const memberCount = members.filter((member) => String(member?.role || "").trim().toUpperCase() === "MEMBER").length;
+      const ownerName = trimSentence((owners[0]?.user as any)?.name || (owners[0]?.user as any)?.email, 120);
+      const adminName = trimSentence((admins[0]?.user as any)?.name || (admins[0]?.user as any)?.email, 120);
+      const pieces = [`You have ${pluralize(members.length, "task assignee")} available.`];
+      if (ownerName) pieces.push(`The owner is ${ownerName}.`);
+      if (adminName) pieces.push(`The admin is ${adminName}.`);
+      if (memberCount > 0) pieces.push(`There ${memberCount === 1 ? "is" : "are"} also ${pluralize(memberCount, "member")}.`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "nurture.campaigns.list") {
+      const campaigns = Array.isArray(result?.campaigns) ? (result?.campaigns as Record<string, unknown>[]) : [];
+      if (!campaigns.length) return "There are no nurture campaigns right now.";
+      const names = campaigns.map((campaign) => trimSentence(campaign?.name, 100)).filter(Boolean);
+      const distinct = Array.from(new Set(names.map((name) => name.toLowerCase()))).map((key) => names.find((name) => name.toLowerCase() === key) || "").filter(Boolean);
+      const allDraft = campaigns.every((campaign) => String(campaign?.status || "").trim().toUpperCase() === "DRAFT");
+      const stepCounts = campaigns.map((campaign) => Number(campaign?.stepCount)).filter((value) => Number.isFinite(value));
+      const commonStepCount = stepCounts.length && stepCounts.every((value) => value === stepCounts[0]) ? stepCounts[0] : null;
+      const pieces = [
+        `You have ${pluralize(campaigns.length, "nurture campaign")} ${allDraft ? "in draft status" : "saved"}.`,
+      ];
+      if (distinct.length === 1) pieces.push(`They are all named "${distinct[0]}".`);
+      else if (distinct.length > 1) pieces.push(`Examples include ${distinct.slice(0, 3).map((item) => `"${item}"`).join(", ")}.`);
+      if (commonStepCount !== null) pieces.push(`Each campaign has ${pluralize(commonStepCount, "step")}.`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "ai_outbound_calls.campaigns.list") {
+      const campaigns = Array.isArray(result?.campaigns) ? (result?.campaigns as Record<string, unknown>[]) : [];
+      if (!campaigns.length) return "There are no AI outbound campaigns right now.";
+      const active = campaigns.filter((campaign) => String(campaign?.status || "").trim().toUpperCase() === "ACTIVE");
+      const draft = campaigns.filter((campaign) => String(campaign?.status || "").trim().toUpperCase() === "DRAFT");
+      const activeNames = active.map((campaign) => trimSentence(campaign?.name, 100)).filter(Boolean).slice(0, 4);
+      const draftNames = draft.map((campaign) => trimSentence(campaign?.name, 100)).filter(Boolean).slice(0, 2);
+      const pieces = [`You have ${pluralize(campaigns.length, "AI outbound campaign")}.`];
+      if (active.length) pieces.push(`${pluralize(active.length, "campaign")} ${active.length === 1 ? "is" : "are"} active${activeNames.length ? `, including ${activeNames.map((item) => `"${item}"`).join(", ")}` : ""}.`);
+      if (draft.length) pieces.push(`${pluralize(draft.length, "campaign")} ${draft.length === 1 ? "is" : "are"} still in draft${draftNames.length ? `, including ${draftNames.map((item) => `"${item}"`).join(", ")}` : ""}.`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "ai_outbound_calls.manual_calls.list") {
+      const calls = Array.isArray(result?.manualCalls) ? (result?.manualCalls as Record<string, unknown>[]) : [];
+      if (!calls.length) return "There are no manual outbound calls right now.";
+      const completed = calls.filter((call) => String(call?.status || "").trim().toUpperCase() === "COMPLETED");
+      const durations = completed.map((call) => Number(call?.recordingDurationSec)).filter((value) => Number.isFinite(value));
+      const numbers = Array.from(new Set(completed.map((call) => trimSentence(call?.toNumberE164, 40)).filter(Boolean)));
+      const pieces = [`You have ${pluralize(completed.length || calls.length, "completed manual outbound call")} right now.`];
+      if (numbers.length === 1) pieces.push(`They all went to ${numbers[0]}.`);
+      else if (numbers.length > 1) pieces.push(`Recent destination numbers include ${numbers.slice(0, 3).join(", ")}.`);
+      if (durations.length) pieces.push(`Recorded durations range from ${Math.min(...durations)} to ${Math.max(...durations)} seconds.`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "ai_chat.threads.list") {
+      const totalThreads = Number(result?.totalThreads);
+      if (Number.isFinite(totalThreads) && totalThreads > 0) return `There are currently ${totalThreads} AI chat threads available.`;
+      const threads = Array.isArray(result?.threads) ? (result?.threads as Record<string, unknown>[]) : [];
+      if (!threads.length) return "There are no AI chat threads right now.";
+      return `There are currently ${threads.length} AI chat threads available.`;
+    }
+
+    if (opts.action === "ai_chat.threads.status.list") {
+      const threads = Array.isArray(result?.threads) ? (result?.threads as Record<string, unknown>[]) : [];
+      const totalThreads = Number(result?.totalThreads);
+      if (!threads.length) {
+        if (Number.isFinite(totalThreads) && totalThreads > 0) return `You have ${totalThreads} chat threads right now.`;
+        return "There are no AI chat thread statuses to show right now.";
+      }
+      const active = threads.filter((thread) => {
+        const status = String(thread?.status || "").trim().toUpperCase();
+        return status === "RUNNING" || status === "PENDING" || status === "QUEUED" || thread?.pinned === true;
+      });
+      const title = trimSentence(active[0]?.title || threads[0]?.title, 120);
+      const status = trimSentence(active[0]?.status || threads[0]?.status, 40)?.toLowerCase();
+      const pieces = [Number.isFinite(totalThreads) && totalThreads > 0 ? `You have ${totalThreads} chat threads right now.` : `You have ${pluralize(threads.length, "chat thread")} right now.`];
+      if (title && status) pieces.push(`One active example is "${title}", which is ${status}.`);
+      else if (title) pieces.push(`One active example is "${title}".`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "ai_chat.scheduled.list") {
+      const scheduled = Array.isArray(result?.scheduled) ? (result?.scheduled as Record<string, unknown>[]) : [];
+      if (!scheduled.length) return "There are no scheduled AI chat reminders right now.";
+      const repeatingCount = scheduled.filter((item) => Number(item?.repeatEveryMinutes) > 0).length;
+      const examples = scheduled
+        .map((item) => trimSentence(item?.threadTitle || item?.text, 120))
+        .filter((item) => item && !isLowSignalSummaryLabel(item))
+        .slice(0, 2);
+      const pieces = [`You have ${pluralize(scheduled.length, "scheduled AI chat reminder")}.`];
+      if (repeatingCount) pieces.push(`${pluralize(repeatingCount, "reminder")} repeat automatically.`);
+      if (examples.length) pieces.push(`Upcoming reminders include ${examples.map((item) => `"${item}"`).join(" and ")}.`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "credit.contacts.list") {
+      const contacts = Array.isArray(result?.contacts) ? (result?.contacts as Record<string, unknown>[]) : [];
+      if (!contacts.length) return "There are no credit contacts right now.";
+      const examples = contacts.slice(0, 3).map((contact) => {
+        const name = trimSentence(contact?.name, 100);
+        const email = trimSentence(contact?.email, 120);
+        const phone = trimSentence(contact?.phone, 40);
+        if (name && email && phone) return `${name} (${email}, ${phone})`;
+        if (name && email) return `${name} (${email})`;
+        if (name && phone) return `${name} (${phone})`;
+        return name || email || phone || "";
+      }).filter(Boolean);
+      return examples.length
+        ? `You have ${pluralize(contacts.length, "credit contact")}. Examples include ${examples.join(", ")}.`
+        : `You have ${pluralize(contacts.length, "credit contact")}.`;
+    }
+
+    if (opts.action === "credit.pulls.list") {
+      const pulls = Array.isArray(result?.pulls) ? (result?.pulls as Record<string, unknown>[]) : [];
+      return pulls.length ? `You have ${pluralize(pulls.length, "credit pull")} right now.` : "There are currently no credit pulls available.";
+    }
+
+    if (opts.action === "credit.reports.list") {
+      const reports = Array.isArray(result?.reports) ? (result?.reports as Record<string, unknown>[]) : [];
+      return reports.length ? `You have ${pluralize(reports.length, "credit report")} right now.` : "There are currently no credit reports available.";
+    }
+
+    if (opts.action === "credit.disputes.letters.list") {
+      const letters = Array.isArray(result?.letters) ? (result?.letters as Record<string, unknown>[]) : [];
+      return letters.length ? `You have ${pluralize(letters.length, "credit dispute letter")} right now.` : "There are currently no credit dispute letters available.";
+    }
+
+    if (opts.action === "media.list.get") {
+      const folders = Array.isArray(result?.folders) ? (result?.folders as Record<string, unknown>[]) : [];
+      const items = Array.isArray(result?.items) ? (result?.items as Record<string, unknown>[]) : [];
+      if (!folders.length && !items.length) return "Your media library is empty right now.";
+      const folderExamples = folders.slice(0, 3).map((folder) => trimSentence(folder?.name, 100)).filter(Boolean);
+      const itemExamples = items
+        .map((item) => trimSentence(item?.fileName, 120))
+        .filter((item) => item && !isLowSignalSummaryLabel(item))
+        .slice(0, 3);
+      const pieces = [`You have ${pluralize(folders.length, "folder")} and ${pluralize(items.length, "item")} in your media library.`];
+      if (folderExamples.length) pieces.push(`Notable folders include ${folderExamples.map((item) => `"${item}"`).join(", ")}.`);
+      if (itemExamples.length) pieces.push(`Examples of the files include ${itemExamples.map((item) => `"${item}"`).join(", ")}.`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "reviews.settings.get" || opts.action === "reviews.settings.update") {
+      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
+        ? (result.settings as Record<string, unknown>)
+        : null;
+      if (!settings) return null;
+      const enabled = Boolean(settings.enabled);
+      const delayText = formatDelay(settings.sendAfter);
+      const templatePreview = trimSentence(settings.messageTemplate, 140);
+      const destinationsCount = Array.isArray(settings.destinations) ? settings.destinations.length : 0;
+
+      if (!enabled) {
+        return opts.action === "reviews.settings.update"
+          ? "I turned review requests off."
+          : "Review requests are off right now.";
+      }
+
+      const start = opts.action === "reviews.settings.update"
+        ? "I turned review requests on"
+        : "Review requests are on";
+      const pieces = [delayText ? `${start} and they send ${delayText}` : start];
+      pieces.push(
+        destinationsCount > 0
+          ? `You have ${pluralize(destinationsCount, "review destination")} configured.`
+          : "No review destination is configured yet.",
+      );
+      if (templatePreview) pieces.push(`The message starts "${templatePreview}".`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "follow_up.settings.get" || opts.action === "follow_up.settings.update") {
+      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
+        ? (result.settings as Record<string, unknown>)
+        : null;
+      if (!settings) return null;
+      const enabled = Boolean(settings.enabled);
+      const assignments = settings.assignments && typeof settings.assignments === "object" && !Array.isArray(settings.assignments)
+        ? (settings.assignments as Record<string, unknown>)
+        : null;
+      const defaultSteps = Array.isArray(assignments?.defaultSteps) ? (assignments?.defaultSteps as unknown[]) : [];
+      const firstStep = defaultSteps[0] && typeof defaultSteps[0] === "object" && !Array.isArray(defaultSteps[0])
+        ? (defaultSteps[0] as Record<string, unknown>)
+        : null;
+      const stepCount = defaultSteps.length;
+      const kind = String(firstStep?.kind || "").trim().toUpperCase();
+      const delayText = formatDelayMinutes(firstStep?.delayMinutes);
+      const bodyPreview = kind === "EMAIL"
+        ? trimSentence((firstStep?.email as any)?.bodyTemplate, 120)
+        : trimSentence((firstStep?.sms as any)?.bodyTemplate, 120);
+
+      if (!enabled) {
+        return opts.action === "follow_up.settings.update"
+          ? "I turned follow-up automation off."
+          : "Follow-up automation is off right now.";
+      }
+
+      if (!stepCount) {
+        return opts.action === "follow_up.settings.update"
+          ? "I turned follow-up automation on, but there are no default steps configured yet."
+          : "Follow-up automation is on, but there are no default steps configured yet.";
+      }
+
+      const start = opts.action === "follow_up.settings.update"
+        ? `I turned follow-up automation on with ${pluralize(stepCount, "default step")}`
+        : `Follow-up automation is on with ${pluralize(stepCount, "default step")}`;
+      const stepParts = [kind ? `The first step is ${kind}.` : ""];
+      if (delayText) stepParts.push(`It runs ${delayText}.`);
+      if (bodyPreview) stepParts.push(`The message starts "${bodyPreview}".`);
+      return `${start}. ${stepParts.filter(Boolean).join(" ")}`.trim();
+    }
+
+    if (opts.action === "inbox.settings.get" || opts.action === "inbox.settings.update") {
+      const mailbox = result?.mailbox && typeof result.mailbox === "object" && !Array.isArray(result.mailbox)
+        ? (result.mailbox as Record<string, unknown>)
+        : null;
+      const twilio = result?.twilio && typeof result.twilio === "object" && !Array.isArray(result.twilio)
+        ? (result.twilio as Record<string, unknown>)
+        : null;
+      const mailboxAddress = typeof mailbox?.emailAddress === "string" ? mailbox.emailAddress.trim() : "";
+      const twilioConfigured = Boolean(twilio?.configured);
+      const fromNumber = typeof twilio?.fromNumberE164 === "string" ? twilio.fromNumberE164.trim() : "";
+      const webhookReady = typeof (result?.settings as any)?.webhookToken === "string" && String((result?.settings as any)?.webhookToken).trim().length >= 12;
+
+      if (opts.action === "inbox.settings.update") {
+        return "I regenerated your inbox webhook token.";
+      }
+
+      const pieces = [
+        mailboxAddress ? `Your inbox mailbox is ${mailboxAddress}.` : "Your inbox mailbox is ready.",
+        twilioConfigured
+          ? fromNumber
+            ? `Twilio SMS is connected from ${fromNumber}.`
+            : "Twilio SMS is connected."
+          : "Twilio SMS is not connected yet.",
+        webhookReady ? "The inbound webhook token is in place." : "The inbound webhook token is missing.",
+      ];
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "blogs.automation.settings.get" || opts.action === "blogs.automation.settings.update") {
+      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
+        ? (result.settings as Record<string, unknown>)
+        : null;
+      if (!settings) return null;
+      const enabled = Boolean(settings.enabled);
+      const frequencyDays = Number(settings.frequencyDays);
+      const topics = Array.isArray(settings.topics) ? (settings.topics as unknown[]).filter((item) => typeof item === "string").map((item) => String(item).trim()).filter(Boolean) : [];
+      const autoPublish = Boolean(settings.autoPublish);
+
+      if (!enabled) {
+        return opts.action === "blogs.automation.settings.update"
+          ? "I turned blog automation off."
+          : "Blog automation is off right now.";
+      }
+
+      const pieces = [
+        opts.action === "blogs.automation.settings.update"
+          ? `I turned blog automation on to run every ${pluralize(Number.isFinite(frequencyDays) && frequencyDays > 0 ? frequencyDays : 7, "day")}.`
+          : `Blog automation is on and runs every ${pluralize(Number.isFinite(frequencyDays) && frequencyDays > 0 ? frequencyDays : 7, "day")}.`,
+        topics.length ? `Topics: ${topics.slice(0, 4).join(", ")}.` : "No topics are configured yet.",
+        autoPublish ? "Auto-publish is on." : "Auto-publish is off.",
+      ];
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "newsletter.automation.settings.get" || opts.action === "newsletter.automation.settings.update") {
+      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
+        ? (result.settings as Record<string, unknown>)
+        : null;
+      if (!settings) return null;
+      const kind = String(result?.kind || "EXTERNAL").trim().toUpperCase() === "INTERNAL" ? "internal" : "external";
+      const enabled = Boolean(settings.enabled);
+      const frequencyDays = Number(settings.frequencyDays);
+      const requireApproval = Boolean(settings.requireApproval);
+      const topics = Array.isArray(settings.topics) ? (settings.topics as unknown[]).filter((item) => typeof item === "string").map((item) => String(item).trim()).filter(Boolean) : [];
+
+      if (!enabled) {
+        return opts.action === "newsletter.automation.settings.update"
+          ? `I turned ${kind} newsletter automation off.`
+          : `${kind[0]!.toUpperCase()}${kind.slice(1)} newsletter automation is off right now.`;
+      }
+
+      const pieces = [
+        opts.action === "newsletter.automation.settings.update"
+          ? `I turned ${kind} newsletter automation on to run every ${pluralize(Number.isFinite(frequencyDays) && frequencyDays > 0 ? frequencyDays : 7, "day")}.`
+          : `${kind[0]!.toUpperCase()}${kind.slice(1)} newsletter automation is on and runs every ${pluralize(Number.isFinite(frequencyDays) && frequencyDays > 0 ? frequencyDays : 7, "day")}.`,
+        requireApproval ? "Approval is required before sending." : "Approval is not required before sending.",
+        topics.length ? `Topics: ${topics.slice(0, 4).join(", ")}.` : "No newsletter topics are configured yet.",
+      ];
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "missed_call_textback.settings.get" || opts.action === "missed_call_textback.settings.update") {
+      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
+        ? (result.settings as Record<string, unknown>)
+        : null;
+      if (!settings) return null;
+      const enabled = Boolean(settings.enabled);
+      const replyDelaySeconds = Number(settings.replyDelaySeconds);
+      const replyBody = trimSentence(settings.replyBody, 140);
+      const twilioConfigured = Boolean(result?.twilioConfigured);
+
+      if (opts.action === "missed_call_textback.settings.update" && opts.args && (opts.args as any).regenerateToken === true) {
+        return "I regenerated the missed-call text-back webhook token.";
+      }
+
+      if (!enabled) {
+        return opts.action === "missed_call_textback.settings.update"
+          ? "I turned missed-call text-back off."
+          : "Missed-call text-back is off right now.";
+      }
+
+      const pieces = [
+        opts.action === "missed_call_textback.settings.update"
+          ? `I turned missed-call text-back on with a ${pluralize(Number.isFinite(replyDelaySeconds) && replyDelaySeconds >= 0 ? replyDelaySeconds : 5, "second")} delay.`
+          : `Missed-call text-back is on with a ${pluralize(Number.isFinite(replyDelaySeconds) && replyDelaySeconds >= 0 ? replyDelaySeconds : 5, "second")} delay.`,
+      ];
+      if (replyBody) pieces.push(`The reply starts "${replyBody}".`);
+      pieces.push(twilioConfigured ? "Twilio SMS is connected." : "Twilio SMS is not connected yet.");
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "booking.reminders.settings.get" || opts.action === "booking.reminders.settings.update") {
+      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
+        ? (result.settings as Record<string, unknown>)
+        : null;
+      if (!settings) return null;
+
+      const enabled = Boolean(settings.enabled);
+      const steps = Array.isArray(settings.steps) ? (settings.steps as unknown[]) : [];
+      const activeSteps = steps
+        .filter((step) => step && typeof step === "object" && !Array.isArray(step) && Boolean((step as Record<string, unknown>).enabled))
+        .map((step) => {
+          const rec = step as Record<string, unknown>;
+          const leadTime = rec.leadTime && typeof rec.leadTime === "object" && !Array.isArray(rec.leadTime)
+            ? (rec.leadTime as Record<string, unknown>)
+            : null;
+          const value = Number(leadTime?.value);
+          const unit = trimSentence(leadTime?.unit, 20)?.toLowerCase() || "hours";
+          const kind = trimSentence(rec.kind, 20)?.toUpperCase() || "SMS";
+          const timing = Number.isFinite(value) && value > 0 ? `${pluralize(value, unit.replace(/s$/i, ""))} before` : "before the appointment";
+          return `${kind} ${timing}`;
+        })
+        .filter(Boolean)
+        .slice(0, 4);
+
+      const twilio = result?.twilio && typeof result.twilio === "object" && !Array.isArray(result.twilio)
+        ? (result.twilio as Record<string, unknown>)
+        : null;
+      const twilioConfigured = Boolean(twilio?.configured);
+
+      if (!enabled || !activeSteps.length) {
+        return opts.action === "booking.reminders.settings.update"
+          ? "I turned appointment reminders off."
+          : "Appointment reminders are off right now.";
+      }
+
+      const pieces = [
+        opts.action === "booking.reminders.settings.update"
+          ? "I updated appointment reminder settings."
+          : "Appointment reminders are on.",
+        `Active reminder steps: ${activeSteps.join(", ")}.`,
+      ];
+      if (activeSteps.some((step) => step.startsWith("SMS"))) {
+        pieces.push(twilioConfigured ? "Twilio SMS is connected." : "Twilio SMS is not connected yet.");
+      }
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "business_profile.get") {
+      const profile = result?.profile && typeof result.profile === "object" && !Array.isArray(result.profile)
+        ? (result.profile as Record<string, unknown>)
+        : null;
+      if (!profile) return "Your business profile is not set up yet.";
+
+      const businessName = trimSentence(profile.businessName, 120);
+      const websiteUrl = trimSentence(profile.websiteUrl, 120);
+      const industry = trimSentence(profile.industry, 80);
+      const targetCustomer = trimSentence(profile.targetCustomer, 120);
+      const brandVoice = trimSentence(profile.brandVoice, 100);
+      const primaryGoals = Array.isArray(profile.primaryGoals)
+        ? (profile.primaryGoals as unknown[])
+          .filter((item) => typeof item === "string")
+          .map((item) => String(item).trim())
+          .filter(Boolean)
+          .slice(0, 3)
+        : [];
+
+      const pieces = [
+        businessName ? `Your business profile is saved for ${businessName}.` : "Your business profile is saved.",
+        websiteUrl ? `Website: ${websiteUrl}.` : "No website is saved yet.",
+        industry ? `Industry: ${industry}.` : "No industry is saved yet.",
+      ];
+      if (targetCustomer) pieces.push(`Target customer: ${targetCustomer}.`);
+      if (brandVoice) pieces.push(`Brand voice: ${brandVoice}.`);
+      if (primaryGoals.length) pieces.push(`Primary goals: ${primaryGoals.join(", ")}.`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "services.status.get") {
+      const statuses = result?.statuses && typeof result.statuses === "object" && !Array.isArray(result.statuses)
+        ? Object.entries(result.statuses as Record<string, unknown>)
+        : [];
+      if (!statuses.length) return "I could not find any service status information right now.";
+
+      const byState = new Map<string, string[]>();
+      for (const [slug, value] of statuses) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+        const rec = value as Record<string, unknown>;
+        const state = trimSentence(rec.state, 40)?.toLowerCase() || "unknown";
+        const label = trimSentence(rec.label, 60);
+        const display = label ? `${slug} (${label})` : slug;
+        byState.set(state, [...(byState.get(state) || []), display]);
+      }
+
+      const active = (byState.get("active") || []).slice(0, 4);
+      const needsSetup = (byState.get("needs_setup") || []).slice(0, 4);
+      const locked = (byState.get("locked") || []).slice(0, 4);
+      const paused = (byState.get("paused") || []).slice(0, 4);
+      const canceled = (byState.get("canceled") || []).slice(0, 4);
+
+      const pieces = [] as string[];
+      if (active.length) pieces.push(`Active services include ${active.join(", ")}.`);
+      if (needsSetup.length) pieces.push(`Needs setup: ${needsSetup.join(", ")}.`);
+      if (locked.length) pieces.push(`Locked services: ${locked.join(", ")}.`);
+      if (paused.length) pieces.push(`Paused services: ${paused.join(", ")}.`);
+      if (canceled.length) pieces.push(`Canceled services: ${canceled.join(", ")}.`);
+      return pieces.length ? pieces.join(" ") : "Your service statuses are loaded.";
+    }
+
+    if (opts.action === "webhooks.get") {
+      const twilio = result?.twilio && typeof result.twilio === "object" && !Array.isArray(result.twilio)
+        ? (result.twilio as Record<string, unknown>)
+        : null;
+      const legacy = result?.legacy && typeof result.legacy === "object" && !Array.isArray(result.legacy)
+        ? (result.legacy as Record<string, unknown>)
+        : null;
+
+      const smsInboundUrl = trimSentence(twilio?.smsInboundUrl, 160);
+      const smsStatusCallbackUrl = trimSentence(twilio?.smsStatusCallbackUrl, 160);
+      const inboxLegacyUrl = trimSentence(legacy?.inboxTwilioSmsUrl, 160);
+      const aiLegacyUrl = trimSentence(legacy?.aiReceptionistVoiceUrl, 160);
+      const missedLegacyUrl = trimSentence(legacy?.missedCallVoiceUrl, 160);
+
+      const pieces = [] as string[];
+      if (smsInboundUrl) pieces.push(`Primary Twilio SMS inbound URL: ${smsInboundUrl}.`);
+      if (smsStatusCallbackUrl) pieces.push(`SMS status callback URL: ${smsStatusCallbackUrl}.`);
+      if (inboxLegacyUrl || aiLegacyUrl || missedLegacyUrl) {
+        const legacyPieces = [
+          inboxLegacyUrl ? `Inbox ${inboxLegacyUrl}` : null,
+          aiLegacyUrl ? `AI receptionist ${aiLegacyUrl}` : null,
+          missedLegacyUrl ? `missed-call ${missedLegacyUrl}` : null,
+        ].filter(Boolean);
+        if (legacyPieces.length) pieces.push(`Legacy webhook routes: ${legacyPieces.join(", ")}.`);
+      }
+      return pieces.length ? pieces.join(" ") : "Webhook URLs are not configured yet.";
+    }
+
+    if (opts.action === "mailbox.get") {
+      const mailbox = result?.mailbox && typeof result.mailbox === "object" && !Array.isArray(result.mailbox)
+        ? (result.mailbox as Record<string, unknown>)
+        : null;
+      if (!mailbox) return "Your portal mailbox is not set up yet.";
+
+      const emailAddress = trimSentence(mailbox.emailAddress, 160);
+      const canChange = mailbox.canChange === true;
+      const pieces = [
+        emailAddress ? `Your portal mailbox address is ${emailAddress}.` : "Your portal mailbox is ready.",
+        canChange ? "You can still change it once." : "It can no longer be changed from the portal.",
+      ];
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "services.catalog.get") {
+      const groups = Array.isArray(result?.groups) ? (result.groups as unknown[]) : [];
+      if (!groups.length) return "I could not find any portal services right now.";
+
+      const visibleGroups = groups
+        .filter((group) => group && typeof group === "object" && !Array.isArray(group))
+        .map((group) => group as Record<string, unknown>);
+
+      const groupSummaries = visibleGroups
+        .map((group) => {
+          const title = trimSentence(group.title, 80);
+          const services = Array.isArray(group.services) ? (group.services as unknown[]) : [];
+          const visibleServices = services
+            .filter((item) => item && typeof item === "object" && !Array.isArray(item) && (item as Record<string, unknown>).hidden !== true)
+            .map((item) => item as Record<string, unknown>);
+          const titles = visibleServices
+            .map((item) => trimSentence(item.title, 80))
+            .filter(Boolean)
+            .slice(0, 3);
+          if (!title) return null;
+          if (!titles.length) return `${title} is available.`;
+          return `${title} includes ${titles.join(", ")}.`;
+        })
+        .filter(Boolean)
+        .slice(0, 3);
+
+      const totalServices = visibleGroups.reduce((count, group) => {
+        const services = Array.isArray(group.services) ? (group.services as unknown[]) : [];
+        return count + services.filter((item) => item && typeof item === "object" && !Array.isArray(item) && (item as Record<string, unknown>).hidden !== true).length;
+      }, 0);
+
+      const pieces = [`Your portal includes ${pluralize(totalServices, "available service")}.`];
+      if (groupSummaries.length) pieces.push(groupSummaries.join(" "));
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "reporting.summary.get") {
+      const kpis = result?.kpis && typeof result.kpis === "object" && !Array.isArray(result.kpis)
+        ? (result.kpis as Record<string, unknown>)
+        : null;
+      if (!kpis) return null;
+
+      const range = trimSentence(result?.range, 20) || "30d";
+      const creditsRemaining = Number(result?.creditsRemaining);
+      const automationsRun = Number(kpis.automationsRun);
+      const bookingsCreated = Number(kpis.bookingsCreated);
+      const reviewsCollected = Number(kpis.reviewsCollected);
+      const leadsCreated = Number(kpis.leadsCreated);
+      const inboxMessagesIn = Number(kpis.inboxMessagesIn);
+      const inboxMessagesOut = Number(kpis.inboxMessagesOut);
+
+      const pieces = [
+        `Your reporting summary for ${range} is ready.`,
+        Number.isFinite(automationsRun) ? `${pluralize(automationsRun, "automation run")} tracked.` : "",
+        Number.isFinite(bookingsCreated) ? `${pluralize(bookingsCreated, "booking")} created.` : "",
+        Number.isFinite(leadsCreated) ? `${pluralize(leadsCreated, "lead")} created.` : "",
+        Number.isFinite(reviewsCollected) ? `${pluralize(reviewsCollected, "review")} collected.` : "",
+        Number.isFinite(inboxMessagesIn) && Number.isFinite(inboxMessagesOut) ? `Inbox traffic: ${inboxMessagesIn} in and ${inboxMessagesOut} out.` : "",
+        Number.isFinite(creditsRemaining) ? `${creditsRemaining} credits remaining.` : "",
+      ].filter(Boolean);
+
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "dashboard.get") {
+      const data = result?.data && typeof result.data === "object" && !Array.isArray(result.data)
+        ? (result.data as Record<string, unknown>)
+        : null;
+      const widgets = Array.isArray(data?.widgets) ? (data?.widgets as unknown[]) : [];
+      if (!widgets.length) return "Your dashboard is empty right now.";
+
+      const toWidgetLabel = (value: unknown): string => {
+        const raw = trimSentence(value, 80);
+        if (!raw) return "";
+        return raw
+          .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+          .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+          .replace(/^./, (char) => char.toUpperCase())
+          .replace(/\bAi\b/g, "AI")
+          .replace(/\bPura\b/g, "Pura");
+      };
+
+      const widgetLabels = widgets
+        .map((widget) => {
+          if (!widget || typeof widget !== "object" || Array.isArray(widget)) return "";
+          return toWidgetLabel((widget as Record<string, unknown>).id);
+        })
+        .filter(Boolean);
+
+      if (!widgetLabels.length) return "Your dashboard is loaded.";
+      const pieces = [
+        `Your dashboard has ${pluralize(widgetLabels.length, "widget")}.`,
+        `Right now it includes ${widgetLabels.slice(0, 5).join(", ")}.`,
+      ];
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "dashboard.quick_access.get") {
+      const slugs = Array.isArray(result?.slugs) ? (result.slugs as unknown[]) : [];
+      if (!slugs.length) return "You do not have any dashboard shortcuts saved right now.";
+
+      const labels = slugs
+        .map((slug) => {
+          const value = typeof slug === "string" ? slug.trim() : "";
+          if (!value) return "";
+          if (value === "sales-dashboard") return "Sales Dashboard";
+          const service = PORTAL_SERVICES.find((item) => item.slug === value);
+          return service?.title || value;
+        })
+        .filter(Boolean)
+        .slice(0, 6);
+
+      return labels.length
+        ? `Your dashboard quick access shortcuts include ${labels.join(", ")}.`
+        : "You do not have any dashboard shortcuts saved right now.";
+    }
+
+    if (opts.action === "dashboard.analysis.get") {
+      const analysis = result?.analysis && typeof result.analysis === "object" && !Array.isArray(result.analysis)
+        ? (result.analysis as Record<string, unknown>)
+        : null;
+      if (!analysis) return "No dashboard analysis has been generated yet.";
+
+      const text = typeof analysis.text === "string" ? analysis.text.trim() : "";
+      const generatedAtIso = trimSentence(analysis.generatedAtIso, 80);
+      if (!text) return "No dashboard analysis has been generated yet.";
+
+      const firstMeaningfulLine = text
+        .split(/\r?\n/)
+        .map((line) => line.trim().replace(/^[-*]\s*/, ""))
+        .find(Boolean) || text;
+
+      const pieces = [
+        generatedAtIso ? `Your latest dashboard analysis was generated at ${generatedAtIso}.` : "Your latest dashboard analysis is ready.",
+        trimSentence(firstMeaningfulLine, 220) || text,
+      ].filter(Boolean);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "profile.get") {
+      const user = result?.user && typeof result.user === "object" && !Array.isArray(result.user)
+        ? (result.user as Record<string, unknown>)
+        : null;
+      if (!user) return "Your profile is not available right now.";
+
+      const name = trimSentence(user.name, 120);
+      const email = trimSentence(user.email, 160);
+      const phone = trimSentence(user.phone, 40);
+      const city = trimSentence(user.city, 80);
+      const state = trimSentence(user.state, 40);
+      const voiceAgentId = trimSentence(user.voiceAgentId, 80);
+      const voiceAgentApiKeyConfigured = user.voiceAgentApiKeyConfigured === true;
+
+      const pieces = [
+        name || email ? `Your profile is saved for ${[name, email].filter(Boolean).join(" • ")}.` : "Your profile is loaded.",
+        phone ? `Phone: ${phone}.` : "No phone number is saved yet.",
+        city || state ? `Location: ${[city, state].filter(Boolean).join(", ")}.` : "No city or state is saved yet.",
+      ];
+      if (voiceAgentId) pieces.push(`Voice agent ID: ${voiceAgentId}.`);
+      pieces.push(voiceAgentApiKeyConfigured ? "Voice agent API key is configured." : "Voice agent API key is not configured.");
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "referrals.link.get") {
+      const code = trimSentence(result?.code, 80);
+      const url = trimSentence(result?.url, 220);
+      const stats = result?.stats && typeof result.stats === "object" && !Array.isArray(result.stats)
+        ? (result.stats as Record<string, unknown>)
+        : null;
+
+      const total = Number(stats?.total);
+      const verified = Number(stats?.verified);
+      const awarded = Number(stats?.awarded);
+
+      const pieces = [
+        code ? `Your referral code is ${code}.` : "Your referral link is ready.",
+        url ? `Referral URL: ${url}.` : "",
+      ];
+      if (Number.isFinite(total) && Number.isFinite(verified) && Number.isFinite(awarded)) {
+        pieces.push(`Referral stats: ${total} total, ${verified} verified, ${awarded} awarded.`);
+      }
+      return pieces.filter(Boolean).join(" ");
+    }
+
+    if (opts.action === "me.get") {
+      const role = trimSentence(result?.role, 40);
+      const permissions = result?.permissions && typeof result.permissions === "object" && !Array.isArray(result.permissions)
+        ? Object.entries(result.permissions as Record<string, unknown>)
+        : [];
+
+      const enabledPermissions = permissions
+        .filter(([, value]) => value === true)
+        .map(([key]) => key)
+        .slice(0, 6);
+
+      const pieces = [role ? `Your portal role is ${role}.` : "Your portal access is loaded."];
+      if (enabledPermissions.length) pieces.push(`Enabled permissions include ${enabledPermissions.join(", ")}.`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "reporting.sales.get") {
+      const ok = result?.ok === true;
+      if (!ok) return trimSentence(result?.error, 180) || "Sales report is unavailable right now.";
+
+      const providerLabel = trimSentence(result?.providerLabel, 80);
+      const range = trimSentence(result?.range, 20) || "30d";
+      const totals = result?.totals && typeof result.totals === "object" && !Array.isArray(result.totals)
+        ? (result.totals as Record<string, unknown>)
+        : null;
+      if (!totals) return "Sales report is loaded.";
+
+      const chargeCount = Number(totals.chargeCount);
+      const gross = formatMoneyFromCents(totals.grossCents, result?.currency);
+      const refunded = formatMoneyFromCents(totals.refundedCents, result?.currency);
+      const net = formatMoneyFromCents(totals.netCents, result?.currency);
+
+      const pieces = [
+        providerLabel ? `Your ${providerLabel} sales report for ${range} is ready.` : `Your sales report for ${range} is ready.`,
+        Number.isFinite(chargeCount) ? `${pluralize(chargeCount, "charge")} recorded.` : "",
+        gross ? `Gross sales: ${gross}.` : "",
+        net ? `Net sales: ${net}.` : "",
+        refunded ? `Refunded: ${refunded}.` : "",
+      ].filter(Boolean);
+
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "reporting.stripe.get") {
+      const ok = result?.ok === true;
+      if (!ok) return trimSentence(result?.error, 180) || "Stripe report is unavailable right now.";
+
+      const range = trimSentence(result?.range, 20) || "30d";
+      const totals = result?.totals && typeof result.totals === "object" && !Array.isArray(result.totals)
+        ? (result.totals as Record<string, unknown>)
+        : null;
+      if (!totals) return "Stripe charges report is loaded.";
+
+      const chargeCount = Number(totals.chargeCount);
+      const gross = formatMoneyFromCents(totals.grossCents, result?.currency);
+      const refunded = formatMoneyFromCents(totals.refundedCents, result?.currency);
+      const net = formatMoneyFromCents(totals.netCents, result?.currency);
+
+      const pieces = [
+        `Your Stripe charges report for ${range} is ready.`,
+        Number.isFinite(chargeCount) ? `${pluralize(chargeCount, "charge")} recorded.` : "",
+        gross ? `Gross charges: ${gross}.` : "",
+        net ? `Net collected: ${net}.` : "",
+        refunded ? `Refunded: ${refunded}.` : "",
+      ].filter(Boolean);
+
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "lead_scraping.settings.get" || opts.action === "lead_scraping.settings.update") {
+      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
+        ? (result.settings as Record<string, unknown>)
+        : null;
+      const b2b = settings?.b2b && typeof settings.b2b === "object" && !Array.isArray(settings.b2b)
+        ? (settings.b2b as Record<string, unknown>)
+        : null;
+      if (!b2b) return null;
+      const niche = trimSentence(b2b.niche, 80);
+      const location = trimSentence(b2b.location, 80);
+      const frequencyDays = Number(b2b.frequencyDays);
+      const scheduleEnabled = Boolean(b2b.scheduleEnabled);
+      const requireEmail = Boolean(b2b.requireEmail);
+      const requirePhone = Boolean(b2b.requirePhone);
+
+      const pieces = [
+        opts.action === "lead_scraping.settings.update"
+          ? "I updated lead-scraping settings."
+          : "Lead-scraping settings are loaded.",
+        niche && location ? `B2B scraping targets ${niche} in ${location}.` : "B2B targeting is configured.",
+        scheduleEnabled
+          ? `It runs every ${pluralize(Number.isFinite(frequencyDays) && frequencyDays > 0 ? frequencyDays : 7, "day")}.`
+          : "Scheduled runs are off.",
+        requireEmail && requirePhone
+          ? "Both email and phone are required."
+          : requireEmail
+            ? "Email is required."
+            : requirePhone
+              ? "Phone is required."
+              : "No email or phone requirement is enabled.",
+      ];
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "automations.settings.get") {
+      const automations = Array.isArray(result?.automations) ? (result.automations as unknown[]) : [];
+      const labels = automations
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+          const rec = item as Record<string, unknown>;
+          return trimSentence(rec.name || rec.title || rec.label || rec.id, 80);
+        })
+        .filter(Boolean);
+
+      const grouped = new Map<string, number>();
+      for (const label of labels) {
+        const key = label.toLowerCase();
+        grouped.set(key, (grouped.get(key) || 0) + 1);
+      }
+
+      const preview = Array.from(grouped.entries())
+        .map(([key, count]) => {
+          const label = labels.find((candidate) => candidate.toLowerCase() === key) || key;
+          return count > 1 ? `${label} (${count} instances)` : label;
+        })
+        .slice(0, 3);
+
+      if (!preview.length) return "Your automations settings are loaded, and there are no saved automations right now.";
+
+      return `Your automations settings include ${pluralize(labels.length, "saved automation")}. Right now that includes ${preview.join(", ")}.`;
+    }
+
+    if (opts.action === "billing.summary.get") {
+      const configured = Boolean(result?.configured);
+      if (!configured) return "Billing is not connected right now.";
+      const monthly = formatMoneyFromCents(result?.monthlyCents, result?.currency);
+      const spent = formatMoneyFromCents(result?.spentThisMonthCents, result?.spentThisMonthCurrency || result?.currency);
+      const breakdown = Array.isArray(result?.monthlyBreakdown) ? (result?.monthlyBreakdown as unknown[]) : [];
+      const topTitles = breakdown
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+          return trimSentence((item as any).title, 80);
+        })
+        .filter(Boolean)
+        .slice(0, 3);
+      const pieces = [
+        monthly ? `Your recurring billing is ${monthly} per month.` : "Your billing summary is loaded.",
+        spent ? `You have spent ${spent} this month.` : "",
+        topTitles.length ? `Current subscriptions include ${topTitles.join(", ")}.` : "",
+      ].filter(Boolean);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "billing.info.get") {
+      const stripeConfigured = Boolean(result?.stripeConfigured);
+      if (!stripeConfigured) return "Billing details are not connected because Stripe is not configured right now.";
+      const customer = result?.customer && typeof result.customer === "object" && !Array.isArray(result.customer)
+        ? (result.customer as Record<string, unknown>)
+        : null;
+      if (!customer) return null;
+      const name = trimSentence(customer.name, 120);
+      const email = trimSentence(customer.email, 160);
+      const payment = result?.defaultPaymentMethod && typeof result.defaultPaymentMethod === "object" && !Array.isArray(result.defaultPaymentMethod)
+        ? (result.defaultPaymentMethod as Record<string, unknown>)
+        : null;
+      const brand = trimSentence(payment?.brand, 40);
+      const last4 = trimSentence(payment?.last4, 8);
+      const pieces = [
+        name || email ? `Billing contact: ${[name, email].filter(Boolean).join(" • ")}.` : "Billing details are loaded.",
+        brand && last4 ? `Default payment method: ${brand} ending in ${last4}.` : payment ? "A default payment method is saved." : "No default payment method is saved.",
+      ];
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "pricing.get") {
+      const credits = result?.credits && typeof result.credits === "object" && !Array.isArray(result.credits)
+        ? (result.credits as Record<string, unknown>)
+        : null;
+      const modules = result?.modules && typeof result.modules === "object" && !Array.isArray(result.modules)
+        ? Object.values(result.modules as Record<string, unknown>)
+        : [];
+
+      const creditUsdValue = typeof credits?.usdValue === "number" && Number.isFinite(credits.usdValue)
+        ? Number(credits.usdValue)
+        : null;
+      const creditsPerPackage = Number((credits as Record<string, unknown> | null)?.topup && typeof (credits as Record<string, unknown>).topup === "object"
+        ? ((credits as Record<string, unknown>).topup as Record<string, unknown>).creditsPerPackage
+        : null);
+
+      const pricedModules = modules
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+          const rec = item as Record<string, unknown>;
+          const title = trimSentence(rec.title, 80);
+          const monthly = formatMoneyFromCents(rec.monthlyCents, rec.currency);
+          if (!title || !monthly) return null;
+          return `${title} ${monthly}/month`;
+        })
+        .filter((item): item is string => Boolean(item))
+        .slice(0, 3);
+
+      const pieces = ["Your pricing details are loaded."];
+      if (creditUsdValue !== null) pieces.push(`Each credit is worth $${creditUsdValue.toFixed(2)}.`);
+      if (Number.isFinite(creditsPerPackage) && creditsPerPackage > 0) pieces.push(`Top-up packages include ${pluralize(creditsPerPackage, "credit")}.`);
+      if (pricedModules.length) pieces.push(`Examples include ${pricedModules.join(", ")}.`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "credits.get") {
+      const creditsBalance = Number(result?.credits);
+      const autoTopUp = result?.autoTopUp === true;
+      const purchaseAvailable = result?.purchaseAvailable === true;
+      const creditUsdValue = typeof result?.creditUsdValue === "number" && Number.isFinite(result.creditUsdValue)
+        ? Number(result.creditUsdValue)
+        : null;
+      const creditsPerPackage = Number(result?.creditsPerPackage);
+
+      const pieces = [
+        Number.isFinite(creditsBalance) ? `You currently have ${pluralize(creditsBalance, "credit")}.` : "Your credits balance is loaded.",
+        autoTopUp ? "Auto top-up is on." : "Auto top-up is off.",
+        purchaseAvailable ? "Credit purchases are available." : "Credit purchases are unavailable right now.",
+      ];
+      if (creditUsdValue !== null) pieces.push(`Each credit is worth $${creditUsdValue.toFixed(2)}.`);
+      if (Number.isFinite(creditsPerPackage) && creditsPerPackage > 0) pieces.push(`Packages add ${pluralize(creditsPerPackage, "credit")} each.`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "onboarding.status.get") {
+      const businessProfileComplete = result?.businessProfileComplete === true;
+      const blogsSetupComplete = result?.blogsSetupComplete === true;
+      const needsOnboarding = result?.needsOnboarding === true;
+
+      if (businessProfileComplete && blogsSetupComplete) {
+        return "Your onboarding basics are complete. Your business profile and blog setup are both done.";
+      }
+
+      const missing: string[] = [];
+      if (!businessProfileComplete) missing.push("business profile");
+      if (!blogsSetupComplete) missing.push("blog setup");
+
+      const pieces = [
+        needsOnboarding ? "You still have onboarding work left." : "Your onboarding status is loaded.",
+        missing.length ? `Still missing: ${missing.join(" and ")}.` : "No onboarding blockers are currently listed.",
+      ];
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "suggested_setup.preview.get") {
+      const activationProfile = result?.activationProfile && typeof result.activationProfile === "object" && !Array.isArray(result.activationProfile)
+        ? (result.activationProfile as Record<string, unknown>)
+        : null;
+      const proposedActions = Array.isArray(result?.proposedActions) ? (result.proposedActions as Record<string, unknown>[]) : [];
+
+      const businessName = trimSentence(activationProfile?.businessName, 80);
+      const actionTitles = proposedActions
+        .map((action) => trimSentence(action?.title, 100))
+        .filter(Boolean)
+        .slice(0, 3);
+
+      const pieces = [
+        businessName ? `Suggested setup is ready for ${businessName}.` : "Your suggested setup preview is ready.",
+        `There ${proposedActions.length === 1 ? "is" : "are"} ${pluralize(proposedActions.length, "proposed action")}.`,
+      ];
+      if (actionTitles.length) pieces.push(`Top suggestions include ${actionTitles.join(", ")}.`);
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "contact_tags.list") {
+      const tags = Array.isArray(result?.tags) ? (result.tags as Record<string, unknown>[]) : [];
+      if (!tags.length) return "You do not have any saved contact tags right now.";
+
+      const names = tags
+        .map((tag) => trimSentence(tag?.name, 80))
+        .filter(Boolean)
+        .slice(0, 5);
+
+      return names.length
+        ? `You have ${pluralize(tags.length, "saved contact tag")}. Current tags include ${names.join(", ")}.`
+        : `You have ${pluralize(tags.length, "saved contact tag")}.`;
+    }
+
+    if (opts.action === "people.contacts.custom_variable_keys.get") {
+      const keys = Array.isArray(result?.keys) ? (result.keys as unknown[]) : [];
+      const labels = keys
+        .map((key) => (typeof key === "string" ? key.trim() : ""))
+        .filter(Boolean)
+        .slice(0, 6);
+
+      if (!labels.length) return "Your contacts do not have any saved custom variable keys right now.";
+      return `Your contacts currently use ${pluralize(keys.length, "custom variable key")}. Keys include ${labels.join(", ")}.`;
+    }
+
+    if (opts.action === "people.contacts.duplicates.get") {
+      const groupsCount = Number(result?.groupsCount);
+      const groupsNeedingChoice = Number(result?.groupsNeedingChoice);
+      const totalDuplicateContacts = Number(result?.totalDuplicateContacts);
+      const groups = Array.isArray(result?.groups) ? (result.groups as Record<string, unknown>[]) : [];
+
+      if (Number.isFinite(groupsCount)) {
+        const pieces = [
+          groupsCount > 0 ? `You currently have ${pluralize(groupsCount, "duplicate contact group")}.` : "You do not have any duplicate contact groups right now.",
+        ];
+        if (groupsCount > 0 && Number.isFinite(totalDuplicateContacts)) pieces.push(`${pluralize(totalDuplicateContacts, "duplicate contact")} are involved.`);
+        if (groupsCount > 0 && Number.isFinite(groupsNeedingChoice) && groupsNeedingChoice > 0) pieces.push(`${pluralize(groupsNeedingChoice, "group")} still need an email choice.`);
+        return pieces.join(" ");
+      }
+
+      if (!groups.length) return "You do not have any duplicate contact groups right now.";
+      return `You currently have ${pluralize(groups.length, "duplicate contact group")}.`;
+    }
+
+    if (opts.action === "ai_agents.list") {
+      const agents = Array.isArray(result?.agents) ? (result.agents as Record<string, unknown>[]) : [];
+      if (!agents.length) return "You do not have any saved AI agents right now.";
+
+      const labels = agents
+        .map((agent) => trimSentence(agent?.name || agent?.id, 120))
+        .filter(Boolean)
+        .slice(0, 4);
+
+      return labels.length
+        ? `You have ${pluralize(agents.length, "AI agent")}. Current agents include ${labels.join(", ")}.`
+        : `You have ${pluralize(agents.length, "AI agent")}.`;
+    }
+
+    if (opts.action === "integrations.twilio.get") {
+      const twilio = result?.twilio && typeof result.twilio === "object" && !Array.isArray(result.twilio)
+        ? (result.twilio as Record<string, unknown>)
+        : null;
+      if (!twilio) return null;
+      const configured = Boolean(twilio.configured);
+      const fromNumber = trimSentence(twilio.fromNumberE164, 40);
+      const hasAuthToken = Boolean(twilio.hasAuthToken);
+      if (!configured) return "Twilio is not connected right now.";
+      const pieces = [
+        fromNumber ? `Twilio is connected from ${fromNumber}.` : "Twilio is connected.",
+        hasAuthToken ? "Credentials are in place." : "Auth token is missing.",
+      ];
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "integrations.stripe.get") {
+      const stripe = result?.stripe && typeof result.stripe === "object" && !Array.isArray(result.stripe)
+        ? (result.stripe as Record<string, unknown>)
+        : null;
+      if (!stripe) return null;
+      const configured = Boolean(stripe.configured);
+      const prefix = trimSentence(stripe.prefix, 40);
+      const accountId = trimSentence(stripe.accountId, 80);
+      if (!configured) return "Stripe is not connected right now.";
+      const pieces = [
+        prefix ? `Stripe is connected with key prefix ${prefix}.` : "Stripe is connected.",
+        accountId ? `Connected account: ${accountId}.` : "No connected Stripe account is stored.",
+      ];
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "integrations.sales_reporting.get") {
+      const activeProvider = trimSentence(result?.activeProvider, 40);
+      const providers = result?.providers && typeof result.providers === "object" && !Array.isArray(result.providers)
+        ? Object.entries(result.providers as Record<string, unknown>)
+        : [];
+      const configuredProviders = providers
+        .filter(([, value]) => value && typeof value === "object" && !Array.isArray(value) && Boolean((value as Record<string, unknown>).configured))
+        .map(([provider, value]) => {
+          const displayHint = trimSentence((value as Record<string, unknown>).displayHint, 60);
+          return displayHint ? `${provider} (${displayHint})` : provider;
+        });
+
+      if (!configuredProviders.length) return "Sales reporting is not connected to any provider right now.";
+
+      const pieces = [
+        activeProvider ? `Sales reporting is active on ${activeProvider}.` : "Sales reporting has connected providers saved.",
+        `Configured providers: ${configuredProviders.slice(0, 3).join(", ")}.`,
+      ];
+      return pieces.join(" ");
+    }
+
+    if (opts.action === "integrations.api_keys.list") {
+      const totalKeyCount = Number(result?.totalKeyCount);
+      const fullAccessKey = result?.fullAccessKey && typeof result.fullAccessKey === "object" && !Array.isArray(result.fullAccessKey)
+        ? (result.fullAccessKey as Record<string, unknown>)
+        : null;
+      const scopedKeys = Array.isArray(result?.scopedKeys) ? (result.scopedKeys as Record<string, unknown>[]) : [];
+
+      if (!Number.isFinite(totalKeyCount) || totalKeyCount <= 0) return "You do not have any active API keys right now.";
+
+      const fullAccessMasked = trimSentence(fullAccessKey?.maskedKey, 80);
+      const scopedPreview = scopedKeys
+        .map((item) => trimSentence(item?.name || item?.maskedKey, 80))
+        .filter(Boolean)
+        .slice(0, 3);
+
+      const pieces = [
+        `You currently have ${pluralize(totalKeyCount, "active API key")}.`,
+        fullAccessMasked ? `Your full-access key is ${fullAccessMasked}.` : "A full-access key is available.",
+        scopedPreview.length ? `Scoped keys include ${scopedPreview.join(", ")}.` : scopedKeys.length ? `You also have ${pluralize(scopedKeys.length, "scoped key")}.` : "There are no scoped keys saved.",
+      ];
+      return pieces.join(" ");
+    }
+
+    if (String(opts.action) === "tasks.list") {
+      const tasks = Array.isArray(result?.tasks) ? (result.tasks as Record<string, unknown>[]) : [];
+      const openTasks = tasks.filter((task) => String(task?.status || "OPEN").toUpperCase() !== "DONE");
+      if (!openTasks.length) return "You do not have any open tasks right now.";
+
+      const titles = Array.from(new Set(openTasks
+        .map((task) => trimSentence(task?.title, 80))
+        .filter(Boolean)))
+        .slice(0, 3);
+
+      return titles.length
+        ? `You currently have ${pluralize(openTasks.length, "open task")}. Top ones include ${titles.join(", ")}.`
+        : `You currently have ${pluralize(openTasks.length, "open task")}.`;
+    }
+
+    if (String(opts.action) === "booking.suggestions.slots") {
+      const slotPreviews = Array.isArray(result?.slotPreviews) ? (result.slotPreviews as Record<string, unknown>[]) : [];
+      const timeZone = trimSentence(result?.timeZone, 60) || "local time";
+      if (!slotPreviews.length) return "I do not see any open booking slots in the current suggestion window.";
+
+      const preview = slotPreviews
+        .map((slot) => {
+          const dateLabel = trimSentence(slot?.dateLabel, 40);
+          const startLabel = trimSentence(slot?.startLabel, 20);
+          const endLabel = trimSentence(slot?.endLabel, 20);
+          if (dateLabel && startLabel && endLabel) return `${dateLabel} ${startLabel}-${endLabel}`;
+          return "";
+        })
+        .filter(Boolean)
+        .slice(0, 3);
+
+      return preview.length
+        ? `I found ${pluralize(slotPreviews.length, "suggested booking slot")}. Good options include ${preview.join(", ")} ${timeZone}.`
+        : `I found ${pluralize(slotPreviews.length, "suggested booking slot")} in ${timeZone}.`;
+    }
+
+    if (String(opts.action) === "booking.availability.set_daily") {
+      const startDateLocal = trimSentence(result?.startDateLocal, 40);
+      const endDateLocal = trimSentence(result?.endDateLocal, 40);
+      const startTimeLocal = trimSentence(result?.startTimeLocal, 20);
+      const endTimeLocal = trimSentence(result?.endTimeLocal, 20);
+      const timeZone = trimSentence(result?.timeZone, 60);
+      const createdCount = Number(result?.createdCount);
+      const deletedCount = Number(result?.deletedCount);
+      const pieces = [
+        startDateLocal && endDateLocal && startTimeLocal && endTimeLocal
+          ? `Booking availability is set from ${startDateLocal} through ${endDateLocal}, ${startTimeLocal}-${endTimeLocal}${timeZone ? ` ${timeZone}` : ""}.`
+          : "Booking availability has been updated.",
+      ];
+      if (Number.isFinite(createdCount) && createdCount > 0) pieces.push(`Created ${pluralize(createdCount, "availability block")}.`);
+      if (Number.isFinite(deletedCount) && deletedCount > 0) pieces.push(`Replaced ${pluralize(deletedCount, "older block")}.`);
+      return pieces.join(" ");
+    }
+
+    if (String(opts.action) === "booking.reminders.settings.get" || String(opts.action) === "booking.reminders.settings.update") {
+      const isReminderUpdate = String(opts.action) === "booking.reminders.settings.update";
+      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
+        ? (result.settings as Record<string, any>)
+        : null;
+      if (!settings) return isReminderUpdate ? "Booking reminder settings have been updated." : "Booking reminder settings are loaded.";
+
+      const describeChannel = (channel: Record<string, any> | null | undefined, label: string) => {
+        if (!channel || !channel.enabled) return `${label} reminders are off`;
+        const amount = Number(channel.leadAmount);
+        const unit = trimSentence(channel.leadUnit, 20) || "hours";
+        return Number.isFinite(amount) && amount > 0
+          ? `${label} reminders go out ${amount} ${unit} before the appointment`
+          : `${label} reminders are on`;
+      };
+
+      const pieces = [
+        isReminderUpdate ? "Booking reminders are updated." : "Booking reminders are active.",
+        `${describeChannel(settings.email, "Email")}.`,
+        `${describeChannel(settings.sms, "SMS")}.`,
+      ];
+      if (result?.twilio && typeof result.twilio === "object" && !Array.isArray(result.twilio) && Boolean((result.twilio as any).configured)) {
+        pieces.push("Twilio SMS is connected.");
+      }
+      return pieces.join(" ");
+    }
+
+    if (String(opts.action) === "ai_receptionist.settings.update") {
+      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
+        ? (result.settings as Record<string, unknown>)
+        : null;
+      const greeting = trimSentencePreserveTerminalPunctuation(settings?.greeting, 280);
+      const enabled = settings?.enabled === true;
+      const pieces = [greeting ? `The AI receptionist greeting now says "${greeting}".` : "The AI receptionist settings have been updated."];
+      pieces.push(enabled ? "The AI receptionist is enabled." : "The AI receptionist is currently disabled.");
+      return pieces.join(" ");
+    }
+
+    if (String(opts.action) === "ai_receptionist.settings.get") {
+      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
+        ? (result.settings as Record<string, unknown>)
+        : null;
+      if (!settings) return "AI receptionist settings are loaded.";
+
+      const enabled = settings.enabled === true;
+      const mode = trimSentence(settings.mode, 40);
+      const greeting = trimSentencePreserveTerminalPunctuation(settings.greeting, 280);
+      const events = Array.isArray(result?.events) ? (result.events as Record<string, unknown>[]) : [];
+      const completedCalls = events.filter((event) => String(event?.status || "").toUpperCase() === "COMPLETED").length;
+      const pieces = [
+        `The AI receptionist is ${enabled ? "enabled" : "disabled"}${mode ? ` and set to ${mode} mode` : ""}.`,
+        greeting ? `Current greeting: "${greeting}".` : "A greeting is saved.",
+      ];
+      if (completedCalls > 0) pieces.push(`There ${completedCalls === 1 ? "has" : "have"} been ${pluralize(completedCalls, "completed call")} in the recent log.`);
+      return pieces.join(" ");
+    }
+
+    if (String(opts.action) === "ai_receptionist.highlights.get") {
+      const stats = result?.stats && typeof result.stats === "object" && !Array.isArray(result.stats)
+        ? (result.stats as Record<string, unknown>)
+        : null;
+      const total = Number(stats?.total);
+      const missingTranscript = Number(stats?.missingTranscript);
+      const notificationErrors = Number(stats?.notificationErrors);
+      const warnings = Array.isArray(result?.warnings) ? (result.warnings as unknown[]) : [];
+      const settings = result?.settings && typeof result.settings === "object" && !Array.isArray(result.settings)
+        ? (result.settings as Record<string, unknown>)
+        : null;
+      const pieces = [
+        Number.isFinite(total) && total > 0
+          ? `I found ${pluralize(total, "AI receptionist event")} in the current lookback window.`
+          : "There are no recent AI receptionist events in the current lookback window.",
+      ];
+      if (settings?.enabled === false) pieces.push("The AI receptionist is currently disabled.");
+      if (Number.isFinite(missingTranscript) && missingTranscript > 0) pieces.push(`${pluralize(missingTranscript, "event")} still need a transcript.`);
+      if (Number.isFinite(notificationErrors) && notificationErrors > 0) pieces.push(`${pluralize(notificationErrors, "event")} had notification issues.`);
+      if (warnings.length) pieces.push(`Top warning: ${trimSentence(warnings[0], 140)}.`);
+      return pieces.join(" ");
+    }
+
+    return null;
+  }
+
+  const deterministicReply = cleanPuraGeneratedReply(String(buildDeterministicAssistantText() || "").trim(), {
+    allowBullets: false,
+    maxLength: 12_000,
+  });
+  const preferDeterministicReply = new Set<PortalAgentActionKey>([
+    "tasks.list",
+    "booking.suggestions.slots",
+    "booking.availability.set_daily",
+    "booking.reminders.settings.get",
+    "booking.reminders.settings.update",
+    "ai_receptionist.settings.get",
+    "ai_receptionist.settings.update",
+    "ai_receptionist.highlights.get",
+    "tasks.assignees.list",
+    "nurture.campaigns.list",
+    "ai_outbound_calls.campaigns.list",
+    "ai_outbound_calls.manual_calls.list",
+    "ai_chat.threads.list",
+    "ai_chat.threads.status.list",
+    "ai_chat.scheduled.list",
+    "credit.contacts.list",
+    "credit.pulls.list",
+    "credit.reports.list",
+    "credit.disputes.letters.list",
+    "media.list.get",
+  ]);
+  if (deterministicReply && (preferDeterministicReply.has(opts.action) || !isLowQualityPuraGeneratedReply(deterministicReply, { allowBullets: false }))) {
+    return deterministicReply;
+  }
+
+  const strippedResult = sanitizeAssistantVisibleResult(opts.action, opts.result ?? null);
+
+  const buildAssistantResponseHints = (action: PortalAgentActionKey, result: unknown) => {
+    const lowSignalLabelPattern = /\b(?:qa|test|testing|demo|sweep|phase\s+\d+|new campaign|untitled|sample)\b/i;
+
+    const cleanLabel = (value: unknown, maxLen = 120) => trimSentence(value, maxLen);
+
+    const rankLabels = <T,>(
+      rows: T[],
+      getLabel: (row: T) => string,
+      getPriority?: (row: T) => number,
+    ) => {
+      const seen = new Set<string>();
+      const ranked = rows
+        .map((row, index) => {
+          const label = cleanLabel(getLabel(row), 140);
+          if (!label) return null;
+          const key = label.toLowerCase();
+          if (seen.has(key)) return null;
+          seen.add(key);
+          const lowSignal = lowSignalLabelPattern.test(label);
+          const priority = Number(getPriority ? getPriority(row) : 0) || 0;
+          return { label, lowSignal, priority, index };
+        })
+        .filter(Boolean) as Array<{ label: string; lowSignal: boolean; priority: number; index: number }>;
+
+      const preferredPool = ranked.some((item) => !item.lowSignal) ? ranked.filter((item) => !item.lowSignal) : ranked;
+      return preferredPool
+        .sort((a, b) => b.priority - a.priority || a.index - b.index)
+        .slice(0, 4)
+        .map((item) => item.label);
+    };
+
+    if (action === "ai_chat.threads.list") {
+      const threads = Array.isArray((result as any)?.threads) ? ((result as any).threads as Record<string, unknown>[]) : [];
+      const userFacingThreads = threads.filter((thread) => !lowSignalLabelPattern.test(String(thread?.title || "")));
+      const totalThreads = Number((result as any)?.totalThreads) || threads.length;
+      return {
+        selectionGuidance:
+          userFacingThreads.length
+            ? "Prefer distinct, user-facing thread titles. Avoid internal QA/test/sweep titles when the payload contains better examples."
+            : "If the available thread titles look internal, QA, or sweep-related, summarize the total count instead of quoting those titles.",
+        totalThreads,
+        preferredExamples: rankLabels(userFacingThreads, (thread) => String(thread?.title || ""), (thread) => {
+          const hasLastMessage = typeof thread?.lastMessageAt === "string" && String(thread.lastMessageAt).trim() ? 3 : 0;
+          const hasUpdatedAt = typeof thread?.updatedAt === "string" && String(thread.updatedAt).trim() ? 1 : 0;
+          return hasLastMessage + hasUpdatedAt;
+        }),
+      };
+    }
+
+    if (action === "ai_chat.threads.status.list") {
+      const threads = Array.isArray((result as any)?.threads) ? ((result as any).threads as Record<string, unknown>[]) : [];
+      const totalThreads = Number((result as any)?.totalThreads) || threads.length;
+      const statusCounts = threads.reduce<Record<string, number>>((acc, thread) => {
+        const status = String(thread?.status || "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+      }, {});
+      return {
+        selectionGuidance:
+          "Prefer pinned, running, or otherwise active thread examples first, then distinct completed ones. Avoid internal QA/test/sweep titles when possible, and do not add navigation or section-reference sentences.",
+        totalThreads,
+        statusCounts,
+        preferredExamples: rankLabels(threads, (thread) => String(thread?.title || ""), (thread) => {
+          const pinned = thread?.pinned === true ? 6 : 0;
+          const status = String(thread?.status || "").trim().toUpperCase();
+          const running = status === "RUNNING" ? 5 : 0;
+          const active = status === "PENDING" || status === "QUEUED" ? 3 : 0;
+          const completed = status === "COMPLETED" ? 1 : 0;
+          return pinned + running + active + completed;
+        }),
+      };
+    }
+
+    if (action === "media.list.get") {
+      const folders = Array.isArray((result as any)?.folders) ? ((result as any).folders as Record<string, unknown>[]) : [];
+      const items = Array.isArray((result as any)?.items) ? ((result as any).items as Record<string, unknown>[]) : [];
+      return {
+        selectionGuidance:
+          "Prefer user-facing folder and file names. Avoid QA/test/demo assets when the payload contains clearer customer-facing examples. If both folders and items are present, mention both, and do not bring up share or download links unless the user explicitly asked for links.",
+        totalFolders: folders.length,
+        totalItems: items.length,
+        preferredFolderExamples: rankLabels(folders, (folder) => String(folder?.name || "")),
+        preferredItemExamples: rankLabels(items, (item) => String(item?.fileName || ""), (item) => {
+          const isImage = /^image\//i.test(String(item?.mimeType || "")) ? 2 : 0;
+          return isImage;
+        }),
+      };
+    }
+
+    if (action === "credit.contacts.list") {
+      const contacts = Array.isArray((result as any)?.contacts) ? ((result as any).contacts as Record<string, unknown>[]) : [];
+      return {
+        selectionGuidance:
+          "Prefer distinct contacts with real names plus email or phone details. Avoid duplicates and low-signal demo/test entries when stronger examples exist.",
+        totalContacts: contacts.length,
+        preferredExamples: rankLabels(contacts, (contact) => String(contact?.name || contact?.email || contact?.phone || ""), (contact) => {
+          const hasName = String(contact?.name || "").trim() ? 2 : 0;
+          const hasEmail = String(contact?.email || "").trim() ? 2 : 0;
+          const hasPhone = String(contact?.phone || "").trim() ? 1 : 0;
+          return hasName + hasEmail + hasPhone;
+        }),
+      };
+    }
+
+    if (action === "tasks.assignees.list") {
+      const members = Array.isArray((result as any)?.members) ? ((result as any).members as Record<string, unknown>[]) : [];
+      const roleCounts = members.reduce<Record<string, number>>((acc, member) => {
+        const role = String(member?.role || "MEMBER").trim().toUpperCase() || "MEMBER";
+        acc[role] = (acc[role] || 0) + 1;
+        return acc;
+      }, {});
+      return {
+        selectionGuidance:
+          "Prefer active assignees with clear human names. Mention the owner and admin roles first, then summarize repeated member roles instead of listing duplicates. Do not add directions about where to view or manage assignees.",
+        totalMembers: members.length,
+        roleCounts,
+        preferredExamples: rankLabels(members, (member) => {
+          const user = member?.user && typeof member.user === "object" && !Array.isArray(member.user)
+            ? (member.user as Record<string, unknown>)
+            : null;
+          return String(user?.name || user?.email || "");
+        }, (member) => {
+          const user = member?.user && typeof member.user === "object" && !Array.isArray(member.user)
+            ? (member.user as Record<string, unknown>)
+            : null;
+          const active = user && user.active !== false ? 2 : 0;
+          const role = String(member?.role || "").trim().toUpperCase();
+          if (role === "OWNER") return active + 5;
+          if (role === "ADMIN") return active + 4;
+          return active + 1;
+        }),
+      };
+    }
+
+    if (action === "tasks.list") {
+      const tasks = Array.isArray((result as any)?.tasks) ? ((result as any).tasks as Record<string, unknown>[]) : [];
+      return {
+        selectionGuidance:
+          "Prefer open tasks with real titles and nearer due dates. Avoid synthetic or duplicate-looking task titles when better examples exist.",
+        totalTasks: tasks.length,
+        preferredExamples: rankLabels(tasks, (task) => String(task?.title || ""), (task) => {
+          const status = String(task?.status || "").trim().toUpperCase();
+          const open = status === "OPEN" ? 3 : 0;
+          const due = String(task?.dueAt || task?.dueDate || "").trim() ? 1 : 0;
+          return open + due;
+        }),
+      };
+    }
+
+    if (action === "nurture.campaigns.list") {
+      const campaigns = Array.isArray((result as any)?.campaigns) ? ((result as any).campaigns as Record<string, unknown>[]) : [];
+      return {
+        selectionGuidance:
+          "Prefer distinct campaign names and summarize repeated duplicate names instead of treating them as varied examples. Avoid placeholder names like New campaign or Untitled, and do not add portal navigation instructions.",
+        totalCampaigns: campaigns.length,
+        preferredExamples: rankLabels(campaigns, (campaign) => String(campaign?.name || ""), (campaign) => {
+          const name = String(campaign?.name || "").trim();
+          if (!name) return -10;
+          if (/^new campaign\b/i.test(name)) return -5;
+          if (/^untitled\b/i.test(name)) return -5;
+          if (/\b(?:demo|test|qa|sample)\b/i.test(name)) return -3;
+          return 1;
+        }),
+      };
+    }
+
+    if (action === "ai_outbound_calls.campaigns.list") {
+      const campaigns = Array.isArray((result as any)?.campaigns) ? ((result as any).campaigns as Record<string, unknown>[]) : [];
+      return {
+        selectionGuidance:
+          "Prefer active campaigns before draft ones, and prefer distinct names over near-duplicates.",
+        totalCampaigns: campaigns.length,
+        preferredExamples: rankLabels(campaigns, (campaign) => String(campaign?.name || ""), (campaign) => {
+          const status = String(campaign?.status || "").trim().toUpperCase();
+          if (status === "ACTIVE") return 4;
+          if (status === "DRAFT") return 1;
+          return 0;
+        }),
+      };
+    }
+
+    if (action === "ai_outbound_calls.manual_calls.list") {
+      const calls = Array.isArray((result as any)?.manualCalls) ? ((result as any).manualCalls as Record<string, unknown>[]) : [];
+      const statusCounts = calls.reduce<Record<string, number>>((acc, call) => {
+        const status = String(call?.status || "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+      }, {});
+      return {
+        selectionGuidance:
+          "Prefer recent completed calls with a real number, duration, or campaign name. Do not invent transcript themes or call topics unless the payload explicitly includes them.",
+        totalCalls: calls.length,
+        statusCounts,
+        preferredExamples: rankLabels(calls, (call) => String(call?.campaignName || call?.toNumberE164 || call?.id || ""), (call) => {
+          const status = String(call?.status || "").trim().toUpperCase();
+          const completed = status === "COMPLETED" ? 4 : status === "CALLING" ? 2 : 0;
+          const hasDuration = Number.isFinite(Number(call?.recordingDurationSec)) ? 2 : 0;
+          const hasCampaign = String(call?.campaignName || "").trim() ? 1 : 0;
+          return completed + hasDuration + hasCampaign;
+        }),
+      };
+    }
+
+    if (action === "ai_chat.scheduled.list") {
+      const scheduled = Array.isArray((result as any)?.scheduled) ? ((result as any).scheduled as Record<string, unknown>[]) : [];
+      return {
+        selectionGuidance:
+          "Prefer the nearest upcoming scheduled reminders, and prefer clear thread titles over raw reminder text when naming examples.",
+        totalScheduled: scheduled.length,
+        repeatingCount: scheduled.filter((item) => Number(item?.repeatEveryMinutes) > 0).length,
+        preferredExamples: rankLabels(scheduled, (item) => String(item?.threadTitle || item?.text || ""), (item) => {
+          const repeating = Number(item?.repeatEveryMinutes) > 0 ? 2 : 0;
+          const hasThreadTitle = String(item?.threadTitle || "").trim() ? 2 : 0;
+          return repeating + hasThreadTitle;
+        }),
+      };
+    }
+
+    if (action === "credit.disputes.letters.list") {
+      const letters = Array.isArray((result as any)?.letters) ? ((result as any).letters as Record<string, unknown>[]) : [];
+      const statusCounts = letters.reduce<Record<string, number>>((acc, letter) => {
+        const status = String(letter?.status || "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+      }, {});
+      return {
+        selectionGuidance:
+          "Prefer recent letters with a real contact name or subject. Summarize repeated statuses instead of listing near-identical dispute letters.",
+        totalLetters: letters.length,
+        statusCounts,
+        preferredExamples: rankLabels(letters, (letter) => {
+          const contact = letter?.contact && typeof letter.contact === "object" && !Array.isArray(letter.contact)
+            ? (letter.contact as Record<string, unknown>)
+            : null;
+          return String(contact?.name || letter?.subject || "");
+        }, (letter) => {
+          const contact = letter?.contact && typeof letter.contact === "object" && !Array.isArray(letter.contact)
+            ? (letter.contact as Record<string, unknown>)
+            : null;
+          const hasContact = String(contact?.name || "").trim() ? 2 : 0;
+          const hasSubject = String(letter?.subject || "").trim() ? 1 : 0;
+          const sent = String(letter?.status || "").trim().toUpperCase() === "SENT" ? 2 : 0;
+          return hasContact + hasSubject + sent;
+        }),
+      };
+    }
+
+    return null;
+  };
+
+  const responseHints = buildAssistantResponseHints(opts.action, strippedResult);
+  const actionKey = String(opts.action || "");
+
   const assistantLinkUrl = normalizeAssistantLinkUrl(opts.linkUrl ?? null);
   const payload = {
     action: opts.action,
@@ -2456,7 +4260,8 @@ async function generateAssistantTextForActionResult(opts: {
     status: opts.status,
     linkUrl: assistantLinkUrl,
     args: opts.args ?? {},
-    result: stripAssistantVisibleAccountingFields(opts.result ?? null),
+    result: strippedResult,
+    responseHints,
     clientUiAction: opts.clientUiAction ?? null,
   };
 
@@ -2474,20 +4279,33 @@ async function generateAssistantTextForActionResult(opts: {
       "- If result.question exists, ask only that question and stop there.",
       "- If result.question does not exist, do not ask a new follow-up or clarifying question.",
       "- Be explicit about what changed, what failed, or what decision is still needed.",
+      "- For read-only actions such as get/list/status/preview, describe the retrieved state only and never claim you set up, changed, enabled, created, updated, or configured anything unless the payload explicitly reflects that change.",
       "- Mention unchanged settings only if they directly explain the outcome.",
       "- Never imply success unless ok=true and status is 2xx.",
       "- Never invent details, URLs, placeholder domains, or outcomes.",
+      "- Only mention facts that are explicitly present in the payload; if a field is absent, do not infer it from context or fill it in with assumptions.",
+      "- Do not guess about message activity, recency, authorship, counts, reasons, or history unless the payload explicitly includes that information.",
+      "- Do not mention omitted or unspecified fields just to say they are missing unless that absence directly explains the answer.",
+      "- If responseHints is present, use it as the preferred ranking and example-selection guidance instead of freehanding examples from the raw list.",
+      "- If responseHints includes preferred examples, prefer those exact examples over other low-signal or QA/test/demo examples from the raw payload.",
       "- Use grounded facts from the payload and do not replace them with generic portal-tour wording.",
       "- Ignore incidental discovery/list/read results unless they materially changed the answer the user asked for.",
       "- Never mention internal IDs, raw slugs, method names, stack traces, or implementation symbols.",
       "- If the action partly worked or returned warnings, say that plainly instead of asking whether the user wants details.",
       "- Never output a bare raw URL. If you include a link, it must be one markdown link using the provided linkUrl.",
+      "- If linkUrl is present, never invent a different URL, placeholder token, or angle-bracket variable such as <canvasUrl>; either use the exact provided linkUrl or omit the link entirely.",
       "- Never use phrases like 'The action to...', 'The action was...', 'completed successfully', 'has been successfully created', 'was sent successfully', 'for more details', or 'let me know if you need anything else'.",
       "- Do not append generic tails like 'you can check them here', 'you can review it here', 'you can edit it here', 'feel free to ask', 'just let me know', or 'if you want to explore that further'.",
       "- Never end with invitation lines like 'If you have specific areas you want to dive deeper into' or 'You can visit/check/view it in the portal' unless the user explicitly asked for navigation help.",
       "Style rules:",
       "- 1 or 2 short paragraphs max.",
-      "- No headings, bullet lists, tables, code blocks, or JSON.",
+      "- Avoid formulaic openers like 'I've retrieved', 'I retrieved', or 'I found' when a more direct sentence would sound more natural.",
+      "- Start with the main fact or state itself rather than a meta sentence about listing, retrieving, or checking.",
+      "- No headings, bullet lists, numbered lists, markdown emphasis, tables, code blocks, or JSON.",
+      "- For list-heavy readbacks, summarize counts/statuses in plain sentences and mention at most 2 to 4 concrete examples inline instead of enumerating every item.",
+      "- When the payload contains many examples, prefer examples that are distinct, user-facing, and high-signal rather than QA/test/demo duplicates.",
+      "- Prefer active, open, pinned, recent, or otherwise relevant examples when that ranking information is present in the payload or responseHints.",
+      "- If many items share the same status or pattern, group them in one sentence instead of listing each one.",
       "- Keep it concise and human.",
       "- Do not end with a separate sentence whose only purpose is telling the user to check, view, manage, open, review, or edit something at a link.",
       "- If linkUrl is provided, you may include one markdown link using only that exact linkUrl.",
@@ -2498,6 +4316,7 @@ async function generateAssistantTextForActionResult(opts: {
       "- If a send action did not reach anyone because no channels or audience were requested, say that plainly in one sentence and stop.",
       "- If a lookup finds nothing, say that plainly in one short sentence and stop.",
       "- Do not add advice like 'adjust your settings', 'review it before it goes live', or 'check the generated HTML' unless the user explicitly asked for next steps.",
+      "- Do not mention share links, download links, or navigation help unless the user explicitly asked for links or how to open something.",
       "- Never include bundles of action links like open/download/share after an import result; just state the result plainly.",
       "- Mention draft status only when it materially affects whether something is live; do not add extra review/go-live commentary.",
       "- Avoid lines like 'You can view it in the nurture campaigns section', 'You can check the newsletter service', or bare markdown links on their own line.",
@@ -2515,7 +4334,27 @@ async function generateAssistantTextForActionResult(opts: {
 
     const rawOut = String(await generateText({ system, user })).trim();
     const cleanedOut = cleanPuraGeneratedReply(rawOut, { allowBullets: false, maxLength: 12_000 });
-    return cleanedOut || rawOut;
+    let normalizedOut = cleanedOut || rawOut;
+
+    if (normalizedOut && assistantLinkUrl) {
+      normalizedOut = normalizedOut
+        .replace(/the live booking link is available here\.?/i, `the live booking link is available [here](${assistantLinkUrl}).`)
+        .replace(/the live booking page is available here\.?/i, `the live booking page is available [here](${assistantLinkUrl}).`)
+        .replace(/the booking site information is also accessible at this link\.?/i, `The live booking link is [here](${assistantLinkUrl}).`);
+      if (/\/book\//i.test(assistantLinkUrl) && !new RegExp(assistantLinkUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(normalizedOut)) {
+        if (/live booking link|booking site information|booking page/i.test(normalizedOut)) {
+          normalizedOut = `${normalizedOut.trim()}\n\nThe live booking link is [here](${assistantLinkUrl}).`;
+        }
+      }
+    }
+
+    if (normalizedOut && /ai_receptionist\.settings\.(?:update|get)/i.test(actionKey)) {
+      normalizedOut = normalizedOut
+        .replace(/(greeting now says\s+")([^".!?\n]+)(")/i, (_match, prefix, greeting, suffix) => `${prefix}${greeting.trim()}.${suffix}`)
+        .replace(/(Current greeting:\s+")([^".!?\n]+)(")/i, (_match, prefix, greeting, suffix) => `${prefix}${greeting.trim()}.${suffix}`);
+    }
+
+    return normalizedOut;
   };
 
   try {
@@ -3305,6 +5144,11 @@ async function ensureBookingSite(ownerId: string, flags: BookingSiteColumnFlags)
     select: bookingSiteSelect(flags),
   });
   return created as any;
+}
+
+function buildBookingPublicUrl(slug: unknown): string | null {
+  const cleanSlug = typeof slug === "string" ? slug.trim() : "";
+  return cleanSlug ? `/book/${encodeURIComponent(cleanSlug)}` : null;
 }
 
 async function resolveNewsletterRecordForSite(opts: {
@@ -4450,12 +6294,183 @@ async function runDirectAction(opts: {
 
       // Best-effort automation trigger.
       try {
-        await runOwnerAutomationsForEvent({ ownerId, triggerKind: "task_added", message: { from: "", to: "", body: title } });
+        void runOwnerAutomationsForEvent({ ownerId, triggerKind: "task_added", message: { from: "", to: "", body: title } }).catch(() => null);
       } catch {
         // ignore
       }
 
-      return { status: 200, json: { ok: true, taskId: id } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          taskId: id,
+          title,
+          dueAtIso: dueAt ? dueAt.toISOString() : null,
+        },
+      };
+    }
+    case "tasks.bulk_create": {
+      if (!(await requireServiceCapability("tasks", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      await ensurePortalTasksSchema().catch(() => null);
+      const hasTaskCreatedByUserId = await dbHasPublicColumn({ tableNames: ["PortalTask", "portaltask"], columnName: "createdByUserId" }).catch(
+        () => true,
+      );
+
+      const rawItems = Array.isArray((args as any).items) ? ((args as any).items as Array<Record<string, unknown>>) : [];
+      const normalizedItems = rawItems
+        .map((item) => {
+          const title = String(item?.title || "").trim().slice(0, 160);
+          const description = String(item?.description || "").trim().slice(0, 5000);
+          const assignedToUserId =
+            typeof item?.assignedToUserId === "string" && item.assignedToUserId.trim()
+              ? item.assignedToUserId.trim()
+              : typeof item?.assigneeUserId === "string" && item.assigneeUserId.trim()
+                ? item.assigneeUserId.trim()
+                : typeof item?.assignedTo === "string" && item.assignedTo.trim()
+                  ? item.assignedTo.trim()
+                  : typeof item?.assignee === "string" && item.assignee.trim()
+                    ? item.assignee.trim()
+                    : null;
+          const dueAtIso =
+            typeof item?.dueAtIso === "string"
+              ? item.dueAtIso.trim()
+              : typeof item?.dueAt === "string"
+                ? item.dueAt.trim()
+                : typeof item?.dueDate === "string"
+                  ? item.dueDate.trim()
+                  : "";
+          const dueAt = dueAtIso ? new Date(dueAtIso) : null;
+          return {
+            title,
+            description: description || null,
+            assignedToUserId,
+            dueAtIso,
+            dueAt,
+          };
+        })
+        .filter((item) => item.title);
+
+      if (!normalizedItems.length) {
+        return { status: 400, json: { ok: false, error: "No valid tasks provided" } };
+      }
+
+      const invalidIndex = normalizedItems.findIndex((item) => item.dueAt && !Number.isFinite(item.dueAt.getTime()));
+      if (invalidIndex >= 0) {
+        return { status: 400, json: { ok: false, error: `Invalid due date for item ${invalidIndex + 1}` } };
+      }
+
+      const now = new Date();
+      const createdRows = normalizedItems.map((item) => ({
+        id: crypto.randomUUID().replace(/-/g, ""),
+        ownerId,
+        createdByUserId: actorUserId,
+        title: item.title,
+        description: item.description,
+        status: "OPEN" as const,
+        assignedToUserId: item.assignedToUserId,
+        dueAt: item.dueAt,
+        createdAt: now,
+        updatedAt: now,
+      }));
+
+      if (hasTaskCreatedByUserId) {
+        const valuesSql = createdRows
+          .map(
+            (_, index) =>
+              `($${index * 8 + 1},$${index * 8 + 2},$${index * 8 + 3},$${index * 8 + 4},$${index * 8 + 5},'OPEN',$${index * 8 + 6},$${index * 8 + 7},DEFAULT,$${index * 8 + 8})`,
+          )
+          .join(", ");
+        const sql = `
+          INSERT INTO "PortalTask" ("id","ownerId","createdByUserId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
+          VALUES ${valuesSql}
+        `;
+        const params = createdRows.flatMap((row) => [
+          row.id,
+          row.ownerId,
+          row.createdByUserId,
+          row.title,
+          row.description,
+          row.assignedToUserId,
+          row.dueAt,
+          row.updatedAt,
+        ]);
+        await prisma.$executeRawUnsafe(sql, ...params);
+      } else {
+        const valuesSql = createdRows
+          .map(
+            (_, index) => `($${index * 7 + 1},$${index * 7 + 2},$${index * 7 + 3},$${index * 7 + 4},'OPEN',$${index * 7 + 5},$${index * 7 + 6},DEFAULT,$${index * 7 + 7})`,
+          )
+          .join(", ");
+        const sql = `
+          INSERT INTO "PortalTask" ("id","ownerId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
+          VALUES ${valuesSql}
+        `;
+        const params = createdRows.flatMap((row) => [
+          row.id,
+          row.ownerId,
+          row.title,
+          row.description,
+          row.assignedToUserId,
+          row.dueAt,
+          row.updatedAt,
+        ]);
+        await prisma.$executeRawUnsafe(sql, ...params);
+      }
+
+      try {
+        const baseUrl = getAppBaseUrl();
+        for (const row of createdRows) {
+          const text = [
+            row.assignedToUserId ? "A task was assigned to you." : "A new task was created.",
+            "",
+            `Title: ${row.title}`,
+            row.description ? "" : null,
+            row.description ? `Description: ${String(row.description).slice(0, 2000)}` : null,
+            row.dueAt ? `Due: ${row.dueAt.toISOString()}` : null,
+            "",
+            `Open tasks: ${baseUrl}/portal/app/tasks`,
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          if (row.assignedToUserId) {
+            const userIds = Array.from(new Set([row.assignedToUserId, ownerId].filter(Boolean)));
+            void tryNotifyPortalUserIds({
+              userIds,
+              subject: `Task assigned: ${row.title}`,
+              text,
+            }).catch(() => null);
+          } else {
+            void tryNotifyPortalAccountUsers({
+              ownerId,
+              kind: "task_created",
+              subject: `New task: ${row.title}`,
+              text,
+            }).catch(() => null);
+          }
+
+          void runOwnerAutomationsForEvent({ ownerId, triggerKind: "task_added", message: { from: "", to: "", body: row.title } }).catch(() => null);
+        }
+      } catch {
+        // ignore
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          count: createdRows.length,
+          taskIds: createdRows.map((row) => row.id),
+          items: createdRows.map((row) => ({
+            taskId: row.id,
+            title: row.title,
+            dueAtIso: row.dueAt ? row.dueAt.toISOString() : null,
+          })),
+        },
+      };
     }
 
     case "tasks.create_for_all": {
@@ -4665,6 +6680,33 @@ async function runDirectAction(opts: {
       `;
 
       await prisma.$executeRawUnsafe(sql, ...params);
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "tasks.delete": {
+      const taskId = String((args as any)?.taskId || "").trim();
+      if (!taskId) return { status: 400, json: { ok: false, error: "Invalid taskId" } };
+
+      const allowed = await requireServiceCapability("tasks", "edit");
+      if (!allowed) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      try {
+        await ensurePortalTasksSchema();
+      } catch (e) {
+        return { status: 500, json: { ok: false, error: e instanceof Error ? e.message : "Task storage not ready" } };
+      }
+
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM "PortalTaskMemberCompletion" WHERE "ownerId" = $1 AND "taskId" = $2`,
+        ownerId,
+        taskId,
+      );
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM "PortalTask" WHERE "ownerId" = $1 AND "id" = $2`,
+        ownerId,
+        taskId,
+      );
+
       return { status: 200, json: { ok: true } };
     }
 
@@ -5159,6 +7201,74 @@ async function runDirectAction(opts: {
           rootFunnelSlug: rootMode === "REDIRECT" ? rootFunnelSlug : null,
         },
       };
+    }
+
+    case "funnel_builder.domains.delete": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const domainId = String((args as any)?.domainId || "").trim();
+      const domain = normalizeCustomDomain((args as any)?.domain);
+
+      const existing = domainId
+        ? await prisma.creditCustomDomain.findFirst({
+            where: { id: domainId, ownerId },
+            select: { id: true, domain: true },
+          })
+        : domain
+          ? await prisma.creditCustomDomain.findUnique({
+              where: { ownerId_domain: { ownerId, domain } },
+              select: { id: true, domain: true },
+            })
+          : null;
+
+      if (!existing) return { status: 404, json: { ok: false, error: "Domain not found" } };
+
+      const settings = await prisma.creditFunnelBuilderSettings.findUnique({
+        where: { ownerId },
+        select: { dataJson: true },
+      });
+
+      function removeDomainFromSettings(settingsJson: unknown, removedDomain: string) {
+        if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) {
+          return {};
+        }
+
+        const base: Record<string, unknown> = { ...(settingsJson as Record<string, unknown>) };
+
+        const customDomains =
+          base.customDomains && typeof base.customDomains === "object" && !Array.isArray(base.customDomains)
+            ? { ...(base.customDomains as Record<string, unknown>) }
+            : {};
+        delete customDomains[removedDomain];
+        base.customDomains = customDomains;
+
+        const funnelDomains =
+          base.funnelDomains && typeof base.funnelDomains === "object" && !Array.isArray(base.funnelDomains)
+            ? { ...(base.funnelDomains as Record<string, unknown>) }
+            : {};
+        for (const [funnelId, assignedDomain] of Object.entries(funnelDomains)) {
+          if (String(assignedDomain || "").trim().toLowerCase() === removedDomain) {
+            delete funnelDomains[funnelId];
+          }
+        }
+        base.funnelDomains = funnelDomains;
+
+        return base;
+      }
+
+      const nextJson = removeDomainFromSettings(settings?.dataJson ?? null, existing.domain);
+
+      await prisma.$transaction([
+        prisma.creditCustomDomain.delete({ where: { id: existing.id } }),
+        prisma.creditFunnelBuilderSettings.upsert({
+          where: { ownerId },
+          update: { dataJson: nextJson as any },
+          create: { ownerId, dataJson: nextJson as any },
+          select: { ownerId: true },
+        }),
+      ]);
+
+      return { status: 200, json: { ok: true, domainId: existing.id, domain: existing.domain } };
     }
 
     case "funnel_builder.domains.verify": {
@@ -6467,6 +8577,52 @@ async function runDirectAction(opts: {
 
       await prisma.creditFunnelPage.delete({ where: { id: pageId } });
       return { status: 200, json: { ok: true } };
+    }
+
+    case "funnel_builder.pages.publish": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      const pageId = String(args?.pageId || "").trim();
+      if (!funnelId || !pageId) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const hasDraftHtml = await canUseCreditFunnelPageDraftHtml();
+
+      const page = await prisma.creditFunnelPage.findFirst({
+        where: { id: pageId, funnelId, funnel: { ownerId } },
+        select: withDraftHtmlSelect({ id: true, customHtml: true }, hasDraftHtml),
+      });
+      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const normalizedPage = normalizeDraftHtml(page as any);
+      if (!hasDraftHtml) {
+        return { status: 200, json: { ok: true, page: normalizedPage } };
+      }
+
+      const publishUpdate = createFunnelPagePublishUpdate(normalizedPage);
+      if (!publishUpdate) {
+        return { status: 400, json: { ok: false, error: "No draft to publish" } };
+      }
+
+      const updated = await prisma.creditFunnelPage.update({
+        where: { id: pageId },
+        data: publishUpdate,
+        select: withDraftHtmlSelect({
+          id: true,
+          slug: true,
+          title: true,
+          sortOrder: true,
+          contentMarkdown: true,
+          editorMode: true,
+          blocksJson: true,
+          customHtml: true,
+          customChatJson: true,
+          createdAt: true,
+          updatedAt: true,
+        }, hasDraftHtml),
+      });
+
+      return { status: 200, json: { ok: true, page: normalizeDraftHtml(updated as any) } };
     }
 
     case "funnel_builder.pages.export_custom_html": {
@@ -8579,7 +10735,7 @@ async function runDirectAction(opts: {
         ...(canUseSlugColumn ? { slug: true } : {}),
       };
 
-      let site = (await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select })) as any;
+      let site = (await prisma.clientBlogSite.findUnique({ where: { ownerId }, select } as any)) as any;
 
       const currentSlug = (site as any)?.slug as string | null | undefined;
       if (site && canUseSlugColumn && !currentSlug) {
@@ -8603,10 +10759,6 @@ async function runDirectAction(opts: {
             ? {
                 ...(site as any),
                 slug: canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug,
-                publicUrl:
-                  (canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug)
-                    ? `/book/${encodeURIComponent(String(canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug))}`
-                    : null,
               }
             : null,
         },
@@ -10324,6 +12476,24 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true, newsletter: { id: updated.id, updatedAtIso: updated.updatedAt.toISOString() } } };
     }
 
+    case "newsletter.newsletters.delete": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const newsletterId = String((args as any)?.newsletterId || "").trim();
+      if (!newsletterId) return { status: 400, json: { ok: false, error: "Missing newsletterId" } };
+
+      const site = await ensureNewsletterSiteForOwner({ ownerId, desiredName: "Newsletter site", select: { id: true } });
+      const existing = await prisma.clientNewsletter.findFirst({
+        where: { id: newsletterId, siteId: site.id },
+        select: { id: true },
+      });
+
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      await prisma.clientNewsletter.delete({ where: { id: existing.id } });
+      return { status: 200, json: { ok: true } };
+    }
+
     case "newsletter.newsletters.send": {
       if (!(await requireServiceCapability("newsletter", "edit"))) {
         return { status: 403, json: { ok: false, error: "Forbidden" } };
@@ -10384,6 +12554,19 @@ async function runDirectAction(opts: {
         audience,
         fromName,
       });
+
+      const requestedTotal = Number(results.email.requested || 0) + Number(results.sms.requested || 0);
+      if (requestedTotal <= 0) {
+        return {
+          status: 409,
+          json: {
+            ok: false,
+            error: "No recipients were found in the current newsletter audience. Update the audience before sending.",
+            requestedCount: 0,
+            sentCount: 0,
+          },
+        };
+      }
 
       const sentAt = new Date();
       await prisma.clientNewsletter.update({ where: { id: newsletter.id }, data: { status: "SENT", sentAt }, select: { id: true } });
@@ -10512,6 +12695,84 @@ async function runDirectAction(opts: {
           })),
         },
       };
+    }
+
+    case "newsletter.audience.contacts.add": {
+      const ok = await requireServiceCapability("newsletter", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const contactIds = Array.isArray((args as any)?.contactIds)
+        ? ((args as any).contactIds as unknown[])
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+            .slice(0, 200)
+        : [];
+
+      if (!contactIds.length) {
+        return { status: 400, json: { ok: false, error: "No contactIds provided" } };
+      }
+
+      const existing = await prisma.portalServiceSetup.findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "newsletter" } },
+        select: { dataJson: true },
+      });
+
+      function normalizeStrings(items: unknown, max: number) {
+        if (!Array.isArray(items)) return [] as string[];
+        const out: string[] = [];
+        const seen = new Set<string>();
+        for (const item of items) {
+          const text = typeof item === "string" ? item.trim() : "";
+          if (!text) continue;
+          const key = text.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(text);
+          if (out.length >= max) break;
+        }
+        return out;
+      }
+
+      const current = existing?.dataJson && typeof existing.dataJson === "object" && !Array.isArray(existing.dataJson)
+        ? (existing.dataJson as Record<string, unknown>)
+        : {};
+      const external = current.external && typeof current.external === "object" && !Array.isArray(current.external)
+        ? (current.external as Record<string, unknown>)
+        : {};
+      const internal = current.internal && typeof current.internal === "object" && !Array.isArray(current.internal)
+        ? (current.internal as Record<string, unknown>)
+        : {};
+      const audience = external.audience && typeof external.audience === "object" && !Array.isArray(external.audience)
+        ? (external.audience as Record<string, unknown>)
+        : {};
+
+      const previousContactIds = normalizeStrings(audience.contactIds, 200);
+      const nextContactIds = normalizeStrings([...previousContactIds, ...contactIds], 200);
+      const next = {
+        ...current,
+        external: {
+          ...external,
+          audience: {
+            ...audience,
+            tagIds: normalizeStrings(audience.tagIds, 200),
+            contactIds: nextContactIds,
+            emails: normalizeStrings(audience.emails, 200),
+            userIds: normalizeStrings(audience.userIds, 200),
+            sendAllUsers: Boolean(audience.sendAllUsers),
+          },
+        },
+        internal,
+      };
+
+      await prisma.portalServiceSetup.upsert({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "newsletter" } },
+        create: { ownerId, serviceSlug: "newsletter", status: "IN_PROGRESS", dataJson: next as any },
+        update: { dataJson: next as any },
+        select: { id: true },
+      });
+
+      const added = Math.max(0, nextContactIds.length - previousContactIds.length);
+      return { status: 200, json: { ok: true, added, total: nextContactIds.length } };
     }
 
     case "newsletter.automation.settings.get": {
@@ -11466,7 +13727,7 @@ async function runDirectAction(opts: {
         customer,
         status: "all",
         limit: 100,
-        "expand[]": ["data.items.data.price", "data.items.data.price.product"],
+        "expand[]": "data.items.data.price",
       });
 
       const active = subs.data.filter((s) => ["active", "trialing", "past_due"].includes(String(s.status)));
@@ -14971,6 +17232,54 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true } };
     }
 
+    case "automations.test_trigger": {
+      const ok = await requireServiceCapability("automations" as PortalServiceKey, "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const automationId = String((args as any)?.automationId || "").trim();
+      const triggerKind = String((args as any)?.triggerKind || "").trim();
+      const from = String((args as any)?.from || "").trim();
+      const body = typeof (args as any)?.body === "string" ? String((args as any).body).trim().slice(0, 2000) : "";
+      const nowIso = typeof (args as any)?.nowIso === "string" ? String((args as any).nowIso).trim().slice(0, 64) : undefined;
+      const contact = (args as any)?.contact;
+      const event = (args as any)?.event;
+
+      const isPhoneTrigger = triggerKind === "inbound_sms" || triggerKind === "inbound_mms" || triggerKind === "inbound_call" || triggerKind === "missed_call";
+      const isEmailTrigger = triggerKind === "inbound_email";
+      if ((isPhoneTrigger || isEmailTrigger) && !from) {
+        return { status: 400, json: { ok: false, error: "Sender is required for this trigger." } };
+      }
+
+      const defaultContact = from
+        ? {
+            phone: /\+?[0-9][0-9()\-\s]{6,}/.test(from) ? from : undefined,
+            email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(from) ? from : undefined,
+            name: from,
+          }
+        : undefined;
+
+      const twilio = isPhoneTrigger ? await getOwnerTwilioSmsConfig(ownerId).catch(() => null) : null;
+
+      try {
+        await runOwnerAutomationByIdForEvent({
+          ownerId,
+          automationId,
+          triggerKind: triggerKind as any,
+          throwIfMissing: true,
+          nowIso,
+          message: isPhoneTrigger || isEmailTrigger ? { from, to: twilio?.fromNumberE164 || "", body } : undefined,
+          contact: contact ?? defaultContact,
+          event,
+        });
+        return { status: 200, json: { ok: true } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error || "");
+        const safeMessage = message.trim().slice(0, 200);
+        const status = /not found/i.test(safeMessage) ? 404 : 400;
+        return { status, json: { ok: false, error: safeMessage || "Test failed" } };
+      }
+    }
+
     case "contacts.list": {
       await ensurePortalContactsSchema().catch(() => null);
       const q = typeof args.q === "string" ? String(args.q).trim() : "";
@@ -17014,6 +19323,295 @@ async function runDirectAction(opts: {
       }
 
       return { status: 200, json: { ok: true, note: "Sent." } };
+    }
+
+    case "lead_scraping.assignees.list": {
+      const ok = await requireServiceCapability("leadScraping", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const owner = await prisma.user.findUnique({
+        where: { id: ownerId },
+        select: { id: true, email: true, name: true, active: true },
+      });
+
+      const rows = await listPortalAccountMembers(ownerId).catch(() => [] as any[]);
+
+      const members = [
+        ...(owner
+          ? [
+              {
+                userId: owner.id,
+                role: "OWNER",
+                user: { id: owner.id, email: owner.email, name: owner.name, active: owner.active },
+                implicit: true,
+              },
+            ]
+          : []),
+        ...rows.map((row) => ({
+          userId: String(row.userId),
+          role: String(row.role || "MEMBER"),
+          user: row.user,
+          implicit: false,
+        })),
+      ].filter((member, index, all) => all.findIndex((candidate) => candidate.userId === member.userId) === index);
+
+      return { status: 200, json: { ok: true, ownerId, members } };
+    }
+
+    case "lead_scraping.backfill_map": {
+      const ok = await requireServiceCapability("leadScraping", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const leadIds = Array.isArray((args as any)?.leadIds)
+        ? Array.from(new Set(((args as any).leadIds as unknown[]).map((value) => String(value || "").trim()).filter(Boolean))).slice(0, 150)
+        : [];
+
+      if (!leadIds.length) {
+        return { status: 200, json: { ok: true, updated: [] } };
+      }
+
+      const leads = await prisma.portalLead.findMany({
+        where: { ownerId, id: { in: leadIds } },
+        select: { id: true, placeId: true, dataJson: true },
+      });
+
+      const updated: Array<{ id: string; latitude: number; longitude: number }> = [];
+
+      function asRecord(value: unknown): Record<string, unknown> | null {
+        return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+      }
+
+      function toFiniteNumber(value: unknown): number | null {
+        if (typeof value === "number" && Number.isFinite(value)) return value;
+        if (typeof value === "string" && value.trim()) {
+          const parsed = Number(value);
+          if (Number.isFinite(parsed)) return parsed;
+        }
+        return null;
+      }
+
+      function extractCoordinates(dataJson: unknown): { latitude: number; longitude: number } | null {
+        const root = asRecord(dataJson);
+        if (!root) return null;
+
+        const googlePlaces = asRecord(root.googlePlaces);
+        const googleLocation = asRecord(googlePlaces?.location);
+        const googleDetails = asRecord(googlePlaces?.details);
+        const googleDetailsLocation = asRecord(googleDetails?.location);
+        const legacyGeometry = asRecord(googleDetails?.geometry);
+        const legacyGeometryLocation = asRecord(legacyGeometry?.location);
+
+        const googleLatitude =
+          toFiniteNumber(googleLocation?.latitude) ??
+          toFiniteNumber(googleLocation?.lat) ??
+          toFiniteNumber(googleDetailsLocation?.latitude) ??
+          toFiniteNumber(googleDetailsLocation?.lat) ??
+          toFiniteNumber(legacyGeometryLocation?.lat);
+        const googleLongitude =
+          toFiniteNumber(googleLocation?.longitude) ??
+          toFiniteNumber(googleLocation?.lng) ??
+          toFiniteNumber(googleDetailsLocation?.longitude) ??
+          toFiniteNumber(googleDetailsLocation?.lng) ??
+          toFiniteNumber(legacyGeometryLocation?.lng);
+        if (googleLatitude !== null && googleLongitude !== null) {
+          return { latitude: googleLatitude, longitude: googleLongitude };
+        }
+
+        const osm = asRecord(root.osm);
+        const osmElement = asRecord(osm?.element);
+        const osmCenter = asRecord(osmElement?.center);
+        const osmLatitude = toFiniteNumber(osmElement?.lat) ?? toFiniteNumber(osmCenter?.lat);
+        const osmLongitude = toFiniteNumber(osmElement?.lon) ?? toFiniteNumber(osmCenter?.lon);
+        if (osmLatitude !== null && osmLongitude !== null) {
+          return { latitude: osmLatitude, longitude: osmLongitude };
+        }
+
+        return null;
+      }
+
+      function extractLiveCoordinates(details: unknown): { latitude: number; longitude: number } | null {
+        const rec = asRecord(details);
+        const location = asRecord(rec?.location);
+        const geometry = asRecord(rec?.geometry);
+        const geometryLocation = asRecord(geometry?.location);
+
+        const latitude =
+          toFiniteNumber(location?.lat) ??
+          toFiniteNumber(location?.latitude) ??
+          toFiniteNumber(geometryLocation?.lat) ??
+          toFiniteNumber(geometryLocation?.latitude);
+        const longitude =
+          toFiniteNumber(location?.lng) ??
+          toFiniteNumber(location?.longitude) ??
+          toFiniteNumber(geometryLocation?.lng) ??
+          toFiniteNumber(geometryLocation?.longitude);
+
+        if (latitude === null || longitude === null) return null;
+        return { latitude, longitude };
+      }
+
+      for (let index = 0; index < leads.length; index += 4) {
+        const batch = leads.slice(index, index + 4);
+        await Promise.all(
+          batch.map(async (lead) => {
+            const existingCoordinates = extractCoordinates(lead.dataJson);
+            if (existingCoordinates) {
+              updated.push({ id: String(lead.id), latitude: existingCoordinates.latitude, longitude: existingCoordinates.longitude });
+              return;
+            }
+
+            const placeId = String(lead.placeId || "").trim();
+            if (!placeId || placeId.startsWith("osm:")) return;
+
+            try {
+              const details = await placeDetails(placeId);
+              const coordinates = extractLiveCoordinates(details);
+              if (!coordinates) return;
+
+              const root = asRecord(lead.dataJson) ? { ...(lead.dataJson as Record<string, unknown>) } : {};
+              const googlePlaces = asRecord(root.googlePlaces) ? { ...(root.googlePlaces as Record<string, unknown>) } : {};
+              const nextDataJson = {
+                ...root,
+                googlePlaces: {
+                  ...googlePlaces,
+                  details,
+                  location: {
+                    latitude: coordinates.latitude,
+                    longitude: coordinates.longitude,
+                  },
+                },
+              };
+
+              await prisma.portalLead.updateMany({
+                where: { id: lead.id, ownerId },
+                data: { dataJson: nextDataJson as any },
+              });
+
+              updated.push({ id: String(lead.id), latitude: coordinates.latitude, longitude: coordinates.longitude });
+            } catch {
+              // ignore individual failures
+            }
+          }),
+        );
+      }
+
+      return { status: 200, json: { ok: true, updated } };
+    }
+
+    case "lead_scraping.location_suggestions.list": {
+      const ok = await requireServiceCapability("leadScraping", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const query = String((args as any)?.q || "").trim();
+      if (!query) return { status: 400, json: { ok: false, error: "Invalid query" } };
+
+      const STATE_CAPITALS = [
+        { name: "Alabama", city: "Montgomery" },
+        { name: "Alaska", city: "Juneau" },
+        { name: "Arizona", city: "Phoenix" },
+        { name: "Arkansas", city: "Little Rock" },
+        { name: "California", city: "Sacramento" },
+        { name: "Colorado", city: "Denver" },
+        { name: "Connecticut", city: "Hartford" },
+        { name: "Delaware", city: "Dover" },
+        { name: "Florida", city: "Tallahassee" },
+        { name: "Georgia", city: "Atlanta" },
+        { name: "Hawaii", city: "Honolulu" },
+        { name: "Idaho", city: "Boise" },
+        { name: "Illinois", city: "Springfield" },
+        { name: "Indiana", city: "Indianapolis" },
+        { name: "Iowa", city: "Des Moines" },
+        { name: "Kansas", city: "Topeka" },
+        { name: "Kentucky", city: "Frankfort" },
+        { name: "Louisiana", city: "Baton Rouge" },
+        { name: "Maine", city: "Augusta" },
+        { name: "Maryland", city: "Annapolis" },
+        { name: "Massachusetts", city: "Boston" },
+        { name: "Michigan", city: "Lansing" },
+        { name: "Minnesota", city: "Saint Paul" },
+        { name: "Mississippi", city: "Jackson" },
+        { name: "Missouri", city: "Jefferson City" },
+        { name: "Montana", city: "Helena" },
+        { name: "Nebraska", city: "Lincoln" },
+        { name: "Nevada", city: "Carson City" },
+        { name: "New Hampshire", city: "Concord" },
+        { name: "New Jersey", city: "Trenton" },
+        { name: "New Mexico", city: "Santa Fe" },
+        { name: "New York", city: "Albany" },
+        { name: "North Carolina", city: "Raleigh" },
+        { name: "North Dakota", city: "Bismarck" },
+        { name: "Ohio", city: "Columbus" },
+        { name: "Oklahoma", city: "Oklahoma City" },
+        { name: "Oregon", city: "Salem" },
+        { name: "Pennsylvania", city: "Harrisburg" },
+        { name: "Rhode Island", city: "Providence" },
+        { name: "South Carolina", city: "Columbia" },
+        { name: "South Dakota", city: "Pierre" },
+        { name: "Tennessee", city: "Nashville" },
+        { name: "Texas", city: "Austin" },
+        { name: "Utah", city: "Salt Lake City" },
+        { name: "Vermont", city: "Montpelier" },
+        { name: "Virginia", city: "Richmond" },
+        { name: "Washington", city: "Olympia" },
+        { name: "West Virginia", city: "Charleston" },
+        { name: "Wisconsin", city: "Madison" },
+        { name: "Wyoming", city: "Cheyenne" },
+      ] as const;
+
+      const suggestions: Array<{ value: string; label: string; hint?: string }> = [];
+      const seen = new Set<string>();
+      const needle = query.toLowerCase();
+
+      const push = (value: string, label: string, hint?: string) => {
+        const key = value.trim().toLowerCase();
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        suggestions.push(hint ? { value, label, hint } : { value, label });
+      };
+
+      for (const state of STATE_CAPITALS) {
+        if (state.name.toLowerCase().includes(needle)) {
+          const label = `${state.city}, ${state.name}`;
+          push(label, label, `Suggested city for ${state.name}`);
+        }
+        if (suggestions.length >= 5) break;
+      }
+
+      const normalizeLocationLabel = (input: string) =>
+        String(input || "")
+          .replace(/,\s*USA$/i, "")
+          .replace(/,\s*United States$/i, "")
+          .trim();
+
+      if (hasPlacesKey()) {
+        try {
+          const results = await placesTextSearch(query, 8);
+          for (const result of results) {
+            const label = normalizeLocationLabel(result.formatted_address || result.name || "");
+            if (!label) continue;
+            push(label, label);
+          }
+        } catch {
+          // ignore Google Places failures; static suggestions already help
+        }
+      }
+
+      return { status: 200, json: { ok: true, suggestions: suggestions.slice(0, 10) } };
+    }
+
+    case "lead_scraping.run.cancel": {
+      const ok = await requireServiceCapability("leadScraping", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const runId = normalizeLeadScrapeRunId((args as any)?.runId);
+      if (!runId) return { status: 400, json: { ok: false, error: "Invalid run id" } };
+
+      const requested = await requestLeadScrapeRunCancellation(ownerId, runId).catch(() => false);
+      if (!requested) {
+        return { status: 404, json: { ok: false, error: "Run not found" } };
+      }
+
+      return { status: 200, json: { ok: true, runId } };
     }
 
     case "lead_scraping.settings.get": {
@@ -22852,6 +25450,7 @@ async function runDirectAction(opts: {
       const bodyPromptRaw = typeof (args as any).bodyPrompt === "string" ? String((args as any).bodyPrompt).trim() : "";
       const threadIdRaw = typeof (args as any).threadId === "string" ? String((args as any).threadId).trim() : "";
       const contactIdRaw = typeof (args as any).contactId === "string" ? String((args as any).contactId).trim() : "";
+      const threadHintRaw = typeof (args as any).threadHint === "string" ? String((args as any).threadHint).trim() : "";
 
       const body = await (async (): Promise<string> => {
         if (bodyRaw) return bodyRaw.slice(0, 900);
@@ -22888,7 +25487,7 @@ async function runDirectAction(opts: {
 
       // Prefer threadId peerAddress (most reliable / already normalized by inbox).
       let threadId: string | undefined = threadIdRaw || undefined;
-      if (threadIdRaw && !to) {
+      if (threadIdRaw) {
         const thread = await (prisma as any).portalInboxThread
           .findFirst({ where: { ownerId, id: threadIdRaw }, select: { id: true, channel: true, peerAddress: true } })
           .catch(() => null);
@@ -22896,8 +25495,34 @@ async function runDirectAction(opts: {
         if (peer) to = peer;
       }
 
+      // If the provided `to` looks dirty, fall back to contact-backed SMS destinations.
+      const providedToLooksUsable = Boolean(to) && normalizePhoneStrict(to).ok;
+
+      if ((!to || !providedToLooksUsable) && /[x*]/i.test(to)) {
+        const maskedPrefix = to.replace(/[x*]+/gi, "").trim();
+        if (maskedPrefix) {
+          const candidateThreads = await (prisma as any).portalInboxThread
+            .findMany({
+              where: { ownerId, channel: "SMS" },
+              orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+              take: 25,
+              select: { id: true, peerAddress: true },
+            })
+            .catch(() => []);
+          const matchedThread = (candidateThreads as any[]).find((thread) => {
+            const peer = typeof thread?.peerAddress === "string" ? String(thread.peerAddress).trim() : "";
+            return peer && peer.startsWith(maskedPrefix);
+          });
+          const peer = matchedThread?.peerAddress ? String(matchedThread.peerAddress).trim() : "";
+          if (peer) {
+            to = peer;
+            if (!threadId) threadId = String(matchedThread.id);
+          }
+        }
+      }
+
       // If we have a contactId, prefer an existing SMS thread to mirror manual sending behavior.
-      if (contactIdRaw && !to) {
+      if (contactIdRaw && (!to || !providedToLooksUsable)) {
         const latestSmsThread = await (prisma as any).portalInboxThread
           .findFirst({
             where: { ownerId, channel: "SMS", contactId: contactIdRaw },
@@ -22913,12 +25538,45 @@ async function runDirectAction(opts: {
       }
 
       // Last resort: use the contact's stored phone.
-      if (contactIdRaw && !to) {
+      if (contactIdRaw && (!to || !providedToLooksUsable)) {
         const contact = await (prisma as any).portalContact
           .findFirst({ where: { ownerId, id: contactIdRaw }, select: { phone: true } })
           .catch(() => null);
         const phone = typeof contact?.phone === "string" ? String(contact.phone).trim() : "";
         if (phone) to = phone;
+      }
+
+      if (threadHintRaw && (!to || !providedToLooksUsable)) {
+        const hintNeedle = threadHintRaw.toLowerCase();
+        const candidateThreads = await (prisma as any).portalInboxThread
+          .findMany({
+            where: { ownerId, channel: "SMS" },
+            orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+            take: 25,
+            select: {
+              id: true,
+              peerAddress: true,
+              contactId: true,
+              contact: { select: { name: true, email: true, phone: true } },
+            },
+          })
+          .catch(() => []);
+        const matchedThread = (candidateThreads as any[]).find((thread) => {
+          const haystack = [
+            String(thread?.peerAddress || ""),
+            String(thread?.contact?.name || ""),
+            String(thread?.contact?.email || ""),
+            String(thread?.contact?.phone || ""),
+          ]
+            .join("\n")
+            .toLowerCase();
+          return hintNeedle && haystack.includes(hintNeedle);
+        });
+        const peer = matchedThread?.peerAddress ? String(matchedThread.peerAddress).trim() : "";
+        if (peer) {
+          to = peer;
+          if (!threadId) threadId = String(matchedThread.id);
+        }
       }
 
       if (!to) return { status: 400, json: { ok: false, error: "Missing recipient (to/contactId/threadId)" } };
@@ -23125,6 +25783,21 @@ async function runDirectAction(opts: {
       });
 
       if (!updated?.count) return { status: 404, json: { ok: false, error: "Not found" } };
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "reviews.delete": {
+      const reviewId = String((args as any)?.reviewId || "").trim();
+      if (!reviewId) return { status: 400, json: { ok: false, error: "Missing reviewId" } };
+
+      const existing = await prisma.portalReview.findFirst({
+        where: { id: reviewId, ownerId },
+        select: { id: true },
+      });
+
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      await prisma.portalReview.delete({ where: { id: existing.id } });
       return { status: 200, json: { ok: true } };
     }
 
@@ -23533,6 +26206,24 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true } };
     }
 
+    case "reviews.questions.delete": {
+      const questionId = String((args as any)?.questionId || "").trim();
+      if (!questionId) return { status: 400, json: { ok: false, error: "Missing questionId" } };
+
+      const hasTable = await hasPublicColumn("PortalReviewQuestion", "id");
+      if (!hasTable) return { status: 409, json: { ok: false, error: "Q&A is not enabled in this environment yet." } };
+
+      const existing = await (prisma as any).portalReviewQuestion.findFirst({
+        where: { id: questionId, ownerId },
+        select: { id: true },
+      });
+
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      await (prisma as any).portalReviewQuestion.delete({ where: { id: existing.id } });
+      return { status: 200, json: { ok: true } };
+    }
+
     case "booking.calendar.create": {
       const title = String(args.title || "").trim().slice(0, 80);
       if (!title) return { status: 400, json: { ok: false, error: "Invalid title" } };
@@ -23573,6 +26264,92 @@ async function runDirectAction(opts: {
     case "booking.calendars.get": {
       const config = await getBookingCalendarsConfig(ownerId);
       return { status: 200, json: { ok: true, config } };
+    }
+
+    case "booking.bootstrap.get": {
+      const site = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true } });
+      const config = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1, calendars: [] }));
+
+      if (!site) {
+        return { status: 200, json: { ok: true, config, upcoming: [], recent: [] } };
+      }
+
+      const now = new Date();
+
+      await ensurePortalContactTagsReady().catch(() => null);
+
+      const [hasCalendarId, hasContactId] = await Promise.all([
+        hasPublicColumn("PortalBooking", "calendarId"),
+        hasPublicColumn("PortalBooking", "contactId"),
+      ]);
+
+      const select: Record<string, boolean> = {
+        id: true,
+        startAt: true,
+        endAt: true,
+        status: true,
+        contactName: true,
+        contactEmail: true,
+        contactPhone: true,
+        notes: true,
+        createdAt: true,
+        canceledAt: true,
+      };
+
+      if (hasCalendarId) select.calendarId = true;
+      if (hasContactId) select.contactId = true;
+
+      const [upcoming, recent] = await Promise.all([
+        prisma.portalBooking.findMany({
+          where: { siteId: site.id, status: "SCHEDULED", startAt: { gte: now } },
+          orderBy: { startAt: "asc" },
+          take: 25,
+          select: select as any,
+        }),
+        prisma.portalBooking.findMany({
+          where: { siteId: site.id, OR: [{ status: "CANCELED" }, { startAt: { lt: now } }] },
+          orderBy: { startAt: "desc" },
+          take: 25,
+          select: select as any,
+        }),
+      ]);
+
+      const all = [...(upcoming || []), ...(recent || [])] as any[];
+      const contactIds = Array.from(new Set(all.map((b) => String((b as any).contactId || "")).filter(Boolean)));
+
+      const tagsByContactId = new Map<string, Array<{ id: string; name: string; color: string | null }>>();
+      if (contactIds.length) {
+        try {
+          const rows = await (prisma as any).portalContactTagAssignment.findMany({
+            where: { ownerId, contactId: { in: contactIds } },
+            take: 4000,
+            select: {
+              contactId: true,
+              tag: { select: { id: true, name: true, color: true } },
+            },
+          });
+
+          for (const row of rows || []) {
+            const cid = String(row.contactId);
+            const tag = row.tag;
+            if (!tag) continue;
+            const list = tagsByContactId.get(cid) || [];
+            list.push({ id: String(tag.id), name: String(tag.name), color: tag.color ? String(tag.color) : null });
+            tagsByContactId.set(cid, list);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const withTags = (list: any[]) =>
+        (list || []).map((booking: any) => ({
+          ...booking,
+          contactId: booking.contactId ? String(booking.contactId) : null,
+          contactTags: booking.contactId ? tagsByContactId.get(String(booking.contactId)) || [] : [],
+        }));
+
+      return { status: 200, json: { ok: true, config, upcoming: withTags(upcoming as any), recent: withTags(recent as any) } };
     }
 
     case "booking.calendars.update": {
@@ -23959,6 +26736,8 @@ async function runDirectAction(opts: {
     }
 
     case "booking.site.get": {
+      const bookingFlags = await getBookingSiteColumnFlags();
+      const bookingSite = await ensureBookingSite(ownerId, bookingFlags).catch(() => null);
       const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
 
       let site = (await prisma.clientBlogSite
@@ -24008,21 +26787,43 @@ async function runDirectAction(opts: {
         }
       }
 
+      const bookingSlug = typeof bookingSite?.slug === "string" ? String(bookingSite.slug).trim() : "";
+      const bookingPublicUrl = buildBookingPublicUrl(bookingSlug);
+      const sitePayload = site
+        ? {
+            ...(site as any),
+            slug: bookingSlug || null,
+            publicUrl: bookingPublicUrl,
+            bookingEnabled: typeof bookingSite?.enabled === "boolean" ? Boolean(bookingSite.enabled) : null,
+            bookingTitle: typeof bookingSite?.title === "string" ? String(bookingSite.title) : null,
+          }
+        : bookingSite
+          ? {
+              id: null,
+              name: typeof bookingSite.title === "string" ? String(bookingSite.title) : "Booking",
+              primaryDomain: null,
+              verifiedAt: null,
+              verificationToken: null,
+              updatedAt: bookingSite.updatedAt,
+              slug: bookingSlug || null,
+              publicUrl: bookingPublicUrl,
+              bookingEnabled: typeof bookingSite.enabled === "boolean" ? Boolean(bookingSite.enabled) : null,
+              bookingTitle: typeof bookingSite.title === "string" ? String(bookingSite.title) : null,
+            }
+          : null;
+
       return {
         status: 200,
         json: {
           ok: true,
-          site: site
-            ? {
-                ...(site as any),
-                slug: canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug,
-              }
-            : null,
+          site: sitePayload,
         },
       };
     }
 
     case "booking.site.update": {
+      const bookingFlags = await getBookingSiteColumnFlags();
+      const bookingSite = await ensureBookingSite(ownerId, bookingFlags).catch(() => null);
       const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
 
       const existing = (await prisma.clientBlogSite
@@ -24081,7 +26882,10 @@ async function runDirectAction(opts: {
             ok: true,
             site: {
               ...(updated as any),
-              slug: canUseSlugColumn ? ((updated as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+              slug: typeof bookingSite?.slug === "string" ? String(bookingSite.slug).trim() || null : null,
+              publicUrl: buildBookingPublicUrl(bookingSite?.slug),
+              bookingEnabled: typeof bookingSite?.enabled === "boolean" ? Boolean(bookingSite.enabled) : null,
+              bookingTitle: typeof bookingSite?.title === "string" ? String(bookingSite.title) : null,
             },
           },
         };
@@ -24143,14 +26947,17 @@ async function runDirectAction(opts: {
           ok: true,
           site: {
             ...(created as any),
-            slug: canUseSlugColumn ? ((created as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+            slug: typeof bookingSite?.slug === "string" ? String(bookingSite.slug).trim() || null : null,
+            publicUrl: buildBookingPublicUrl(bookingSite?.slug),
+            bookingEnabled: typeof bookingSite?.enabled === "boolean" ? Boolean(bookingSite.enabled) : null,
+            bookingTitle: typeof bookingSite?.title === "string" ? String(bookingSite.title) : null,
           },
         },
       };
     }
 
     case "booking.suggestions.slots": {
-      const site = await (prisma as any).portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, ownerId: true } });
+      const site = await (prisma as any).portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, ownerId: true, timeZone: true } });
       if (!site) {
         return { status: 200, json: { ok: true, slots: [] } };
       }
@@ -24179,8 +26986,26 @@ async function runDirectAction(opts: {
         coverageBlocks: blocks,
         existing: bookings,
       });
+      const timeZone = typeof (site as any)?.timeZone === "string" && String((site as any).timeZone).trim()
+        ? String((site as any).timeZone).trim()
+        : "UTC";
+      const slotPreviews = slots.slice(0, 10).map((slot: any) => {
+        const startDate = new Date(String(slot.startAt || ""));
+        const endDate = new Date(String(slot.endAt || ""));
+        const safeLabel = (date: Date, opts: Intl.DateTimeFormatOptions) =>
+          Number.isFinite(date.getTime())
+            ? new Intl.DateTimeFormat("en-US", { timeZone, ...opts }).format(date)
+            : null;
+        return {
+          startAt: slot.startAt,
+          endAt: slot.endAt,
+          dateLabel: safeLabel(startDate, { weekday: "short", month: "short", day: "numeric" }),
+          startLabel: safeLabel(startDate, { hour: "numeric", minute: "2-digit" }),
+          endLabel: safeLabel(endDate, { hour: "numeric", minute: "2-digit" }),
+        };
+      });
 
-      return { status: 200, json: { ok: true, slots } };
+      return { status: 200, json: { ok: true, slots, timeZone, slotPreviews } };
     }
 
     case "booking.availability.set_daily": {
@@ -24517,8 +27342,16 @@ async function runDirectAction(opts: {
               phone: b.contactPhone ? String(b.contactPhone) : null,
             });
             if (!contactId) continue;
-            await prisma.portalBooking.updateMany({ where: { id: String(b.id), siteId: site.id }, data: { contactId } });
-            b.contactId = contactId;
+
+            try {
+              await prisma.portalBooking.updateMany({
+                where: { id: b.id, contactId: null },
+                data: { contactId },
+              });
+              (b as any).contactId = contactId;
+            } catch {
+              // ignore
+            }
           } catch {
             // ignore
           }
@@ -25575,9 +28408,10 @@ async function runDirectAction(opts: {
           })();
 
       const countsByCampaign = new Map<string, { queued: number; completed: number }>();
-      for (const row of enrollAgg) {
-        const campaignId = String((row as any).campaignId);
-        const status = String((row as any).status);
+      for (const row of enrollAgg || []) {
+        const campaignId = String((row as any).campaignId || "");
+        if (!campaignId) continue;
+        const status = String((row as any).status || "").trim().toUpperCase();
         const count = Number((row as any)?._count?._all ?? 0);
         const next = countsByCampaign.get(campaignId) ?? { queued: 0, completed: 0 };
         if (status === "QUEUED") next.queued += count;
@@ -25881,6 +28715,24 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true } };
     }
 
+    case "ai_outbound_calls.campaigns.delete": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const campaignId = String(args?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const existing = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true },
+      });
+      if (!existing) return { status: 404, json: { ok: false, error: "Campaign not found" } };
+
+      await prisma.portalAiOutboundCallCampaign.delete({ where: { id: campaignId }, select: { id: true } });
+      return { status: 200, json: { ok: true } };
+    }
+
     case "ai_outbound_calls.campaigns.activity.get": {
       if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
@@ -25954,6 +28806,150 @@ async function runDirectAction(opts: {
           })),
         },
       };
+    }
+
+    case "ai_outbound_calls.campaigns.activity_item.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const campaignId = String(args?.campaignId || "").trim();
+      const activityId = String(args?.activityId || "").trim();
+      if (!campaignId || !activityId) return { status: 400, json: { ok: false, error: "Missing campaignId or activityId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const hasConversationId = await dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "conversationId" }).catch(() => false);
+      const hasRecordingSid = await dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "recordingSid" }).catch(() => false);
+      const hasTranscriptText = await dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "transcriptText" }).catch(() => false);
+      const hasBookingAnalysisJson = await dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "bookingAnalysisJson" }).catch(() => false);
+
+      const enrollment = await prisma.portalAiOutboundCallEnrollment.findFirst({
+        where: { ownerId, campaignId, id: activityId },
+        select: {
+          id: true,
+          ownerId: true,
+          campaignId: true,
+          contactId: true,
+          status: true,
+          attemptCount: true,
+          lastError: true,
+          callSid: true,
+          ...(hasConversationId ? { conversationId: true } : {}),
+          ...(hasRecordingSid ? { recordingSid: true } : {}),
+          ...(hasTranscriptText ? { transcriptText: true } : {}),
+          ...(hasBookingAnalysisJson ? { bookingAnalysisJson: true } : {}),
+          nextCallAt: true,
+          completedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          contact: { select: { id: true, name: true, phone: true, email: true } },
+        } as any,
+      });
+      if (!enrollment) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const needsRefresh =
+        (enrollment.status === "COMPLETED" || enrollment.status === "FAILED") &&
+        (!String((enrollment as any).transcriptText || "").trim() ||
+          (!String((enrollment as any).recordingSid || "").trim() && String(enrollment.callSid || "").trim()) ||
+          (!((enrollment as any).bookingAnalysisJson && typeof (enrollment as any).bookingAnalysisJson === "object") &&
+            String((enrollment as any).transcriptText || "").trim()));
+
+      const effectiveEnrollment: any = needsRefresh
+        ? ((await refreshAiOutboundEnrollmentArtifacts({ ownerId, enrollmentId: enrollment.id }).catch(() => null))?.enrollment ?? enrollment)
+        : enrollment;
+
+      const contactTags = await listContactTagsForContact(ownerId, effectiveEnrollment.contactId).catch(() => []);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          detail: {
+            enrollmentId: effectiveEnrollment.id,
+            status: effectiveEnrollment.status,
+            attemptCount: effectiveEnrollment.attemptCount,
+            lastError: effectiveEnrollment.lastError,
+            callSid: effectiveEnrollment.callSid,
+            nextCallAtIso: effectiveEnrollment.nextCallAt ? effectiveEnrollment.nextCallAt.toISOString() : null,
+            completedAtIso: effectiveEnrollment.completedAt ? effectiveEnrollment.completedAt.toISOString() : null,
+            createdAtIso: effectiveEnrollment.createdAt.toISOString(),
+            updatedAtIso: effectiveEnrollment.updatedAt.toISOString(),
+            contact: {
+              id: effectiveEnrollment.contact.id,
+              name: effectiveEnrollment.contact.name,
+              phone: effectiveEnrollment.contact.phone,
+              email: effectiveEnrollment.contact.email,
+            },
+            contactTags,
+            transcriptText: String((effectiveEnrollment as any).transcriptText || "").trim() || null,
+            transcriptSource: String((effectiveEnrollment as any).transcriptText || "").trim() ? "enrollment" : "none",
+            transcriptUpdatedAtIso: String((effectiveEnrollment as any).transcriptText || "").trim() ? effectiveEnrollment.updatedAt.toISOString() : null,
+            bookingAnalysis:
+              (effectiveEnrollment as any).bookingAnalysisJson && typeof (effectiveEnrollment as any).bookingAnalysisJson === "object"
+                ? (effectiveEnrollment as any).bookingAnalysisJson
+                : null,
+          },
+        },
+      };
+    }
+
+    case "ai_outbound_calls.campaigns.activity_item.retry": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const campaignId = String(args?.campaignId || "").trim();
+      const activityId = String(args?.activityId || "").trim();
+      if (!campaignId || !activityId) return { status: 400, json: { ok: false, error: "Missing campaignId or activityId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const enrollment = await prisma.portalAiOutboundCallEnrollment.findFirst({
+        where: { ownerId, campaignId, id: activityId },
+        select: { id: true },
+      });
+      if (!enrollment) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const [hasConversationId, hasRecordingSid, hasTranscriptText, hasBookingAnalysisJson] = await Promise.all([
+        dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "conversationId" }).catch(() => false),
+        dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "recordingSid" }).catch(() => false),
+        dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "transcriptText" }).catch(() => false),
+        dbHasPublicColumn({ tableNames: ["PortalAiOutboundCallEnrollment", "portalaioutboundcallenrollment"], columnName: "bookingAnalysisJson" }).catch(() => false),
+      ]);
+
+      await prisma.portalAiOutboundCallEnrollment.update({
+        where: { id: enrollment.id },
+        data: {
+          status: "QUEUED",
+          nextCallAt: new Date(),
+          completedAt: null,
+          lastError: null,
+          callSid: null,
+          ...(hasConversationId ? { conversationId: null } : {}),
+          ...(hasRecordingSid ? { recordingSid: null } : {}),
+          ...(hasTranscriptText ? { transcriptText: null } : {}),
+          ...(hasBookingAnalysisJson ? { bookingAnalysisJson: null } : {}),
+        } as any,
+        select: { id: true },
+      });
+
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "ai_outbound_calls.campaigns.activity_item.delete": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const campaignId = String(args?.campaignId || "").trim();
+      const activityId = String(args?.activityId || "").trim();
+      if (!campaignId || !activityId) return { status: 400, json: { ok: false, error: "Missing campaignId or activityId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const enrollment = await prisma.portalAiOutboundCallEnrollment.findFirst({
+        where: { ownerId, campaignId, id: activityId },
+        select: { id: true },
+      });
+      if (!enrollment) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      await prisma.portalAiOutboundCallEnrollment.delete({ where: { id: enrollment.id }, select: { id: true } });
+      return { status: 200, json: { ok: true } };
     }
 
     case "ai_outbound_calls.campaigns.messages_activity.get": {
@@ -26046,6 +29042,25 @@ async function runDirectAction(opts: {
           })),
         },
       };
+    }
+
+    case "ai_outbound_calls.campaigns.messages_activity_item.delete": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const campaignId = String(args?.campaignId || "").trim();
+      const activityId = String(args?.activityId || "").trim();
+      if (!campaignId || !activityId) return { status: 400, json: { ok: false, error: "Missing campaignId or activityId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const enrollment = await prisma.portalAiOutboundMessageEnrollment.findFirst({
+        where: { ownerId, campaignId, id: activityId },
+        select: { id: true },
+      });
+      if (!enrollment) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      await prisma.portalAiOutboundMessageEnrollment.delete({ where: { id: enrollment.id }, select: { id: true } });
+      return { status: 200, json: { ok: true } };
     }
 
     case "ai_outbound_calls.contacts.search": {
@@ -26286,6 +29301,23 @@ async function runDirectAction(opts: {
           },
         },
       };
+    }
+
+    case "ai_outbound_calls.manual_calls.delete": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const id = String(args?.id || "").trim();
+      if (!id) return { status: 400, json: { ok: false, error: "Missing id" } };
+
+      const row = await prisma.portalAiOutboundCallManualCall.findFirst({
+        where: { ownerId, id },
+        select: { id: true },
+      });
+
+      if (!row) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      await prisma.portalAiOutboundCallManualCall.delete({ where: { id: row.id } });
+      return { status: 200, json: { ok: true } };
     }
 
     case "ai_outbound_calls.campaigns.enroll_message": {
@@ -30556,10 +33588,16 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       }
     }
 
-    if (action === "tasks.create" && typeof (json as any).taskId === "string") {
-      const id = cleanId((json as any).taskId);
+    if ((action === "tasks.create" || action === "tasks.bulk_create") && (typeof (json as any).taskId === "string" || Array.isArray((json as any).taskIds))) {
+      const bulkIds = Array.isArray((json as any).taskIds) ? ((json as any).taskIds as unknown[]) : [];
+      const id = cleanId(typeof (json as any).taskId === "string" ? (json as any).taskId : bulkIds[bulkIds.length - 1]);
+      const bulkItems = Array.isArray((args as any).items) ? ((args as any).items as Array<Record<string, unknown>>) : [];
       if (id) {
-        const titleHint = typeof (args as any).title === "string" ? String((args as any).title).trim().slice(0, 120) : "";
+        const titleHint = typeof (args as any).title === "string"
+          ? String((args as any).title).trim().slice(0, 120)
+          : typeof bulkItems[bulkItems.length - 1]?.title === "string"
+            ? String(bulkItems[bulkItems.length - 1].title).trim().slice(0, 120)
+            : "";
         return { lastTask: { id, label: titleHint || "Task" } };
       }
     }
@@ -30665,6 +33703,26 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       if (contactId) {
         const label = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "Contact";
         return { lastContact: { id: contactId, label: label || "Contact" } };
+      }
+    }
+
+    if (action === "inbox.send_sms") {
+      const threadId = cleanId((json as any).threadId || (args as any).threadId || "");
+      const contactId = cleanId((args as any).contactId || "");
+      const label =
+        (typeof (args as any).to === "string" && String((args as any).to).trim().slice(0, 120)) ||
+        (typeof (json as any).to === "string" && String((json as any).to).trim().slice(0, 120)) ||
+        "Contact";
+      return {
+        ...(contactId ? { lastContact: { id: contactId, label: label || "Contact" } } : {}),
+        ...(threadId ? { lastInboxThread: { id: threadId, channel: "sms" } } : {}),
+      };
+    }
+
+    if (action === "inbox.send_email") {
+      const threadId = cleanId((json as any).threadId || (args as any).threadId || "");
+      if (threadId) {
+        return { lastInboxThread: { id: threadId, channel: "email" } };
       }
     }
 
@@ -31230,6 +34288,7 @@ export async function executePortalAgentActionRaw(opts: {
     status >= 200 &&
     status < 300 &&
     !(json && typeof json === "object" && typeof (json as any).ok === "boolean" && (json as any).ok === false);
+  const linkUrl = deriveLinkUrlForAction(opts.action, json, (argsParsed.data as any) ?? {});
 
   return {
     ok,
@@ -31237,7 +34296,7 @@ export async function executePortalAgentActionRaw(opts: {
     action: opts.action,
     result: json,
     failureMeta: ok ? null : classifyPortalAgentFailure({ status, result: json, action: opts.action }),
-    linkUrl: typeof (json as any)?.linkUrl === "string" ? String((json as any).linkUrl) : undefined,
+    linkUrl,
     clientUiAction,
   };
 }

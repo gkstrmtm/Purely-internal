@@ -11,7 +11,17 @@ import { PURA_AI_PROFILE_VALUES, normalizePuraAiProfile } from "@/lib/puraAiProf
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const PORTAL_AI_CHAT_DB_TIMEOUT_MS = 8_000;
+
+class PortalAiChatDbTimeoutError extends Error {
+  constructor(message = "Portal AI chat database request timed out") {
+    super(message);
+    this.name = "PortalAiChatDbTimeoutError";
+  }
+}
+
 function isTransientPortalAiChatDbError(error: unknown): boolean {
+  if (error instanceof PortalAiChatDbTimeoutError) return true;
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P1017" || error.code === "P2024") return true;
   }
@@ -29,6 +39,23 @@ function isTransientPortalAiChatDbError(error: unknown): boolean {
   );
 }
 
+async function withPortalAiChatDbTimeout<T>(work: Promise<T>, label?: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new PortalAiChatDbTimeoutError(label || "Portal AI chat database request timed out")),
+          PORTAL_AI_CHAT_DB_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempts?: number; delayMs?: number }): Promise<T> {
   const attempts = Math.max(1, Math.min(4, Math.floor(opts?.attempts ?? 3)));
   const delayMs = Math.max(50, Math.min(2_000, Math.floor(opts?.delayMs ?? 200)));
@@ -36,7 +63,7 @@ async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempt
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await fn();
+      return await withPortalAiChatDbTimeout(fn(), `Portal AI chat database request timed out on attempt ${attempt}`);
     } catch (error) {
       lastError = error;
       if (!isTransientPortalAiChatDbError(error) || attempt >= attempts) throw error;
@@ -81,19 +108,23 @@ function normalizeThreadChatMode(raw: unknown): "plan" | "work" {
   return raw === "work" ? "work" : "plan";
 }
 
-function normalizeThreadLiveStatus(raw: unknown) {
+function normalizeThreadLiveStatus(raw: unknown, currentRunId?: string | null) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const phase = typeof (raw as any).phase === "string" ? String((raw as any).phase).trim().slice(0, 80) : null;
   const label = typeof (raw as any).label === "string" ? String((raw as any).label).trim().slice(0, 200) : null;
   const actionKey = typeof (raw as any).actionKey === "string" ? String((raw as any).actionKey).trim().slice(0, 120) : null;
   const title = typeof (raw as any).title === "string" ? String((raw as any).title).trim().slice(0, 200) : null;
   const updatedAt = typeof (raw as any).updatedAt === "string" ? String((raw as any).updatedAt).trim().slice(0, 80) : null;
+  const runId = typeof (raw as any).runId === "string" ? String((raw as any).runId).trim().slice(0, 120) : null;
+  const normalizedCurrentRunId = typeof currentRunId === "string" ? String(currentRunId).trim().slice(0, 120) : null;
+  if (!normalizedCurrentRunId || !runId || runId !== normalizedCurrentRunId) return null;
+  const canInterrupt = Boolean((raw as any).canInterrupt);
   const round = Number.isFinite(Number((raw as any).round)) ? Math.max(1, Math.min(99, Math.floor(Number((raw as any).round)))) : null;
   const completedSteps = Number.isFinite(Number((raw as any).completedSteps)) ? Math.max(0, Math.min(99, Math.floor(Number((raw as any).completedSteps)))) : null;
   const lastCompletedTitle =
     typeof (raw as any).lastCompletedTitle === "string" ? String((raw as any).lastCompletedTitle).trim().slice(0, 200) : null;
-  if (!phase && !label && !actionKey && !title && !updatedAt && round == null && completedSteps == null && !lastCompletedTitle) return null;
-  return { phase, label, actionKey, title, updatedAt, round, completedSteps, lastCompletedTitle };
+  if (!phase && !label && !actionKey && !title && !updatedAt && !runId && !canInterrupt && round == null && completedSteps == null && !lastCompletedTitle) return null;
+  return { phase, label, actionKey, title, updatedAt, runId, canInterrupt, round, completedSteps, lastCompletedTitle };
 }
 
 function normalizeLatestRunStatus(raw: unknown) {
@@ -167,14 +198,20 @@ export async function GET(req: Request) {
   }
 
   try {
+    return await handleGetThreads(auth.session.user.id, (auth.session.user as any).memberId || auth.session.user.id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unexpected portal AI chat thread list error";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
+}
+
+async function handleGetThreads(ownerId: string, memberId: string) {
+  try {
     await withPortalAiChatDbRetry(() => ensurePortalAiChatSchema());
   } catch (error) {
     if (isTransientPortalAiChatDbError(error)) return portalAiChatDbUnavailableResponse();
     throw error;
   }
-
-  const ownerId = auth.session.user.id;
-  const memberId = (auth.session.user as any).memberId || ownerId;
 
   const now = new Date();
   // Avoid deleting a freshly-created thread during the first-send flow.
@@ -237,6 +274,7 @@ export async function GET(req: Request) {
     .filter((t: any) => canAccessPortalAiChatThread({ thread: t, memberId }))
     .map((t: any) => {
       const ctxJson = t.contextJson && typeof t.contextJson === "object" && !Array.isArray(t.contextJson) ? (t.contextJson as any) : {};
+      const currentRunId = typeof ctxJson.currentRunId === "string" ? String(ctxJson.currentRunId).trim().slice(0, 120) : null;
       return {
         id: t.id,
         title: t.title,
@@ -245,7 +283,7 @@ export async function GET(req: Request) {
         pinnedAt: t.pinnedAt,
         createdAt: t.createdAt,
         updatedAt: t.updatedAt,
-        liveStatus: normalizeThreadLiveStatus(ctxJson.liveStatus),
+        liveStatus: normalizeThreadLiveStatus(ctxJson.liveStatus, currentRunId),
         nextStepContext: normalizeThreadNextStepContext(ctxJson.nextStepContext),
         chatMode: normalizeThreadChatMode(ctxJson.chatMode),
         responseProfile: normalizePuraAiProfile(ctxJson.responseProfile),
@@ -260,10 +298,14 @@ export async function GET(req: Request) {
     throw error;
   }
 
-  const visibleWithRuns = visible.map((thread) => ({
-    ...thread,
-    latestRunStatus: latestRunStatusByThread.get(thread.id) ?? null,
-  }));
+  const visibleWithRuns = visible.map((thread) => {
+    const latestRunStatus = latestRunStatusByThread.get(thread.id) ?? null;
+    return {
+      ...thread,
+      liveStatus: latestRunStatus?.status === "running" ? thread.liveStatus : null,
+      latestRunStatus,
+    };
+  });
 
   return NextResponse.json({ ok: true, threads: visibleWithRuns });
 }
@@ -278,14 +320,20 @@ export async function POST(req: Request) {
   }
 
   try {
+    return await handleCreateThread(req, auth.session.user.id, auth.session.user.memberId || auth.session.user.id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unexpected portal AI chat thread create error";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
+}
+
+async function handleCreateThread(req: Request, ownerId: string, createdByUserId: string) {
+  try {
     await withPortalAiChatDbRetry(() => ensurePortalAiChatSchema());
   } catch (error) {
     if (isTransientPortalAiChatDbError(error)) return portalAiChatDbUnavailableResponse();
     throw error;
   }
-
-  const ownerId = auth.session.user.id;
-  const createdByUserId = auth.session.user.memberId || ownerId;
 
   const body = await req.json().catch(() => null);
   const parsed = CreateThreadSchema.safeParse(body ?? {});

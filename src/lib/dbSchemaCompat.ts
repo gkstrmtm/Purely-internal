@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 
 const columnExistenceCache = new Map<string, Promise<boolean>>();
+const COLUMN_CHECK_TIMEOUT_MS = 5_000;
 
 function cacheKey(tableNames: string[], columnName: string) {
   return `${tableNames.join(",")}::${columnName}`;
@@ -34,9 +35,22 @@ export async function dbHasPublicColumn(opts: {
       limit 1;
     `;
 
-    const rows = await prisma.$queryRawUnsafe<Array<{ ok: number }>>(sql).catch(() => []);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const rows = await Promise.race([
+      prisma.$queryRawUnsafe<Array<{ ok: number }>>(sql).catch(() => []),
+      new Promise<Array<{ ok: number }>>((resolve) => {
+        timer = setTimeout(() => resolve([]), COLUMN_CHECK_TIMEOUT_MS);
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
     return Array.isArray(rows) && rows.length > 0;
-  })();
+  })().catch(() => false).finally(() => {
+    const cached = columnExistenceCache.get(key);
+    if (cached === promise) {
+      columnExistenceCache.delete(key);
+    }
+  });
 
   columnExistenceCache.set(key, promise);
   return promise;

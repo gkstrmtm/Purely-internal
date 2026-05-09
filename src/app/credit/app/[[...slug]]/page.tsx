@@ -29,7 +29,6 @@ import { PortalBillingClient } from "@/app/portal/billing/PortalBillingClient";
 import { PortalDashboardClient } from "@/app/portal/PortalDashboardClient";
 import { PortalPeopleContactsClient } from "@/app/portal/app/people/contacts/PortalPeopleContactsClient";
 import { PortalPeopleContactDuplicatesClient } from "@/app/portal/app/people/contacts/duplicates/PortalPeopleContactDuplicatesClient";
-import { PortalPeopleHubClient } from "@/app/portal/app/people/PortalPeopleHubClient";
 import { PortalPeopleUsersClient } from "@/app/portal/app/people/users/PortalPeopleUsersClient";
 import { PortalProfileClient } from "@/app/portal/profile/PortalProfileClient";
 import { SettingsTabsClient } from "@/app/portal/app/settings/SettingsTabsClient";
@@ -468,7 +467,7 @@ export default async function CreditAppCatchallPage({
   }
 
   if (slug.length === 1 && slug[0] === "people") {
-    return <PortalPeopleHubClient />;
+    redirect("/credit/app/people/contacts");
   }
 
   if (slug.length === 2 && slug[0] === "people" && slug[1] === "contacts") {

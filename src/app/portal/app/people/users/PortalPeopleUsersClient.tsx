@@ -11,13 +11,14 @@ import {
   type PortalServiceKey,
 } from "@/lib/portalPermissions.shared";
 
-import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
+import { usePortalPeopleSidebar } from "@/app/portal/app/people/PortalPeopleSidebarNav";
 import { normalizePortalPermissions } from "@/lib/portalPermissions";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppModal } from "@/components/AppModal";
 import { useToast } from "@/components/ToastProvider";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 import { IconCopy, IconEdit } from "@/app/portal/PortalIcons";
+import { portalSoftBlueButtonClass } from "@/components/portalGlass";
 
 type MemberRow = {
   userId: string;
@@ -68,6 +69,7 @@ async function copyToClipboard(text: string) {
 
 export function PortalPeopleUsersClient() {
   const toast = useToast();
+  usePortalPeopleSidebar();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<UsersPayload | null>(null);
 
@@ -358,14 +360,12 @@ export function PortalPeopleUsersClient() {
     <div className="mx-auto w-full max-w-6xl pb-[calc(var(--pa-portal-embed-footer-offset,0px)+96px+var(--pa-portal-floating-tools-reserve,0px))]">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">People</h1>
-          <p className="mt-2 text-sm text-zinc-600">Manage portal users and invites.</p>
-          <PortalPeopleTabs />
+          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Users & invites</h1>
         </div>
       </div>
 
       {loading ? (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+        <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="h-4 w-28 animate-pulse rounded-full bg-zinc-100" aria-hidden="true" />
           <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" aria-hidden="true">
             <div className="h-48 rounded-3xl bg-zinc-50" />
@@ -376,7 +376,7 @@ export function PortalPeopleUsersClient() {
       ) : null}
 
       {data ? (
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div className="rounded-3xl border border-zinc-200 bg-white p-4 sm:p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-zinc-900">Members</div>
@@ -623,7 +623,7 @@ export function PortalPeopleUsersClient() {
                       "rounded-2xl px-4 py-2 text-sm font-semibold",
                       inviting || !inviteEmail.trim()
                         ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
-                        : "bg-(--color-brand-blue) text-white hover:opacity-95",
+                        : portalSoftBlueButtonClass,
                     )}
                   >
                     {inviting ? "Inviting…" : "Send invite"}
@@ -862,7 +862,7 @@ export function PortalPeopleUsersClient() {
                   "rounded-2xl px-4 py-2 text-sm font-semibold",
                   savingMember || !memberDirty
                     ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
-                    : "bg-(--color-brand-blue) text-white hover:brightness-95",
+                    : portalSoftBlueButtonClass,
                 )}
               >
                 {savingMember ? "Saving…" : memberDirty ? "Save" : "Saved"}

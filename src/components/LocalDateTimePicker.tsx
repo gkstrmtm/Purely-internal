@@ -1,31 +1,32 @@
 "use client";
 
-import { CSSProperties, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
-import { popupZIndexForAnchor } from "@/components/popupLayering";
+import { OVERLAY_POPUP_Z_INDEX, popupZIndexForAnchor } from "@/components/popupLayering";
 
 function clamp(n: number, min: number, max: number) {
   return Math.min(Math.max(n, min), max);
 }
 
-function computeFixedPopoverStyleForRect(rect: DOMRect, opts?: { gap?: number; padding?: number; minMaxHeight?: number }) {
+function computeFixedPopoverStyleForRect(rect: DOMRect, opts?: { gap?: number; padding?: number }) {
   const gap = opts?.gap ?? 8;
   const padding = opts?.padding ?? 12;
-  const minMaxHeight = opts?.minMaxHeight ?? 180;
 
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
-  const width = Math.min(rect.width, vw - padding * 2);
+  const width = Math.min(Math.max(rect.width, 380), vw - padding * 2);
   const left = clamp(rect.left, padding, vw - padding - width);
 
   const spaceBelow = vh - rect.bottom - padding - gap;
   const spaceAbove = rect.top - padding - gap;
   const preferDown = spaceBelow >= 260 || spaceBelow >= spaceAbove;
+  const maxHeight = Math.max(0, preferDown ? spaceBelow : spaceAbove);
 
   return preferDown
-    ? ({ left, top: rect.bottom + gap, width, maxHeight: Math.max(minMaxHeight, spaceBelow) } satisfies CSSProperties)
-    : ({ left, bottom: vh - rect.top + gap, width, maxHeight: Math.max(minMaxHeight, spaceAbove) } satisfies CSSProperties);
+    ? ({ left, top: rect.bottom + gap, width, maxHeight } satisfies CSSProperties)
+    : ({ left, bottom: vh - rect.top + gap, width, maxHeight } satisfies CSSProperties);
 }
 
 function useFixedPopoverStyle(open: boolean, rootRef: RefObject<HTMLElement | null>) {
@@ -43,7 +44,7 @@ function useFixedPopoverStyle(open: boolean, rootRef: RefObject<HTMLElement | nu
       const rect = el.getBoundingClientRect();
       setStyle({
         ...computeFixedPopoverStyleForRect(rect),
-        zIndex: popupZIndexForAnchor(el),
+        zIndex: Math.max(popupZIndexForAnchor(el), OVERLAY_POPUP_Z_INDEX + 80),
       });
     };
 
@@ -86,37 +87,58 @@ function formatHm(d: Date) {
 }
 
 function parseYmd(ymd: string): { y: number; m: number; d: number } | null {
-  const m = /^\s*(\d{4})-(\d{2})-(\d{2})\s*$/.exec(String(ymd || ""));
-  if (!m) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const d = Number(m[3]);
-  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
-  if (mo < 1 || mo > 12) return null;
-  if (d < 1 || d > 31) return null;
-  return { y, m: mo, d };
+  const match = /^\s*(\d{4})-(\d{2})-(\d{2})\s*$/.exec(String(ymd || ""));
+  if (!match) return null;
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  return { y, m, d };
 }
 
 function parseHm(hm: string): { h: number; m: number } | null {
-  const m = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(String(hm || ""));
-  if (!m) return null;
-  const h = Number(m[1]);
-  const mi = Number(m[2]);
-  if (!Number.isFinite(h) || !Number.isFinite(mi)) return null;
-  if (h < 0 || h > 23) return null;
-  if (mi < 0 || mi > 59) return null;
-  return { h, m: mi };
+  const match = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(String(hm || ""));
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return { h, m };
+}
+
+type Meridiem = "AM" | "PM";
+
+function hmToTwelveHourParts(hm: string): { hour: string; minute: string; meridiem: Meridiem } {
+  const parsed = parseHm(hm) || { h: 9, m: 0 };
+  const meridiem: Meridiem = parsed.h >= 12 ? "PM" : "AM";
+  const hour12 = parsed.h % 12 || 12;
+  return { hour: String(hour12), minute: pad2(parsed.m), meridiem };
+}
+
+function twelveHourPartsToHm(hourRaw: string, minuteRaw: string, meridiem: Meridiem): string | null {
+  const hourDigits = String(hourRaw || "").replace(/\D/g, "").slice(0, 2);
+  const minuteDigits = String(minuteRaw || "").replace(/\D/g, "").slice(0, 2);
+  if (!hourDigits || !minuteDigits) return null;
+
+  const hour = Number(hourDigits);
+  const minute = Number(minuteDigits);
+  if (!Number.isFinite(hour) || hour < 1 || hour > 12) return null;
+  if (!Number.isFinite(minute) || minute < 0 || minute > 59) return null;
+
+  let hour24 = hour % 12;
+  if (meridiem === "PM") hour24 += 12;
+  return `${pad2(hour24)}:${pad2(minute)}`;
 }
 
 function dateFromParts(ymd: string, hm: string): Date | null {
-  const ymdP = parseYmd(ymd);
-  const hmP = parseHm(hm);
-  if (!ymdP || !hmP) return null;
-  const d = new Date(ymdP.y, ymdP.m - 1, ymdP.d, hmP.h, hmP.m, 0, 0);
-  if (!isValidDate(d)) return null;
-  // Guard against overflow (e.g. 2026-02-31).
-  if (d.getFullYear() !== ymdP.y || d.getMonth() !== ymdP.m - 1 || d.getDate() !== ymdP.d) return null;
-  return d;
+  const ymdParts = parseYmd(ymd);
+  const hmParts = parseHm(hm);
+  if (!ymdParts || !hmParts) return null;
+  const date = new Date(ymdParts.y, ymdParts.m - 1, ymdParts.d, hmParts.h, hmParts.m, 0, 0);
+  if (!isValidDate(date)) return null;
+  if (date.getFullYear() !== ymdParts.y || date.getMonth() !== ymdParts.m - 1 || date.getDate() !== ymdParts.d) return null;
+  return date;
 }
 
 function toLocalDateTimeValue(d: Date) {
@@ -167,6 +189,7 @@ export function LocalDateTimePicker(props: {
   disablePast?: boolean;
   dateFirst?: boolean;
   minDateTime?: Date | null;
+  liveDraftUpdates?: boolean;
 }) {
   const {
     value,
@@ -178,10 +201,12 @@ export function LocalDateTimePicker(props: {
     disablePast = false,
     dateFirst = false,
     minDateTime = null,
+    liveDraftUpdates = false,
   } = props;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
 
   const parsedValue = useMemo(() => {
     const raw = String(value || "").trim();
@@ -201,12 +226,20 @@ export function LocalDateTimePicker(props: {
 
   const [draftYmd, setDraftYmd] = useState<string>(() => parsedValue?.ymd || formatYmd(new Date()));
   const [draftHm, setDraftHm] = useState<string>(() => parsedValue?.hm || "09:00");
+  const initialTimeParts = useMemo(() => hmToTwelveHourParts(parsedValue?.hm || "09:00"), [parsedValue?.hm]);
+  const [draftHourInput, setDraftHourInput] = useState<string>(initialTimeParts.hour);
+  const [draftMinuteInput, setDraftMinuteInput] = useState<string>(initialTimeParts.minute);
+  const [draftMeridiem, setDraftMeridiem] = useState<Meridiem>(initialTimeParts.meridiem);
   const [viewMonth, setViewMonth] = useState<Date>(() => startOfMonth(parsedValue?.date || new Date()));
 
   useEffect(() => {
     if (!open) return;
     setDraftYmd(parsedValue?.ymd || formatYmd(new Date()));
     setDraftHm(parsedValue?.hm || "09:00");
+    const nextParts = hmToTwelveHourParts(parsedValue?.hm || "09:00");
+    setDraftHourInput(nextParts.hour);
+    setDraftMinuteInput(nextParts.minute);
+    setDraftMeridiem(nextParts.meridiem);
     setViewMonth(startOfMonth(parsedValue?.date || new Date()));
     setStep("date");
   }, [open, parsedValue?.date, parsedValue?.hm, parsedValue?.ymd]);
@@ -231,12 +264,24 @@ export function LocalDateTimePicker(props: {
   const minYmd = effectiveMinDateTime ? formatYmd(effectiveMinDateTime) : null;
   const minHm = effectiveMinDateTime ? formatHm(effectiveMinDateTime) : null;
 
+  const emitLiveDraft = useCallback(
+    (nextYmd: string, nextHm: string) => {
+      if (!liveDraftUpdates) return;
+      const next = dateFromParts(nextYmd, nextHm);
+      if (!next) return;
+      if (effectiveMinDateTime && next < effectiveMinDateTime) return;
+      onChange(toLocalDateTimeValue(next));
+    },
+    [effectiveMinDateTime, liveDraftUpdates, onChange],
+  );
+
   useEffect(() => {
     if (!open) return;
     const onDown = (ev: MouseEvent) => {
       const el = rootRef.current;
       if (!el) return;
       if (ev.target && el.contains(ev.target as Node)) return;
+      if (ev.target && popoverRef.current?.contains(ev.target as Node)) return;
       setOpen(false);
     };
     window.addEventListener("mousedown", onDown, true);
@@ -260,18 +305,9 @@ export function LocalDateTimePicker(props: {
   const grid = useMemo(() => makeMonthGrid(viewMonth), [viewMonth]);
   const viewMonthKey = `${viewMonth.getFullYear()}-${viewMonth.getMonth()}`;
 
-  const timeOptions = useMemo(() => {
-    const opts: string[] = [];
-    for (let h = 0; h < 24; h += 1) {
-      for (let m = 0; m < 60; m += 15) {
-        opts.push(`${pad2(h)}:${pad2(m)}`);
-      }
-    }
-    return opts;
-  }, []);
-
   const draftDate = useMemo(() => dateFromParts(draftYmd, draftHm), [draftHm, draftYmd]);
   const canSet = Boolean(draftDate && (!effectiveMinDateTime || draftDate >= effectiveMinDateTime));
+  const timeInputValid = Boolean(twelveHourPartsToHm(draftHourInput, draftMinuteInput, draftMeridiem));
 
   return (
     <div ref={rootRef} className="relative">
@@ -300,175 +336,254 @@ export function LocalDateTimePicker(props: {
         </div>
       </button>
 
-      {open ? (
-        <div
-          className={
-            (popoverClassName ||
-              "fixed overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg")
-          }
-          style={popoverClassName ? undefined : fixedPopoverStyle ?? { visibility: "hidden" }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2">
-            <button
-              type="button"
-              className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-              onClick={() => setViewMonth((m) => addMonths(m, -1))}
-              disabled={dateFirst && step === "time"}
-            >
-              Prev
-            </button>
-            <div className="text-sm font-semibold text-zinc-900" key={viewMonthKey}>
-              {monthLabel(viewMonth)}
-            </div>
-            <button
-              type="button"
-              className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-              onClick={() => setViewMonth((m) => addMonths(m, 1))}
-              disabled={dateFirst && step === "time"}
-            >
-              Next
-            </button>
-          </div>
+      {open
+        ? (() => {
+            const node = (
+              <div
+                ref={popoverRef}
+                className={
+                  popoverClassName ||
+                  "fixed overflow-y-auto rounded-[28px] border border-zinc-200 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.18)]"
+                }
+                style={
+                  popoverClassName
+                    ? undefined
+                    : {
+                        ...(fixedPopoverStyle ?? { visibility: "hidden" }),
+                        overscrollBehavior: "contain",
+                        WebkitOverflowScrolling: "touch",
+                        touchAction: "pan-y",
+                      }
+                }
+                onMouseDown={(e) => e.stopPropagation()}
+                onWheelCapture={(e) => e.stopPropagation()}
+                onTouchMoveCapture={(e) => e.stopPropagation()}
+              >
+                <div>
+                  <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50/95 px-3 py-2 backdrop-blur">
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                      onClick={() => setViewMonth((m) => addMonths(m, -1))}
+                      disabled={dateFirst && step === "time"}
+                    >
+                      Prev
+                    </button>
+                    <div className="text-sm font-semibold text-zinc-900" key={viewMonthKey}>
+                      {monthLabel(viewMonth)}
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                      onClick={() => setViewMonth((m) => addMonths(m, 1))}
+                      disabled={dateFirst && step === "time"}
+                    >
+                      Next
+                    </button>
+                  </div>
 
-          {dateFirst ? (
-            <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-white px-3 py-2">
-              <div className="text-xs font-semibold text-zinc-600">{step === "date" ? "Select date" : "Select time"}</div>
-              {step === "time" ? (
+                  {dateFirst ? (
+                    <div className="sticky top-12 z-10 flex items-center justify-between gap-2 border-b border-zinc-200 bg-white/95 px-3 py-2 backdrop-blur">
+                      <div className="text-xs font-semibold text-zinc-600">{step === "date" ? "Select date" : "Select time"}</div>
+                      {step === "time" ? (
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                          onClick={() => setStep("date")}
+                        >
+                          Back
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {!dateFirst || step === "date" ? (
+                    <>
+                      <div className="grid grid-cols-7 gap-1 p-3 text-center text-[11px] font-semibold text-zinc-500">
+                        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                          <div key={d}>{d}</div>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-7 gap-1 px-3 pb-3">
+                        {grid.map((d) => {
+                          const ymd = formatYmd(d);
+                          const inMonth = d.getMonth() === viewMonth.getMonth();
+                          const selected = ymd === draftYmd;
+                          const isToday = ymd === formatYmd(new Date());
+                          const disabledByMin = Boolean(minYmd && ymd < minYmd);
+
+                          return (
+                            <button
+                              key={ymd}
+                              type="button"
+                              disabled={disabledByMin}
+                              className={
+                                "h-9 rounded-xl border text-sm transition " +
+                                (disabledByMin
+                                  ? "cursor-not-allowed border-zinc-200 bg-zinc-50 text-zinc-300"
+                                  : selected
+                                    ? "border-[rgba(29,78,216,0.24)] bg-[rgba(29,78,216,0.14)] text-brand-blue"
+                                    : inMonth
+                                      ? "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
+                                      : "border-zinc-200 bg-zinc-50 text-zinc-400 hover:bg-zinc-100")
+                              }
+                              onClick={() => {
+                                if (disabledByMin) return;
+                                setDraftYmd(ymd);
+                                const next = dateFromParts(ymd, draftHm);
+                                if (next) setViewMonth(startOfMonth(next));
+                                if (next) emitLiveDraft(ymd, draftHm);
+                                if (dateFirst) setStep("time");
+                              }}
+                              title={d.toLocaleDateString()}
+                            >
+                              <div className="flex items-center justify-center gap-1">
+                                <span>{d.getDate()}</span>
+                                {isToday ? <span className={selected ? "text-white" : "text-emerald-600"}>•</span> : null}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : null}
+
+                  {!dateFirst || step === "time" ? (
+                    <div className={"border-t border-zinc-200 bg-white p-3" + (dateFirst ? " border-t-0" : "")}> 
+              <div className="text-xs font-semibold text-zinc-600">Time</div>
+              <div className="mt-2 rounded-2xl border border-zinc-200 bg-white p-3">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2">
+                  <input
+                    inputMode="numeric"
+                    maxLength={2}
+                    value={draftHourInput}
+                    onChange={(event) => {
+                      const nextHour = event.target.value.replace(/\D/g, "").slice(0, 2);
+                      setDraftHourInput(nextHour);
+                      const nextHm = twelveHourPartsToHm(nextHour, draftMinuteInput, draftMeridiem);
+                      if (!nextHm) return;
+                      setDraftHm(nextHm);
+                      emitLiveDraft(draftYmd, nextHm);
+                    }}
+                    onBlur={() => {
+                      const digits = draftHourInput.replace(/\D/g, "");
+                      if (!digits) return;
+                      const nextHour = String(clamp(Number(digits), 1, 12));
+                      setDraftHourInput(nextHour);
+                      const nextHm = twelveHourPartsToHm(nextHour, draftMinuteInput, draftMeridiem);
+                      if (!nextHm) return;
+                      setDraftHm(nextHm);
+                      emitLiveDraft(draftYmd, nextHm);
+                    }}
+                    placeholder="9"
+                    className="h-11 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 text-center text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300 focus:bg-white"
+                    aria-label="Hour"
+                  />
+                  <span className="text-sm font-semibold text-zinc-400">:</span>
+                  <input
+                    inputMode="numeric"
+                    maxLength={2}
+                    value={draftMinuteInput}
+                    onChange={(event) => {
+                      const nextMinute = event.target.value.replace(/\D/g, "").slice(0, 2);
+                      setDraftMinuteInput(nextMinute);
+                      const nextHm = twelveHourPartsToHm(draftHourInput, nextMinute, draftMeridiem);
+                      if (!nextHm) return;
+                      setDraftHm(nextHm);
+                      emitLiveDraft(draftYmd, nextHm);
+                    }}
+                    onBlur={() => {
+                      const digits = draftMinuteInput.replace(/\D/g, "");
+                      const nextMinute = pad2(clamp(Number(digits || "0"), 0, 59));
+                      setDraftMinuteInput(nextMinute);
+                      const nextHm = twelveHourPartsToHm(draftHourInput, nextMinute, draftMeridiem);
+                      if (!nextHm) return;
+                      setDraftHm(nextHm);
+                      emitLiveDraft(draftYmd, nextHm);
+                    }}
+                    placeholder="00"
+                    className="h-11 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 text-center text-sm font-semibold text-zinc-900 outline-none focus:border-zinc-300 focus:bg-white"
+                    aria-label="Minutes"
+                  />
+                  <div className="grid h-11 grid-cols-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
+                    {(["AM", "PM"] as const).map((meridiem) => {
+                      const active = draftMeridiem === meridiem;
+                      return (
+                        <button
+                          key={meridiem}
+                          type="button"
+                          className={
+                            "rounded-xl px-3 text-xs font-semibold transition-colors " +
+                            (active ? "bg-[rgba(29,78,216,0.14)] text-brand-blue" : "text-zinc-700 hover:bg-white")
+                          }
+                          onClick={() => {
+                            setDraftMeridiem(meridiem);
+                            const nextHm = twelveHourPartsToHm(draftHourInput, draftMinuteInput, meridiem);
+                            if (!nextHm) return;
+                            setDraftHm(nextHm);
+                            emitLiveDraft(draftYmd, nextHm);
+                          }}
+                        >
+                          {meridiem}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="mt-2 text-[11px] text-zinc-500">Type the time, then choose AM or PM.</div>
+                {!timeInputValid ? <div className="mt-2 text-[11px] font-medium text-amber-700">Enter a valid time to save this schedule.</div> : null}
+              </div>
+
+              <div className="mt-3 flex items-center justify-between gap-2">
                 <button
                   type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                  onClick={() => setStep("date")}
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                  onClick={() => {
+                    const now = new Date();
+                    const next = effectiveMinDateTime && effectiveMinDateTime > now ? effectiveMinDateTime : now;
+                    setDraftYmd(formatYmd(next));
+                    setDraftHm(formatHm(next));
+                    const nextParts = hmToTwelveHourParts(formatHm(next));
+                    setDraftHourInput(nextParts.hour);
+                    setDraftMinuteInput(nextParts.minute);
+                    setDraftMeridiem(nextParts.meridiem);
+                    setViewMonth(startOfMonth(next));
+                    emitLiveDraft(formatYmd(next), formatHm(next));
+                    if (dateFirst) setStep("time");
+                  }}
                 >
-                  Back
+                  Now
                 </button>
-              ) : null}
-            </div>
-          ) : null}
 
-          {!dateFirst || step === "date" ? (
-            <>
-              <div className="grid grid-cols-7 gap-1 p-3 text-center text-[11px] font-semibold text-zinc-500">
-                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                  <div key={d}>{d}</div>
-                ))}
-              </div>
+                <div className="text-xs text-zinc-500">{draftDate ? draftDate.toLocaleString() : ""}</div>
 
-              <div className="grid grid-cols-7 gap-1 px-3 pb-3">
-                {grid.map((d) => {
-                  const ymd = formatYmd(d);
-                  const inMonth = d.getMonth() === viewMonth.getMonth();
-                  const selected = ymd === draftYmd;
-                  const isToday = ymd === formatYmd(new Date());
-                  const disabledByMin = Boolean(minYmd && ymd < minYmd);
-
-                  return (
-                    <button
-                      key={ymd}
-                      type="button"
-                      disabled={disabledByMin}
-                      className={
-                        "h-9 rounded-xl border text-sm transition " +
-                        (disabledByMin
-                          ? "cursor-not-allowed border-zinc-200 bg-zinc-50 text-zinc-300"
-                          : selected
-                            ? "border-zinc-900 bg-zinc-900 text-white"
-                            : inMonth
-                              ? "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
-                              : "border-zinc-200 bg-zinc-50 text-zinc-400 hover:bg-zinc-100")
-                      }
-                      onClick={() => {
-                        if (disabledByMin) return;
-                        setDraftYmd(ymd);
-                        const next = dateFromParts(ymd, draftHm);
-                        if (next) setViewMonth(startOfMonth(next));
-                        if (dateFirst) setStep("time");
-                      }}
-                      title={d.toLocaleDateString()}
-                    >
-                      <div className="flex items-center justify-center gap-1">
-                        <span>{d.getDate()}</span>
-                        {isToday ? <span className={selected ? "text-white" : "text-emerald-600"}>•</span> : null}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </>
-          ) : null}
-
-          {!dateFirst || step === "time" ? (
-            <div className={"border-t border-zinc-200 p-3" + (dateFirst ? " border-t-0" : "")}>
-            <div className="text-xs font-semibold text-zinc-600">Time</div>
-            <div className="mt-2 max-h-40 overflow-auto rounded-2xl border border-zinc-200 p-1">
-              <div className="grid grid-cols-4 gap-1">
-                {timeOptions.map((hm) => {
-                  const selected = hm === draftHm;
-                  const disabledByMin = Boolean(minYmd && minHm && draftYmd === minYmd && hm < minHm);
-                  return (
-                    <button
-                      key={hm}
-                      type="button"
-                      disabled={disabledByMin}
-                      className={
-                        "rounded-xl px-2 py-2 text-xs font-semibold transition " +
-                        (disabledByMin
-                          ? "cursor-not-allowed bg-white text-zinc-300"
-                          : selected
-                            ? "bg-zinc-900 text-white"
-                            : "bg-white text-zinc-700 hover:bg-zinc-50")
-                      }
-                      onClick={() => {
-                        if (disabledByMin) return;
-                        setDraftHm(hm);
-                      }}
-                    >
-                      {hm}
-                    </button>
-                  );
-                })}
+                <button
+                  type="button"
+                  disabled={!canSet}
+                  className={
+                    "rounded-xl bg-[rgba(29,78,216,0.18)] px-4 py-2 text-xs font-semibold text-brand-blue hover:bg-[rgba(29,78,216,0.26)] disabled:cursor-not-allowed disabled:opacity-45"
+                  }
+                  onClick={() => {
+                    if (!draftDate) return;
+                    if (effectiveMinDateTime && draftDate < effectiveMinDateTime) return;
+                    onChange(toLocalDateTimeValue(draftDate));
+                    setOpen(false);
+                  }}
+                >
+                  Set
+                </button>
               </div>
             </div>
+                  ) : null}
+                </div>
+              </div>
+            );
 
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                onClick={() => {
-                  const now = new Date();
-                  const next = effectiveMinDateTime && effectiveMinDateTime > now ? effectiveMinDateTime : now;
-                  setDraftYmd(formatYmd(next));
-                  setDraftHm(formatHm(next));
-                  setViewMonth(startOfMonth(next));
-                  if (dateFirst) setStep("time");
-                }}
-              >
-                Now
-              </button>
-
-              <div className="text-xs text-zinc-500">{draftDate ? draftDate.toLocaleString() : ""}</div>
-
-              <button
-                type="button"
-                disabled={!canSet}
-                className={
-                  "rounded-xl px-4 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 " +
-                  "bg-(--color-brand-blue)"
-                }
-                onClick={() => {
-                  if (!draftDate) return;
-                  if (effectiveMinDateTime && draftDate < effectiveMinDateTime) return;
-                  onChange(toLocalDateTimeValue(draftDate));
-                  setOpen(false);
-                }}
-              >
-                Set
-              </button>
-            </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+            if (typeof document === "undefined") return node;
+            return createPortal(node, document.body);
+          })()
+        : null}
     </div>
   );
 }
@@ -595,7 +710,7 @@ export function LocalDatePicker(props: {
                   className={
                     "h-9 rounded-xl border text-sm transition " +
                     (selected
-                      ? "border-zinc-900 bg-zinc-900 text-white"
+                      ? "border-[rgba(29,78,216,0.24)] bg-[rgba(29,78,216,0.14)] text-brand-blue"
                       : inMonth
                         ? "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
                         : "border-zinc-200 bg-zinc-50 text-zinc-400 hover:bg-zinc-100")
@@ -709,7 +824,7 @@ export function LocalTimePicker(props: {
                     type="button"
                     className={
                       "rounded-xl px-2 py-2 text-xs font-semibold transition " +
-                      (selected ? "bg-zinc-900 text-white" : "bg-white text-zinc-700 hover:bg-zinc-50")
+                      (selected ? "bg-[rgba(29,78,216,0.14)] text-brand-blue" : "bg-white text-zinc-700 hover:bg-zinc-50")
                     }
                     onClick={() => {
                       setDraft(hm);

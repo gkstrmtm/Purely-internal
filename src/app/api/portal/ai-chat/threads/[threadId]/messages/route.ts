@@ -20,6 +20,7 @@ import {
   classifyPortalAgentFailure,
   deriveThreadContextPatchFromAction,
   executePortalAgentAction,
+  executePortalAgentActionRaw,
   executePortalAgentActionForThread,
   type PortalAgentFailureMeta,
 } from "@/lib/portalAgentActionExecutor";
@@ -27,10 +28,11 @@ import { getConfirmSpecForPortalAgentAction, isReadOnlyPortalAgentAction, portal
 import { encodeScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 import { previewResultForPlanner, summarizeIdsFromArgs } from "@/lib/portalAgentPlannerContextPreview";
+import { getPuraIntentSignals } from "@/lib/puraIntent";
 import { resolvePlanArgs } from "@/lib/puraResolver";
 import { detectPuraDirectIntentSignals } from "@/lib/puraDirectIntentSignals";
 import { getPuraDirectActionPlan, getPuraDirectPrerequisiteMessage } from "@/lib/puraDirectIntentPlans";
-import { absolutizeAssistantTextLinks, formatAssistantMarkdownLink } from "@/lib/portalAssistantLinks";
+import { absolutizeAssistantTextLinks, formatAssistantMarkdownLink, normalizeAssistantLinkUrl } from "@/lib/portalAssistantLinks";
 import { cleanPuraGeneratedReply, isLowQualityPuraGeneratedReply } from "@/lib/puraReplyQuality";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
@@ -60,7 +62,17 @@ import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/po
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const PORTAL_AI_CHAT_DB_TIMEOUT_MS = 8_000;
+
+class PortalAiChatDbTimeoutError extends Error {
+  constructor(message = "Portal AI chat database request timed out") {
+    super(message);
+    this.name = "PortalAiChatDbTimeoutError";
+  }
+}
+
 function isTransientPortalAiChatDbError(error: unknown): boolean {
+  if (error instanceof PortalAiChatDbTimeoutError) return true;
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P1017" || error.code === "P2024") return true;
   }
@@ -78,6 +90,23 @@ function isTransientPortalAiChatDbError(error: unknown): boolean {
   );
 }
 
+async function withPortalAiChatDbTimeout<T>(work: Promise<T>, label?: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new PortalAiChatDbTimeoutError(label || "Portal AI chat database request timed out")),
+          PORTAL_AI_CHAT_DB_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempts?: number; delayMs?: number }): Promise<T> {
   const attempts = Math.max(1, Math.min(4, Math.floor(opts?.attempts ?? 3)));
   const delayMs = Math.max(50, Math.min(2_000, Math.floor(opts?.delayMs ?? 200)));
@@ -85,7 +114,7 @@ async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempt
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await fn();
+      return await withPortalAiChatDbTimeout(fn(), `Portal AI chat database request timed out on attempt ${attempt}`);
     } catch (error) {
       lastError = error;
       if (!isTransientPortalAiChatDbError(error) || attempt >= attempts) throw error;
@@ -334,6 +363,7 @@ function formatPuraFallbackWorkTitle(raw: unknown): string | null {
   if (!title) return null;
 
   const exactMap: Record<string, string> = {
+    "Update Booking Settings": "the booking settings",
     "Create Newsletter": "the newsletter draft",
     "Update Newsletter": "the newsletter",
     "Send Newsletter": "the newsletter send",
@@ -372,9 +402,17 @@ function formatPuraFallbackWorkTitle(raw: unknown): string | null {
     .replace(/^./, (char) => char.toLowerCase()) || null;
 }
 
+function looksLikeLoopAbortAssistantReply(raw: unknown): boolean {
+  const text = String(raw || "").trim();
+  if (!text) return false;
+
+  return /not making progress with the current plan|stop here to avoid looping|tell me the exact record or page you want me to target/i.test(text);
+}
+
 function buildPuraFallbackSuccessReply(title: unknown): string | null {
   const normalizedTitle = String(title || "").trim();
   const exactMap: Record<string, string> = {
+    "Update Booking Settings": "The booking settings are updated.",
     "Create Newsletter": "The newsletter draft is ready.",
     "Update Newsletter": "The newsletter is updated.",
     "Send Newsletter": "The newsletter went out to the current audience.",
@@ -434,17 +472,453 @@ function buildPuraFallbackFailureReply(title: unknown, normalizedError: string):
     : `I hit a temporary snag while finishing ${fallbackTarget} because ${normalizedError}.`;
 }
 
+async function generateGuidanceOnlyPortalReply(opts: {
+  prompt: string;
+  url?: string | null;
+  threadContext?: unknown;
+  fallbackText?: string | null;
+}): Promise<string> {
+  const withTimeout = async <T,>(work: Promise<T>, timeoutMs: number): Promise<T | null> => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    try {
+      return await Promise.race([
+        work,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), timeoutMs);
+        }),
+      ]);
+    } catch {
+      return null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
+  const prompt = String(opts.prompt || "").trim().slice(0, 2000);
+  const fallbackText = cleanPuraGeneratedReply(stripEmptyAssistantBullets(String(opts.fallbackText || "").trim()), {
+    allowBullets: true,
+    maxLength: 12_000,
+  });
+  const candidateReplies: string[] = [];
+  const addCandidateReply = (value: unknown) => {
+    const cleaned = cleanPuraGeneratedReply(stripEmptyAssistantBullets(String(value || "").trim()), {
+      allowBullets: true,
+      maxLength: 12_000,
+    });
+    if (cleaned) candidateReplies.push(cleaned);
+    return cleaned;
+  };
+  if (!prompt) return fallbackText || "";
+
+  if (isPortalSupportChatConfigured()) {
+    try {
+      const supportReply = addCandidateReply(
+        String(
+          (await withTimeout(
+            runPortalSupportChat({
+              message: [
+                "The user is asking for portal how-to guidance only.",
+                "Answer with concise steps they can follow themselves.",
+                "Do not make changes, do not say that no action was taken, and do not ask generic follow-up questions.",
+                "Use grounded click paths, page names, and fields whenever possible.",
+                "",
+                `User request: ${prompt}`,
+              ].join("\n"),
+              url: typeof opts.url === "string" && opts.url.trim() ? opts.url.trim() : undefined,
+              threadContext: opts.threadContext,
+            }),
+            8_000,
+          )) || "",
+        ).trim(),
+      );
+      if (supportReply && !isLowQualityPuraGeneratedReply(supportReply, { allowBullets: true })) {
+        return supportReply;
+      }
+    } catch {}
+  }
+
+  if (isPuraAiConfigured()) {
+    try {
+      const raw = (await withTimeout(
+        generateText({
+          system: [
+            "You are Pura, an AI assistant inside a SaaS portal.",
+            "The user is asking for how-to guidance only.",
+            "Reply with only 2 to 4 concise imperative steps the user can follow in the portal.",
+            "Do not perform any actions.",
+            "Ground the answer in likely portal navigation, page names, buttons, and fields when possible.",
+            "Do not use first-person language.",
+            "Do not mention actions, results, missing context, inability, or system limitations.",
+            "Do not ask follow-up questions.",
+            "Do not add an intro sentence or a closing sentence.",
+            "If exact labels are uncertain, use the most likely plain-language portal path.",
+            "Example answer shape:",
+            "User request: How do I update my booking form headline?",
+            "Answer:",
+            "1. Open the booking section and select the form you want to edit.",
+            "2. Open the form content or settings panel and find the headline field.",
+            "3. Replace the current headline text and save the form.",
+            "User request: How do I create a newsletter draft?",
+            "Answer:",
+            "1. Open the newsletter area and start a new draft.",
+            "2. Add the subject, body content, and any images or links you want included.",
+            "3. Save the draft so you can review or finish it later.",
+          ].join("\n"),
+          user: [
+            typeof opts.url === "string" && opts.url.trim() ? `Current URL: ${opts.url.trim()}` : null,
+            `User request: ${prompt}`,
+          ].filter(Boolean).join("\n\n"),
+        }),
+        8_000,
+      )) || "";
+      const reply = addCandidateReply(raw);
+      if (reply && !isLowQualityPuraGeneratedReply(reply, { allowBullets: true })) {
+        return reply;
+      }
+    } catch {}
+  }
+
+  if (isPuraAiConfigured() && candidateReplies.length) {
+    try {
+      const rewriteRaw = (await withTimeout(
+        generateText({
+          system: [
+            "You are Pura, an AI assistant inside a SaaS portal.",
+            "Rewrite the draft into 2 to 4 concise imperative steps the user can follow.",
+            "Keep it guidance-only and do not perform actions.",
+            "Do not use first-person language.",
+            "Do not mention actions, results, missing context, inability, or system limitations.",
+            "Do not ask follow-up questions and do not add a closing sentence.",
+            "Use concrete portal navigation, likely page names, settings, buttons, and fields whenever they can be inferred from the request.",
+            "If exact labels are uncertain, use the most likely portal path in plain language instead of vague filler.",
+            "Target answer shape example:",
+            "1. Open the relevant portal section for the item you want to edit.",
+            "2. Select the draft, form, or page and open its settings or content fields.",
+            "3. Make the change and save it.",
+          ].join("\n"),
+          user: [
+            typeof opts.url === "string" && opts.url.trim() ? `Current URL: ${opts.url.trim()}` : null,
+            `User request: ${prompt}`,
+            `Weak draft to improve: ${candidateReplies[0]}`,
+          ].filter(Boolean).join("\n\n"),
+        }),
+        8_000,
+      )) || "";
+      const rewriteReply = addCandidateReply(rewriteRaw);
+      if (rewriteReply && !isLowQualityPuraGeneratedReply(rewriteReply, { allowBullets: true })) {
+        return rewriteReply;
+      }
+    } catch {}
+  }
+
+  return candidateReplies.find((reply) => !isLowQualityPuraGeneratedReply(reply, { allowBullets: true })) || fallbackText || candidateReplies[0] || "";
+}
+
 async function generateAiExecutionSummary(opts: {
   workTitle?: unknown;
   steps: Array<{ key?: unknown; title?: unknown }>;
-  results: Array<{ ok?: boolean; completed?: boolean; status?: number; action?: unknown; linkUrl?: unknown; question?: unknown; error?: unknown }>;
+  results: Array<{ ok?: boolean; completed?: boolean; status?: number; action?: unknown; linkUrl?: unknown; question?: unknown; error?: unknown; result?: unknown }>;
   canvasUrl?: string | null;
   userPrompt?: string | null;
   directMessage?: string | null;
   fallbackText?: string | null;
+  timeZoneHint?: string | null;
 }): Promise<string> {
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const joinNaturalList = (items: string[]) => {
+    const clean = items.map((item) => String(item || "").trim()).filter(Boolean);
+    if (!clean.length) return "";
+    if (clean.length === 1) return clean[0];
+    if (clean.length === 2) return `${clean[0]} and ${clean[1]}`;
+    return `${clean.slice(0, -1).join(", ")}, and ${clean[clean.length - 1]}`;
+  };
+  const formatClockTime = (value: string | null | undefined) => {
+    const raw = String(value || "").trim();
+    const match = raw.match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return raw;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return raw;
+    const meridiem = hour >= 12 ? "PM" : "AM";
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${String(minute).padStart(2, "0")} ${meridiem}`;
+  };
+  const formatDateLabel = (value: string | null | undefined) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const date = new Date(`${raw}T12:00:00Z`);
+    if (!Number.isFinite(date.getTime())) return raw;
+    try {
+      return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric" }).format(date);
+    } catch {
+      return raw;
+    }
+  };
+  const extractHostedPageStyleSummary = (promptText: string) => {
+    const prompt = String(promptText || "").trim();
+    if (!prompt) return "";
+    const likeMatch =
+      prompt.match(/\bfeel more like\s+(.+?)(?:[?.,]| but| and keep| and leave|$)/i) ||
+      prompt.match(/\bmake .*? feel more like\s+(.+?)(?:[?.,]| but| and keep| and leave|$)/i);
+    if (likeMatch?.[1]) return `like ${String(likeMatch[1]).trim()}`;
+    const moreMatch =
+      prompt.match(/\bfeel more\s+(.+?)(?:[?.,]| but| and keep| and leave|$)/i) ||
+      prompt.match(/\bmake .*? feel more\s+(.+?)(?:[?.,]| but| and keep| and leave|$)/i);
+    return moreMatch?.[1] ? String(moreMatch[1]).trim() : "";
+  };
+  const formatTaskDueAtText = (dueAtIso: string | null | undefined) => {
+    const iso = String(dueAtIso || "").trim();
+    if (!iso) return "";
+    const date = new Date(iso);
+    if (!Number.isFinite(date.getTime())) return "";
+    const includeTime = !(
+      date.getUTCHours() === 0 &&
+      date.getUTCMinutes() === 0 &&
+      date.getUTCSeconds() === 0 &&
+      date.getUTCMilliseconds() === 0
+    );
+    try {
+      const formatted = new Intl.DateTimeFormat("en-US", {
+        ...(opts.timeZoneHint ? { timeZone: opts.timeZoneHint } : {}),
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        ...(includeTime
+          ? {
+              hour: "numeric",
+              minute: "2-digit",
+            }
+          : {}),
+      }).format(date);
+      return formatted ? ` due on ${formatted}` : "";
+    } catch {
+      return "";
+    }
+  };
+  const summarizeGroundedActionResult = (actionKey: string, rawResult: unknown): string | null => {
+    const payload = rawResult && typeof rawResult === "object" && !Array.isArray(rawResult) ? (rawResult as Record<string, unknown>) : null;
+    if (!payload) return null;
+
+    if (actionKey === "booking.settings.get") {
+      const site = payload.site && typeof payload.site === "object" && !Array.isArray(payload.site) ? (payload.site as Record<string, unknown>) : null;
+      if (!site) return null;
+      const parts: string[] = [];
+      const title = typeof site.title === "string" ? String(site.title).trim() : "";
+      const description = typeof site.description === "string" ? String(site.description).trim() : "";
+      const durationMinutes = Number(site.durationMinutes);
+      if (title) parts.push(`Current booking title: "${title}".`);
+      if (description) parts.push(`Current booking description: "${description}".`);
+      if (Number.isFinite(durationMinutes) && durationMinutes > 0) parts.push(`Current meeting duration: ${durationMinutes} minutes.`);
+      return parts.join(" ") || null;
+    }
+
+    if (actionKey === "booking.reminders.settings.get" || actionKey === "booking.reminders.settings.update") {
+      const settings = payload.settings && typeof payload.settings === "object" && !Array.isArray(payload.settings)
+        ? (payload.settings as Record<string, unknown>)
+        : null;
+      if (!settings) return null;
+      const enabled = Boolean(settings.enabled);
+      const steps = Array.isArray(settings.steps)
+        ? (settings.steps as unknown[])
+            .filter((step): step is Record<string, unknown> => Boolean(step) && typeof step === "object" && !Array.isArray(step))
+            .filter((step) => step.enabled !== false)
+        : [];
+      const email = settings.email && typeof settings.email === "object" && !Array.isArray(settings.email) ? (settings.email as Record<string, unknown>) : null;
+      const sms = settings.sms && typeof settings.sms === "object" && !Array.isArray(settings.sms) ? (settings.sms as Record<string, unknown>) : null;
+      const describeChannel = (channel: Record<string, unknown> | null, label: string) => {
+        if (!channel || !Boolean(channel.enabled)) return `${label} reminders are off.`;
+        const leadAmount = Number(channel.leadAmount);
+        const leadUnit = typeof channel.leadUnit === "string" ? String(channel.leadUnit).trim() : "hours";
+        return Number.isFinite(leadAmount) && leadAmount > 0
+          ? `${label} reminders go out ${leadAmount} ${leadUnit} before the appointment.`
+          : `${label} reminders are on.`;
+      };
+      const describeStepChannel = (kind: "EMAIL" | "SMS", label: string) => {
+        const channelSteps = steps.filter((step) => String(step.kind || "").trim().toUpperCase() === kind);
+        if (!channelSteps.length) return `${label} reminders are off.`;
+        const descriptions = channelSteps
+          .map((step) => {
+            const leadTime = step.leadTime && typeof step.leadTime === "object" && !Array.isArray(step.leadTime)
+              ? (step.leadTime as Record<string, unknown>)
+              : null;
+            const leadAmount = Number(leadTime?.value);
+            const leadUnit = typeof leadTime?.unit === "string" ? String(leadTime.unit).trim() : "hours";
+            return Number.isFinite(leadAmount) && leadAmount > 0
+              ? `${label} reminders go out ${leadAmount} ${leadUnit} before the appointment.`
+              : `${label} reminders are on.`;
+          })
+          .filter(Boolean);
+        return descriptions.filter((value, index, array) => array.indexOf(value) === index).join(" ");
+      };
+      if (!enabled) return "Appointment reminders are currently off.";
+      if (steps.length) {
+        return [describeStepChannel("EMAIL", "Email"), describeStepChannel("SMS", "SMS")].join(" ");
+      }
+      return [describeChannel(email, "Email"), describeChannel(sms, "SMS")].join(" ");
+    }
+
+    if (actionKey === "ai_receptionist.settings.get" || actionKey === "ai_receptionist.settings.update") {
+      const settings = payload.settings && typeof payload.settings === "object" && !Array.isArray(payload.settings)
+        ? (payload.settings as Record<string, unknown>)
+        : null;
+      if (!settings) return null;
+      const enabled = settings.enabled === true;
+      const mode = typeof settings.mode === "string" ? String(settings.mode).trim() : "";
+      const greeting = typeof settings.greeting === "string" ? String(settings.greeting).trim() : "";
+      const parts = [
+        `The AI receptionist is currently ${enabled ? "enabled" : "disabled"}${mode ? ` and set to ${mode} mode` : ""}.`,
+      ];
+      if (greeting) parts.push(`Current greeting: "${/[.!?]$/.test(greeting) ? greeting : `${greeting}.`}".`);
+      return parts.join(" ");
+    }
+
+    if (actionKey === "tasks.create") {
+      const title = typeof payload.title === "string" ? String(payload.title).trim() : "";
+      if (!title) return null;
+      const dueText = formatTaskDueAtText(
+        typeof payload.dueAtIso === "string" ? String(payload.dueAtIso).trim() : null,
+      );
+      return `I created the task titled "${title}"${dueText}.`;
+    }
+
+    if (actionKey === "tasks.bulk_create") {
+      const items = Array.isArray(payload.items)
+        ? payload.items.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+        : [];
+      if (!items.length) return null;
+      const described = items
+        .slice(0, 3)
+        .map((item) => {
+          const title = typeof item.title === "string" ? String(item.title).trim() : "";
+          if (!title) return null;
+          const dueText = formatTaskDueAtText(
+            typeof item.dueAtIso === "string" ? String(item.dueAtIso).trim() : null,
+          );
+          return `"${title}"${dueText}`;
+        })
+        .filter(Boolean);
+      if (!described.length) return null;
+      return `I created ${items.length} task${items.length === 1 ? "" : "s"}: ${described.join(", ")}.`;
+    }
+
+    if (actionKey === "newsletter.newsletters.create") {
+      const titleMatch = String(opts.userPrompt || "").match(/\bnewsletter\s+called\s+(.+?)(?:\s+for\s+|[.?!]|$)/i);
+      const title = titleMatch?.[1] ? String(titleMatch[1]).trim().replace(/^['"“”]+|['"“”]+$/g, "") : "";
+      if (title) {
+        return `I created a draft newsletter titled "${title}".`;
+      }
+      return "I created a draft newsletter.";
+    }
+
+    if (actionKey === "hosted_pages.documents.generate_html") {
+      const document = payload.document && typeof payload.document === "object" && !Array.isArray(payload.document)
+        ? (payload.document as Record<string, unknown>)
+        : null;
+      if (!document) return null;
+      const service = typeof document.service === "string" ? String(document.service).trim().toUpperCase() : "";
+      const label =
+        service === "NEWSLETTER"
+          ? "newsletter page"
+          : service === "REVIEWS"
+            ? "reviews page"
+            : service === "BLOGS"
+              ? "blog page"
+              : service === "BOOKING"
+                ? "booking page"
+                : "hosted page";
+      const status = typeof document.status === "string" ? String(document.status).trim().toUpperCase() : "";
+            const styleSummary = extractHostedPageStyleSummary(String(opts.userPrompt || ""));
+            return `I updated the ${label}${styleSummary ? ` to feel more ${styleSummary}` : ""}${status === "DRAFT" ? " and left it in draft" : ""}.`;
+    }
+
+    if (actionKey === "booking.suggestions.slots") {
+      const slotPreviews = Array.isArray(payload.slotPreviews)
+        ? payload.slotPreviews.filter((slot): slot is Record<string, unknown> => Boolean(slot) && typeof slot === "object" && !Array.isArray(slot))
+        : [];
+      const timeZone = typeof payload.timeZone === "string" ? String(payload.timeZone).trim() : "";
+      if (!slotPreviews.length) {
+        return "I couldn't find any open booking slots in that range.";
+      }
+      const previewText = slotPreviews
+        .slice(0, 3)
+        .map((slot) => {
+          const dateLabel = typeof slot.dateLabel === "string" ? String(slot.dateLabel).trim() : "";
+          const startLabel = typeof slot.startLabel === "string" ? String(slot.startLabel).trim() : "";
+          const endLabel = typeof slot.endLabel === "string" ? String(slot.endLabel).trim() : "";
+          return [dateLabel, startLabel && endLabel ? `${startLabel} to ${endLabel}` : startLabel || endLabel].filter(Boolean).join(" ");
+        })
+        .filter(Boolean);
+      if (!previewText.length) return null;
+      return `I found ${slotPreviews.length} open booking slot${slotPreviews.length === 1 ? "" : "s"}${timeZone ? ` in ${timeZone}` : ""}. The first options are ${joinNaturalList(previewText)}.`;
+    }
+
+    if (actionKey === "booking.availability.set_daily") {
+      const startDateLocal = typeof payload.startDateLocal === "string" ? String(payload.startDateLocal).trim() : "";
+      const endDateLocal = typeof payload.endDateLocal === "string" ? String(payload.endDateLocal).trim() : "";
+      const startTimeLocal = typeof payload.startTimeLocal === "string" ? String(payload.startTimeLocal).trim() : "";
+      const endTimeLocal = typeof payload.endTimeLocal === "string" ? String(payload.endTimeLocal).trim() : "";
+      const createdCount = Number(payload.createdCount);
+      const timeZone = typeof payload.timeZone === "string" ? String(payload.timeZone).trim() : "";
+      const isoWeekdays = Array.isArray(payload.isoWeekdays) ? payload.isoWeekdays.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : [];
+      const weekdayNames = isoWeekdays
+        .map((value) => ({ 1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 6: "Saturday", 7: "Sunday" }[value] || ""))
+        .filter(Boolean);
+      const rangeParts = [startDateLocal, endDateLocal].filter(Boolean);
+      const formattedStart = formatClockTime(startTimeLocal);
+      const formattedEnd = formatClockTime(endTimeLocal);
+      const timeWindow = formattedStart && formattedEnd ? `${formattedStart} to ${formattedEnd}` : "";
+      if (!Number.isFinite(createdCount) || createdCount <= 0) return null;
+        const startDateLabel = formatDateLabel(startDateLocal);
+        const endDateLabel = formatDateLabel(endDateLocal);
+        return `I set your booking availability for ${weekdayNames.length ? joinNaturalList(weekdayNames) : "the selected days"}${timeWindow ? ` from ${timeWindow}` : ""}${startDateLabel && endDateLabel ? ` between ${startDateLabel} and ${endDateLabel}` : ""}${timeZone ? ` in ${timeZone}` : ""}.`;
+    }
+
+    if (actionKey === "ai_receptionist.highlights.get") {
+      const stats = payload.stats && typeof payload.stats === "object" && !Array.isArray(payload.stats)
+        ? (payload.stats as Record<string, unknown>)
+        : null;
+      if (!stats) return null;
+      const total = Number(stats.total || 0);
+      const completed = Number(stats.completed || 0);
+      const failed = Number(stats.failed || 0);
+      const inProgress = Number(stats.inProgress || 0);
+      const warnings = Array.isArray(payload.warnings) ? payload.warnings.map((value) => String(value || "").trim()).filter(Boolean) : [];
+      const issues = Array.isArray(payload.issues)
+        ? payload.issues
+            .map((value) => {
+              const summary = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>).summary : null;
+              return typeof summary === "string" ? String(summary).trim() : "";
+            })
+            .filter(Boolean)
+        : [];
+      const settings = payload.settings && typeof payload.settings === "object" && !Array.isArray(payload.settings)
+        ? (payload.settings as Record<string, unknown>)
+        : null;
+      const lookbackHours = Number(payload.lookbackHours || 0);
+      const parts = [
+        total === 0 && lookbackHours > 0
+          ? `There were no AI receptionist calls in the last ${lookbackHours} hours`
+          : `Over the last period, there were ${total} AI receptionist call${total === 1 ? "" : "s"}`,
+        completed ? `${completed} completed` : "",
+        failed ? `${failed} failed` : "",
+        inProgress ? `${inProgress} still in progress` : "",
+      ].filter(Boolean);
+      const extras = [
+        settings?.enabled === false ? "The AI receptionist is currently disabled." : "",
+        warnings[0] && settings?.enabled !== false ? warnings[0] : "",
+        issues[0] ? `Top issue: ${issues[0]}` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return `${parts.join(", ")}.${extras ? ` ${extras}` : ""}`;
+    }
+
+    return null;
+  };
+
+  const actionKeys = opts.results.map((result, index) => String(result?.action || opts.steps[index]?.key || "").trim());
   const summaryResults = opts.results.map((result, index) => ({
-    action: String(result?.action || opts.steps[index]?.key || "").trim() || null,
+    action: actionKeys[index] || null,
     title: String(opts.steps[index]?.title || result?.action || opts.steps[index]?.key || "").trim() || null,
     ok: Boolean(result?.ok),
     completed: Boolean(result?.completed),
@@ -452,10 +926,222 @@ async function generateAiExecutionSummary(opts: {
     question: typeof result?.question === "string" ? String(result.question).trim().slice(0, 400) : null,
     error: normalizeAssistantVisibleErrorText(result?.error, 280),
     linkUrl: typeof result?.linkUrl === "string" && String(result.linkUrl).trim() ? String(result.linkUrl).trim().slice(0, 1200) : null,
+    details: (() => {
+      const actionKey = actionKeys[index] || "";
+      const suppressUpdateDetails = /\.update$/i.test(actionKey)
+        && actionKeys.slice(index + 1).some((candidate) => candidate.toLowerCase() === actionKey.toLowerCase().replace(/\.update$/i, ".get"));
+      return suppressUpdateDetails ? null : summarizeGroundedActionResult(actionKey, result?.result);
+    })(),
   }));
 
   const fallbackTextRaw = String(opts.fallbackText || opts.directMessage || summaryResults.find((result) => result.question)?.question || "").trim();
   const fallbackText = cleanPuraGeneratedReply(stripEmptyAssistantBullets(fallbackTextRaw), { allowBullets: false, maxLength: 12_000 });
+  const primaryStepKey = String(opts.steps?.[0]?.key || "").trim();
+  const primaryGroundedDetail = summaryResults.find((result) => typeof result.details === "string" && result.details.trim())?.details || null;
+  const primaryError = summaryResults.find((result) => typeof result.error === "string" && result.error.trim())?.error || "";
+  const primaryRawResult = opts.results.find((result) => Boolean(result))?.result;
+  const primaryRawPayload = primaryRawResult && typeof primaryRawResult === "object" && !Array.isArray(primaryRawResult)
+    ? (primaryRawResult as Record<string, unknown>)
+    : null;
+  const primaryStatus = Number(opts.results.find((result) => Boolean(result))?.status || 0);
+  if (
+    primaryStepKey === "newsletter.newsletters.send" &&
+    (
+      /no recipients were found in the current newsletter audience/i.test(primaryError) ||
+      (primaryStatus === 409 && Number(primaryRawPayload?.requestedCount || 0) <= 0)
+    )
+  ) {
+    return "I couldn't send that newsletter because the current audience has no recipients.";
+  }
+  const groundedReadDetails = summaryResults
+    .filter((result) => /\.get$/i.test(String(result.action || "")) && typeof result.details === "string" && result.details.trim())
+    .map((result) => String(result.details || "").trim())
+    .filter(Boolean)
+    .filter((detail, index, array) => {
+      const normalized = detail.toLowerCase().replace(/\s+/g, " ").trim();
+      return normalized && array.findIndex((candidate) => candidate.toLowerCase().replace(/\s+/g, " ").trim() === normalized) === index;
+    });
+  const aiReceptionistGroundedDetail = summaryResults.find(
+    (result) => /^ai_receptionist\.settings\.get$/i.test(String(result.action || "")) && typeof result.details === "string" && result.details.trim(),
+  )?.details || null;
+  const aiReceptionistStateLine = typeof aiReceptionistGroundedDetail === "string"
+    ? aiReceptionistGroundedDetail.match(/The AI receptionist is currently [^.?!\n]+\./i)?.[0] || null
+    : null;
+  const aiReceptionistGreetingLine = typeof aiReceptionistGroundedDetail === "string"
+    ? aiReceptionistGroundedDetail.match(/Current greeting:\s+"[^"]+"\.?/i)?.[0] || null
+    : null;
+  const userAskedCurrentState = /\b(current settings|current state|tell me the current|show me the current|what are the current|what is the current)\b/i.test(String(opts.userPrompt || ""));
+  const normalizeSummaryOutput = (input: string): string => {
+    const normalizeAiReceptionistCurrentState = (value: string): string => {
+      let next = String(value || "").trim();
+      if (!aiReceptionistGroundedDetail) return next;
+      next = next
+        .replace(/(greeting now says\s+")([^"\n]+)(")/i, (_match, prefix, greeting, suffix) => `${prefix}${/[.!?]$/.test(greeting.trim()) ? greeting.trim() : `${greeting.trim()}.`}${suffix}`)
+        .replace(/(Current greeting:\s+")([^"\n]+)(")/i, (_match, prefix, greeting, suffix) => `${prefix}${/[.!?]$/.test(greeting.trim()) ? greeting.trim() : `${greeting.trim()}.`}${suffix}`)
+        .replace(/\bthe current settings show that the ai receptionist is [^.?!\n]+\.?/gi, "");
+      if (aiReceptionistStateLine && aiReceptionistGreetingLine) {
+        next = next.replace(
+          /The AI receptionist is currently [^.?!\n]+\.\s*Current greeting:\s*"[^"\n]*$/i,
+          `${aiReceptionistStateLine} ${aiReceptionistGreetingLine}`,
+        );
+      }
+      if (aiReceptionistGreetingLine) {
+        const greetingValueMatch = aiReceptionistGreetingLine.match(/Current greeting:\s+"([^"]+)"\.?/i);
+        const greetingValue = greetingValueMatch?.[1] ? String(greetingValueMatch[1]).trim() : "";
+        if (greetingValue) {
+          next = next.replace(new RegExp(`The current greeting is:\\s*"${escapeRegExp(greetingValue)}"\\.?\\s*`, "i"), "");
+          next = next.replace(new RegExp(`The greeting now reads:\\s*"${escapeRegExp(greetingValue)}"\\.?\\s*`, "i"), "");
+          next = next.replace(new RegExp(`The greeting is:\\s*"${escapeRegExp(greetingValue)}"\\.?\\s*`, "i"), "");
+        }
+      }
+      if (aiReceptionistStateLine) {
+        next = next.replace(/\bhowever,?\s+the ai receptionist is currently [^.?!\n]+\.\s*/i, "");
+        next = next.replace(/\bcurrently,?\s+the ai receptionist is currently [^.?!\n]+\.\s*/i, "");
+        next = next.replace(/\bthe ai receptionist is disabled and set to ai mode\.\s*/i, "");
+        next = next.replace(/\bthe ai receptionist is enabled and set to ai mode\.\s*/i, "");
+      }
+      if (aiReceptionistGreetingLine) {
+        next = next.replace(/Current greeting:\s*"[^"\n]*$/i, aiReceptionistGreetingLine);
+      }
+      if (aiReceptionistStateLine) {
+        const escapedStateLine = escapeRegExp(aiReceptionistStateLine);
+        next = next.replace(new RegExp(`(${escapedStateLine})(?:\\s+${escapedStateLine})+`, "gi"), "$1");
+      }
+      if (aiReceptionistGreetingLine) {
+        const escapedGreetingLine = escapeRegExp(aiReceptionistGreetingLine);
+        next = next.replace(new RegExp(`(${escapedGreetingLine})(?:\\s+${escapedGreetingLine})+`, "gi"), "$1");
+      }
+      return next.replace(/\s{2,}/g, " ").trim();
+    };
+
+    let text = String(input || "").trim();
+    const hadGenericCurrentStateTail = /\bthe current [^.?!\n]+ settings are now reflected in the system\.?|\bthe current [^.?!\n]+ settings are accessible here\.?|\bthe current [^.?!\n]+ settings are now available for you to review\b|\bthe [^.?!\n]+ settings can be checked here\.?|\byou can find the [^.?!\n]+ details here\.?/i.test(text);
+    const absoluteCanvasUrl = normalizeAssistantLinkUrl(opts.canvasUrl ?? null);
+    if (text && absoluteCanvasUrl) {
+      text = text
+        .replace(/the live booking link is available here\.?/i, `the live booking link is available [here](${absoluteCanvasUrl}).`)
+        .replace(/the live booking page is available here\.?/i, `the live booking page is available [here](${absoluteCanvasUrl}).`)
+        .replace(/the booking site information is also accessible at this link\.?/i, `The live booking link is [here](${absoluteCanvasUrl}).`)
+        .replace(/the live booking link is available at this link\.?/i, `The live booking link is [here](${absoluteCanvasUrl}).`)
+        .replace(/if you need to make any adjustments, you can visit the settings page here\.?/i, `You can review the booking settings [here](${absoluteCanvasUrl}).`)
+        .replace(/you can visit the settings page here\.?/i, `You can review the settings [here](${absoluteCanvasUrl}).`)
+        .replace(/you can check the details or manage any related services at this link\.?/i, `You can review that [here](${absoluteCanvasUrl}).`)
+        .replace(/if you need more information or assistance, you can check the dispute letters section\.?/i, `You can review the dispute letters section [here](${absoluteCanvasUrl}).`)
+        .replace(/\.\s*to explore them\.?$/i, `. You can review them [here](${absoluteCanvasUrl}).`)
+        .replace(/\.\s*if you want\.?$/i, `. You can review that [here](${absoluteCanvasUrl}).`);
+      if (/\/book\//i.test(absoluteCanvasUrl) && !new RegExp(absoluteCanvasUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(text)) {
+        const askedForLiveLink = /live booking link|booking link|public booking link/i.test(String(opts.userPrompt || ""));
+        const talksAboutBookingLink = /live booking link|booking page|booking site/i.test(text);
+        if (askedForLiveLink || talksAboutBookingLink) {
+          text = `${text.trim()}\n\nThe live booking link is [here](${absoluteCanvasUrl}).`;
+        }
+      }
+    }
+
+    text = text.replace(/\s+If you want\.?$/i, "").trim();
+    text = text
+      .replace(/\byou can access the live booking link here\.?/gi, "")
+      .replace(/\byou can access your live booking link here\.?/gi, "")
+      .replace(
+        /\bthe current booking settings are confirmed as follows:\s*title:\s*"([^"]+)",\s*description:\s*"([^"]+)",\s*and duration:\s*(\d+)\s*minutes\.?/gi,
+        'Current booking title: "$1". Current booking description: "$2". Current meeting duration: $3 minutes.',
+      )
+      .replace(/\bthe current [^.?!\n]+ settings are now reflected in the system\.?/gi, "")
+      .replace(/\bcurrently,?\s+the [^.?!\n]+(?:settings|state)\s+reflect(?:s)? [^.?!\n]+\.?/gi, "")
+      .replace(/\bcurrently,?\s+the [^.?!\n]+(?:settings|state)\s+show(?:s)? [^.?!\n]+\.?/gi, "")
+      .replace(/\bthe [^.?!\n]+(?:settings|state)\s+reflect(?:s)? [^.?!\n]+\.?/gi, "")
+      .replace(/\b(?:your|the) current booking settings are as follows:\s*/gi, "")
+      .replace(/\bfor the ai receptionist, it is currently [^.?!\n]+(?:,?\s*with the greeting mentioned above)?\.?/gi, "")
+      .replace(/\byou can find more details about the booking settings here\b/gi, "")
+      .replace(/\byou can find more information about the ai receptionist here\b/gi, "")
+      .replace(/\bcurrently,?\s+to check out the booking settings, you can do so here,? and for the ai receptionist settings, click here\.?/gi, "")
+      .replace(/\bthe current [^.?!\n]+ settings are accessible here\.?/gi, "")
+      .replace(/\bthe current [^.?!\n]+ settings are now available for you to review(?: at the \[[^\]]+\]\([^\)]+\))?\.?/gi, "")
+      .replace(/\bthe [^.?!\n]+ settings can be checked here\.?/gi, "")
+      .replace(/\byou can find the [^.?!\n]+ details here\.?/gi, "")
+      .replace(/\byou can view the settings in the portal for any further adjustments\.?/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+    text = normalizeAiReceptionistCurrentState(text);
+
+    if ((hadGenericCurrentStateTail || userAskedCurrentState) && groundedReadDetails.length) {
+      const missingDetails = groundedReadDetails.filter((detail) => {
+        const normalizedDetail = detail.toLowerCase().replace(/\s+/g, " ").trim();
+        const normalizedText = text.toLowerCase().replace(/\s+/g, " ").trim();
+        return normalizedDetail && !normalizedText.includes(normalizedDetail);
+      });
+      if (missingDetails.length) {
+        text = `${text.trim()}\n\n${missingDetails.join(" ")}`.trim();
+      }
+    }
+
+    return normalizeAiReceptionistCurrentState(text);
+  };
+  if (typeof primaryGroundedDetail === "string" && primaryGroundedDetail.trim()) {
+    if (
+      primaryStepKey === "ai_receptionist.settings.get" ||
+      primaryStepKey === "ai_receptionist.settings.update" ||
+      primaryStepKey === "ai_receptionist.highlights.get"
+    ) {
+      if (primaryStepKey === "ai_receptionist.settings.update") {
+        return normalizeSummaryOutput(`I updated the AI receptionist. ${primaryGroundedDetail}`);
+      }
+      return normalizeSummaryOutput(primaryGroundedDetail);
+    }
+    if (primaryStepKey === "booking.availability.set_daily") {
+      return normalizeSummaryOutput(primaryGroundedDetail);
+    }
+    if (primaryStepKey === "tasks.create" || primaryStepKey === "tasks.bulk_create") {
+      return normalizeSummaryOutput(primaryGroundedDetail);
+    }
+    if (primaryStepKey === "newsletter.newsletters.create") {
+      return normalizeSummaryOutput(primaryGroundedDetail);
+    }
+    if (primaryStepKey === "booking.reminders.settings.get" || primaryStepKey === "booking.reminders.settings.update") {
+      const prefix = primaryStepKey === "booking.reminders.settings.update" ? "I updated the booking reminders. " : "";
+      return normalizeSummaryOutput(`${prefix}${primaryGroundedDetail}`);
+    }
+    if (primaryStepKey === "hosted_pages.documents.generate_html") {
+      return normalizeSummaryOutput(primaryGroundedDetail);
+    }
+    if (primaryStepKey === "booking.settings.update") {
+      const normalizedCanvasUrl = normalizeAssistantLinkUrl(opts.canvasUrl ?? null);
+      const wantsBookingLink = /live booking link|booking link|public booking link/i.test(String(opts.userPrompt || ""));
+      const bookingLinkLine = wantsBookingLink && normalizedCanvasUrl ? ` The live booking link is [here](${normalizedCanvasUrl}).` : "";
+      return normalizeSummaryOutput(`I updated the booking settings. ${primaryGroundedDetail}${bookingLinkLine}`);
+    }
+  }
+  const fallbackHasGroundedLink = /\[[^\]]+\]\((?:\/|https?:\/\/)[^)]+\)/.test(fallbackTextRaw);
+  if (fallbackText && fallbackHasGroundedLink && !isLowQualityPuraGeneratedReply(fallbackText, { allowBullets: false })) {
+    return normalizeSummaryOutput(fallbackText);
+  }
+  if (fallbackText && !isLowQualityPuraGeneratedReply(fallbackText, { allowBullets: false })) {
+    const preferGroundedFallbackKeys = new Set([
+      "booking.settings.update",
+      "booking.suggestions.slots",
+      "booking.availability.set_daily",
+      "booking.reminders.settings.get",
+      "booking.reminders.settings.update",
+      "ai_receptionist.settings.update",
+      "ai_receptionist.settings.get",
+      "ai_receptionist.highlights.get",
+      "hosted_pages.documents.generate_html",
+      "tasks.list",
+    ]);
+    if (preferGroundedFallbackKeys.has(primaryStepKey)) {
+      if (typeof primaryGroundedDetail === "string" && primaryGroundedDetail.trim()) {
+        const normalizedFallback = fallbackText.toLowerCase().replace(/\s+/g, " ").trim();
+        const normalizedDetail = primaryGroundedDetail.toLowerCase().replace(/\s+/g, " ").trim();
+        const looksGeneric = /you can see the details here|i summarized the highlights|you can review that here|you can find more information|you can find the details here/.test(normalizedFallback);
+        if (looksGeneric || !normalizedFallback.includes(normalizedDetail)) {
+          return normalizeSummaryOutput(primaryGroundedDetail);
+        }
+      }
+      return normalizeSummaryOutput(fallbackText);
+    }
+  }
 
   const runDraft = async (
     mode: "draft" | "rewrite" | "salvage",
@@ -473,11 +1159,13 @@ async function generateAiExecutionSummary(opts: {
       "- If no step returned a question, do not ask any new follow-up or clarifying question.",
       "- Do not invent missing details, URLs, or outcomes.",
       "- If modelDirectMessage or fallbackCandidate already contains grounded facts, preserve that substance and only tighten the wording.",
+      "- If a step includes a details field, use those concrete facts directly when summarizing the current state.",
       "- Ignore incidental discovery/list/read steps from adjacent domains unless they materially changed the answer the user asked for.",
       "- Never mention internal IDs, raw slugs, method names, stack traces, or implementation symbols.",
       "- Mention warnings or partial failures directly instead of asking whether the user wants more details.",
       "- Never output a bare raw URL. If you include a link, it must be one markdown link using the provided linkUrl or canvasUrl.",
       "- Never use phrases like 'The action to...', 'completed successfully', 'has been successfully created', 'was sent successfully', 'for more details', or 'let me know if you need anything else'.",
+      "- Never write summary openers like 'Here's a summary of what was done', 'Here's what was done', 'All steps for updating ... have been completed', or 'All the requested updates were made successfully'.",
       "- Do not append generic tails like 'you can check them here', 'you can review it here', 'you can edit it here', 'feel free to ask', 'just let me know', or 'if you want to explore that further'.",
       "- Never end with invitation lines like 'If you have specific areas you want to dive deeper into' or 'You can visit/check/view it in the portal' unless the user explicitly asked for navigation help.",
       "- Do not mention unchanged adjacent settings unless that contrast is essential to understanding what changed.",
@@ -489,10 +1177,14 @@ async function generateAiExecutionSummary(opts: {
       "- Never include bundles of action links like open/download/share after an import result; just state the result plainly.",
       "- Mention draft status only when it materially affects whether something is live; do not add extra review/go-live commentary.",
       "- Avoid lines like 'You can view it in the nurture campaigns section', 'You can check the newsletter service', or bare markdown links on their own line.",
+      "- When the user asked for current settings or current state after an update, state the resulting current state directly instead of saying you retrieved or checked it.",
+      "- Never use placeholder current-state lines like 'the settings are now reflected in the system', 'the current settings are accessible here', or 'you can find the details here'.",
       "Style rules:",
       "- 1-3 short paragraphs.",
       "- No headings, bullet lists, tables, or JSON.",
       "- No canned closers or portal-tour filler.",
+      "- Do not compress multiple updates into semicolon-separated clauses; use short natural sentences instead.",
+      "- Prefer first-person, concrete wording like 'I updated...' over passive or generic status-report phrasing.",
       "- Do not end with a separate sentence whose only purpose is telling the user to check, view, manage, open, review, or edit something at a link.",
       "- If you include a link, only use the exact linkUrl or canvasUrl provided.",
       "- If a link is useful, weave it into the main sentence instead of appending a generic CTA.",
@@ -518,7 +1210,7 @@ async function generateAiExecutionSummary(opts: {
 
     const rawOut = stripEmptyAssistantBullets(String(await generateText({ system, user }))).trim();
     const cleanedOut = cleanPuraGeneratedReply(rawOut, { allowBullets: false, maxLength: 12_000 });
-    return cleanedOut || rawOut;
+    return normalizeSummaryOutput(cleanedOut || rawOut);
   };
 
   try {
@@ -549,22 +1241,22 @@ async function generateAiExecutionSummary(opts: {
         maxLength: 12_000,
       });
       if (cleanedFallback && !isLowQualityPuraGeneratedReply(cleanedFallback, { allowBullets: false })) {
-        return cleanedFallback;
+        return normalizeSummaryOutput(cleanedFallback);
       }
 
       const lastResort = cleanPuraGeneratedReply(String(cleanedFallback || salvaged || regrounded || rewritten || firstDraft || fallbackTextRaw || "").trim(), {
         allowBullets: false,
         maxLength: 12_000,
       });
-      if (lastResort) return lastResort;
+      if (lastResort) return normalizeSummaryOutput(lastResort);
     }
 
-    return cleanPuraGeneratedReply(String(fallbackText || firstDraft || rewritten || regrounded || fallbackTextRaw || ""), {
+    return normalizeSummaryOutput(cleanPuraGeneratedReply(String(fallbackText || firstDraft || rewritten || regrounded || fallbackTextRaw || ""), {
       allowBullets: false,
       maxLength: 12_000,
-    });
+    }));
   } catch {
-    return cleanPuraGeneratedReply(String(fallbackText || fallbackTextRaw || ""), { allowBullets: false, maxLength: 12_000 });
+    return normalizeSummaryOutput(cleanPuraGeneratedReply(String(fallbackText || fallbackTextRaw || ""), { allowBullets: false, maxLength: 12_000 }));
   }
 }
 
@@ -3886,6 +4578,45 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     return tz || null;
   };
 
+  const withDirectIntentTimeZone = (threadContext?: unknown) => {
+    const tzHint = getTimeZoneHint(threadContext);
+    const base = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
+      ? { ...(threadContext as Record<string, unknown>) }
+      : {};
+    return tzHint ? { ...base, ownerTimeZone: tzHint } : base;
+  };
+
+  const formatDueAtForAssistantSummary = (dueAtIso: string | null | undefined, threadContext?: unknown) => {
+    const iso = String(dueAtIso || "").trim();
+    if (!iso) return "";
+    const date = new Date(iso);
+    if (!Number.isFinite(date.getTime())) return "";
+    const timeZone = getTimeZoneHint(threadContext) || undefined;
+    try {
+      const includeTime = !(
+        date.getUTCHours() === 0 &&
+        date.getUTCMinutes() === 0 &&
+        date.getUTCSeconds() === 0 &&
+        date.getUTCMilliseconds() === 0
+      );
+      const formatted = new Intl.DateTimeFormat("en-US", {
+        ...(timeZone ? { timeZone } : {}),
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        ...(includeTime
+          ? {
+              hour: "numeric",
+              minute: "2-digit",
+            }
+          : {}),
+      }).format(date);
+      return formatted ? ` due on ${formatted}` : "";
+    } catch {
+      return "";
+    }
+  };
+
   type LiveStatusPhase = "bootstrap" | "planning" | "resolving" | "executing" | "clarifying" | "confirming" | "summarizing";
   type LiveStatusShape = {
     phase: LiveStatusPhase;
@@ -3935,8 +4666,30 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     };
   };
 
-  const persistThreadContext = async (threadContextValue: unknown, opts?: { touchLastMessageAt?: boolean }) => {
-    const nextCtx = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue) ? (threadContextValue as any) : {};
+  const loadLatestInterruptibleRunControlContext = async () => {
+    const fresh = await (prisma as any).portalAiChatThread.findFirst({
+      where: { id: threadId, ownerId },
+      select: { contextJson: true },
+    }).catch(() => null);
+    const freshCtx = fresh?.contextJson && typeof fresh.contextJson === "object" && !Array.isArray(fresh.contextJson)
+      ? (fresh.contextJson as Record<string, unknown>)
+      : null;
+    if (!freshCtx) return null;
+    return {
+      currentRunId: typeof freshCtx.currentRunId === "string" ? String(freshCtx.currentRunId).trim().slice(0, 120) : null,
+      interruptRequestedRunId:
+        typeof freshCtx.interruptRequestedRunId === "string" ? String(freshCtx.interruptRequestedRunId).trim().slice(0, 120) : null,
+    };
+  };
+
+  const persistThreadContext = async (threadContextValue: unknown, opts?: { touchLastMessageAt?: boolean; preserveRunControl?: boolean }) => {
+    const nextCtxBase = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue) ? (threadContextValue as any) : {};
+    const latestControlState = opts?.preserveRunControl === false ? null : await loadLatestInterruptibleRunControlContext();
+    const nextCtx = {
+      ...nextCtxBase,
+      ...(latestControlState?.currentRunId ? { currentRunId: latestControlState.currentRunId } : {}),
+      ...(latestControlState?.interruptRequestedRunId ? { interruptRequestedRunId: latestControlState.interruptRequestedRunId } : {}),
+    };
     await withPortalAiChatDbRetry(async () => {
       await (prisma as any).portalAiChatThread.update({
         where: { id: threadId },
@@ -3969,7 +4722,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     status: LiveStatusShape | null,
     threadContextValue?: unknown,
   ) => {
-    return await persistThreadContext(withLiveStatus(threadContextValue ?? persistedThreadContext, status ? withCurrentRunStatus(status) : null));
+    const latestControlState = await loadLatestInterruptibleRunControlContext();
+    const baseCtx = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue)
+      ? ({ ...(threadContextValue as Record<string, unknown>) } as Record<string, unknown>)
+      : persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext)
+        ? ({ ...(persistedThreadContext as Record<string, unknown>) } as Record<string, unknown>)
+        : {};
+    const mergedCtx = {
+      ...baseCtx,
+      ...(latestControlState?.currentRunId ? { currentRunId: latestControlState.currentRunId } : {}),
+      ...(latestControlState?.interruptRequestedRunId ? { interruptRequestedRunId: latestControlState.interruptRequestedRunId } : {}),
+    };
+    return await persistThreadContext(withLiveStatus(mergedCtx, status ? withCurrentRunStatus(status, mergedCtx) : null), { preserveRunControl: false });
   };
 
   let activeRunId: string | null = null;
@@ -4087,7 +4851,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       currentRunId: activeRunId,
       interruptRequestedRunId: null,
       liveStatus: null,
-    });
+    }, { preserveRunControl: false });
     await persistActiveChatRun({
       status: "running",
       runId: activeRunId,
@@ -4111,6 +4875,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   const checkInterruptRequested = async (): Promise<boolean> => {
     if (!activeRunId) return false;
+    const runRow = await (prisma as any).portalAiChatRun.findFirst({
+      where: { ownerId, threadId, runId: activeRunId, triggerKind: "chat" },
+      orderBy: [{ createdAt: "desc" }],
+      select: { status: true },
+    }).catch(() => null);
+    if (typeof runRow?.status === "string" && String(runRow.status).trim() === "interrupted") return true;
+
     const fresh = await (prisma as any).portalAiChatThread.findFirst({
       where: { id: threadId, ownerId },
       select: { contextJson: true },
@@ -4118,6 +4889,23 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     const freshCtx = fresh?.contextJson && typeof fresh.contextJson === "object" && !Array.isArray(fresh.contextJson) ? (fresh.contextJson as any) : {};
     const interruptRunId = typeof freshCtx.interruptRequestedRunId === "string" ? String(freshCtx.interruptRequestedRunId).trim() : "";
     return Boolean(interruptRunId && interruptRunId === activeRunId);
+  };
+
+  const waitForInterruptGraceWindow = async (opts?: { enabled?: boolean; timeoutMs?: number; pollMs?: number }): Promise<boolean> => {
+    if (!opts?.enabled || !activeRunId) return false;
+    if (await checkInterruptRequested()) return true;
+
+    const timeoutMs = Math.max(0, Math.min(1000, Math.floor(opts?.timeoutMs ?? 600)));
+    const pollMs = Math.max(20, Math.min(100, Math.floor(opts?.pollMs ?? 40)));
+    if (!timeoutMs) return false;
+
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(1, deadline - Date.now()))));
+      if (await checkInterruptRequested()) return true;
+    }
+
+    return false;
   };
 
   const buildStoppedAssistantMessage = async (userMessage: any | null) => {
@@ -4143,6 +4931,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               ? String(liveStatus.label).trim().slice(0, 200)
               : null,
         summaryText: assistantText,
+        userRequest:
+          typeof userMessage?.text === "string" && String(userMessage.text).trim()
+            ? String(userMessage.text).trim().slice(0, 2000)
+            : null,
         lastCompletedTitle:
           typeof liveStatus?.lastCompletedTitle === "string" && liveStatus.lastCompletedTitle.trim()
             ? String(liveStatus.lastCompletedTitle).trim().slice(0, 200)
@@ -4220,6 +5012,22 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         push("Inspect this hosted page again and I’ll walk through the editable areas.");
         push("Update this hosted page’s title, slug, or layout direction next.");
       }
+    } else if (/newsletter|email campaign|broadcast/.test(haystack)) {
+      push("Tighten the newsletter copy or subject line before sending.");
+      push("Check the current audience so the next send has recipients.");
+      push("Draft the next newsletter angle for this same audience.");
+    } else if (/ai receptionist|voice agent|receptionist|\/ai-receptionist|twilio\/voice/.test(haystack)) {
+      push("Turn the AI receptionist on if you want it answering calls now.");
+      push("Tighten the greeting or system prompt for the next call flow.");
+      push("Summarize the last 72 hours of receptionist calls.");
+    } else if (/booking reminders|reminders/.test(haystack)) {
+      push("Test the reminder flow with a sample appointment.");
+      push("Summarize the current email and SMS reminder timing.");
+      push("Check whether Twilio is ready for reminder texts.");
+    } else if (/booking\.settings|booking\.site|get booking|live booking link/.test(haystack)) {
+      push("Open the live booking page and test the flow end to end.");
+      push("Summarize the booking page copy and timing changes.");
+      push("Check whether reminder timing still matches this booking flow.");
     } else if (/booking|calendar|appointment|availability|meeting/.test(haystack)) {
       push("Audit the booking flow for the next bottleneck.");
       push("Summarize what changed in booking and what still needs attention.");
@@ -4272,10 +5080,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     };
   };
 
-  const withCurrentRunStatus = (status: LiveStatusShape): LiveStatusShape => ({
+  const withCurrentRunStatus = (status: LiveStatusShape, threadContextValue?: unknown): LiveStatusShape => ({
     ...status,
     runId: activeRunId,
-    canInterrupt: Boolean(activeRunId),
+    canInterrupt:
+      Boolean(activeRunId) &&
+      !(
+        threadContextValue &&
+        typeof threadContextValue === "object" &&
+        !Array.isArray(threadContextValue) &&
+        typeof (threadContextValue as any).interruptRequestedRunId === "string" &&
+        String((threadContextValue as any).interruptRequestedRunId).trim() === activeRunId
+      ),
   });
 
   const patchArgsForScheduledCreate = (args: Record<string, unknown>, threadContext?: any): Record<string, unknown> => {
@@ -5070,7 +5886,26 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       const hasNewUserText = Boolean(String(effectiveText || "").trim());
       const didClickChoice = Boolean(choice && typeof choice === "object");
-      const effectivePlanningTextBase = effectiveText;
+      const unresolvedRunForCurrentRequest = normalizeUnresolvedRun(
+        threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any).unresolvedRun : null,
+      );
+      const continuationSeedRequest =
+        hasNewUserText &&
+        looksLikeContinuationRequest(effectiveText) &&
+        unresolvedRunForCurrentRequest?.userRequest &&
+        String(unresolvedRunForCurrentRequest.userRequest).trim()
+          ? [
+              `Continue and finish this unfinished request without re-asking for details unless something is still genuinely missing: ${String(unresolvedRunForCurrentRequest.userRequest).trim()}`,
+              `Resume intent from the latest user message: ${String(effectiveText || "").trim()}`,
+              unresolvedRunForCurrentRequest.lastCompletedTitle
+                ? `Last completed step: ${String(unresolvedRunForCurrentRequest.lastCompletedTitle).trim()}`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n\n")
+              .slice(0, 8000)
+          : String(effectiveText || "").trim().slice(0, 8000);
+      const effectivePlanningTextBase = continuationSeedRequest;
 
       const intentNote = (() => {
         const mode = isRedo ? "redo" : isEdit ? "edit" : "";
@@ -5133,7 +5968,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         .slice(0, 12_000);
 
       if (hasNewUserText && !isConfirmOnly && !didClickChoice && !pendingAction) {
-        const preflightPrompt = String(effectiveText || "").trim();
+        const preflightPrompt = String(continuationSeedRequest || effectiveText || "").trim();
+        const preflightIntentSignals = getPuraIntentSignals(preflightPrompt);
+        const shouldPreferGuidanceOnlyPreflight = preflightIntentSignals.asksHow && !preflightIntentSignals.explicitDoIt;
         const rawUserPrompt = typeof parsed.data.text === "string" ? String(parsed.data.text).trim() : preflightPrompt;
         const preflightCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
         const directIntentSurfaceHint = describeDirectIntentSurface({
@@ -5246,13 +6083,27 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         );
         const shouldForcePlannerFirstMutatingExecution =
           threadChatMode === "work" && hasMutatingDirectPreflightIntent && !hasDeterministicMutatingPreflightIntent;
-        const shouldSkipMutatingDirectPreflight = (threadChatMode !== "work" && hasMutatingDirectPreflightIntent) || shouldForcePlannerFirstMutatingExecution;
+        const shouldSkipMutatingDirectPreflight =
+          shouldPreferGuidanceOnlyPreflight
+            ? hasMutatingDirectPreflightIntent
+            : (threadChatMode !== "work" && hasMutatingDirectPreflightIntent) || shouldForcePlannerFirstMutatingExecution;
 
         const buildAiDirectAssistantText = async (
           plan: { action: PortalAgentActionKey; traceTitle: string; args: Record<string, unknown> },
           exec: any,
         ) => {
-          const directAssistantText = typeof exec?.assistantText === "string" ? String(exec.assistantText).trim() : "";
+          let directAssistantText = typeof exec?.assistantText === "string" ? String(exec.assistantText).trim() : "";
+          if (/^ai_receptionist\.settings\.(?:update|get)$/i.test(String(plan.action || ""))) {
+            const settingsGreeting = typeof exec?.result?.settings?.greeting === "string" ? String(exec.result.settings.greeting).trim() : "";
+            const normalizedGreeting = settingsGreeting
+              ? (/[.!?]$/.test(settingsGreeting) ? settingsGreeting : `${settingsGreeting}.`).replace(/([.!?]\s+)([a-z])/g, (_match, prefix, char) => `${prefix}${String(char || "").toUpperCase()}`)
+              : "";
+            if (directAssistantText && normalizedGreeting) {
+              directAssistantText = directAssistantText
+                .replace(/(greeting now says\s+")([^"]+)(")/i, `$1${normalizedGreeting}$3`)
+                .replace(/(Current greeting:\s+")([^"]+)(")/i, `$1${normalizedGreeting}$3`);
+            }
+          }
 
           return await generateAiExecutionSummary({
             workTitle: plan.traceTitle,
@@ -5264,6 +6115,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 status: Number(exec?.status) || (exec?.ok ? 200 : 400),
                 action: plan.action,
                 linkUrl: typeof exec?.linkUrl === "string" ? String(exec.linkUrl).trim() : null,
+                result: stripAssistantVisibleAccountingFields(exec?.result ?? null),
                 question:
                   (typeof exec?.result?.question === "string" && String(exec.result.question).trim()) ||
                   (!exec?.ok && typeof exec?.assistantText === "string" && /\?$/.test(String(exec.assistantText).trim()))
@@ -5279,6 +6131,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             ],
             canvasUrl: typeof exec?.linkUrl === "string" ? String(exec.linkUrl).trim() : null,
             userPrompt: preflightPrompt,
+            timeZoneHint: getTimeZoneHint(directThreadContext),
             directMessage: directAssistantText || null,
             fallbackText: directAssistantText || null,
           });
@@ -5286,7 +6139,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         const runDirectActionPlan = async (plan: { action: PortalAgentActionKey; traceTitle: string; args: Record<string, unknown>; steps?: Array<{ action: PortalAgentActionKey; traceTitle: string; args: Record<string, unknown> }> } | null) => {
           if (!plan) return null;
-          const rawSteps = Array.isArray(plan.steps) && plan.steps.length ? plan.steps.slice(0, 6) : [plan];
+          const rawSteps = Array.isArray(plan.steps) && plan.steps.length ? plan.steps.slice(0, 18) : [plan];
+          const shouldUseRawExecutor = rawSteps.length > 1;
+          const shouldAllowInterruptGraceWindow = rawSteps.length > 1;
           const singletonDirectActionKeys = new Set<PortalAgentActionKey>([
             "newsletter.newsletters.create",
             "newsletter.newsletters.update",
@@ -5316,12 +6171,34 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             seenDirectSingletonKeys.add(key);
             return true;
           });
-          const results: Array<{ step: { action: PortalAgentActionKey; traceTitle: string; args: Record<string, unknown> }; exec: any }> = [];
+          const shouldUseBulkTaskCreate = steps.length > 1 && steps.every((step) => step.action === "tasks.create");
+          const resultsByIndex: Array<{ step: { action: PortalAgentActionKey; traceTitle: string; args: Record<string, unknown> }; exec: any } | null> = Array.from({ length: steps.length }, () => null);
+          const bulkTaskSteps: Array<{ index: number; step: { action: PortalAgentActionKey; traceTitle: string; args: Record<string, unknown> } }> = [];
           let directThreadContext = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
             ? ({ ...(threadContext as Record<string, unknown>) } as Record<string, unknown>)
             : {};
 
-          for (const step of steps) {
+          if (!activeRunId) {
+            directThreadContext = await beginInterruptibleRun(directThreadContext);
+            threadContext = directThreadContext;
+          }
+
+          for (const [index, step] of steps.entries()) {
+            directThreadContext = await persistLiveStatus(
+              {
+                phase: "resolving",
+                label: `Resolving ${step.traceTitle || step.action}`,
+                actionKey: step.action,
+                title: step.traceTitle,
+                completedSteps: resultsByIndex.filter(Boolean).length,
+                lastCompletedTitle: resultsByIndex.filter(Boolean).at(-1)?.step?.traceTitle || null,
+              },
+              directThreadContext,
+            );
+            if (await checkInterruptRequested()) {
+              threadContext = directThreadContext;
+              return await buildStoppedAssistantMessage(responseUserMessage);
+            }
             const stepArgs =
               step.action === "tasks.create" && String((step.args as any)?.assignedToUserId || "").trim().toLowerCase() === "me"
                 ? { ...step.args, assignedToUserId: createdByUserId }
@@ -5335,7 +6212,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               threadContext: directThreadContext,
             });
             if (!resolved.ok) {
-              results.push({
+              resultsByIndex[index] = {
                 step: { ...step, args: stepArgs },
                 exec: {
                   ok: false,
@@ -5343,7 +6220,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                   assistantText: String(resolved.clarifyQuestion || "I need one more detail before I can do that.").trim(),
                   result: { error: String(resolved.clarifyQuestion || "Missing or ambiguous required fields.").trim() },
                 },
-              });
+              };
               continue;
             }
             if (resolved.contextPatch && typeof resolved.contextPatch === "object" && !Array.isArray(resolved.contextPatch)) {
@@ -5361,7 +6238,30 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               if (step.action === "ai_chat.scheduled.reschedule") return patchArgsForScheduledReschedule(withThread, threadContext);
               return withThread;
             })();
-            const exec = await executePortalAgentAction({
+            if (shouldUseBulkTaskCreate) {
+              bulkTaskSteps.push({ index, step: { ...step, args: execArgs } });
+              continue;
+            }
+            directThreadContext = await persistLiveStatus(
+              {
+                phase: "executing",
+                label: `Running ${step.traceTitle || step.action}`,
+                actionKey: step.action,
+                title: step.traceTitle,
+                completedSteps: resultsByIndex.filter(Boolean).length,
+                lastCompletedTitle: resultsByIndex.filter(Boolean).at(-1)?.step?.traceTitle || null,
+              },
+              directThreadContext,
+            );
+            if (await waitForInterruptGraceWindow({ enabled: shouldAllowInterruptGraceWindow })) {
+              threadContext = directThreadContext;
+              return await buildStoppedAssistantMessage(responseUserMessage);
+            }
+            if (await checkInterruptRequested()) {
+              threadContext = directThreadContext;
+              return await buildStoppedAssistantMessage(responseUserMessage);
+            }
+            const exec = await (shouldUseRawExecutor ? executePortalAgentActionRaw : executePortalAgentAction)({
               ownerId,
               actorUserId: createdByUserId,
               action: step.action,
@@ -5373,8 +6273,64 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 directThreadContext = { ...directThreadContext, ...(derivedPatch as Record<string, unknown>) };
               }
             }
-            results.push({ step: { ...step, args: execArgs }, exec });
+            resultsByIndex[index] = { step: { ...step, args: execArgs }, exec };
           }
+
+          if (shouldUseBulkTaskCreate && bulkTaskSteps.length) {
+            const lastCompletedTitle = resultsByIndex.filter(Boolean).at(-1)?.step?.traceTitle || null;
+            directThreadContext = await persistLiveStatus(
+              {
+                phase: "executing",
+                label: `Running ${bulkTaskSteps.length === 1 ? bulkTaskSteps[0]?.step?.traceTitle || "Create Task" : "Create Tasks"}`,
+                actionKey: "tasks.bulk_create",
+                title: bulkTaskSteps.length === 1 ? bulkTaskSteps[0]?.step?.traceTitle || "Create Task" : "Create Tasks",
+                completedSteps: resultsByIndex.filter(Boolean).length,
+                lastCompletedTitle,
+              },
+              directThreadContext,
+            );
+            if (await waitForInterruptGraceWindow({ enabled: shouldAllowInterruptGraceWindow })) {
+              threadContext = directThreadContext;
+              return await buildStoppedAssistantMessage(responseUserMessage);
+            }
+            if (await checkInterruptRequested()) {
+              threadContext = directThreadContext;
+              return await buildStoppedAssistantMessage(responseUserMessage);
+            }
+            const bulkExec = await executePortalAgentActionRaw({
+              ownerId,
+              actorUserId: createdByUserId,
+              action: "tasks.bulk_create",
+              args: { items: bulkTaskSteps.map((entry) => entry.step.args) },
+            });
+            const taskIds = Array.isArray((bulkExec as any)?.result?.taskIds) ? (((bulkExec as any).result.taskIds as unknown[]).map((value) => String(value || "").trim())) : [];
+            for (const [bulkIndex, entry] of bulkTaskSteps.entries()) {
+              resultsByIndex[entry.index] = {
+                step: entry.step,
+                exec: {
+                  ...bulkExec,
+                  result: {
+                    ...(((bulkExec as any)?.result && typeof (bulkExec as any).result === "object") ? (bulkExec as any).result : {}),
+                    ...(taskIds[bulkIndex] ? { taskId: taskIds[bulkIndex] } : {}),
+                  },
+                  linkUrl: (bulkExec as any)?.linkUrl ?? "/portal/app/tasks",
+                },
+              };
+            }
+            const lastTaskId = taskIds[taskIds.length - 1] || "";
+            const lastTaskTitle = typeof bulkTaskSteps[bulkTaskSteps.length - 1]?.step?.args?.title === "string"
+              ? String(bulkTaskSteps[bulkTaskSteps.length - 1].step.args.title).trim().slice(0, 120)
+              : "";
+            if ((bulkExec as any)?.ok && lastTaskId) {
+              directThreadContext = {
+                ...directThreadContext,
+                lastTask: { id: lastTaskId, label: lastTaskTitle || "Task" },
+              };
+            }
+          }
+
+          const results = resultsByIndex.filter(Boolean) as Array<{ step: { action: PortalAgentActionKey; traceTitle: string; args: Record<string, unknown> }; exec: any }>;
+          threadContext = directThreadContext;
 
           const lastResult = results[results.length - 1]?.exec ?? null;
           const allOk = results.length > 0 && results.every((entry) => Boolean(entry.exec?.ok));
@@ -5429,6 +6385,22 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 directCampaignLinkUrl ? formatAssistantMarkdownLink("Open AI Outbound Calls", directCampaignLinkUrl) : null,
               ].filter(Boolean).join("\n");
             }
+            if (steps.length > 1 && steps.every((step) => step.action === "tasks.create") && allOk) {
+              const titles = results
+                .map((entry) => (typeof entry.step.args.title === "string" ? String(entry.step.args.title).trim() : ""))
+                .filter(Boolean);
+              const firstTitle = titles[0] || "Task 1";
+              const lastTitle = titles[titles.length - 1] || firstTitle;
+              const uniqueDueAt = Array.from(
+                new Set(
+                  results
+                    .map((entry) => (typeof entry.step.args.dueAtIso === "string" ? String(entry.step.args.dueAtIso).trim() : ""))
+                    .filter(Boolean),
+                ),
+              );
+              const dueText = uniqueDueAt.length === 1 ? formatDueAtForAssistantSummary(uniqueDueAt[0], directThreadContext) : "";
+              return `I created ${results.length} tasks titled "${firstTitle}" through "${lastTitle}", all${dueText}.`;
+            }
             if (steps.length > 1) {
               return await generateAiExecutionSummary({
                 workTitle: plan.traceTitle,
@@ -5439,6 +6411,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                   status: Number(entry.exec?.status) || (entry.exec?.ok ? 200 : 400),
                   action: entry.step.action,
                   linkUrl: typeof entry.exec?.linkUrl === "string" ? String(entry.exec.linkUrl).trim() : null,
+                  result: stripAssistantVisibleAccountingFields(entry.exec?.result ?? null),
                   question: !entry.exec?.ok && typeof entry.exec?.assistantText === "string" && /\?$/.test(String(entry.exec.assistantText).trim())
                     ? String(entry.exec.assistantText).trim()
                     : null,
@@ -5452,6 +6425,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 userPrompt: preflightPrompt,
                 directMessage: typeof lastResult?.assistantText === "string" ? String(lastResult.assistantText).trim() : null,
                 fallbackText: typeof lastResult?.assistantText === "string" ? String(lastResult.assistantText).trim() : null,
+                timeZoneHint: getTimeZoneHint(directThreadContext),
               });
             }
             return await buildAiDirectAssistantText(results[results.length - 1]?.step || plan, lastResult);
@@ -5470,6 +6444,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 }
               : null,
           };
+          if (directThreadContext && typeof directThreadContext === "object" && !Array.isArray(directThreadContext) && Object.keys(directThreadContext).length) {
+            const prevCtx =
+              persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext)
+                ? (persistedThreadContext as Record<string, unknown>)
+                : {};
+            const nextCtx = { ...prevCtx, ...directThreadContext };
+            await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } }).catch(() => null);
+            persistedThreadContext = nextCtx;
+          }
           return finalizePreflightResponse({
             exec: execForFinalize,
             traceKey: plan.action,
@@ -5826,6 +6809,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                   status: typeof opts.exec?.status === "number" ? Number(opts.exec.status) : (opts.exec?.ok ? 200 : 400),
                   action: opts.contextActionKey || opts.traceKey,
                   linkUrl: canvasUrl,
+                  result: stripAssistantVisibleAccountingFields(opts.exec?.result ?? null),
                   question:
                     (typeof opts.exec?.result?.question === "string" && String(opts.exec.result.question).trim()) ||
                     (opts.exec?.needsInput && rawPreflightAssistantText && /\?$/.test(rawPreflightAssistantText) ? rawPreflightAssistantText : null),
@@ -5841,6 +6825,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               userPrompt: opts.promptText,
               directMessage: rawPreflightAssistantText || null,
               fallbackText: rawPreflightAssistantText || null,
+              timeZoneHint: getTimeZoneHint(localCtx),
             });
           const preflightAssistantText = absolutizeAssistantTextLinks(
             ensureNonEmptyPuraAssistantReply({
@@ -5944,12 +6929,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             followUpSuggestions,
           );
 
-          await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
-          threadContext = nextCtx;
+          const completedRunId = activeRunId;
+          const completedRunStartedAt = activeRunStartedAt;
+          const finalizedCtx = completeInterruptibleRun(nextCtx);
+
+          await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: finalizedCtx } });
+          threadContext = finalizedCtx;
           await persistActiveChatRun({
             status: preflightRunStatus,
-            runId: activeRunId,
-            startedAt: activeRunStartedAt,
+            runId: completedRunId,
+            startedAt: completedRunStartedAt,
             runTrace,
             summaryText: preflightAssistantText,
             followUpSuggestions,
@@ -6206,8 +7195,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           const updatedDuration = Number((bookingSettingsExec as any)?.result?.site?.durationMinutes || bookingSettingsSurfaceUpdate.durationMinutes || 0);
           const assistantText = [
             `I updated the booking settings for “${updatedTitle}.”${Number.isFinite(updatedDuration) && updatedDuration > 0 ? ` The duration is set to ${updatedDuration} minutes.` : ""}`,
-            formatAssistantMarkdownLink("Open Booking Settings", bookingSettingsUrl),
-            liveBookingUrl ? formatAssistantMarkdownLink("Open Live Booking", liveBookingUrl) : null,
+            bookingSettingsUrl ? `The booking settings page is ${formatAssistantMarkdownLink("Open Booking Settings", bookingSettingsUrl)}.` : null,
+            liveBookingUrl ? `The live booking page is ${formatAssistantMarkdownLink("Open Live Booking", liveBookingUrl)}.` : null,
           ].filter(Boolean).join("\n\n");
           const bookingSurfaceResponse = await finalizePreflightResponse({
             exec: {
@@ -6379,7 +7368,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         }
 
         if (!shouldSkipMutatingDirectPreflight && signals.shouldCreateLandingPage && preflightCtx?.lastFunnel?.id) {
-          const pageCreatePlan = getPuraDirectActionPlan({ prompt: preflightPrompt, signals, threadContext: preflightCtx });
+          const pageCreatePlan = getPuraDirectActionPlan({ prompt: preflightPrompt, signals, threadContext: withDirectIntentTimeZone(preflightCtx) });
           if (pageCreatePlan?.action === "funnel_builder.pages.create") {
             const pageCreateExec = await executePortalAgentAction({
               ownerId,
@@ -6405,7 +7394,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         }
 
         if (!shouldSkipMutatingDirectPreflight && (signals.shouldGenerateLandingLayout || signals.shouldUpdateCurrentFunnelPage) && preflightCtx?.lastFunnel?.id && preflightCtx?.lastFunnelPage?.id) {
-          const funnelPagePlan = getPuraDirectActionPlan({ prompt: preflightPrompt, signals, threadContext: preflightCtx });
+          const funnelPagePlan = getPuraDirectActionPlan({ prompt: preflightPrompt, signals, threadContext: withDirectIntentTimeZone(preflightCtx) });
           if (
             funnelPagePlan &&
             (funnelPagePlan.action === "funnel_builder.pages.generate_html" || funnelPagePlan.action === "funnel_builder.pages.update")
@@ -6449,7 +7438,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         const candidateSimpleDirectPlan = hasPendingActionResume
           ? null
-          : getPuraDirectActionPlan({ prompt: preflightPrompt, signals, threadContext: preflightCtx });
+          : getPuraDirectActionPlan({ prompt: preflightPrompt, signals, threadContext: withDirectIntentTimeZone(preflightCtx) });
         const shouldAllowBundledDirectPlan = Boolean(candidateSimpleDirectPlan && Array.isArray(candidateSimpleDirectPlan.steps) && candidateSimpleDirectPlan.steps.length > 1);
         const shouldAllowCanonicalDirectPlan = shouldAllowBundledDirectPlan || [
           "hosted_pages.documents.generate_html",
@@ -7527,6 +8516,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 completed: Boolean((exec as any).ok) && Number((exec as any).status) >= 200 && Number((exec as any).status) < 300,
                 status: Number((exec as any).status) || 0,
                 linkUrl,
+                result: resultForSummary,
                 error: (() => {
                   const e1 =
                     resultForSummary && typeof resultForSummary === "object" && !Array.isArray(resultForSummary) && typeof (resultForSummary as any).error === "string"
@@ -7540,6 +8530,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             userPrompt: promptMessage,
             directMessage: typeof (exec as any)?.assistantText === "string" ? String((exec as any).assistantText).trim() : null,
             fallbackText: typeof (exec as any)?.assistantText === "string" ? String((exec as any).assistantText).trim() : execError || null,
+            timeZoneHint: getTimeZoneHint(localCtx),
           });
 
           const assistantMsg = assistantText.trim()
@@ -8010,7 +9001,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const requestDemandsReadOnlyInspection = /(\bread[-\s]?only\b|\bwithout\s+changing\b|\bdo\s+not\s+change\b|\bdon't\s+change\b|\bjust\s+inspect\b|\bonly\s+inspect\b)/i.test(
         String(planningTextWithAttachments || effectiveText || ""),
       );
-      const repairSignals = detectPuraDirectIntentSignals(planningTextWithAttachments || effectiveText || "", localCtx);
+      const requestIntentSignals = getPuraIntentSignals(String(planningTextWithAttachments || effectiveText || ""));
+      const shouldPreferGuidanceOnly = requestIntentSignals.asksHow && !requestIntentSignals.explicitDoIt;
+      const repairPromptSource = continuationIntent && unresolvedRunForPlanning?.userRequest && String(unresolvedRunForPlanning.userRequest).trim()
+        ? String(unresolvedRunForPlanning.userRequest).trim()
+        : String(planningTextWithAttachments || effectiveText || "");
+      const repairSignals = detectPuraDirectIntentSignals(repairPromptSource, localCtx);
       const hasRepairMutatingIntent = Boolean(
         repairSignals.hostedPageUpdateTarget ||
           repairSignals.hostedPagePublishTarget ||
@@ -8035,15 +9031,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           repairSignals.shouldSetWeekdayAvailability
       );
       const inferredNewsletterCreateTitleFromRequest = (() => {
-        const match = String(planningTextWithAttachments || effectiveText || "").match(/\bcreate\s+(?:a\s+)?newsletter\s+called\s+["“]?([^"”\n]+?)["”]?(?:\s+for\b|[.?!]|$)/i);
+        const match = repairPromptSource.match(/\bcreate\s+(?:a\s+)?newsletter\s+called\s+["“]?([^"”\n]+?)["”]?(?:\s+for\b|[.?!]|$)/i);
         return match?.[1] ? String(match[1]).trim().slice(0, 180) : "";
       })();
       const requestLooksLikeCreateOnlyNewsletter =
         Boolean(repairSignals.newsletterCreateTitle || inferredNewsletterCreateTitleFromRequest) &&
-        !/\b(send|schedule|publish|polish|tighten|rewrite|improve|edit|update)\b/i.test(String(planningTextWithAttachments || effectiveText || ""));
-      const requestedBlogDraftTitleMatch = String(planningTextWithAttachments || effectiveText || "").match(/\bcreate\s+(?:a\s+)?blog\s+draft\s+called\s+["“]([^"”]+)["”]/i);
+        !/\b(send|schedule|publish|polish|tighten|rewrite|improve|edit|update)\b/i.test(repairPromptSource);
+      const requestedBlogDraftTitleMatch = repairPromptSource.match(/\bcreate\s+(?:a\s+)?blog\s+draft\s+called\s+["“]([^"”]+)["”]/i);
       const requestedBlogDraftTitle = requestedBlogDraftTitleMatch?.[1] ? String(requestedBlogDraftTitleMatch[1]).trim().slice(0, 180) : "";
-      const explicitlyAskedForContactsInRequest = /\b(contact|contacts|people|person|lead|leads)\b/i.test(String(planningTextWithAttachments || effectiveText || ""));
+      const explicitlyAskedForContactsInRequest = /\b(contact|contacts|people|person|lead|leads)\b/i.test(repairPromptSource);
 
       const normalizePlannedActions = (actions: Array<{ key: PortalAgentActionKey; title?: string; args?: Record<string, unknown> }>) => {
         const hasReviewReply = actions.some((action) => String(action?.key || "") === "reviews.reply");
@@ -8197,7 +9193,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           });
         }
 
-        const taskRepairArgs = extractTaskRepairArgs(planningTextWithAttachments || effectiveText || "");
+        const taskRepairArgs = extractTaskRepairArgs(repairPromptSource);
         if (taskRepairArgs) {
           repairActions.push({
             key: "tasks.create",
@@ -8206,7 +9202,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           });
         }
 
-        const reminderIntent = extractSingleReminderScheduleIntent(planningTextWithAttachments || effectiveText || "");
+        const reminderIntent = extractSingleReminderScheduleIntent(repairPromptSource);
         if (reminderIntent?.sendAtIso && reminderIntent?.reminderText) {
           repairActions.push({
             key: "ai_chat.scheduled.create",
@@ -8223,7 +9219,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       const buildDirectRepairActions = () => {
         if (threadChatMode !== "work") return [] as Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown> }>;
-        const repairPlan = getPuraDirectActionPlan({ prompt: planningTextWithAttachments, signals: repairSignals, threadContext: localCtx });
+        const repairPlan = getPuraDirectActionPlan({ prompt: repairPromptSource, signals: repairSignals, threadContext: withDirectIntentTimeZone(localCtx) });
         const repairSteps = repairPlan
           ? (Array.isArray((repairPlan as any).steps) && (repairPlan as any).steps.length
               ? ((repairPlan as any).steps as Array<{ action: PortalAgentActionKey; traceTitle: string; args: Record<string, unknown> }>)
@@ -8313,7 +9309,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         });
         const modelSystem = buildPlannerSystemPrompt({
           cheatSheet: cheat,
-          extraSystem: [knownIdsNote, buildOnboardingPlannerSystemNote(localCtx), opts.extraSystem].filter(Boolean).join("\n\n") || undefined,
+          extraSystem: [
+            knownIdsNote,
+            buildOnboardingPlannerSystemNote(localCtx),
+            shouldPreferGuidanceOnly
+              ? "The user is asking for guidance or steps, not asking you to make portal changes. Respond in CHAT MODE with concise how-to guidance and do not output mutating tool actions unless the user explicitly asks you to do it."
+              : null,
+            opts.extraSystem,
+          ].filter(Boolean).join("\n\n") || undefined,
         });
 
         const threadSummaryForPrompt =
@@ -8575,7 +9578,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           }
 
           if (!planned.actions.length) {
-            const directRepairActions = buildDirectRepairActions();
+            const directRepairActions = shouldPreferGuidanceOnly ? [] : buildDirectRepairActions();
             if (shouldUseDirectRepairActions([], directRepairActions)) {
               planned = {
                 ...planned,
@@ -8614,7 +9617,28 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           ),
         } as any;
 
-        const directRepairActions = buildDirectRepairActions();
+        if (shouldPreferGuidanceOnly) {
+          const guidanceOnlyPlan = await runPlannerOnce({
+            round,
+            lastRunSummary,
+            temperature: 0.2,
+            extraSystem:
+              "The user is asking how to do this themselves. Respond in CHAT MODE only with concise portal guidance. Do not output tool actions or make changes.",
+          });
+          const guidanceOnlyMessage = await generateGuidanceOnlyPortalReply({
+            prompt: planningTextWithAttachments || effectiveText || "",
+            url: contextUrl,
+            threadContext: localCtx,
+            fallbackText: stripEmptyAssistantBullets(guidanceOnlyPlan.directMessage || guidanceOnlyPlan.modelText),
+          });
+          planned = {
+            ...guidanceOnlyPlan,
+            actions: [],
+            directMessage: guidanceOnlyMessage || stripEmptyAssistantBullets(guidanceOnlyPlan.directMessage || guidanceOnlyPlan.modelText),
+          } as any;
+        }
+
+        const directRepairActions = shouldPreferGuidanceOnly ? [] : buildDirectRepairActions();
         if (shouldUseDirectRepairActions(planned.actions as any, directRepairActions)) {
           planned = {
             ...planned,
@@ -8625,6 +9649,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         let planKey = JSON.stringify(planned.actions.map((a) => ({ key: a.key, args: a.args || null })).slice(0, MAX_ACTIONS_PER_PLAN));
         if (seenPlanKeys.has(planKey)) {
+          const hasCompletedSuccessfulStep = allResults.some((result) => Boolean(result?.ok) && Number(result?.status) >= 200 && Number(result?.status) < 300);
           const recoveryActions = buildSafeDiscoveryFallback(currentStickyRecoveryAction()) as Array<{ key: PortalAgentActionKey; args?: Record<string, unknown> }>;
           const recoveryPlanKey = JSON.stringify(recoveryActions.map((a) => ({ key: a.key, args: a.args || null })).slice(0, MAX_ACTIONS_PER_PLAN));
           if (isImperativeRequest(effectiveText) && recoveryActions.length && recoveryPlanKey !== planKey && round + 1 < MAX_AUTORUN_ROUNDS) {
@@ -8634,6 +9659,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               directMessage: "",
             } as any;
             planKey = recoveryPlanKey;
+          } else if (hasCompletedSuccessfulStep) {
+            finalDirectMessage = null;
+            break;
           } else {
             finalDirectMessage =
               "I’m not making progress with the current plan. I’m going to stop here to avoid looping. Tell me the exact record or page you want me to target (or click the option if prompted), and I’ll continue.";
@@ -8647,7 +9675,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           planningTextWithAttachments || effectiveText || "",
         );
         if (!actions.length) {
-          finalDirectMessage = null;
+          const noActionDirectMessage = stripEmptyAssistantBullets(
+            typeof (planned as any)?.directMessage === "string" ? String((planned as any).directMessage).trim() : "",
+          );
+          finalDirectMessage = noActionDirectMessage || finalDirectMessage || null;
           break;
         }
 
@@ -8705,6 +9736,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         if (confirmSpec) {
           const resolvedStepsForConfirm: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
           let blockedForReplan = false;
+          const shouldAllowInterruptGraceWindow = actions.slice(0, MAX_ACTIONS_PER_PLAN).length > 1;
 
           for (const a of actions.slice(0, MAX_ACTIONS_PER_PLAN)) {
             if (await checkInterruptRequested()) {
@@ -8738,10 +9770,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               },
               localCtx,
             );
+            if (await waitForInterruptGraceWindow({ enabled: shouldAllowInterruptGraceWindow })) {
+              return await buildStoppedAssistantMessage(responseUserMessage);
+            }
             if (await checkInterruptRequested()) {
               return await buildStoppedAssistantMessage(responseUserMessage);
             }
             const resolved = await resolvePlanArgs({ ownerId, stepKey: key, args: argsRaw, userHint: effectiveText, url: contextUrl, threadContext: localCtx });
+            if (await checkInterruptRequested()) {
+              return await buildStoppedAssistantMessage(responseUserMessage);
+            }
             if (!resolved.ok) {
               const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
               const rawClarifyPrompt = String(resolved.clarifyQuestion || "").trim();
@@ -8929,6 +9967,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         // Execute requested actions immediately.
         let blockedForReplan = false;
         const allowPartialActionFailures = actions.slice(0, MAX_ACTIONS_PER_PLAN).length > 1;
+        const shouldAllowInterruptGraceWindow = allowPartialActionFailures;
         for (const a of actions.slice(0, MAX_ACTIONS_PER_PLAN)) {
           if (allResolvedSteps.length >= MAX_TOTAL_ACTIONS) break;
         if (await checkInterruptRequested()) {
@@ -8962,10 +10001,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           },
           localCtx,
         );
+        if (await waitForInterruptGraceWindow({ enabled: shouldAllowInterruptGraceWindow })) {
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
         if (await checkInterruptRequested()) {
           return await buildStoppedAssistantMessage(responseUserMessage);
         }
         const resolved = await resolvePlanArgs({ ownerId, stepKey: key, args: argsRaw, userHint: effectiveText, url: contextUrl, threadContext: localCtx });
+        if (await checkInterruptRequested()) {
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
         if (!resolved.ok) {
           const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
           const rawClarifyPrompt = String(resolved.clarifyQuestion || "").trim();
@@ -9121,10 +10166,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           },
           localCtx,
         );
+        if (await waitForInterruptGraceWindow({ enabled: shouldAllowInterruptGraceWindow })) {
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
         if (await checkInterruptRequested()) {
           return await buildStoppedAssistantMessage(responseUserMessage);
         }
         const exec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: key, args: resolvedArgsWithThread });
+        if (await checkInterruptRequested()) {
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
         const cua = (exec as any).clientUiAction ?? null;
         const execError = typeof (exec as any).error === "string" ? String((exec as any).error).trim().slice(0, 800) : "";
         const execResult = (exec as any).result ?? (execError ? { ok: false, error: execError } : null);
@@ -9392,9 +10443,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               userPrompt: promptMessage,
               directMessage: directMessage || null,
               fallbackText: finalDirectMessage || null,
+              timeZoneHint: getTimeZoneHint(localCtx),
             });
       } catch {
         assistantTextFinal = finalDirectMessage || "";
+      }
+
+      if (finalOkCount > 0 && finalFailedCount === 0 && finalPendingCount === 0 && looksLikeLoopAbortAssistantReply(assistantTextFinal)) {
+        assistantTextFinal = "";
       }
 
       assistantTextFinal = absolutizeAssistantTextLinks(
@@ -9527,7 +10583,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     }
 
     const promptForFallback = String(promptMessage || "").trim();
-    const smsThreadMatch = promptForFallback.match(/\b(?:text|sms)\s+thread\s+with\s+(.+?)\s*\??$/i);
+    const smsThreadMatch =
+      promptForFallback.match(/\b(?:recent\s+|latest\s+)?(?:text|texts|sms)\s+threads?\s+with\s+(.+?)\s*\??$/i) ||
+      promptForFallback.match(/\b(?:text|sms)\s+thread\s+with\s+(.+?)\s*\??$/i) ||
+      promptForFallback.match(/\b(?:recent\s+|latest\s+)?texts?\s+with\s+(.+?)\s*\??$/i);
     const shouldRunInboxSummaryFallback = /\bsummarize\s+my\s+inbox\b|\bwhat\s+needs\s+attention\b/i.test(promptForFallback);
     const shouldRunReceptionistFallback = /\brecent\s+ai\s+receptionist\s+calls\b|\bai\s+receptionist\s+calls\b/i.test(promptForFallback);
     const shouldRunOpenTasksFallback = /\bwhat\s+open\s+tasks\s+do\s+i\s+have\b|\bopen\s+tasks\b/i.test(promptForFallback);
@@ -9749,7 +10808,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     }
 
     const tryFinalDirectFallbackResponse = async () => {
-      const MAX_ACTIONS_PER_PLAN = 12;
+      const MAX_ACTIONS_PER_PLAN = 18;
       const fallbackSurfaceHint = describeDirectIntentSurface({
         url: contextUrl,
         canvasUrl: null,
@@ -9793,19 +10852,27 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         });
       }
 
-      const plan = getPuraDirectActionPlan({ prompt: promptForFallback, signals, threadContext: fallbackThreadContext });
+      const plan = getPuraDirectActionPlan({ prompt: promptForFallback, signals, threadContext: withDirectIntentTimeZone(fallbackThreadContext) });
       if (!plan) return null;
 
       const planSteps = Array.isArray((plan as any).steps) && (plan as any).steps.length
         ? ((plan as any).steps as Array<{ action: PortalAgentActionKey; traceTitle: string; args: Record<string, unknown> }>)
         : [{ action: plan.action, traceTitle: plan.traceTitle, args: plan.args }];
       const allowPartialActionFailures = planSteps.length > 1;
+      const shouldUseRawExecutor = allowPartialActionFailures;
+      const shouldUseBulkTaskCreate = allowPartialActionFailures && planSteps.slice(0, MAX_ACTIONS_PER_PLAN).every((step) => step.action === "tasks.create");
+      const shouldAllowInterruptGraceWindow = planSteps.length > 1;
       const localResolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown> }> = [];
       const localResults: any[] = [];
       const localClientUiActions: any[] = [];
+      const bulkResolvedTaskSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown> }> = [];
       let localCtx = fallbackThreadContext && typeof fallbackThreadContext === "object" && !Array.isArray(fallbackThreadContext)
         ? ({ ...(fallbackThreadContext as any) } as any)
         : ({} as any);
+
+      if (!activeRunId) {
+        localCtx = await beginInterruptibleRun(localCtx);
+      }
 
       for (const step of planSteps.slice(0, MAX_ACTIONS_PER_PLAN)) {
         const key = step.action;
@@ -9814,7 +10881,30 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           ? (step.args as Record<string, unknown>)
           : {};
 
+        localCtx = await persistLiveStatus(
+          {
+            phase: "resolving",
+            label: `Resolving ${title}`,
+            actionKey: key,
+            title,
+            completedSteps: localResults.filter((result) => Boolean(result?.ok) && Number(result?.status) >= 200 && Number(result?.status) < 300).length,
+            lastCompletedTitle:
+              localResolvedSteps
+                .filter((_, resolvedIndex) => Boolean(localResults[resolvedIndex]?.ok) && Number(localResults[resolvedIndex]?.status) >= 200 && Number(localResults[resolvedIndex]?.status) < 300)
+                .at(-1)?.title || null,
+          },
+          localCtx,
+        );
+        if (await checkInterruptRequested()) {
+          threadContext = localCtx;
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
+
         const resolved = await resolvePlanArgs({ ownerId, stepKey: key, args: argsRaw, userHint: effectiveText, url: contextUrl, threadContext: localCtx });
+        if (await checkInterruptRequested()) {
+          threadContext = localCtx;
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
         if (!resolved.ok) {
           const clarifyQuestion = String((resolved as any).clarifyQuestion || "Missing or ambiguous required fields.").trim();
           localResolvedSteps.push({ key, title, args: argsRaw });
@@ -9849,12 +10939,44 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           localCtx = { ...localCtx, ...(resolved.contextPatch as any) };
         }
 
-        const exec = await executePortalAgentAction({
+        if (shouldUseBulkTaskCreate) {
+          bulkResolvedTaskSteps.push({ key, title, args: resolvedArgsWithThread });
+          continue;
+        }
+
+        localCtx = await persistLiveStatus(
+          {
+            phase: "executing",
+            label: `Running ${title}`,
+            actionKey: key,
+            title,
+            completedSteps: localResults.filter((result) => Boolean(result?.ok) && Number(result?.status) >= 200 && Number(result?.status) < 300).length,
+            lastCompletedTitle:
+              localResolvedSteps
+                .filter((_, resolvedIndex) => Boolean(localResults[resolvedIndex]?.ok) && Number(localResults[resolvedIndex]?.status) >= 200 && Number(localResults[resolvedIndex]?.status) < 300)
+                .at(-1)?.title || null,
+          },
+          localCtx,
+        );
+        if (await waitForInterruptGraceWindow({ enabled: shouldAllowInterruptGraceWindow })) {
+          threadContext = localCtx;
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
+        if (await checkInterruptRequested()) {
+          threadContext = localCtx;
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
+
+        const exec = await (shouldUseRawExecutor ? executePortalAgentActionRaw : executePortalAgentAction)({
           ownerId,
           actorUserId: createdByUserId,
           action: key,
           args: resolvedArgsWithThread,
         });
+        if (await checkInterruptRequested()) {
+          threadContext = localCtx;
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
         const cua = (exec as any).clientUiAction ?? null;
         const execError = typeof (exec as any).error === "string" ? String((exec as any).error).trim().slice(0, 800) : "";
         localResults.push({
@@ -9879,6 +11001,54 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         }
       }
 
+      if (shouldUseBulkTaskCreate && bulkResolvedTaskSteps.length) {
+        localCtx = await persistLiveStatus(
+          {
+            phase: "executing",
+            label: bulkResolvedTaskSteps.length === 1 ? `Running ${bulkResolvedTaskSteps[0]?.title || "Create Task"}` : "Running Create Tasks",
+            actionKey: "tasks.bulk_create",
+            title: bulkResolvedTaskSteps.length === 1 ? bulkResolvedTaskSteps[0]?.title || "Create Task" : "Create Tasks",
+            completedSteps: localResults.filter((result) => Boolean(result?.ok) && Number(result?.status) >= 200 && Number(result?.status) < 300).length,
+            lastCompletedTitle:
+              localResolvedSteps
+                .filter((_, resolvedIndex) => Boolean(localResults[resolvedIndex]?.ok) && Number(localResults[resolvedIndex]?.status) >= 200 && Number(localResults[resolvedIndex]?.status) < 300)
+                .at(-1)?.title || null,
+          },
+          localCtx,
+        );
+        if (await waitForInterruptGraceWindow({ enabled: shouldAllowInterruptGraceWindow })) {
+          threadContext = localCtx;
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
+        if (await checkInterruptRequested()) {
+          threadContext = localCtx;
+          return await buildStoppedAssistantMessage(responseUserMessage);
+        }
+        const bulkExec = await executePortalAgentActionRaw({
+          ownerId,
+          actorUserId: createdByUserId,
+          action: "tasks.bulk_create",
+          args: { items: bulkResolvedTaskSteps.map((step) => step.args) },
+        });
+        const taskIds = Array.isArray((bulkExec as any)?.result?.taskIds)
+          ? (((bulkExec as any).result.taskIds as unknown[]).map((value) => String(value || "").trim()))
+          : [];
+        for (const [index, step] of bulkResolvedTaskSteps.entries()) {
+          localResults.push({
+            ok: Boolean((bulkExec as any)?.ok),
+            status: Number((bulkExec as any)?.status) || 0,
+            action: step.key,
+            args: step.args,
+            result: {
+              ...((((bulkExec as any)?.result && typeof (bulkExec as any).result === "object") ? (bulkExec as any).result : {})),
+              ...(taskIds[index] ? { taskId: taskIds[index] } : {}),
+            },
+            linkUrl: (bulkExec as any)?.linkUrl ?? "/portal/app/tasks",
+            clientUiAction: (bulkExec as any)?.clientUiAction ?? null,
+          });
+        }
+      }
+
       if (!localResolvedSteps.length) return null;
 
       const canvasUrl =
@@ -9899,9 +11069,22 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         error: typeof result?.error === "string" ? String(result.error).trim().slice(0, 800) : null,
         result: stripAssistantVisibleAccountingFields(result?.result),
       }));
+      const allLocalOk = localResults.length > 0 && localResults.every((result) => Boolean(result?.ok) && Number(result?.status) >= 200 && Number(result?.status) < 300);
+      const taskBatchSummary = localResolvedSteps.length > 1 && localResolvedSteps.every((step) => step.key === "tasks.create") && allLocalOk
+        ? (() => {
+            const titles = localResolvedSteps
+              .map((step) => (typeof step.args.title === "string" ? String(step.args.title).trim() : ""))
+              .filter(Boolean);
+            const firstTitle = titles[0] || "Task 1";
+            const lastTitle = titles[titles.length - 1] || firstTitle;
+            const uniqueDueAt = Array.from(new Set(localResolvedSteps.map((step) => (typeof step.args.dueAtIso === "string" ? String(step.args.dueAtIso).trim() : "")).filter(Boolean)));
+            const dueText = uniqueDueAt.length === 1 ? formatDueAtForAssistantSummary(uniqueDueAt[0], localCtx) : "";
+            return `I created ${localResolvedSteps.length} tasks titled "${firstTitle}" through "${lastTitle}", all${dueText}.`;
+          })()
+        : null;
       const assistantText = absolutizeAssistantTextLinks(
         ensureNonEmptyPuraAssistantReply({
-          preferredText: await generateAiExecutionSummary({
+          preferredText: taskBatchSummary || await generateAiExecutionSummary({
             workTitle: localResolvedSteps[0]?.title || plan.traceTitle,
             steps: localResolvedSteps,
             results: resultsForSummary,
@@ -9909,9 +11092,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             userPrompt: promptMessage,
             directMessage: null,
             fallbackText: null,
+            timeZoneHint: getTimeZoneHint(localCtx),
           }),
           title: localResolvedSteps[0]?.title || plan.traceTitle,
-          ok: localResults.length > 0 && localResults.every((result) => Boolean(result?.ok) && Number(result?.status) >= 200 && Number(result?.status) < 300),
+          ok: allLocalOk,
           error:
             localResults.find((result) => !Boolean(result?.ok) || Number(result?.status) < 200 || Number(result?.status) >= 300)?.error ??
             localResults.find((result) => !Boolean(result?.ok) || Number(result?.status) < 200 || Number(result?.status) >= 300)?.result?.error ??

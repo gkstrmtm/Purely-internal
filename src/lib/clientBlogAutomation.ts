@@ -107,7 +107,10 @@ export async function generateClientBlogDraft(ctx: ClientBlogGenerationContext):
     "SEO keywords must stay on-topic. Never include keywords for a different industry or service than the requested topic.",
     "If you propose a cover image concept, put the descriptive alt text in coverImageAlt (plain text, no Markdown).",
     "Never use placeholders, fake anecdotes, fake stats, or generic filler sections.",
-    "The post should have a strong hook, concrete subheads, useful examples, and a short closing CTA with a real markdown link to [Purely Automation](https://purelyautomation.com).",
+    "The post should have a strong hook, concrete subheads, useful examples, and a short closing CTA that points readers toward the business's real next step.",
+    "Default bias: the post should build topical authority while naturally moving readers toward the business's offer, service, contact path, booking path, or subscription path.",
+    "If websiteUrl is present, use it for the closing CTA link instead of a generic placeholder.",
+    "If websiteUrl is missing, end with a concrete business-directed CTA without inventing a URL.",
   ].join(" ");
 
   const business = ctx.strictTopicOnly
@@ -146,7 +149,7 @@ export async function generateClientBlogDraft(ctx: ClientBlogGenerationContext):
 
   const text = await generateText({
     system:
-      "You are an expert SEO blog writer. You write clear, high-quality posts for service businesses. You avoid clickbait, filler, and fake proof. Every section stays tightly grounded to the requested topic without blending in unrelated industries.",
+      "You are an expert SEO blog writer. You write clear, high-quality posts for service businesses. You avoid clickbait, filler, and fake proof. Every section stays tightly grounded to the requested topic without blending in unrelated industries. By default, you write with a commercial bias toward the business's real services and next step, so the post supports both search discovery and eventual conversion.",
     user: `${instructions}\n\nInput: ${JSON.stringify(prompt)}`,
   });
 

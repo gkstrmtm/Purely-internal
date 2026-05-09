@@ -1,8 +1,8 @@
-import { requirePortalUserForService } from "@/lib/portalAuth";
+import { redirect } from "next/navigation";
 
-import { PortalPeopleHubClient } from "@/app/portal/app/people/PortalPeopleHubClient";
+import { requirePortalUserForService } from "@/lib/portalAuth";
 
 export default async function PortalPeoplePage() {
   await requirePortalUserForService("people", "view");
-  return <PortalPeopleHubClient />;
+  redirect("/portal/app/people/contacts");
 }

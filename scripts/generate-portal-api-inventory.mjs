@@ -41,6 +41,7 @@ const ACTION_COVERAGE = [
   { action: "tasks.list", method: "GET", endpoint: "/api/portal/tasks" },
   { action: "tasks.create", method: "POST", endpoint: "/api/portal/tasks" },
   { action: "tasks.update", method: "PATCH", endpoint: "/api/portal/tasks/[taskId]" },
+  { action: "tasks.delete", method: "DELETE", endpoint: "/api/portal/tasks/[taskId]" },
   { action: "tasks.assignees.list", method: "GET", endpoint: "/api/portal/tasks/assignees" },
 
   { action: "people.users.list", method: "GET", endpoint: "/api/portal/people/users" },
@@ -135,7 +136,11 @@ const ACTION_COVERAGE = [
 
   { action: "lead_scraping.settings.get", method: "GET", endpoint: "/api/portal/lead-scraping/settings" },
   { action: "lead_scraping.settings.update", method: "PUT", endpoint: "/api/portal/lead-scraping/settings" },
+  { action: "lead_scraping.assignees.list", method: "GET", endpoint: "/api/portal/lead-scraping/assignees" },
   { action: "lead_scraping.run", method: "POST", endpoint: "/api/portal/lead-scraping/run" },
+  { action: "lead_scraping.run.cancel", method: "POST", endpoint: "/api/portal/lead-scraping/run/cancel" },
+  { action: "lead_scraping.backfill_map", method: "POST", endpoint: "/api/portal/lead-scraping/backfill-map" },
+  { action: "lead_scraping.location_suggestions.list", method: "GET", endpoint: "/api/portal/lead-scraping/location-suggestions" },
   { action: "lead_scraping.leads.list", method: "GET", endpoint: "/api/portal/lead-scraping/leads" },
   { action: "lead_scraping.leads.update", method: "PATCH", endpoint: "/api/portal/lead-scraping/leads/[leadId]" },
   { action: "lead_scraping.leads.delete", method: "DELETE", endpoint: "/api/portal/lead-scraping/leads/[leadId]" },
@@ -150,6 +155,7 @@ const ACTION_COVERAGE = [
   { action: "automations.settings.get", method: "GET", endpoint: "/api/portal/automations/settings" },
   { action: "automations.settings.update", method: "PUT", endpoint: "/api/portal/automations/settings" },
   { action: "automations.test_sms", method: "POST", endpoint: "/api/portal/automations/test-sms" },
+  { action: "automations.test_trigger", method: "POST", endpoint: "/api/portal/automations/test-trigger" },
   { action: "automations.cron.run", method: "GET", endpoint: "/api/portal/automations/cron" },
 
   { action: "services.catalog.get", method: "GET", endpoint: "/api/portal/services/catalog" },
@@ -168,6 +174,7 @@ const ACTION_COVERAGE = [
   { action: "reviews.send_request_for_booking", method: "POST", endpoint: "/api/portal/reviews/send" },
   { action: "reviews.send_request_for_contact", method: "POST", endpoint: "/api/portal/reviews/send-contact" },
   { action: "reviews.reply", method: "PUT", endpoint: "/api/portal/reviews/reply" },
+  { action: "reviews.delete", method: "DELETE", endpoint: "/api/portal/reviews/[reviewId]" },
 
   { action: "reviews.settings.get", method: "GET", endpoint: "/api/portal/reviews/settings" },
   { action: "reviews.settings.update", method: "PUT", endpoint: "/api/portal/reviews/settings" },
@@ -181,6 +188,7 @@ const ACTION_COVERAGE = [
   { action: "reviews.handle.get", method: "GET", endpoint: "/api/portal/reviews/handle" },
   { action: "reviews.questions.list", method: "GET", endpoint: "/api/portal/reviews/questions" },
   { action: "reviews.questions.answer", method: "PUT", endpoint: "/api/portal/reviews/questions/answer" },
+  { action: "reviews.questions.delete", method: "DELETE", endpoint: "/api/portal/reviews/questions/[questionId]" },
   { action: "reviews.cron.run", method: "GET", endpoint: "/api/portal/reviews/cron" },
 
   { action: "media.folders.list", method: "GET", endpoint: "/api/portal/media/folders" },
@@ -217,6 +225,7 @@ const ACTION_COVERAGE = [
   { action: "booking.cancel", method: "POST", endpoint: "/api/portal/booking/bookings/[bookingId]/cancel" },
   { action: "booking.reschedule", method: "POST", endpoint: "/api/portal/booking/bookings/[bookingId]/reschedule" },
   { action: "booking.contact", method: "POST", endpoint: "/api/portal/booking/bookings/[bookingId]/contact" },
+  { action: "booking.bootstrap.get", method: "GET", endpoint: "/api/portal/booking/bootstrap" },
 
   { action: "booking.calendars.get", method: "GET", endpoint: "/api/portal/booking/calendars" },
   { action: "booking.calendars.update", method: "PUT", endpoint: "/api/portal/booking/calendars" },
@@ -249,8 +258,13 @@ const ACTION_COVERAGE = [
   { action: "ai_outbound_calls.campaigns.list", method: "GET", endpoint: "/api/portal/ai-outbound-calls/campaigns" },
   { action: "ai_outbound_calls.campaigns.create", method: "POST", endpoint: "/api/portal/ai-outbound-calls/campaigns" },
   { action: "ai_outbound_calls.campaigns.update", method: "PATCH", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]" },
+  { action: "ai_outbound_calls.campaigns.delete", method: "DELETE", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]" },
   { action: "ai_outbound_calls.campaigns.activity.get", method: "GET", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]/activity" },
+  { action: "ai_outbound_calls.campaigns.activity_item.get", method: "GET", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]/activity/[activityId]" },
+  { action: "ai_outbound_calls.campaigns.activity_item.retry", method: "POST", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]/activity/[activityId]" },
+  { action: "ai_outbound_calls.campaigns.activity_item.delete", method: "DELETE", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]/activity/[activityId]" },
   { action: "ai_outbound_calls.campaigns.messages_activity.get", method: "GET", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-activity" },
+  { action: "ai_outbound_calls.campaigns.messages_activity_item.delete", method: "DELETE", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-activity/[activityId]" },
   { action: "ai_outbound_calls.campaigns.enroll_message", method: "POST", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]/enroll-message" },
   { action: "ai_outbound_calls.campaigns.generate_agent_config", method: "POST", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]/generate-agent-config" },
   { action: "ai_outbound_calls.campaigns.knowledge_base.sync", method: "POST", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]/knowledge-base/sync" },
@@ -266,6 +280,7 @@ const ACTION_COVERAGE = [
   { action: "ai_outbound_calls.manual_calls.list", method: "GET", endpoint: "/api/portal/ai-outbound-calls/manual-calls" },
   { action: "ai_outbound_calls.manual_calls.get", method: "GET", endpoint: "/api/portal/ai-outbound-calls/manual-calls/[id]" },
   { action: "ai_outbound_calls.manual_calls.refresh", method: "POST", endpoint: "/api/portal/ai-outbound-calls/manual-calls/[id]" },
+  { action: "ai_outbound_calls.manual_calls.delete", method: "DELETE", endpoint: "/api/portal/ai-outbound-calls/manual-calls/[id]" },
   { action: "ai_outbound_calls.recordings.get", method: "GET", endpoint: "/api/portal/ai-outbound-calls/recordings/[recordingSid]" },
 
   // Blogs (safe settings + CRUD)
@@ -299,8 +314,10 @@ const ACTION_COVERAGE = [
   { action: "newsletter.newsletters.create", method: "POST", endpoint: "/api/portal/newsletter/newsletters" },
   { action: "newsletter.newsletters.get", method: "GET", endpoint: "/api/portal/newsletter/newsletters/[newsletterId]" },
   { action: "newsletter.newsletters.update", method: "PUT", endpoint: "/api/portal/newsletter/newsletters/[newsletterId]" },
+  { action: "newsletter.newsletters.delete", method: "DELETE", endpoint: "/api/portal/newsletter/newsletters/[newsletterId]" },
   { action: "newsletter.newsletters.send", method: "POST", endpoint: "/api/portal/newsletter/newsletters/[newsletterId]/send" },
   { action: "newsletter.audience.contacts.search", method: "GET", endpoint: "/api/portal/newsletter/audience/contacts" },
+  { action: "newsletter.audience.contacts.add", method: "POST", endpoint: "/api/portal/newsletter/audience/contacts" },
   { action: "newsletter.royalty_free_images.suggest", method: "POST", endpoint: "/api/portal/newsletter/royalty-free-images/suggest" },
   { action: "newsletter.automation.settings.get", method: "GET", endpoint: "/api/portal/newsletter/automation/settings" },
   { action: "newsletter.automation.settings.update", method: "PUT", endpoint: "/api/portal/newsletter/automation/settings" },
@@ -408,6 +425,7 @@ const ACTION_COVERAGE = [
   { action: "funnel_builder.domains.list", method: "GET", endpoint: "/api/portal/funnel-builder/domains" },
   { action: "funnel_builder.domains.create", method: "POST", endpoint: "/api/portal/funnel-builder/domains" },
   { action: "funnel_builder.domains.update", method: "PATCH", endpoint: "/api/portal/funnel-builder/domains" },
+  { action: "funnel_builder.domains.delete", method: "DELETE", endpoint: "/api/portal/funnel-builder/domains/[domainId]" },
   { action: "funnel_builder.domains.verify", method: "POST", endpoint: "/api/portal/funnel-builder/domains/[domainId]/verify" },
 
   { action: "funnel_builder.forms.list", method: "GET", endpoint: "/api/portal/funnel-builder/forms" },
@@ -431,6 +449,7 @@ const ACTION_COVERAGE = [
   { action: "funnel_builder.pages.create", method: "POST", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages" },
   { action: "funnel_builder.pages.update", method: "PATCH", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]" },
   { action: "funnel_builder.pages.delete", method: "DELETE", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]" },
+  { action: "funnel_builder.pages.publish", method: "POST", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/publish" },
   {
     action: "funnel_builder.pages.export_custom_html",
     method: "POST",
@@ -442,6 +461,16 @@ const ACTION_COVERAGE = [
     endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/generate-html",
   },
   { action: "funnel_builder.pages.global_header", method: "POST", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages/global-header" },
+
+  { action: "hosted_pages.documents.list", method: "GET", endpoint: "/api/portal/hosted-pages/documents" },
+  { action: "hosted_pages.documents.bootstrap", method: "POST", endpoint: "/api/portal/hosted-pages/documents/bootstrap" },
+  { action: "hosted_pages.documents.get", method: "GET", endpoint: "/api/portal/hosted-pages/documents/[documentId]" },
+  { action: "hosted_pages.documents.update", method: "PATCH", endpoint: "/api/portal/hosted-pages/documents/[documentId]" },
+  { action: "hosted_pages.documents.preview_data", method: "GET", endpoint: "/api/portal/hosted-pages/documents/[documentId]/preview-data" },
+  { action: "hosted_pages.documents.publish", method: "POST", endpoint: "/api/portal/hosted-pages/documents/[documentId]/publish" },
+  { action: "hosted_pages.documents.reset_to_default", method: "POST", endpoint: "/api/portal/hosted-pages/documents/[documentId]/reset-to-default" },
+  { action: "hosted_pages.documents.generate_html", method: "POST", endpoint: "/api/portal/hosted-pages/documents/[documentId]/generate-html" },
+  { action: "hosted_pages.documents.export_custom_html", method: "POST", endpoint: "/api/portal/hosted-pages/documents/[documentId]/export-custom-html" },
 
   { action: "funnel_builder.sales.products.list", method: "GET", endpoint: "/api/portal/funnel-builder/sales/products" },
   { action: "funnel_builder.sales.products.create", method: "POST", endpoint: "/api/portal/funnel-builder/sales/products" },

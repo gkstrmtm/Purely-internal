@@ -645,6 +645,45 @@ async function resolveContactId(opts: {
         choices: makeContactChoices(rows as any),
       };
     }
+
+    const looseTokens = Array.from(
+      new Set(
+        nameLike
+          .toLowerCase()
+          .split(/[^a-z0-9@.+-]+/i)
+          .map((part) => part.trim())
+          .filter((part) => part.length >= 3 && part !== "from" && part !== "with" && part !== "for"),
+      ),
+    ).slice(0, 4);
+    if (looseTokens.length) {
+      const tokenRows = await (prisma as any).portalContact.findMany({
+        where: {
+          ownerId,
+          OR: looseTokens.flatMap((token) => [
+            { name: { contains: token, mode: "insensitive" } },
+            { email: { contains: token, mode: "insensitive" } },
+          ]),
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 8,
+        select: { id: true, name: true, email: true, phone: true },
+      }).catch(() => []);
+      if (tokenRows?.length === 1) {
+        const row = tokenRows[0];
+        return {
+          kind: "ok",
+          contactId: String(row.id),
+          contactName: String(row.name || "").trim() || String(row.email || "").trim() || nameLike,
+        };
+      }
+      if (tokenRows?.length > 1) {
+        return {
+          kind: "clarify",
+          question: `I found multiple contacts matching “${hint}”. Which contact should I use?`,
+          choices: makeContactChoices(tokenRows as any),
+        };
+      }
+    }
   }
 
   const recent = await (prisma as any).portalContact
@@ -655,6 +694,36 @@ async function resolveContactId(opts: {
     question: `I couldn’t find a contact for “${hint}”. Pick one of these:`,
     choices: makeContactChoices(recent as any),
   };
+}
+
+function isImplicitContactHint(hintRaw: string): boolean {
+  const hintLower = String(hintRaw || "").toLowerCase().trim();
+  if (!hintLower) return true;
+  return ["him", "her", "them", "that", "that one", "this", "this one", "same", "same one", "same person", "that contact", "this contact", "again"].some(
+    (w) => hintLower === w || hintLower.endsWith(` ${w}`) || hintLower.startsWith(`${w} `) || hintLower.includes(` ${w} `),
+  );
+}
+
+function extractMessagingRecipientHint(raw: string): string {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const patterns = [
+    /\b(?:text|sms)\s+(.+?)\s+(?:and\s+)?(?:that\s+says|that\s+say|saying|say|to\s+say|with\s+body)\b/i,
+    /\bsend\s+(.+?)\s+(?:an?\s+)?text(?:\s+message)?\s+(?:that\s+says|that\s+say|saying|say|to\s+say|with\s+body)\b/i,
+    /\bsend\s+(?:an?\s+)?text(?:\s+message)?\s+to\s+(.+?)\s+(?:that\s+says|that\s+say|saying|say|to\s+say|with\s+body)\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const hint = match?.[1]
+      ? String(match[1])
+          .replace(/^in\s+the\s+(?:sms\s+)?(?:thread|conversation)\s+with\s+/i, "")
+          .replace(/^(?:the\s+)?(?:sms\s+)?(?:thread|conversation)\s+with\s+/i, "")
+          .replace(/^with\s+/i, "")
+          .trim()
+      : "";
+    if (hint) return hint.slice(0, 120);
+  }
+  return "";
 }
 
 async function resolveContactTagId(opts: {
@@ -698,6 +767,7 @@ async function resolveInboxThreadId(opts: {
 
   const emailLike = extractFirstEmailLike(hint);
   const smsLike = normalizeSmsPeerKey(hint);
+  const phoneLike = normalizePhoneLike(hint);
   const nameLike = hint.replace(/\b(text|sms|thread|conversation|email|with|for|about)\b/gi, " ").replace(/\s+/g, " ").trim();
 
   const channel =
@@ -759,7 +829,7 @@ async function resolveInboxThreadId(opts: {
   await ensurePortalInboxSchema();
 
   if (channel === "sms") {
-    if (smsLike?.error) {
+    if (smsLike?.error && phoneLike) {
       return {
         kind: "clarify",
         question: `That phone number looks invalid (${smsLike.error}). Reply with a valid number (including country code if needed).`,
@@ -4644,7 +4714,38 @@ export async function resolvePlanArgs(opts: {
       threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).contactId === "string"
         ? String((threadChoiceOverrides as any).contactId).trim()
         : "";
-    const rc = await resolveContactId({ ownerId, hint: overrideContactId || hint });
+    const lastContactFromCtx =
+      opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext)
+        ? ((opts.threadContext as any).lastContact as any)
+        : null;
+    const lastContactId = typeof lastContactFromCtx?.id === "string" ? String(lastContactFromCtx.id).trim().slice(0, 120) : "";
+    const lastContactLabel =
+      typeof lastContactFromCtx?.label === "string"
+        ? String(lastContactFromCtx.label).trim().slice(0, 120)
+        : typeof lastContactFromCtx?.name === "string"
+          ? String(lastContactFromCtx.name).trim().slice(0, 120)
+          : "";
+
+    let rc:
+      | { kind: "ok"; contactId: string; contactName: string }
+      | { kind: "clarify"; question: string; choices?: AssistantChoice[] }
+      | { kind: "not_found"; question: string; choices?: AssistantChoice[] };
+
+    if (lastContactId && isImplicitContactHint(hint)) {
+      const row = await (prisma as any).portalContact
+        .findFirst({ where: { ownerId, id: lastContactId }, select: { id: true, name: true, email: true, phone: true } })
+        .catch(() => null);
+      if (row?.id) {
+        const name = String(row?.name || "").trim();
+        const email = String(row?.email || "").trim();
+        const phone = String(row?.phone || "").trim();
+        rc = { kind: "ok", contactId: String(row.id), contactName: name || email || phone || lastContactLabel || "Contact" };
+      } else {
+        rc = await resolveContactId({ ownerId, hint: overrideContactId || hint });
+      }
+    } else {
+      rc = await resolveContactId({ ownerId, hint: overrideContactId || hint });
+    }
     if (rc.kind === "ok") resolvedContact = { id: rc.contactId, name: rc.contactName };
     else return { ok: false, clarifyQuestion: rc.question, ...(rc.choices ? { choices: rc.choices } : {}) };
   }
@@ -4652,11 +4753,17 @@ export async function resolvePlanArgs(opts: {
   if (inboxThreadRefs.length) {
     const baseHint = String(inboxThreadRefs[0].hint || "").trim();
     const extra = String(opts.userHint || "").trim();
-    const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
     const channel = inboxThreadRefs[0].channel === "sms" ? "sms" : inboxThreadRefs[0].channel === "email" ? "email" : undefined;
+    const extraMessagingHint = channel === "sms" || channel === "email" ? extractMessagingRecipientHint(extra) : "";
+    const mergedExtraHint = extraMessagingHint || extra;
+    const hint = mergedExtraHint && baseHint
+      ? normKey(mergedExtraHint) === normKey(baseHint)
+        ? baseHint
+        : `${baseHint}\n${mergedExtraHint}`
+      : mergedExtraHint || baseHint;
     const rt = await resolveInboxThreadId({ ownerId, hint, channel });
     if (rt.kind === "ok") resolvedInboxThread = { id: rt.threadId, channel: rt.channel };
-    else return { ok: false, clarifyQuestion: rt.question };
+    else if (!(stepKeyLower === "inbox.send_sms" && contactRefs.length)) return { ok: false, clarifyQuestion: rt.question };
   }
 
   if (funnelRefs.length) {
@@ -5072,6 +5179,137 @@ export async function resolvePlanArgs(opts: {
     };
   }
 
+  let normalizedArgs =
+    withAutoResolvedIdFields && typeof withAutoResolvedIdFields === "object" && !Array.isArray(withAutoResolvedIdFields)
+      ? ({ ...(withAutoResolvedIdFields as Record<string, unknown>) } as Record<string, unknown>)
+      : args && typeof args === "object" && !Array.isArray(args)
+        ? ({ ...(args as Record<string, unknown>) } as Record<string, unknown>)
+        : ({} as Record<string, unknown>);
+
+  if (stepKeyLower === "inbox.send_sms") {
+    if (normalizedArgs.threadId == null) delete normalizedArgs.threadId;
+    if (normalizedArgs.contactId == null) delete normalizedArgs.contactId;
+    const contactId = typeof normalizedArgs.contactId === "string" ? String(normalizedArgs.contactId).trim() : "";
+    const threadId = typeof normalizedArgs.threadId === "string" ? String(normalizedArgs.threadId).trim() : "";
+    const currentTo = typeof normalizedArgs.to === "string" ? String(normalizedArgs.to).trim() : "";
+    const explicitThreadHint = typeof normalizedArgs.threadHint === "string" ? String(normalizedArgs.threadHint).trim() : "";
+    const lastInboxThreadId =
+      opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext) && typeof (opts.threadContext as any).lastInboxThread?.id === "string"
+        ? String((opts.threadContext as any).lastInboxThread.id).trim()
+        : "";
+    const lastCanvasThreadId = (() => {
+      const raw =
+        opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext) && typeof (opts.threadContext as any).lastCanvasUrl === "string"
+          ? String((opts.threadContext as any).lastCanvasUrl).trim()
+          : "";
+      if (!raw) return "";
+      try {
+        const url = new URL(raw, "https://purelyautomation.local");
+        return String(url.searchParams.get("threadId") || "").trim();
+      } catch {
+        const match = raw.match(/[?&]threadId=([^&]+)/i);
+        return match?.[1] ? decodeURIComponent(String(match[1])) : "";
+      }
+    })();
+    const promptSmsHint = extractMessagingRecipientHint(String(opts.userHint || ""));
+
+    if (!threadId && isImplicitContactHint(currentTo || promptSmsHint)) {
+      const fallbackThreadId = lastInboxThreadId || lastCanvasThreadId;
+      if (fallbackThreadId) normalizedArgs.threadId = fallbackThreadId;
+    }
+
+    if (contactId && !threadId) {
+      const latestSmsThread = await (prisma as any).portalInboxThread
+        .findFirst({
+          where: { ownerId, channel: "SMS", contactId },
+          orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+          select: { id: true },
+        })
+        .catch(() => null);
+      if (latestSmsThread?.id) normalizedArgs.threadId = String(latestSmsThread.id);
+    }
+
+    const smsThreadHint =
+      explicitThreadHint ||
+      resolvedContact?.name ||
+      (currentTo && !normalizeSmsPeerKey(currentTo).peerKey ? currentTo : "") ||
+      promptSmsHint ||
+      "";
+    if (!String(normalizedArgs.threadId || "").trim() && smsThreadHint) {
+      const resolvedSmsThread = await resolveInboxThreadId({ ownerId, hint: smsThreadHint, channel: "sms" });
+      if (resolvedSmsThread.kind === "ok") normalizedArgs.threadId = resolvedSmsThread.threadId;
+      if (!String(normalizedArgs.threadId || "").trim()) {
+        const byNameThread = await (prisma as any).portalInboxThread
+          .findFirst({
+            where: {
+              ownerId,
+              channel: "SMS",
+              contact: {
+                is: {
+                  name: { contains: smsThreadHint, mode: "insensitive" },
+                },
+              },
+            },
+            orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+            select: { id: true },
+          })
+          .catch(() => null);
+        if (byNameThread?.id) normalizedArgs.threadId = String(byNameThread.id);
+      }
+    }
+  }
+
+  if (stepKeyLower === "inbox.send_email") {
+    if (normalizedArgs.threadId == null) delete normalizedArgs.threadId;
+    const body = typeof normalizedArgs.body === "string" ? String(normalizedArgs.body).trim() : "";
+    const subject = typeof normalizedArgs.subject === "string" ? String(normalizedArgs.subject).trim() : "";
+    const currentTo = typeof normalizedArgs.to === "string" ? String(normalizedArgs.to).trim() : "";
+    if (!subject && body) normalizedArgs.subject = "Quick note";
+
+    const emailLike = extractFirstEmailLike(currentTo);
+    if (!emailLike && currentTo) {
+      const resolvedEmailThread = await resolveInboxThreadId({ ownerId, hint: currentTo, channel: "email" });
+      if (resolvedEmailThread.kind === "ok") {
+        normalizedArgs.threadId = typeof normalizedArgs.threadId === "string" && String(normalizedArgs.threadId).trim()
+          ? normalizedArgs.threadId
+          : resolvedEmailThread.threadId;
+        const thread = await (prisma as any).portalInboxThread
+          .findFirst({ where: { ownerId, id: resolvedEmailThread.threadId }, select: { peerAddress: true } })
+          .catch(() => null);
+        const peerEmail = extractFirstEmailLike(String(thread?.peerAddress || ""));
+        if (peerEmail) {
+          normalizedArgs.to = peerEmail;
+        }
+      }
+
+      if (!extractFirstEmailLike(typeof normalizedArgs.to === "string" ? String(normalizedArgs.to).trim() : "")) {
+        const byPeer = await (prisma as any).portalInboxThread
+          .findFirst({
+            where: { ownerId, channel: "EMAIL", peerAddress: { contains: currentTo, mode: "insensitive" } },
+            orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+            select: { id: true, peerAddress: true },
+          })
+          .catch(() => null);
+        const peerEmail = extractFirstEmailLike(String(byPeer?.peerAddress || ""));
+        if (peerEmail) {
+          normalizedArgs.to = peerEmail;
+          if (!String(normalizedArgs.threadId || "").trim()) normalizedArgs.threadId = String(byPeer.id);
+        }
+      }
+
+      if (!extractFirstEmailLike(typeof normalizedArgs.to === "string" ? String(normalizedArgs.to).trim() : "")) {
+        const resolvedEmailContact = await resolveContactId({ ownerId, hint: currentTo });
+        if (resolvedEmailContact.kind === "ok") {
+          const contact = await (prisma as any).portalContact
+            .findFirst({ where: { ownerId, id: resolvedEmailContact.contactId }, select: { email: true } })
+            .catch(() => null);
+          const contactEmail = extractFirstEmailLike(String(contact?.email || ""));
+          if (contactEmail) normalizedArgs.to = contactEmail;
+        }
+      }
+    }
+  }
+
   const baseContextPatch =
     resolvedContact ||
     resolvedInboxThread ||
@@ -5155,7 +5393,7 @@ export async function resolvePlanArgs(opts: {
 
   return {
     ok: true,
-    args: withAutoResolvedIdFields,
+    args: normalizedArgs,
     contextPatch: (() => {
       if (!mergedContextPatch) return undefined;
       const sanitized = sanitizeIdLikeObjectDeep(mergedContextPatch);

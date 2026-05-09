@@ -31,6 +31,7 @@ import { portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass 
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import { LEAD_OUTBOUND_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+import { getReadableTagPillStyle } from "@/lib/tagColors.shared";
 import LeadLocationsMap from "./LeadLocationsMap";
 
 const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(" ");
@@ -181,7 +182,7 @@ function getLeadScrapingLoadErrorMessage(mode: "pull" | "leads" | "settings") {
 }
 
 function LeadScrapingShellBlock({ className }: { className?: string }) {
-  return <div className={classNames("animate-pulse rounded-2xl bg-zinc-100/80", className)} />;
+  return <div className={classNames("animate-pulse rounded-[1.35rem] border border-white/70 bg-[linear-gradient(135deg,rgba(255,255,255,0.94),rgba(226,232,240,0.72))] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]", className)} />;
 }
 
 function LeadScrapingLoadingShell({
@@ -263,8 +264,8 @@ function LeadScrapingLoadingShell({
                 </div>
               </div>
             </div>
-            <div className="min-h-0 h-full overflow-hidden bg-zinc-50">
-              <div className="h-full w-full animate-pulse bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.09),transparent_28%),radial-gradient(circle_at_75%_35%,rgba(99,102,241,0.08),transparent_26%),linear-gradient(180deg,rgba(244,244,245,0.95),rgba(241,245,249,0.85))]" />
+            <div className="min-h-0 h-full overflow-hidden bg-[linear-gradient(180deg,rgba(248,250,252,0.88),rgba(241,245,249,0.82))]">
+              <div className="h-full w-full animate-pulse bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.06),transparent_26%),radial-gradient(circle_at_75%_35%,rgba(99,102,241,0.05),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.86),rgba(241,245,249,0.72))]" />
             </div>
           </div>
         </div>
@@ -606,110 +607,12 @@ function writeLeadScrapingViewCache(cache: LeadScrapingViewCache) {
   }
 }
 
-function readHexChannels(hex: string) {
-  return {
-    r: parseInt(hex.slice(1, 3), 16),
-    g: parseInt(hex.slice(3, 5), 16),
-    b: parseInt(hex.slice(5, 7), 16),
-  };
-}
-
 function leadTagPillStyle(color: string | null | undefined) {
-  if (!isHexColor(color || "")) {
-    return {
-      backgroundColor: "#111827",
-      borderColor: "transparent",
-      color: "#ffffff",
-    };
-  }
-
-  const hex = String(color);
-  const { r, g, b } = readHexChannels(hex);
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
-  const isWhiteish = min >= 245;
-  const isGrayish = max - min <= 18;
-  const isYellowish = r >= 215 && g >= 170 && b <= 150;
-
-  if (isWhiteish) {
-    return {
-      backgroundColor: "#ffffff",
-      borderColor: "#e4e4e7",
-      color: "#3f3f46",
-    };
-  }
-
-  if (isYellowish) {
-    return {
-      backgroundColor: hex,
-      borderColor: "transparent",
-      color: "#b45309",
-    };
-  }
-
-  if (isGrayish && yiq >= 135) {
-    return {
-      backgroundColor: hex,
-      borderColor: "transparent",
-      color: "#111827",
-    };
-  }
-
-  return {
-    backgroundColor: hex,
-    borderColor: "transparent",
-    color: yiq >= 160 ? "#111827" : "#ffffff",
-  };
+  return getReadableTagPillStyle(color, { fallbackTone: "neutral" });
 }
 
 function leadContactTagChipStyle(color: string | null | undefined) {
-  if (!isHexColor(color || "")) {
-    return {
-      backgroundColor: "rgba(255,255,255,0.75)",
-      borderColor: "#e4e4e7",
-      color: "#3f3f46",
-    };
-  }
-
-  const hex = String(color);
-  const { r, g, b } = readHexChannels(hex);
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const isWhiteish = min >= 245;
-  const isGrayish = max - min <= 18;
-  const isYellowish = r >= 215 && g >= 170 && b <= 150;
-
-  if (isWhiteish) {
-    return {
-      backgroundColor: "rgba(255,255,255,0.92)",
-      borderColor: "#e4e4e7",
-      color: "#3f3f46",
-    };
-  }
-
-  if (isYellowish) {
-    return {
-      backgroundColor: `${hex}22`,
-      borderColor: `${hex}40`,
-      color: "#b45309",
-    };
-  }
-
-  if (isGrayish) {
-    return {
-      backgroundColor: `${hex}22`,
-      borderColor: `${hex}40`,
-      color: "#111827",
-    };
-  }
-
-  const pill = leadTagPillStyle(hex);
-  return {
-    backgroundColor: `${hex}22`,
-    borderColor: pill.borderColor === "transparent" ? `${hex}40` : pill.borderColor,
-    color: pill.color,
-  };
+  return getReadableTagPillStyle(color, { fallbackTone: "neutral" });
 }
 type MeResponse = {
   entitlements?: Record<string, boolean>;

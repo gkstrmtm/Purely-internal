@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalTypeaheadInput } from "@/components/PortalTypeaheadInput";
@@ -880,11 +881,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   }
 
   if (loading && !hasLoadedOnceRef.current) {
-    return (
-      <div className="mx-auto max-w-5xl rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-        Loading…
-      </div>
-    );
+    return <PortalPageLoadingShell sections={2} minHeightClassName="min-h-[28rem]" />;
   }
 
   if (!unlocked) {

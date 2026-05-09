@@ -103,6 +103,9 @@ export function toolCheatSheetForPrompt(textRaw: string, urlRaw?: string): strin
   lines.push("- Never output a multi-action plan that depends on IDs created earlier in the SAME response. If an ID will be created/discovered by a tool, output ONLY that one tool action, then stop (you will get another turn with the returned ID).");
   lines.push("- When the user gives multiple independent tasks and the needed IDs/context are already known, batch those tasks into one JSON action list instead of collapsing to a single step.");
   lines.push("- When only some tasks are ready now, output the largest safe independent batch you can run now, then continue with the next batch on the following planning round.");
+  lines.push("- Users may speak casually. Treat phrasing like 'hey, we need to...', 'bro, do this', 'let's clean this up', 'show me...', or 'check what's off' as normal work requests, not as a reason to switch to tutorial mode.");
+  lines.push("- Generic phrasing like 'knock these out', 'handle these follow-ups', or 'do these things' means do the actual portal work, not create Tasks service items.");
+  lines.push("- If the user explicitly asks for internal tasks/to-dos and gives a numbered list, output one tasks.create action per independent list item when those steps do not depend on one another.");
   lines.push("- If a name is missing for a create action, pick a short sensible default name and proceed (do not use the whole user request as a name).");
   lines.push("- Ask at most ONE follow-up question, and only after doing any discovery you can.");
   lines.push("");
@@ -217,7 +220,13 @@ export function looksLikePortalHowToInstructions(text: string): boolean {
   const numberedLines = (t.match(/^\s*\d+\./gm) || []).length;
   const bulletLines = (t.match(/^\s*[-*]\s+/gm) || []).length;
   const clickMentions = (lower.match(/\bclick\b/g) || []).length;
-  const lengthLooksLikeGuide = t.length > 140 && (numberedLines + bulletLines >= 2 || clickMentions >= 2);
+  const imperativeInstructionLines = t
+    .split(/\n+/)
+    .map((line) => String(line || "").trim().toLowerCase())
+    .filter(Boolean)
+    .filter((line) => /^(go to|open|click|select|locate|find|enter|set|replace|choose|turn on|turn off|save|update)\b/.test(line)).length;
+  const lengthLooksLikeGuide =
+    t.length > 140 && (numberedLines + bulletLines >= 2 || clickMentions >= 2 || imperativeInstructionLines >= 3 || (hasHowToPhrases && imperativeInstructionLines >= 2));
   return Boolean(hasHowToPhrases && lengthLooksLikeGuide);
 }
 
@@ -251,7 +260,7 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
     "2) CHAT MODE: normal assistant message (no JSON)",
     "",
     "WORK STYLE:",
-    "- When the user asks you to do a portal task, use TOOL MODE to make progress.",
+    "- When the user asks you to do portal work, use TOOL MODE to make progress.",
     "- If the request is actionable, do the work. Do not answer with portal how-to instructions when a supported action can make progress.",
     "- Use discovery tools (list/get/search) first when IDs are unknown.",
     "- Prefer discovery over a follow-up question whenever a supported read/list/search action can safely find the answer.",
@@ -261,6 +270,9 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
     "- Never invent success, completion, URLs, names, IDs, or settings. Tool results are the source of truth.",
     "- If the user asks for multiple independent things and the required IDs/context are already known, batch them into one TOOL MODE response.",
     "- If only part of a larger request is safe right now, output the largest safe independent batch you can run now, then continue with the remaining work in the next planning round.",
+    "- Users may speak casually or conversationally. Treat phrases like 'hey, we need to...', 'bro, handle this', 'let's clean this up', 'show me...', or 'check what's off' as real portal requests.",
+    "- When the user explicitly asks for internal follow-ups as tasks and provides a numbered list, emit one tasks.create action per independent item instead of summarizing the batch in chat.",
+    "- Do NOT reinterpret generic follow-ups, edits, outreach, audits, or fixes as tasks.* unless the user explicitly asks for internal tasks/to-dos.",
     "- Only collapse to a single action when dependency ordering, missing context, or ambiguity truly blocks the rest.",
     "- Use short sensible defaults for missing names (calendar/funnel/page).",
     "- IMPORTANT: If prior tool results or context already contain real IDs, copy and reuse those exact IDs in later action args.",

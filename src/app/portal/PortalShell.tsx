@@ -14,6 +14,8 @@ import { useToast } from "@/components/ToastProvider";
 import {
   IconChevron,
   IconAiChatGlyph,
+  IconCheckGlyph,
+  IconCloseGlyph,
   IconCalendar,
   IconBillingGlyph,
   IconDashboardGlyph,
@@ -26,6 +28,7 @@ import {
   IconInboxGlyph,
   IconLock,
   IconPeopleGlyph,
+  IconPlusGlyph,
   IconProfileGlyph,
   IconServicesGlyph,
   IconServiceGlyph,
@@ -1726,7 +1729,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                   aria-label="Close menu"
                 >
-                  ×
+                  <IconCloseGlyph size={18} />
                 </button>
               </div>
 
@@ -1875,33 +1878,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           ["--pa-modal-safe-bottom" as any]: `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`,
         }}
       >
-        {isAiChat && !puraCanvasOpen && !isHostedPageEditor ? (
-        <div className="pointer-events-none fixed right-4 top-4 z-30 hidden lg:flex flex-col gap-2">
-          <GlassSurface {...portalGlassIconSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl">
-            <Link
-              href={toPurelyHostedUrl("/book-a-call")}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform hover:scale-110 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none"
-              aria-label="Book a call"
-              title="Book a call"
-            >
-              <IconCalendar size={22} />
-            </Link>
-          </GlassSurface>
-          <GlassSurface {...portalGlassIconSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl">
-            <PortalNavLink
-              href={`${basePath}/tutorials/getting-started`}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-700 backdrop-blur-[2px] transition-transform hover:scale-110 hover:bg-[rgba(255,255,255,0.72)] hover:text-zinc-900 focus-visible:outline-none"
-              aria-label="Help"
-              title="Help"
-            >
-              <IconHelpCircle size={22} />
-            </PortalNavLink>
-          </GlassSurface>
-        </div>
-        ) : null}
-
         {false ? (
         <div
           className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center px-4 py-6"
@@ -2114,8 +2090,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               )}
                               aria-hidden
                             >
-                              {dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG) ? "✓" : "+"}
-                              </span>
+                              {dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG) ? <IconCheckGlyph size={12} /> : <IconPlusGlyph size={12} />}
+                            </span>
                           </button>
                           {dashboardShortcutCandidates.map((svc) => {
                             const selected = dashboardQuickAccessEffective.includes(svc.slug);
@@ -2158,7 +2134,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                   )}
                                   aria-hidden
                                 >
-                                  {selected ? "✓" : "+"}
+                                  {selected ? <IconCheckGlyph size={12} /> : <IconPlusGlyph size={12} />}
                                 </span>
                               </button>
                             );
@@ -2616,7 +2592,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           )}
                           aria-hidden
                         >
-                          {dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG) ? "✓" : "+"}
+                          {dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG) ? <IconCheckGlyph size={12} /> : <IconPlusGlyph size={12} />}
                         </span>
                       </button>
                       {dashboardShortcutCandidates.map((svc) => {
@@ -2660,7 +2636,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               )}
                               aria-hidden
                             >
-                              {selected ? "✓" : "+"}
+                              {selected ? <IconCheckGlyph size={12} /> : <IconPlusGlyph size={12} />}
                             </span>
                           </button>
                         );
@@ -3091,7 +3067,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         void refreshAds({ placement: "SIDEBAR_BANNER", reason: "dismiss" });
                       }}
                     >
-                      ×
+                      <IconCloseGlyph size={18} />
                     </button>
                   </div>
                 ) : null}
@@ -3235,7 +3211,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           void refreshAds({ placement: "TOP_BANNER", reason: "dismiss" });
                         }}
                       >
-                        ×
+                        <IconCloseGlyph size={18} />
                       </button>
                     ) : null}
                   </div>
@@ -3294,7 +3270,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         void refreshAds({ placement: "FULLSCREEN_REWARD", reason: "dismiss" });
                       }}
                     >
-                      ×
+                      <IconCloseGlyph size={18} />
                     </button>
                   ) : null}
                 </div>
@@ -3373,7 +3349,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         }}
                         aria-label="Close"
                       >
-                        ×
+                        <IconCloseGlyph size={18} />
                       </button>
                     </div>
                   </div>
@@ -3626,7 +3602,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         void refreshAds({ placement: "POPUP_CARD", reason: "dismiss" });
                       }}
                     >
-                      ×
+                      <IconCloseGlyph size={18} />
                     </button>
                   ) : null}
                 </div>

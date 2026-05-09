@@ -1,10 +1,21 @@
 {
 	"version": "2.0.0",
+	"options": {
+		"shell": {
+			"executable": "/bin/zsh",
+			"args": [
+				"-lc"
+			]
+		},
+		"env": {
+			"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+		}
+	},
 	"tasks": [
 		{
 			"label": "Dev: next dev",
 			"type": "shell",
-			"command": "npm",
+			"command": "/opt/homebrew/bin/npm",
 			"args": [
 				"run",
 				"dev"
@@ -15,7 +26,7 @@
 		{
 			"label": "Dev: mobile web (expo)",
 			"type": "shell",
-			"command": "npm",
+			"command": "/opt/homebrew/bin/npm",
 			"args": [
 				"--prefix",
 				"mobile-app",
@@ -28,7 +39,7 @@
 		{
 			"label": "Build: mobile web export",
 			"type": "shell",
-			"command": "npm",
+			"command": "/opt/homebrew/bin/npm",
 			"args": [
 				"--prefix",
 				"mobile-app",
@@ -40,7 +51,7 @@
 		{
 			"label": "Typecheck: mobile",
 			"type": "shell",
-			"command": "npm",
+			"command": "/opt/homebrew/bin/npm",
 			"args": [
 				"--prefix",
 				"mobile-app",
@@ -54,7 +65,7 @@
 		{
 			"label": "Lint: eslint",
 			"type": "shell",
-			"command": "npm",
+			"command": "/opt/homebrew/bin/npm",
 			"args": [
 				"run",
 				"lint"
@@ -66,7 +77,7 @@
 		{
 			"label": "Build: next build",
 			"type": "shell",
-			"command": "npm",
+			"command": "/opt/homebrew/bin/npm",
 			"args": [
 				"run",
 				"build"
@@ -76,7 +87,7 @@
 		{
 			"label": "Typecheck: tsc --noEmit",
 			"type": "shell",
-			"command": "npx",
+			"command": "/opt/homebrew/bin/npx",
 			"options": {
 				"cwd": "${workspaceFolder}"
 			},
@@ -91,10 +102,20 @@
 		{
 			"label": "Prisma: generate",
 			"type": "shell",
-			"command": "npx",
+			"command": "/opt/homebrew/bin/npx",
 			"args": [
 				"prisma",
 				"generate"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "Diag: node process absolute",
+			"type": "process",
+			"command": "/opt/homebrew/bin/node",
+			"args": [
+				"-e",
+				"console.log('diag-node-ok')"
 			],
 			"problemMatcher": []
 		},
@@ -122,8 +143,8 @@
 		},
 		{
 			"label": "Inspect: demo inbox linkage",
-			"type": "shell",
-			"command": "node",
+			"type": "process",
+			"command": "/opt/homebrew/bin/node",
 			"args": [
 				"tmp/inspect_demo_inbox.mjs"
 			],
@@ -2511,6 +2532,60 @@
 			"isBackground": true,
 			"problemMatcher": [],
 			"group": "none"
+		},
+		{
+			"label": "Probe: absolute node process",
+			"type": "shell",
+			"command": "/opt/homebrew/bin/node",
+			"args": [
+				"-e",
+				"console.log('probe-ok')"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Pura: production smoke",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"pura:production-smoke"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Pura: production smoke zsh",
+			"type": "shell",
+			"command": "/bin/zsh",
+			"args": [
+				"-lc",
+				"cd /Users/jaylan/purely-automation && npm run pura:production-smoke"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Inspect: booking slug probe",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"-e",
+				"const { PrismaClient } = require('@prisma/client'); const prisma = new PrismaClient(); (async()=>{ try { const site = await prisma.portalBookingSite.findUnique({ where: { slug: 'purely' }, select: { id:true, ownerId:true, slug:true, enabled:true, title:true, description:true, timeZone:true, durationMinutes:true } }).catch(e => ({ __error: String(e) })); const similar = await prisma.portalBookingSite.findMany({ where: { OR: [{ slug: { contains: 'purely', mode: 'insensitive' } }, { title: { contains: 'purely', mode: 'insensitive' } }] }, select: { id:true, ownerId:true, slug:true, enabled:true, title:true } }).catch(e => ({ __error: String(e) })); const blogs = await prisma.clientBlogSite.findMany({ where: { OR: [{ slug: 'purely' }, { name: { contains: 'purely', mode: 'insensitive' } }] }, select: { id:true, ownerId:true, slug:true, name:true, verifiedAt:true } }).catch(e => ({ __error: String(e) })); console.log(JSON.stringify({ site, similar, blogs }, null, 2)); } finally { await prisma.$disconnect(); } })();"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Typecheck: tsc absolute repaired",
+			"type": "shell",
+			"command": "/opt/homebrew/bin/npx",
+			"args": [
+				"tsc",
+				"--noEmit"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
 		}
 	]
 }

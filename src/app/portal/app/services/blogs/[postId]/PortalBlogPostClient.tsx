@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
@@ -853,7 +854,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="mx-auto w-full max-w-6xl">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading post…</div>
+        <PortalPageLoadingShell sections={2} minHeightClassName="min-h-[28rem]" className="px-0 sm:px-0" />
       </div>
     );
   }

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 
+import { buildPlatformHostedMetadata } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
@@ -18,7 +20,7 @@ function formatDate(value: Date) {
   return value.toLocaleString();
 }
 
-export async function generateMetadata(props: PageProps) {
+export async function generateMetadata(props: PageProps): Promise<Metadata> {
   const { siteSlug, newsletterSlug } = await props.params;
 
   try {
@@ -47,11 +49,15 @@ export async function generateMetadata(props: PageProps) {
 
     const profile = await prisma.businessProfile.findUnique({ where: { ownerId: site.ownerId }, select: { businessName: true } });
     const name = profile?.businessName || site.name;
+    const siteHandle = canUseSlugColumn ? String((site as any).slug || (site as any).id).trim() : siteSlug;
 
-    return {
+    return buildPlatformHostedMetadata({
+      siteName: name,
       title: `${newsletter.title} | ${name}`,
       description: newsletter.excerpt,
-    };
+      path: `/${siteHandle}/newsletters/${newsletterSlug}`,
+      keywords: [newsletter.title, `${name} newsletter`, name].filter(Boolean),
+    });
   } catch {
     return {};
   }

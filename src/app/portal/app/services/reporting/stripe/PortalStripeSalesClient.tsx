@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
@@ -203,7 +204,7 @@ export function PortalStripeSalesClient() {
       </div>
 
       {loading && !hasLoadedOnceRef.current ? (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
+        <PortalPageLoadingShell showHeader={false} sections={2} minHeightClassName="min-h-[22rem]" className="mt-6 px-0 sm:px-0" />
       ) : null}
 
       {canShowData && (data as any)?.ok === true ? (

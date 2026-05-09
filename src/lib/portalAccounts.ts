@@ -170,16 +170,18 @@ export async function acceptInvite(opts: { token: string; name: string; password
 }
 
 export async function resolvePortalOwnerIdForLogin(userId: string) {
-  await ensurePortalTasksSchema().catch(() => null);
+  try {
+    const membership = await (prisma as any).portalAccountMember.findFirst({
+      where: { userId },
+      select: { ownerId: true },
+      orderBy: { createdAt: "asc" },
+    });
 
-  const membership = await (prisma as any).portalAccountMember.findFirst({
-    where: { userId },
-    select: { ownerId: true },
-    orderBy: { createdAt: "asc" },
-  });
-
-  const ownerId = typeof membership?.ownerId === "string" && membership.ownerId.trim() ? membership.ownerId : userId;
-  return ownerId;
+    const ownerId = typeof membership?.ownerId === "string" && membership.ownerId.trim() ? membership.ownerId : userId;
+    return ownerId;
+  } catch {
+    return userId;
+  }
 }
 
 export async function getPortalAccountMemberRole(opts: { ownerId: string; userId: string }) {

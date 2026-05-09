@@ -15,6 +15,8 @@ export type PuraPlannerMode = "execute" | "clarify" | "explain" | "noop";
 
 export { getPuraIntentSignals } from "@/lib/puraIntent";
 
+const MAX_PURA_PLAN_STEPS = 18;
+
 const RefSchema = z
   .object({
     $ref: z.enum([
@@ -78,7 +80,7 @@ export const PlannerOutputSchema = z
   .object({
     mode: z.enum(["execute", "clarify", "explain", "noop"]),
     workTitle: z.string().trim().max(120).optional(),
-    steps: z.array(StepSchema).max(6).default([]),
+    steps: z.array(StepSchema).max(MAX_PURA_PLAN_STEPS).default([]),
     clarifyingQuestion: z.string().trim().max(600).optional(),
     explanation: z.string().trim().max(4000).optional(),
   })
@@ -322,6 +324,9 @@ export async function planPuraActions(opts: {
     "- If the user asks you to DO something (send/schedule/update/delete) OR says to do it for them (e.g. 'do it', 'for me', 'can you send...'), you MUST output mode=execute (not explain).",
     "- Treat every request as: what is happening, what does the user want changed, what information is already known, what still must be discovered, and which action(s) will safely finish the job.",
     "- IMPORTANT: Treat this as an ongoing thread, not a stateless request.",
+    "- Users may speak casually or conversationally. Phrases like 'hey, we need to...', 'bro, knock this out', 'let's clean this up', 'show me...', or 'check what's off' still describe real portal work.",
+    "- Interpret numbered lists or stacked follow-ups as separate requested outcomes when the user is clearly batching work in one message.",
+    "- IMPORTANT: Generic work phrasing like 'knock these out', 'handle these follow-ups', 'take care of this', or 'do these things' means perform the portal work itself, not create Tasks service items.",
     "- If the user says things like 'it', 'that one', 'same one', 'use the one we just made', or gives a short follow-up, prefer the active entity from thread context.",
     "- For follow-up commands in the same thread, continue the current task/entity unless the user clearly switches topics.",
     "- Prefer finishing the user's portal work over talking about portal work.",
@@ -334,7 +339,7 @@ export async function planPuraActions(opts: {
     "- If a safe read/list/get step can narrow the target, do that first instead of asking a vague question.",
     "- IMPORTANT: If the user answers a question with 'I don't care', 'either', 'whichever', or 'you pick', that is NO PREFERENCE. Choose a sensible default and proceed (mode=execute).",
     "- IMPORTANT: If the user answers a disambiguation question with 'both', 'do both', 'all of them', or 'all pages', do NOT ask which one to start with.",
-    "  Proceed in a sensible order and include multiple steps if needed (up to 6 total steps).",
+    `  Proceed in a sensible order and include multiple steps if needed (up to ${MAX_PURA_PLAN_STEPS} total steps).`,
     "  Example: if they say 'do both pages', plan steps that apply the change to each relevant page.",
     "- IMPORTANT: For booking calendar selection, NEVER ask the user for a calendar ID.",
     "  If a step needs calendarId but it isn't known, still output mode=execute and omit calendarId;",
@@ -402,6 +407,9 @@ export async function planPuraActions(opts: {
     "  - If the user asks to 'trigger one now as a test', ALSO send an immediate inbox.send_sms now (do not give steps).",
     "  - Only create automations when the user explicitly asks for an Automation.",
     "- Only use tasks.create / tasks.create_for_all when the user explicitly wants an internal human to-do item in the Tasks service.",
+    "- Do NOT turn generic work requests, follow-ups, audits, fixes, outreach, edits, or portal changes into tasks.* just because they are written as a batch.",
+    "- Treat tasks.* as correct only when the user explicitly says task, to-do, todo, task list, Tasks service, or otherwise clearly asks to create an internal reminder for a human.",
+    `- If the user explicitly asks for internal tasks and gives you a numbered or comma-separated batch, create one tasks.create step per task item when they are independent, up to ${MAX_PURA_PLAN_STEPS} steps.`,
     "- Do not produce a step that depends on the output of a previous step in the SAME plan unless the later step can use a resolver/ref or already-known entity.",
     "- If the job cannot be completed safely in one plan because a missing entity must first be discovered, output the discovery step(s) only.",
     "- Output JSON only. No markdown.",
@@ -458,14 +466,20 @@ export async function planPuraActions(opts: {
     "Important action-selection rules:",
     "- Use inbox.* for customer email/SMS conversations. Do NOT use ai_chat.threads.list for customer text/email threads.",
     "- For a request like 'What happened in the text thread with Jamie Carter?', use inbox.thread.messages.list with threadId resolved from {$ref:'inbox_thread', hint:'Jamie Carter', channel:'sms'}.",
+    "- For a request like 'Show me the recent text threads with Jamie', use inbox.threads.list with channel:'SMS' and q:'Jamie', not mode=explain.",
+    "- For a request like 'Hey, make me a task to call Sam tomorrow at 9am', use tasks.create with the title and due time instead of explaining how to do it.",
+    `- For a request like 'Hey bro, knock out these follow-ups for me as tasks: 1) ... 2) ... 3) ...', emit one tasks.create step per listed item when the items are independent, up to ${MAX_PURA_PLAN_STEPS}.`,
+    "- For a request like 'Hey bro, knock these out for me: 1) text Jamie ... 2) email Chris ... 3) update the newsletter ...', do those real actions. Do NOT convert them into tasks.*.",
     "- For a request like 'Tell me which task is about Mike Rivera', use tasks.list with q:'Mike Rivera' (and status:'ALL' if needed).",
     "- For a request like 'Show me the important details you have on Sarah Miller', use contacts.list with q:'Sarah Miller' or contacts.get if you already have the contact id.",
     "- For a request like 'Create a newsletter called Webinar Launch Weekly', use newsletter.newsletters.create (title + kind='external' by default), then update/send it in later steps only if the user asked.",
     "- For a request like 'Create a blog draft called How to Build a High-Converting Webinar Funnel', use blogs.posts.create first, then blogs.posts.generate_draft if the user wants the draft content written.",
     "- For a request like 'Create a funnel called Webinar Growth Funnel', use funnel.create and derive the slug from the name if needed.",
+    "- For a request like 'Build me a new funnel, add a landing page and a thank-you page, then leave it in draft', emit the full funnel flow: funnel.create, then funnel_builder.pages.create for the landing page, then funnel_builder.pages.create for the thank-you page. Do not stop after the first page if the user explicitly asked for both.",
     "- For a request like 'Create a media folder called Webinar Assets', use media.folder.ensure.",
     "- For a request like 'Reply to Jamie Carter\'s review', use reviews.reply with a resolved review ref, not reviews.send_request_for_contact.",
     "- For a request like 'Add an email step to that nurture campaign', use nurture.campaigns.steps.add with kind='EMAIL', then nurture.steps.update only if copy/delay still needs refinement.",
+    "- For a request like 'I\'m on my booking settings page, rename this, update the description, set it to 45 minutes, and give me the live booking link', use booking.settings.update, then booking.settings.get, then booking.site.get. Do NOT switch to booking.bookings.list or appointment history.",
     "- For a request like 'Summarize my recent AI receptionist calls', use ai_receptionist.highlights.get.",
   ].join("\n");
 
@@ -670,7 +684,7 @@ export async function planPuraActions(opts: {
               args: { title: fallbackTitle.slice(0, 180) },
             };
           })
-          .slice(0, 6),
+          .slice(0, MAX_PURA_PLAN_STEPS),
       };
     }
 

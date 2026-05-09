@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
 import DomainRouterBlogPostPage, { generateMetadata as generateDomainRouterBlogPostMetadata } from "@/app/domain-router/[domain]/blogs/[postSlug]/page";
+import { buildPlatformHostedMetadata } from "@/lib/customDomainMetadata";
 import { hostnameFromHeader, isPlatformHostname } from "@/lib/customDomainMetadata";
 import { prisma } from "@/lib/db";
 import { formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent, splitLeadingCoverImage } from "@/lib/blog";
@@ -56,7 +57,7 @@ export async function generateMetadata(props: PageProps) {
 
     const post = await prisma.clientBlogPost.findFirst({
       where: { siteId: site.id, slug: postSlug, status: "PUBLISHED", archivedAt: null },
-      select: { title: true, excerpt: true },
+      select: { title: true, excerpt: true, content: true, seoKeywords: true },
     });
 
     if (!post) return {};
@@ -67,11 +68,21 @@ export async function generateMetadata(props: PageProps) {
     });
 
     const name = profile?.businessName || site.name;
+    const siteHandle = canUseSlugColumn ? String((site as any).slug || (site as any).id).trim() : siteSlug;
+    const cover = splitLeadingCoverImage(parseBlogContent(String(post.content || ""))).cover;
+    const keywords = Array.isArray((post as any).seoKeywords)
+      ? ((post as any).seoKeywords as unknown[]).map((item) => String(item || "").trim()).filter(Boolean).slice(0, 30)
+      : [];
 
-    return {
+    return buildPlatformHostedMetadata({
+      siteName: name,
       title: `${post.title} | ${name}`,
       description: post.excerpt,
-    };
+      path: `/${siteHandle}/blogs/${postSlug}`,
+      imageUrl: cover?.src || null,
+      keywords: [...keywords, name, `${name} blog`].filter(Boolean),
+      type: "article",
+    });
   } catch {
     return {};
   }

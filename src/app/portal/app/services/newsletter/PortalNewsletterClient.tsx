@@ -27,6 +27,7 @@ import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
+import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import { portalGlassButtonClass } from "@/components/portalGlass";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
@@ -1269,7 +1270,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   if (initialLoading) {
     return (
       <div className="mx-auto w-full max-w-6xl">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
+        <PortalPageLoadingShell sections={2} minHeightClassName="min-h-[30rem]" className="px-0 sm:px-0" />
       </div>
     );
   }
