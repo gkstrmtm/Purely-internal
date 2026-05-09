@@ -6091,6 +6091,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         const buildAiDirectAssistantText = async (
           plan: { action: PortalAgentActionKey; traceTitle: string; args: Record<string, unknown> },
           exec: any,
+          executionThreadContext?: Record<string, unknown>,
         ) => {
           let directAssistantText = typeof exec?.assistantText === "string" ? String(exec.assistantText).trim() : "";
           if (/^ai_receptionist\.settings\.(?:update|get)$/i.test(String(plan.action || ""))) {
@@ -6131,7 +6132,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             ],
             canvasUrl: typeof exec?.linkUrl === "string" ? String(exec.linkUrl).trim() : null,
             userPrompt: preflightPrompt,
-            timeZoneHint: getTimeZoneHint(directThreadContext),
+            timeZoneHint: getTimeZoneHint(executionThreadContext ?? threadContext),
             directMessage: directAssistantText || null,
             fallbackText: directAssistantText || null,
           });
@@ -6428,7 +6429,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 timeZoneHint: getTimeZoneHint(directThreadContext),
               });
             }
-            return await buildAiDirectAssistantText(results[results.length - 1]?.step || plan, lastResult);
+            return await buildAiDirectAssistantText(results[results.length - 1]?.step || plan, lastResult, directThreadContext);
           })();
           const execForFinalize = {
             ...(lastResult && typeof lastResult === "object" ? lastResult : {}),
@@ -8530,7 +8531,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             userPrompt: promptMessage,
             directMessage: typeof (exec as any)?.assistantText === "string" ? String((exec as any).assistantText).trim() : null,
             fallbackText: typeof (exec as any)?.assistantText === "string" ? String((exec as any).assistantText).trim() : execError || null,
-            timeZoneHint: getTimeZoneHint(localCtx),
+            timeZoneHint: getTimeZoneHint(threadContext),
           });
 
           const assistantMsg = assistantText.trim()
@@ -10449,10 +10450,6 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         assistantTextFinal = finalDirectMessage || "";
       }
 
-      if (finalOkCount > 0 && finalFailedCount === 0 && finalPendingCount === 0 && looksLikeLoopAbortAssistantReply(assistantTextFinal)) {
-        assistantTextFinal = "";
-      }
-
       assistantTextFinal = absolutizeAssistantTextLinks(
         ensureNonEmptyPuraAssistantReply({
           preferredText: assistantTextFinal,
@@ -10488,6 +10485,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const finalPendingCount = effectiveAllResults.filter((r: any) => Boolean(r.ok) && (r?.result?.question || (Array.isArray(r?.result?.actions) && r.result.actions.length))).length;
       const finalFailedCount = effectiveAllResults.filter((r) => !Boolean(r.ok) || Number(r.status) < 200 || Number(r.status) >= 300).length;
       const finalOkCount = effectiveAllResults.filter((r) => Boolean(r.ok) && Number(r.status) >= 200 && Number(r.status) < 300).length;
+
+      if (finalOkCount > 0 && finalFailedCount === 0 && finalPendingCount === 0 && looksLikeLoopAbortAssistantReply(assistantTextFinal)) {
+        assistantTextFinal = "";
+      }
 
       const completedRunId = activeRunId;
       const completedRunStartedAt = activeRunStartedAt;
@@ -10896,13 +10897,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           localCtx,
         );
         if (await checkInterruptRequested()) {
-          threadContext = localCtx;
+          fallbackThreadContext = localCtx;
           return await buildStoppedAssistantMessage(responseUserMessage);
         }
 
         const resolved = await resolvePlanArgs({ ownerId, stepKey: key, args: argsRaw, userHint: effectiveText, url: contextUrl, threadContext: localCtx });
         if (await checkInterruptRequested()) {
-          threadContext = localCtx;
+          fallbackThreadContext = localCtx;
           return await buildStoppedAssistantMessage(responseUserMessage);
         }
         if (!resolved.ok) {
@@ -10959,11 +10960,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           localCtx,
         );
         if (await waitForInterruptGraceWindow({ enabled: shouldAllowInterruptGraceWindow })) {
-          threadContext = localCtx;
+          fallbackThreadContext = localCtx;
           return await buildStoppedAssistantMessage(responseUserMessage);
         }
         if (await checkInterruptRequested()) {
-          threadContext = localCtx;
+          fallbackThreadContext = localCtx;
           return await buildStoppedAssistantMessage(responseUserMessage);
         }
 
@@ -10974,7 +10975,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           args: resolvedArgsWithThread,
         });
         if (await checkInterruptRequested()) {
-          threadContext = localCtx;
+          fallbackThreadContext = localCtx;
           return await buildStoppedAssistantMessage(responseUserMessage);
         }
         const cua = (exec as any).clientUiAction ?? null;
@@ -11017,11 +11018,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           localCtx,
         );
         if (await waitForInterruptGraceWindow({ enabled: shouldAllowInterruptGraceWindow })) {
-          threadContext = localCtx;
+          fallbackThreadContext = localCtx;
           return await buildStoppedAssistantMessage(responseUserMessage);
         }
         if (await checkInterruptRequested()) {
-          threadContext = localCtx;
+          fallbackThreadContext = localCtx;
           return await buildStoppedAssistantMessage(responseUserMessage);
         }
         const bulkExec = await executePortalAgentActionRaw({

@@ -493,7 +493,7 @@ function extractDirectBookingReminderSettingsIntent(prompt: string): DirectBooki
         const channel = String(match[1] || "").trim().toLowerCase();
         const value = Math.max(1, Number(match[2] || 0));
         const unit = normalizeReminderLeadUnit(String(match[3] || ""));
-        const kind = channel === "email" ? "EMAIL" : "SMS";
+        const kind: "EMAIL" | "SMS" = channel === "email" ? "EMAIL" : "SMS";
         const messageBody =
           kind === "EMAIL"
             ? "Hi {contactName}, this is a reminder that your appointment is scheduled for {when}. Please reply if you need to reschedule."

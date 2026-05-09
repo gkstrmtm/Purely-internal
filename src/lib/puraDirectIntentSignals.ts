@@ -1,4 +1,9 @@
 export type PuraDirectIntentContext = {
+  lastInboxThread?: { id?: string | null; label?: string | null; channel?: string | null } | null;
+  lastCanvasUrl?: string | null;
+  ownerTimeZone?: string | null;
+  viewerTimeZone?: string | null;
+  clientTimeZone?: string | null;
   lastNewsletter?: { id?: string | null; label?: string | null } | null;
   lastBlogPost?: { id?: string | null; label?: string | null } | null;
   lastLeadScrape?: {
