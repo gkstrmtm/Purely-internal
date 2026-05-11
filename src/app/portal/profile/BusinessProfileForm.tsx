@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
+import {
+  PortalMediaPickerModal,
+  type PortalMediaPickItem,
+} from "@/components/PortalMediaPickerModal";
 import { useToast } from "@/components/ToastProvider";
 import {
   assessBusinessProfileContextHealth,
@@ -103,6 +106,12 @@ type ApiBriefExtract = {
   error?: string;
 };
 
+type ApiMediaUpload = {
+  ok?: boolean;
+  error?: string;
+  items?: PortalMediaPickItem[];
+};
+
 type ClarificationQuestion = {
   question: string;
   reason: string;
@@ -116,6 +125,12 @@ type ApiClarify = {
   recommendedContext?: string;
   sourceSignature?: string;
   generatedAt?: string;
+};
+
+type ApiPolish = {
+  ok: boolean;
+  polished?: string;
+  error?: string;
 };
 
 const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
@@ -221,6 +236,13 @@ function resolveBillingUnitOption(cadence: string) {
   if (!normalized) return "";
   const match = COMMON_BILLING_UNITS.find((option) => option === normalized);
   return match ?? "custom";
+}
+
+function buildGuidedAnswerKey(
+  stageKey: BusinessProfilePathStageKey,
+  questionIndex: number,
+) {
+  return `${stageKey}:${questionIndex}`;
 }
 
 function buildPricingAnswer(input: {
@@ -764,16 +786,19 @@ export function BusinessProfileForm({
     useState<BusinessProfileGuidedIntake | null>(null);
   const [briefUploadBusy, setBriefUploadBusy] = useState(false);
   const [briefTextDraft, setBriefTextDraft] = useState("");
+  const [showBriefImporter, setShowBriefImporter] = useState(false);
   const [activeBriefStageIndex, setActiveBriefStageIndex] = useState(0);
   const [dictationSupported, setDictationSupported] = useState(false);
   const [dictating, setDictating] = useState(false);
   const [dictationError, setDictationError] = useState<string | null>(null);
+  const [polishBusyKey, setPolishBusyKey] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const dictationBaseRef = useRef("");
   const dictationStageKeyRef = useRef<BusinessProfilePathStageKey | null>(null);
   const dictationQuestionIndexRef = useRef<number>(0);
   const dictationLatestValueRef = useRef("");
   const businessNameRef = useRef<HTMLInputElement | null>(null);
+  const logoInputRef = useRef<HTMLInputElement | null>(null);
   const logoActionRef = useRef<HTMLButtonElement | null>(null);
   const targetCustomerRef = useRef<HTMLInputElement | null>(null);
   const brandVoiceRef = useRef<HTMLInputElement | null>(null);
@@ -798,6 +823,7 @@ export function BusinessProfileForm({
   const [hostedLinkHex, setHostedLinkHex] = useState("");
 
   const [logoBusy, setLogoBusy] = useState(false);
+  const [logoDragActive, setLogoDragActive] = useState(false);
   const [logoPickerOpen, setLogoPickerOpen] = useState(false);
 
   useEffect(() => {
@@ -1068,6 +1094,12 @@ export function BusinessProfileForm({
   const readyContextStageCount = contextStageReadiness.filter(
     (stage) => stage.complete,
   ).length;
+  const missingContextStageCount = Math.max(
+    contextStageReadiness.length - readyContextStageCount,
+    0,
+  );
+  const contextProfileComplete =
+    contextStageReadiness.length > 0 && missingContextStageCount === 0;
 
   useEffect(() => {
     setActiveBriefStageIndex((current) => {
@@ -1086,6 +1118,14 @@ export function BusinessProfileForm({
     : [];
   const activeBriefStageAnsweredCount = activeBriefStageAnswers.filter(Boolean)
     .length;
+  const previousBriefStage =
+    activeBriefStageIndex > 0
+      ? visibleBriefStages[activeBriefStageIndex - 1] ?? null
+      : null;
+  const nextBriefStage =
+    activeBriefStageIndex < visibleBriefStages.length - 1
+      ? visibleBriefStages[activeBriefStageIndex + 1] ?? null
+      : null;
 
   const currentSig = useMemo(
     () =>
@@ -1390,16 +1430,6 @@ export function BusinessProfileForm({
     await persistWorkspacePatch({ guidedIntake: nextGuidedIntake });
   }
 
-  async function refreshGuidedDraftsFromBriefing() {
-    if (readOnly || !briefing) return;
-    const nextGuidedIntake = buildBusinessProfileGuidedIntakeFromBriefing(
-      briefing,
-      null,
-    );
-    setGuidedIntake(nextGuidedIntake);
-    await persistWorkspacePatch({ guidedIntake: nextGuidedIntake });
-  }
-
   function applyBriefingToDirectFields(nextBriefing: BusinessProfileBriefing) {
     const nextDraft = buildProfileDraftPayload();
     let changed = false;
@@ -1512,6 +1542,8 @@ export function BusinessProfileForm({
           ),
       ),
     );
+    setShowBriefImporter(false);
+    setBriefTextDraft("");
     const nextDraft = applyBriefingToDirectFields(json.briefing);
     if (nextDraft) {
       await persistWorkspacePatch({ draftProfile: nextDraft });
@@ -1522,6 +1554,7 @@ export function BusinessProfileForm({
   async function clearBriefing() {
     if (readOnly) return;
     setBriefing(null);
+    setShowBriefImporter(false);
     await persistWorkspacePatch({ briefing: null });
   }
 
@@ -1550,15 +1583,21 @@ export function BusinessProfileForm({
     focusField(activeBriefTextareaRefs.current[questionIndex] ?? null);
   }
 
-  function handleContextStageClick(stageKey: BusinessProfilePathStageKey) {
-    const nextIndex = visibleBriefStages.findIndex((stage) => stage.key === stageKey);
-    if (nextIndex < 0) return;
-    setActiveBriefStageIndex(nextIndex);
+  function moveToBriefStage(nextIndex: number) {
+    if (!visibleBriefStages.length) return;
+    const safeIndex = Math.max(0, Math.min(visibleBriefStages.length - 1, nextIndex));
+    setActiveBriefStageIndex(safeIndex);
     if (typeof window !== "undefined") {
       window.setTimeout(() => {
         focusActiveBriefAnswer(0);
       }, 0);
     }
+  }
+
+  function handleContextStageClick(stageKey: BusinessProfilePathStageKey) {
+    const nextIndex = visibleBriefStages.findIndex((stage) => stage.key === stageKey);
+    if (nextIndex < 0) return;
+    moveToBriefStage(nextIndex);
   }
 
   useEffect(() => {
@@ -1639,6 +1678,64 @@ export function BusinessProfileForm({
     };
   }
 
+  async function persistLogoSelection(
+    nextLogoUrl: string,
+    successMessage: string,
+  ) {
+    const normalizedUrl = String(nextLogoUrl || "").trim();
+    if (!normalizedUrl) {
+      setError("The logo upload did not return a usable image URL.");
+      return false;
+    }
+
+    setLogoUrl(normalizedUrl);
+    const nextDraft = {
+      ...buildProfileDraftPayload(),
+      logoUrl: normalizedUrl,
+    };
+    const persisted = await persistWorkspacePatch({ draftProfile: nextDraft });
+    if (!persisted) return false;
+    toast.success(successMessage);
+    return true;
+  }
+
+  async function uploadLogoFile(file: File | null | undefined) {
+    if (readOnly || logoBusy || !file) return;
+    if (!String(file.type || "").toLowerCase().startsWith("image/")) {
+      setError("Upload an image file for the logo.");
+      return;
+    }
+
+    setLogoBusy(true);
+    setError(null);
+
+    try {
+      const fd = new FormData();
+      fd.append("files", file);
+      const up = await fetch("/api/portal/media/items", {
+        method: "POST",
+        body: fd,
+      });
+      const upBody = (await up.json().catch(() => ({}))) as ApiMediaUpload;
+      const firstItem = Array.isArray(upBody.items) ? upBody.items[0] : null;
+      const nextLogoUrl = String(
+        firstItem?.previewUrl || firstItem?.shareUrl || "",
+      ).trim();
+
+      if (!up.ok || upBody.ok !== true || !nextLogoUrl) {
+        setError(upBody.error ?? "Upload failed");
+        return;
+      }
+
+      await persistLogoSelection(nextLogoUrl, "Logo uploaded.");
+    } finally {
+      setLogoBusy(false);
+      if (logoInputRef.current) {
+        logoInputRef.current.value = "";
+      }
+    }
+  }
+
   async function runClarification() {
     if (readOnly || clarifying) return;
     setClarifying(true);
@@ -1671,6 +1768,56 @@ export function BusinessProfileForm({
       sourceSignature: String(json.sourceSignature || "").trim(),
       generatedAt: String(json.generatedAt || "").trim(),
     });
+  }
+
+  async function polishGuidedStageText(
+    stageKey: BusinessProfilePathStageKey,
+    questionIndex = 0,
+  ) {
+    if (readOnly || polishBusyKey) return;
+
+    const answer = getGuidedStageAnswers(stageKey)[questionIndex] || "";
+    if (!normalizeWhitespace(answer)) {
+      toast.error("Add or dictate some notes before using AI polish.");
+      return;
+    }
+
+    const busyKey = buildGuidedAnswerKey(stageKey, questionIndex);
+    setPolishBusyKey(busyKey);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/portal/business-profile/polish", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...buildProfileDraftPayload(),
+          guidedIntake,
+          stageKey,
+          questionIndex,
+          text: answer,
+        }),
+      });
+
+      const json = (await res.json().catch(() => ({}))) as ApiPolish;
+      if (!res.ok || !json.ok || typeof json.polished !== "string") {
+        throw new Error(json.error || "Unable to polish this answer");
+      }
+
+      const polished = normalizeWhitespace(json.polished);
+      if (!polished) {
+        throw new Error("AI polish returned an empty answer");
+      }
+
+      await persistGuidedStageText(stageKey, polished, questionIndex);
+      toast.success("Answer polished.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to polish this answer";
+      setError(message);
+    } finally {
+      setPolishBusyKey(null);
+    }
   }
 
   function stopDictation() {
@@ -1850,13 +1997,32 @@ export function BusinessProfileForm({
       <div
         className={
           (embedded ? "mt-3" : "mt-5") +
-          " rounded-3xl border border-zinc-200 bg-zinc-50/80 p-4 sm:p-5"
+          (contextProfileComplete
+            ? " rounded-3xl border border-emerald-200 bg-emerald-50/70 p-4 sm:p-5"
+            : " rounded-3xl border border-[rgba(29,78,216,0.18)] bg-[linear-gradient(135deg,rgba(239,246,255,0.96),rgba(255,255,255,0.98))] p-4 sm:p-5")
         }
       >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              Context
+            <div
+              className={[
+                "text-xs font-semibold uppercase tracking-[0.16em]",
+                contextProfileComplete ? "text-emerald-700" : "text-brand-ink",
+              ].join(" ")}
+            >
+              {contextProfileComplete ? "Profile context ready" : "Complete your profile"}
+            </div>
+            <div className="mt-2 text-base font-semibold text-zinc-900 sm:text-lg">
+              {contextProfileComplete
+                ? "Your business context is in good shape."
+                : missingContextStageCount === 1
+                  ? "One section still needs business detail before this profile feels complete."
+                  : `${missingContextStageCount} sections still need business detail before this profile feels complete.`}
+            </div>
+            <div className="mt-1 max-w-3xl text-sm leading-6 text-zinc-600">
+              {contextProfileComplete
+                ? "Keep these sections current so onboarding, AI behavior, and downstream service setup stay aligned with the latest business reality."
+                : "Fill in the sections below so onboarding, AI behavior, and generated assets have enough real business context to work from. If Pura learns this organically during onboarding, this area can still hydrate automatically."}
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
               {contextStageReadiness.map((stage) => {
@@ -1892,8 +2058,17 @@ export function BusinessProfileForm({
             </div>
           </div>
 
-          <div className="text-sm font-medium text-zinc-700 lg:pt-1">
-            Ready in {readyContextStageCount} of {contextStageReadiness.length} sections
+          <div
+            className={[
+              "inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold lg:pt-1",
+              contextProfileComplete
+                ? "bg-emerald-100 text-emerald-800"
+                : "bg-[rgba(29,78,216,0.08)] text-brand-ink ring-1 ring-inset ring-[rgba(29,78,216,0.12)]",
+            ].join(" ")}
+          >
+            {contextProfileComplete
+              ? `All ${contextStageReadiness.length} sections ready`
+              : `Ready in ${readyContextStageCount} of ${contextStageReadiness.length} sections`}
           </div>
         </div>
 
@@ -1922,71 +2097,109 @@ export function BusinessProfileForm({
       >
         <div className="sm:col-span-2">
           <label className="text-xs font-semibold text-zinc-600">Logo</label>
-          <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              <div className="h-12 w-12 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50">
-                {logoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={logoUrl}
-                    alt="Logo"
-                    className="h-full w-full object-cover"
-                  />
-                ) : null}
-              </div>
-              <div className="min-w-0">
-                <div className="truncate text-xs text-zinc-500">
-                  {logoUrl ? logoUrl : "No logo uploaded"}
+          <div
+            className={[
+              "mt-2 rounded-3xl border border-dashed p-4 transition-colors sm:p-5",
+              logoDragActive
+                ? "border-brand-ink bg-[rgba(29,78,216,0.04)]"
+                : "border-zinc-200 bg-white",
+            ].join(" ")}
+            onDragEnter={(e) => {
+              if (readOnly) return;
+              e.preventDefault();
+              setLogoDragActive(true);
+            }}
+            onDragOver={(e) => {
+              if (readOnly) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+              setLogoDragActive(true);
+            }}
+            onDragLeave={(e) => {
+              if (readOnly) return;
+              e.preventDefault();
+              setLogoDragActive(false);
+            }}
+            onDrop={(e) => {
+              if (readOnly) return;
+              e.preventDefault();
+              setLogoDragActive(false);
+              const droppedFile =
+                Array.from(e.dataTransfer.files || []).find((file) =>
+                  String(file.type || "").toLowerCase().startsWith("image/"),
+                ) ?? e.dataTransfer.files?.[0];
+              if (!droppedFile) {
+                setError("Drop an image file for the logo.");
+                return;
+              }
+              void uploadLogoFile(droppedFile);
+            }}
+          >
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              disabled={logoBusy || Boolean(readOnly)}
+              onChange={(e) => {
+                if (readOnly) return;
+                const file = e.target.files?.[0];
+                void uploadLogoFile(file);
+              }}
+            />
+
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50">
+                  {logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={logoUrl}
+                      alt="Logo"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400">
+                      Logo
+                    </span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-zinc-900">
+                    {logoUrl ? "Logo ready" : "Drop a logo here or upload one"}
+                  </div>
+                  <div className="mt-1 text-xs leading-5 text-zinc-500">
+                    {logoUrl
+                      ? logoUrl
+                      : "PNG, JPG, SVG, or WebP. Uploaded logos also land in your media library."}
+                  </div>
                 </div>
               </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  ref={logoActionRef}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
+                  onClick={() => {
+                    if (readOnly || logoBusy) return;
+                    logoInputRef.current?.click();
+                  }}
+                  disabled={logoBusy || Boolean(readOnly)}
+                >
+                  {logoBusy ? "Uploading…" : "Upload logo"}
+                </button>
+
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
+                  onClick={() => !readOnly && !logoBusy && setLogoPickerOpen(true)}
+                  disabled={logoBusy || Boolean(readOnly)}
+                >
+                  Choose from media library
+                </button>
+              </div>
             </div>
-
-            <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50">
-              {logoBusy ? "Uploading…" : "Upload"}
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={logoBusy || Boolean(readOnly)}
-                onChange={async (e) => {
-                  if (readOnly) return;
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  setLogoBusy(true);
-                  setError(null);
-                  try {
-                    const fd = new FormData();
-                    fd.set("file", file);
-                    const up = await fetch("/api/uploads", {
-                      method: "POST",
-                      body: fd,
-                    });
-                    const upBody = (await up.json().catch(() => ({}))) as {
-                      url?: string;
-                      error?: string;
-                    };
-                    if (!up.ok || !upBody.url) {
-                      setError(upBody.error ?? "Upload failed");
-                      return;
-                    }
-                    setLogoUrl(upBody.url);
-                  } finally {
-                    setLogoBusy(false);
-                    if (e.target) e.target.value = "";
-                  }
-                }}
-              />
-            </label>
-
-            <button
-              type="button"
-              ref={logoActionRef}
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
-              onClick={() => !readOnly && setLogoPickerOpen(true)}
-              disabled={Boolean(readOnly)}
-            >
-              Choose from media library
-            </button>
           </div>
         </div>
 
@@ -1996,7 +2209,7 @@ export function BusinessProfileForm({
           confirmLabel="Use"
           onClose={() => setLogoPickerOpen(false)}
           onPick={(item) => {
-            setLogoUrl(item.shareUrl);
+            void persistLogoSelection(item.shareUrl, "Logo selected.");
             setLogoPickerOpen(false);
           }}
         />
@@ -2154,7 +2367,7 @@ export function BusinessProfileForm({
                   disabled={clarifying}
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
                 >
-                  {clarifying ? "Running clarification…" : "Clarification run"}
+                  {clarifying ? "Finding missing details…" : "Find missing details"}
                 </button>
               </div>
             ) : null}
@@ -2164,46 +2377,93 @@ export function BusinessProfileForm({
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                  Business brief
+                  Optional import
                 </div>
                 <div className="mt-1 text-sm text-zinc-700">
-                  Upload one business document or type directly into the
-                  sections below.
+                  Most operators should just answer the sections below. Use a brief only if you already have a document worth importing.
                 </div>
               </div>
 
-              {!readOnly ? (
-                <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                  {briefing ? (
-                    <>
-                      <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 font-semibold text-zinc-700">
-                        {briefing.sourceName || "Imported brief"}
-                      </span>
-                      <span>
-                        {new Date(briefing.generatedAt).toLocaleString()}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={clearBriefing}
-                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink transition-colors hover:border-zinc-300 hover:bg-zinc-50"
-                      >
-                        Remove source
-                      </button>
-                    </>
-                  ) : (
-                    <span>No business document attached yet.</span>
-                  )}
-                </div>
-              ) : null}
+              <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                {briefing ? (
+                  <span>
+                    {briefing.generatedAt
+                      ? `Updated ${new Date(briefing.generatedAt).toLocaleString()}`
+                      : "Brief added"}
+                  </span>
+                ) : (
+                  <span>No document attached.</span>
+                )}
+                {!readOnly ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowBriefImporter((current) => !current)}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+                  >
+                    {showBriefImporter
+                      ? "Close"
+                      : briefing
+                        ? "Change brief"
+                        : "Add brief"}
+                  </button>
+                ) : null}
+              </div>
             </div>
 
-            {!readOnly ? (
+            {briefing ? (
+              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 px-4 py-3 text-sm text-zinc-700">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Imported brief
+                    </div>
+                    <div className="mt-2 max-w-3xl text-sm leading-6 text-zinc-700">
+                      {autoFilledVisibleStageCount > 0
+                        ? `This import drafted ${autoFilledVisibleStageCount} of ${visibleBriefStages.length} sections. Keep editing below to add nuance or correct wording.`
+                        : "This import did not draft section answers yet. Add the missing operational detail below."}
+                    </div>
+                  </div>
+
+                  {!readOnly ? (
+                    <div className="flex flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => void clearBriefing()}
+                        aria-label="Remove imported brief"
+                        title="Remove imported brief"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 transition-colors hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-700"
+                      >
+                        <svg
+                          viewBox="0 0 20 20"
+                          fill="none"
+                          aria-hidden="true"
+                          className="h-4 w-4"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M4.5 6.5h11" />
+                          <path d="M8 4.5h4" />
+                          <path d="M7 8.5v6" />
+                          <path d="M10 8.5v6" />
+                          <path d="M13 8.5v6" />
+                          <path d="M5.5 6.5l.6 8.1A1.5 1.5 0 0 0 7.6 16h4.8a1.5 1.5 0 0 0 1.5-1.4l.6-8.1" />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {!readOnly && showBriefImporter ? (
               <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="text-xs font-semibold text-zinc-600">
-                        Paste business notes
+                        Import a brief or paste notes
                       </div>
                       <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink transition-colors hover:border-zinc-300 hover:bg-zinc-50">
                         <svg
@@ -2240,14 +2500,12 @@ export function BusinessProfileForm({
                       </label>
                     </div>
                     <div className="mt-1 text-xs leading-5 text-zinc-500">
-                      Paste a business brief, intake note, questionnaire, or
-                      operating summary. Importing will prefill the sections
-                      below and also fill any empty basics above.
+                      Bring in a strategy brief, intake note, questionnaire, or operating summary if you already have one. Otherwise skip this and fill the sections directly.
                     </div>
                     <textarea
                       value={briefTextDraft}
                       onChange={(e) => setBriefTextDraft(e.target.value)}
-                      rows={5}
+                      rows={4}
                       className="mt-3 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm leading-6 outline-none focus:border-zinc-300"
                       placeholder="Paste the business document or raw company context here if you do not want to upload a file."
                     />
@@ -2260,68 +2518,21 @@ export function BusinessProfileForm({
                       disabled={briefUploadBusy || !briefTextDraft.trim()}
                       className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-2.5 text-xs font-semibold text-zinc-800 transition-colors hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
                     >
-                      {briefUploadBusy ? "Extracting..." : "Extract brief"}
+                      {briefUploadBusy ? "Using notes..." : "Use pasted notes"}
                     </button>
                     <div className="text-xs leading-5 text-zinc-500">
                       PDF, DOCX, TXT, and Markdown.
                     </div>
                   </div>
                 </div>
-
-                {briefing ? (
-                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                          Imported brief
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 font-semibold text-zinc-700">
-                            {briefing.sourceName || "Imported brief"}
-                          </span>
-                          {briefing.generatedAt ? (
-                            <span>
-                              Updated {new Date(briefing.generatedAt).toLocaleString()}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="mt-2 max-w-3xl text-sm leading-6 text-zinc-700">
-                          {autoFilledVisibleStageCount > 0
-                            ? `This import drafted ${autoFilledVisibleStageCount} of ${visibleBriefStages.length} sections. Keep editing below to add nuance or correct wording.`
-                            : "This import did not draft section answers yet. Add the missing operational detail below."}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
-                        {!readOnly ? (
-                          <button
-                            type="button"
-                            onClick={() => void refreshGuidedDraftsFromBriefing()}
-                            className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
-                          >
-                            Refresh section drafts
-                          </button>
-                        ) : null}
-                        {!readOnly ? (
-                          <button
-                            type="button"
-                            onClick={() => void clearBriefing()}
-                            className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
-                          >
-                            Remove import
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
               </div>
             ) : null}
 
             <div className="mt-5 space-y-4">
               <div className="overflow-x-auto pb-1">
-                <div className="flex min-w-max gap-2">
-                  {visibleBriefStages.map((stage, index) => {
+                <div className="flex min-w-max items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    {visibleBriefStages.map((stage) => {
                     const stageText = joinGuidedStageAnswers(
                       guidedIntake?.[stage.key],
                     );
@@ -2330,7 +2541,7 @@ export function BusinessProfileForm({
                       <button
                         key={stage.key}
                         type="button"
-                        onClick={() => setActiveBriefStageIndex(index)}
+                        onClick={() => handleContextStageClick(stage.key)}
                         className={[
                           "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors",
                           isActive
@@ -2349,10 +2560,32 @@ export function BusinessProfileForm({
                         />
                       </button>
                     );
-                  })}
+                    })}
+                  </div>
+
+                  {visibleBriefStages.length > 1 ? (
+                    <div className="ml-auto flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => moveToBriefStage(activeBriefStageIndex - 1)}
+                        disabled={!previousBriefStage}
+                        className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-40"
+                      >
+                        &lt; Previous
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveToBriefStage(activeBriefStageIndex + 1)}
+                        disabled={!nextBriefStage}
+                        className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-40"
+                      >
+                        Next &gt;
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="mt-2 text-xs text-zinc-500">
-                  Green means saved context already exists for that section.
+                  Green means saved context already exists for that section. Use the pills to jump, or move in order with Previous and Next.
                 </div>
               </div>
 
@@ -2382,38 +2615,6 @@ export function BusinessProfileForm({
                       >
                         {activeBriefStageText ? "Filled" : "Needs detail"}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setActiveBriefStageIndex((current) =>
-                            Math.max(0, current - 1),
-                          )
-                        }
-                        disabled={activeBriefStageIndex === 0}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-white text-sm font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-40"
-                        aria-label="Previous section"
-                      >
-                        &lt;
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setActiveBriefStageIndex((current) =>
-                            Math.min(
-                              visibleBriefStages.length - 1,
-                              current + 1,
-                            ),
-                          )
-                        }
-                        disabled={
-                          activeBriefStageIndex ===
-                          visibleBriefStages.length - 1
-                        }
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-white text-sm font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-40"
-                        aria-label="Next section"
-                      >
-                        &gt;
-                      </button>
                     </div>
                   </div>
 
@@ -2463,6 +2664,9 @@ export function BusinessProfileForm({
                         dictating &&
                         dictationStageKeyRef.current === activeBriefStage.key &&
                         dictationQuestionIndexRef.current === index;
+                      const isPolishingThisAnswer =
+                        polishBusyKey ===
+                        buildGuidedAnswerKey(activeBriefStage.key, index);
                       return (
                         <div
                           key={`${activeBriefStage.key}-answer-${index}`}
@@ -2479,40 +2683,65 @@ export function BusinessProfileForm({
                             </div>
 
                             {!readOnly ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  startDictation(activeBriefStage.key, index)
-                                }
-                                disabled={!dictationSupported && !dictating}
-                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-zinc-400 ring-1 ring-inset ring-zinc-200 transition-colors hover:text-brand-ink hover:ring-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
-                                title={
-                                  dictationSupported
-                                    ? isDictatingThisAnswer
-                                      ? "Stop dictation"
-                                      : "Start dictation for this answer"
-                                    : "Speech-to-text is not available in this browser"
-                                }
-                                aria-label={
-                                  isDictatingThisAnswer ? "Stop dictation" : "Start dictation"
-                                }
-                              >
-                                <svg
-                                  viewBox="0 0 20 20"
-                                  fill="none"
-                                  aria-hidden="true"
-                                  className="h-4 w-4 stroke-current"
-                                  strokeWidth="1.8"
+                              <div className="flex shrink-0 items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void polishGuidedStageText(
+                                      activeBriefStage.key,
+                                      index,
+                                    )
+                                  }
+                                  disabled={Boolean(polishBusyKey) || !normalizeWhitespace(answer)}
+                                  className="inline-flex items-center justify-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
                                 >
-                                  <path d="M10 3.5a2.5 2.5 0 0 1 2.5 2.5v4a2.5 2.5 0 0 1-5 0V6A2.5 2.5 0 0 1 10 3.5Z" />
-                                  <path
-                                    d="M5.5 9.5a4.5 4.5 0 0 0 9 0"
-                                    strokeLinecap="round"
-                                  />
-                                  <path d="M10 14v2.5" strokeLinecap="round" />
-                                  <path d="M7.5 16.5h5" strokeLinecap="round" />
-                                </svg>
-                              </button>
+                                  <svg
+                                    viewBox="0 0 20 20"
+                                    fill="none"
+                                    aria-hidden="true"
+                                    className="h-3.5 w-3.5 stroke-current"
+                                    strokeWidth="1.7"
+                                  >
+                                    <path d="M10 2.5l1.2 3.3 3.3 1.2-3.3 1.2L10 11.5 8.8 8.2 5.5 7l3.3-1.2L10 2.5Z" strokeLinejoin="round" />
+                                    <path d="M15.5 11.5l.8 2.1 2.2.8-2.2.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8.8-2.1Z" strokeLinejoin="round" />
+                                  </svg>
+                                  <span>{isPolishingThisAnswer ? "Polishing..." : "AI polish"}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    startDictation(activeBriefStage.key, index)
+                                  }
+                                  disabled={!dictationSupported && !dictating}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white text-zinc-400 ring-1 ring-inset ring-zinc-200 transition-colors hover:text-brand-ink hover:ring-zinc-300 disabled:cursor-not-allowed disabled:opacity-40"
+                                  title={
+                                    dictationSupported
+                                      ? isDictatingThisAnswer
+                                        ? "Stop dictation"
+                                        : "Start dictation for this answer"
+                                      : "Speech-to-text is not available in this browser"
+                                  }
+                                  aria-label={
+                                    isDictatingThisAnswer ? "Stop dictation" : "Start dictation"
+                                  }
+                                >
+                                  <svg
+                                    viewBox="0 0 20 20"
+                                    fill="none"
+                                    aria-hidden="true"
+                                    className="h-4 w-4 stroke-current"
+                                    strokeWidth="1.8"
+                                  >
+                                    <path d="M10 3.5a2.5 2.5 0 0 1 2.5 2.5v4a2.5 2.5 0 0 1-5 0V6A2.5 2.5 0 0 1 10 3.5Z" />
+                                    <path
+                                      d="M5.5 9.5a4.5 4.5 0 0 0 9 0"
+                                      strokeLinecap="round"
+                                    />
+                                    <path d="M10 14v2.5" strokeLinecap="round" />
+                                    <path d="M7.5 16.5h5" strokeLinecap="round" />
+                                  </svg>
+                                </button>
+                              </div>
                             ) : null}
                           </div>
 
@@ -2577,20 +2806,51 @@ export function BusinessProfileForm({
                     })}
                   </div>
 
+                  <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-[0_1px_0_rgba(15,23,42,0.03)] ring-1 ring-inset ring-zinc-200/80 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-sm leading-6 text-zinc-600">
+                      {nextBriefStage
+                        ? activeBriefStageAnsweredCount ===
+                          activeBriefStage.questions.length
+                          ? `Ready for the next section: ${nextBriefStage.label}.`
+                          : `Next up: ${nextBriefStage.label}. Finish this section or move ahead now.`
+                        : "You are on the last section. Review the answers here, then save when the business profile feels right."}
+                    </div>
+                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => moveToBriefStage(activeBriefStageIndex - 1)}
+                        disabled={!previousBriefStage}
+                        className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-40"
+                      >
+                        Previous section
+                      </button>
+                      {nextBriefStage ? (
+                        <button
+                          type="button"
+                          onClick={() => moveToBriefStage(activeBriefStageIndex + 1)}
+                          className="inline-flex items-center justify-center rounded-full bg-brand-ink px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-brand-ink/90"
+                        >
+                          Continue to {nextBriefStage.label}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+
                   <div className="mt-2 text-xs text-zinc-500">
                     {dictating
                       ? "Listening for this answer now."
                       : dictationSupported
-                        ? "Use the mic on any question to dictate into that specific answer."
+                        ? "Use the mic on any question to talk freely, then use AI polish if you want the answer tightened up."
                         : "Speech-to-text depends on browser support and microphone permission."}
                   </div>
                 </div>
               ) : null}
 
               <div className="rounded-2xl bg-stone-50/90 px-4 py-3 text-xs leading-5 text-zinc-600 ring-1 ring-inset ring-stone-200/80">
-                These sections are your editable business source of truth.
-                Upload can draft them, but the saved values are whatever you
-                leave in the fields.
+                These sections are the editable source of truth for the business.
+                Upload can draft them, but you can also dictate rough notes,
+                polish them, and move section to section until the saved answers
+                say exactly what you mean.
               </div>
             </div>
           </div>
@@ -2606,14 +2866,14 @@ export function BusinessProfileForm({
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">
-                    Clarification run
+                    Missing details review
                   </div>
                   <div className="mt-1 text-xs text-zinc-500">
                     {clarification?.sourceSignature &&
                     clarification.sourceSignature !==
                       clarificationSourceSignature
-                      ? "Saved from an earlier draft. Run clarification again if you want it to reflect your latest profile changes."
-                      : "Saved to this workspace from the current profile draft and designed to sharpen downstream AI outputs."}
+                      ? "Saved from an earlier draft. Run this again if you want it to reflect your latest profile changes."
+                      : "Saved to this workspace from the current profile draft so you can tighten missing context before saving."}
                   </div>
                 </div>
 
@@ -3186,9 +3446,9 @@ export function BusinessProfileForm({
           </div>
         )}
         <div className="text-xs text-zinc-500 sm:self-center">
-          We use this to personalize onboarding and content. Clarification runs
-          keep a workspace draft, while Save commits it to the shared business
-          profile.
+          We use this to personalize onboarding and content. Missing-details
+          review stays in this workspace draft, while Save commits it to the
+          shared business profile.
         </div>
       </div>
     </>
