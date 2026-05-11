@@ -196,6 +196,30 @@ const directActionCases = [
     expectArgs: { settings: { greeting: "Hello, you've reached Purely Automation. We can help schedule appointments and answer service questions." } },
   },
   {
+    label: "singular task lookup query",
+    prompt: "Tell me which task is about Mike Rivera.",
+    expectAction: "tasks.list",
+    expectArgs: { q: "Mike Rivera", status: "ALL" },
+  },
+  {
+    label: "contact details lookup query",
+    prompt: "Show me the important details you have on Sarah Miller.",
+    expectAction: "contacts.list",
+    expectArgs: { q: "Sarah Miller", limit: 10 },
+  },
+  {
+    label: "owner update audit bundle",
+    prompt: "Give me a quick owner update on the demo account.",
+    expectAction: "dashboard.analysis.get",
+    expectSteps: ["dashboard.analysis.get", "reporting.summary.get", "services.status.get", "tasks.list", "inbox.threads.list", "reviews.inbox.list"],
+  },
+  {
+    label: "service usage audit bundle",
+    prompt: "Which services in this account look least active or least set up right now? Keep it blunt and specific.",
+    expectAction: "services.status.get",
+    expectSteps: ["services.status.get", "services.catalog.get", "reporting.summary.get"],
+  },
+  {
     label: "weekly recurring plus start now",
     prompt: "Once a week create a newsletter called Pura Quality Smoke Weekly for an online guru audience and start now.",
     expectAction: "ai_chat.scheduled.create",

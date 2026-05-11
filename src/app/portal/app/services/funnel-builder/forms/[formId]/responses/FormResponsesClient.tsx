@@ -10,7 +10,6 @@ import {
   shortSubmissionId,
   type CreditFormField,
 } from "@/lib/creditFormSchema";
-import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type CreditForm = {
   id: string;
@@ -126,8 +125,6 @@ function prettyJson(value: unknown): string {
 
 export function FormResponsesClient({ basePath, formId }: { basePath: string; formId: string }) {
   const backHref = useMemo(() => `${basePath}/app/services/funnel-builder`, [basePath]);
-  const portalVariant = useMemo(() => (basePath.startsWith("/credit") ? "credit" : "portal"), [basePath]);
-  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const [form, setForm] = useState<CreditForm | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -169,11 +166,11 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
   }, [fallbackKeys, questionFields]);
 
   const loadForm = useCallback(async () => {
-    const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { cache: "no-store", headers: variantHeaders });
+    const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { cache: "no-store" });
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load form");
     setForm(json.form as CreditForm);
-  }, [formId, variantHeaders]);
+  }, [formId]);
 
   const loadSubmissions = useCallback(
     async (opts?: { cursor?: string | null }) => {
@@ -182,7 +179,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
       url.searchParams.set("limit", String(limit));
       if (opts?.cursor) url.searchParams.set("cursor", opts.cursor);
 
-      const res = await fetch(url.toString(), { cache: "no-store", headers: variantHeaders });
+      const res = await fetch(url.toString(), { cache: "no-store" });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load submissions");
 
@@ -190,7 +187,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
       setSubmissions(page);
       setNextCursor(typeof json.nextCursor === "string" ? json.nextCursor : null);
     },
-    [formId, variantHeaders],
+    [formId],
   );
 
   const openSubmission = useCallback(
@@ -204,7 +201,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
       try {
         const res = await fetch(
           `/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}/submissions/${encodeURIComponent(submissionId)}`,
-          { cache: "no-store", headers: variantHeaders },
+          { cache: "no-store" },
         );
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load submission");
@@ -215,7 +212,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
         setSelectedBusy(false);
       }
     },
-    [formId, variantHeaders],
+    [formId],
   );
 
   const exportCsv = useCallback(async () => {
@@ -235,7 +232,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
         url.searchParams.set("limit", String(limit));
         if (cursorLocal) url.searchParams.set("cursor", cursorLocal);
 
-        const res = await fetch(url.toString(), { cache: "no-store", headers: variantHeaders });
+        const res = await fetch(url.toString(), { cache: "no-store" });
         const json = (await res.json().catch(() => null)) as any;
         if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to export CSV");
 
@@ -279,7 +276,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
     } finally {
       setExporting(false);
     }
-  }, [exporting, form?.slug, formId, tableColumns, variantHeaders]);
+  }, [exporting, form?.slug, formId, tableColumns]);
 
   useEffect(() => {
     let mounted = true;
@@ -599,7 +596,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
                 <button
                   type="button"
                   onClick={() => setDrawerOpen(false)}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-sm font-semibold text-zinc-700 shadow-[0_10px_24px_rgba(15,23,42,0.1)] hover:bg-white"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                   aria-label="Close details"
                   title="Close"
                 >

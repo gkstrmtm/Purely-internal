@@ -10,6 +10,8 @@ type FunnelPageBlockSnapshotInput = {
   blocks: CreditFunnelBlock[];
   pageId: string;
   ownerId: string;
+  bookingSiteSlug?: string;
+  defaultBookingCalendarId?: string;
   basePath: string;
   title: string;
 };
@@ -28,6 +30,13 @@ export function getFunnelPageDraftHtml(page: FunnelPageHtmlState | null | undefi
 
 export function hasFunnelPageDraft(page: FunnelPageHtmlState | null | undefined): boolean {
   return getFunnelPageDraftHtml(page).trim().length > 0;
+}
+
+export function isFunnelPageDraftNewerThanLive(page: FunnelPageHtmlState | null | undefined): boolean {
+  const draft = getFunnelPageDraftHtml(page).trim();
+  if (!draft) return false;
+  const published = getFunnelPagePublishedHtml(page).trim();
+  return draft !== published;
 }
 
 export function getFunnelPageCurrentHtml(page: FunnelPageHtmlState | null | undefined): string {
@@ -53,6 +62,8 @@ export function createFunnelPageBlockSnapshotUpdate(input: FunnelPageBlockSnapsh
     blocks: input.blocks,
     pageId: input.pageId,
     ownerId: input.ownerId,
+    bookingSiteSlug: input.bookingSiteSlug,
+    defaultBookingCalendarId: input.defaultBookingCalendarId,
     basePath: input.basePath,
     title: input.title,
   });

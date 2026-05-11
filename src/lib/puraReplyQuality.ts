@@ -90,7 +90,7 @@ export function cleanPuraGeneratedReply(raw: string, opts: PuraReplyQualityOptio
       .join("\n")
     .replace(/[“”]/g, '"')
     .replace(/[’]/g, "'")
-    .replace(/[—–]/g, "-")
+    .replace(/[\u2014\u2013]/g, "-")
     .replace(/^([^\n:.]{0,80}here(?:'|’)s what you have:)\s*$/gim, "")
     .replace(/^([^\n:.]{0,100}here are the calls that went through:)\s*$/gim, "")
     .replace(/^([^\n:.]{0,100}here are their names:)\s*$/gim, "")

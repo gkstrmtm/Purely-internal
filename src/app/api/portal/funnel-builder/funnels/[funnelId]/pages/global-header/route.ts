@@ -10,6 +10,8 @@ import {
   normalizeDraftHtmlList,
   withDraftHtmlSelect,
 } from "@/lib/funnelPageDbCompat";
+import { getCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSettingsStore";
+import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
 import { createFunnelPageBlockSnapshotUpdate } from "@/lib/funnelPageState";
 
 export const dynamic = "force-dynamic";
@@ -93,6 +95,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   if (!funnel) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
   const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
+  const settings = await getCreditFunnelBuilderSettings(auth.session.user.id).catch(() => ({}));
+  const defaultBookingCalendarId = readFunnelBookingRouting(settings, funnelId)?.calendarId ?? undefined;
 
   const pages = await prisma.creditFunnelPage.findMany({
     where: { funnelId },
@@ -131,6 +135,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         blocks: nextBlocks,
         pageId: p.id,
         ownerId: auth.session.user.id,
+        defaultBookingCalendarId,
         basePath,
         title: p.title || "Funnel page",
       });
@@ -178,6 +183,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       blocks: nextBlocks,
       pageId: p.id,
       ownerId: auth.session.user.id,
+      defaultBookingCalendarId,
       basePath,
       title: p.title || "Funnel page",
     });

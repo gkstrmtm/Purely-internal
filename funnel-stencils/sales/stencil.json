@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "stencilId": "sales",
+  "funnelType": "sales",
+  "title": "Sales Funnel Stencil",
+  "conversionGoal": "Move qualified visitors from offer interest to pricing, checkout, and confirmed purchase.",
+  "notes": [
+    "Normalized from multi-section SaaS marketing templates with separate offer and checkout surfaces.",
+    "Proof, features, pricing, FAQ, and guarantee are preserved as structure only.",
+    "Branded media, premium-theme styling, and dynamic carousel behavior were removed."
+  ],
+  "sources": [
+    {
+      "repository": "cruip/open-react-template",
+      "path": "app/(default)/page.tsx",
+      "notes": "Confirmed hero, workflows, features, testimonials, and CTA sequencing for offer-led pages.",
+      "patterns": ["hero", "features", "testimonials", "cta"]
+    },
+    {
+      "repository": "Blazity/next-saas-starter",
+      "path": "pages/pricing.tsx",
+      "notes": "Added explicit pricing-table and FAQ page structure.",
+      "patterns": ["pricing", "faq"]
+    },
+    {
+      "repository": "PageAI-Pro/page-ui",
+      "path": "components/landing/pricing/LandingPricingSection.tsx",
+      "notes": "Expanded normalized pricing-plan, comparison, and sale CTA archetypes.",
+      "patterns": ["pricing plan", "comparison", "sale cta"]
+    }
+  ],
+  "placeholderTokens": [
+    { "token": "{{sales.hero.headline}}", "category": "content", "description": "Primary offer headline.", "required": true },
+    { "token": "{{sales.proof.items[0].label}}", "category": "content", "description": "Proof or metric label.", "required": true },
+    { "token": "{{sales.features.items[0].title}}", "category": "content", "description": "Feature title.", "required": true },
+    { "token": "{{sales.pricing.plans[0].price}}", "category": "pricing", "description": "Offer price for a plan or package.", "required": true },
+    { "token": "{{sales.checkout.fields[0].label}}", "category": "checkout", "description": "Checkout field label.", "required": true },
+    { "token": "{{sales.confirmation.heading}}", "category": "confirmation", "description": "Confirmation heading after purchase.", "required": true }
+  ],
+  "sections": [
+    { "id": "hero", "name": "Hero", "archetype": "hero", "purpose": "State the sales offer and push the visitor into the offer flow.", "placeholderTokens": ["{{sales.hero.headline}}", "{{sales.hero.primaryCta.label}}"] },
+    { "id": "proof-strip", "name": "ProofStrip", "archetype": "proof", "purpose": "Provide immediate authority and trust markers.", "placeholderTokens": ["{{sales.proof.items[0].label}}", "{{sales.proof.items[1].label}}", "{{sales.proof.items[2].label}}"] },
+    { "id": "benefits-section", "name": "BenefitsSection", "archetype": "features", "purpose": "Translate the offer into business outcomes.", "placeholderTokens": ["{{sales.benefits.heading}}", "{{sales.benefits.columns[0].items[0]}}"] },
+    { "id": "feature-grid", "name": "FeatureGrid", "archetype": "features", "purpose": "Break the offer into concrete components or capabilities.", "placeholderTokens": ["{{sales.features.heading}}", "{{sales.features.items[0].title}}"] },
+    { "id": "testimonial-grid", "name": "TestimonialGrid", "archetype": "testimonials", "purpose": "Support the offer with customer proof.", "placeholderTokens": ["{{sales.testimonials.heading}}", "{{sales.testimonials.items[0].quote}}"] },
+    { "id": "pricing-table", "name": "PricingTable", "archetype": "pricing", "purpose": "Show the package or tier options available to buy.", "placeholderTokens": ["{{sales.pricing.heading}}", "{{sales.pricing.plans[0].price}}"] },
+    { "id": "faq-section", "name": "FAQSection", "archetype": "faq", "purpose": "Handle objections before purchase.", "placeholderTokens": ["{{sales.faq.heading}}", "{{sales.faq.items[0].question}}"] },
+    { "id": "guarantee-section", "name": "GuaranteeSection", "archetype": "guarantee", "purpose": "Reduce perceived purchase risk.", "placeholderTokens": ["{{sales.guarantee.heading}}", "{{sales.guarantee.detail}}"] },
+    { "id": "checkout-panel", "name": "CheckoutPanel", "archetype": "checkout", "purpose": "Capture buyer details and confirm order summary.", "placeholderTokens": ["{{sales.checkout.heading}}", "{{sales.checkout.fields[0].label}}", "{{sales.checkout.ctaLabel}}"] },
+    { "id": "confirmation-panel", "name": "ConfirmationPanel", "archetype": "confirmation", "purpose": "Confirm the order and set delivery expectations.", "placeholderTokens": ["{{sales.confirmation.heading}}", "{{sales.confirmation.detailBody}}"] },
+    { "id": "next-step-panel", "name": "NextStepPanel", "archetype": "next_step", "purpose": "Route the buyer into onboarding or the next conversion step.", "placeholderTokens": ["{{sales.nextStep.heading}}", "{{sales.nextStep.ctaLabel}}"] },
+    { "id": "cta-section", "name": "CTASection", "archetype": "cta", "purpose": "Repeat the main conversion action on the landing surface.", "placeholderTokens": ["{{sales.cta.heading}}", "{{sales.cta.label}}"] }
+  ],
+  "pages": [
+    { "id": "landing", "name": "LandingPage", "goal": "Move the visitor from interest into the offer evaluation flow.", "sections": ["hero", "proof-strip", "benefits-section", "feature-grid", "testimonial-grid", "cta-section"], "entry": true },
+    { "id": "offer", "name": "OfferPage", "goal": "Present pricing, guarantee, and objections handling before checkout.", "sections": ["pricing-table", "guarantee-section", "faq-section"] },
+    { "id": "checkout", "name": "CheckoutPage", "goal": "Collect buyer details and complete the purchase.", "sections": ["checkout-panel"] },
+    { "id": "thank-you", "name": "ThankYouPage", "goal": "Confirm purchase and route into onboarding or delivery.", "sections": ["confirmation-panel", "next-step-panel"], "terminal": true }
+  ],
+  "optionalSections": ["proof-strip", "testimonial-grid", "faq-section", "guarantee-section"]
+}

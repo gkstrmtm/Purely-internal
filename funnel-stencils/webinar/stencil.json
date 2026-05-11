@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "stencilId": "webinar",
+  "funnelType": "webinar",
+  "title": "Webinar Funnel Stencil",
+  "conversionGoal": "Turn interest into webinar registrations and confirm the follow-up actions after signup.",
+  "notes": [
+    "Normalized from hero, agenda, speaker, proof, and registration-form patterns found across the researched template set.",
+    "Speaker credibility and agenda clarity are preserved as first-class structures because they are central to webinar conversion.",
+    "The registration surface remains a neutral form shell rather than a branded event page."
+  ],
+  "sources": [
+    {
+      "repository": "cruip/open-react-template",
+      "path": "app/(default)/page.tsx",
+      "notes": "Confirmed the landing-page sequencing for hero, features, proof, and CTA sections.",
+      "patterns": ["hero", "features", "testimonials", "cta"]
+    },
+    {
+      "repository": "PageAI-Pro/page-ui",
+      "path": "templates/landing-page-templates/template/front-centre/front-centre.tsx",
+      "notes": "Confirmed video- and education-style landing structures with proof, features grid, and sale CTA patterns.",
+      "patterns": ["video cta", "band", "feature grid", "testimonials"]
+    },
+    {
+      "repository": "Blazity/next-saas-starter",
+      "path": "views/HomePage/Hero.tsx",
+      "notes": "Added CTA-led hero structure suitable for event registration entry surfaces.",
+      "patterns": ["hero", "cta"]
+    }
+  ],
+  "placeholderTokens": [
+    { "token": "{{webinar.hero.headline}}", "category": "content", "description": "Webinar promise headline.", "required": true },
+    { "token": "{{webinar.speakers.items[0].name}}", "category": "webinar", "description": "Speaker name.", "required": true },
+    { "token": "{{webinar.agenda.items[0].label}}", "category": "webinar", "description": "Agenda item label.", "required": true },
+    { "token": "{{webinar.registration.ctaLabel}}", "category": "form", "description": "Registration submit CTA.", "required": true }
+  ],
+  "sections": [
+    { "id": "hero", "name": "Hero", "archetype": "hero", "purpose": "State the webinar promise and point to registration.", "placeholderTokens": ["{{webinar.hero.headline}}", "{{webinar.hero.primaryCta.label}}"] },
+    { "id": "speaker-strip", "name": "SpeakerStrip", "archetype": "proof", "purpose": "Show speaker credibility and fit.", "placeholderTokens": ["{{webinar.speakers.heading}}", "{{webinar.speakers.items[0].name}}"] },
+    { "id": "webinar-agenda", "name": "WebinarAgenda", "archetype": "webinar_agenda", "purpose": "Break the session into clear agenda segments.", "placeholderTokens": ["{{webinar.agenda.heading}}", "{{webinar.agenda.items[0].label}}"] },
+    { "id": "takeaway-grid", "name": "TakeawayGrid", "archetype": "features", "purpose": "Clarify what attendees will learn or leave with.", "placeholderTokens": ["{{webinar.takeaways.heading}}", "{{webinar.takeaways.items[0].title}}"] },
+    { "id": "proof-strip", "name": "ProofStrip", "archetype": "proof", "purpose": "Add attendee, partner, or outcome proof.", "placeholderTokens": ["{{webinar.proof.items[0].label}}"] },
+    { "id": "registration-form", "name": "RegistrationForm", "archetype": "form", "purpose": "Capture registration details needed for the event.", "placeholderTokens": ["{{webinar.registration.heading}}", "{{webinar.registration.fields[0].label}}", "{{webinar.registration.ctaLabel}}"] },
+    { "id": "cta-section", "name": "CTASection", "archetype": "cta", "purpose": "Repeat registration intent on the landing page.", "placeholderTokens": ["{{webinar.cta.heading}}", "{{webinar.cta.label}}"] },
+    { "id": "confirmation-panel", "name": "ConfirmationPanel", "archetype": "confirmation", "purpose": "Confirm webinar registration and set reminder expectations.", "placeholderTokens": ["{{webinar.confirmation.heading}}", "{{webinar.confirmation.detailBody}}"] },
+    { "id": "next-step-panel", "name": "NextStepPanel", "archetype": "next_step", "purpose": "Route registrants into reminder, calendar, or prep actions.", "placeholderTokens": ["{{webinar.nextStep.heading}}", "{{webinar.nextStep.ctaLabel}}"] }
+  ],
+  "pages": [
+    { "id": "landing", "name": "LandingPage", "goal": "Convince visitors to register for the webinar.", "sections": ["hero", "speaker-strip", "webinar-agenda", "takeaway-grid", "proof-strip", "cta-section"], "entry": true },
+    { "id": "registration", "name": "RegistrationPage", "goal": "Capture registrant details and complete the signup.", "sections": ["registration-form"] },
+    { "id": "confirmation", "name": "ConfirmationPage", "goal": "Confirm registration and route into reminder or calendar actions.", "sections": ["confirmation-panel", "next-step-panel"], "terminal": true }
+  ],
+  "optionalSections": ["proof-strip", "cta-section"]
+}

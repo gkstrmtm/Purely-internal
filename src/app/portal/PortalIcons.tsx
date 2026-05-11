@@ -752,6 +752,43 @@ export function IconExport({ size = 18, className, title }: PortalIconProps) {
   );
 }
 
+export function IconDownload({ size = 18, className, title }: PortalIconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden={title ? undefined : true}
+    >
+      {title ? <title>{title}</title> : null}
+      <path
+        d="M12 3v11"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.5 10.5 12 15l4.5-4.5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4 17.5v1.5A2 2 0 0 0 6 21h12a2 2 0 0 0 2-2v-1.5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function IconUndo({ size = 18, className, title }: PortalIconProps) {
   return (
     <svg

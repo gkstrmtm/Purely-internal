@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "stencilId": "tripwire",
+  "funnelType": "tripwire",
+  "title": "Tripwire Funnel Stencil",
+  "conversionGoal": "Convert visitors on a low-friction, urgency-led offer before routing them into a fuller purchase flow.",
+  "notes": [
+    "Normalized from sales, CTA, pricing, and urgency-oriented component patterns.",
+    "Countdown and guarantee remain structural only, with no real timers or marketing effects copied from the sources.",
+    "The funnel stays intentionally short to preserve the tripwire conversion logic."
+  ],
+  "sources": [
+    {
+      "repository": "PageAI-Pro/page-ui",
+      "path": "website/data/docs/landing-page-components/pricing.mdx",
+      "notes": "Confirmed highlighted pricing and sale CTA patterns that reduce into offer-plus-checkout structure.",
+      "patterns": ["pricing", "sale cta", "highlighted plan"]
+    },
+    {
+      "repository": "Blazity/next-saas-starter",
+      "path": "components/WaveCta.tsx",
+      "notes": "Provided urgency-led CTA cadence that normalizes into a simple offer section.",
+      "patterns": ["cta", "secondary action"]
+    },
+    {
+      "repository": "cruip/tailwind-landing-page-template",
+      "path": "components/cta.tsx",
+      "notes": "Confirmed a concise conversion-focused CTA block suitable for short-form offer funnels.",
+      "patterns": ["cta", "single offer"]
+    }
+  ],
+  "placeholderTokens": [
+    { "token": "{{tripwire.hero.headline}}", "category": "content", "description": "Primary low-friction offer headline.", "required": true },
+    { "token": "{{tripwire.countdown.timerLabel}}", "category": "content", "description": "Urgency timer or scarcity label.", "required": true },
+    { "token": "{{tripwire.checkout.ctaLabel}}", "category": "checkout", "description": "Checkout CTA label.", "required": true }
+  ],
+  "sections": [
+    { "id": "hero", "name": "Hero", "archetype": "hero", "purpose": "Present the low-friction offer and direct toward purchase.", "placeholderTokens": ["{{tripwire.hero.headline}}", "{{tripwire.hero.primaryCta.label}}"] },
+    { "id": "countdown-offer", "name": "CountdownOffer", "archetype": "countdown_offer", "purpose": "Represent urgency or limited availability without shipping a real timer implementation.", "placeholderTokens": ["{{tripwire.countdown.heading}}", "{{tripwire.countdown.timerLabel}}"] },
+    { "id": "proof-strip", "name": "ProofStrip", "archetype": "proof", "purpose": "Add quick trust markers before the checkout jump.", "placeholderTokens": ["{{tripwire.proof.items[0].label}}"] },
+    { "id": "benefits-section", "name": "BenefitsSection", "archetype": "features", "purpose": "Clarify the immediate value of the offer.", "placeholderTokens": ["{{tripwire.benefits.heading}}", "{{tripwire.benefits.columns[0].items[0]}}"] },
+    { "id": "guarantee-section", "name": "GuaranteeSection", "archetype": "guarantee", "purpose": "Reduce purchase risk for a quick-buy offer.", "placeholderTokens": ["{{tripwire.guarantee.heading}}", "{{tripwire.guarantee.detail}}"] },
+    { "id": "checkout-panel", "name": "CheckoutPanel", "archetype": "checkout", "purpose": "Capture buyer details and confirm the tripwire purchase.", "placeholderTokens": ["{{tripwire.checkout.heading}}", "{{tripwire.checkout.fields[0].label}}", "{{tripwire.checkout.ctaLabel}}"] },
+    { "id": "cta-section", "name": "CTASection", "archetype": "cta", "purpose": "Repeat the immediate purchase action on the landing page.", "placeholderTokens": ["{{tripwire.cta.heading}}", "{{tripwire.cta.label}}"] },
+    { "id": "confirmation-panel", "name": "ConfirmationPanel", "archetype": "confirmation", "purpose": "Confirm the tripwire purchase and set next expectations.", "placeholderTokens": ["{{tripwire.confirmation.heading}}", "{{tripwire.confirmation.detailBody}}"] }
+  ],
+  "pages": [
+    { "id": "landing", "name": "LandingPage", "goal": "Drive the visitor from interest into the offer checkout quickly.", "sections": ["hero", "countdown-offer", "proof-strip", "benefits-section", "guarantee-section", "cta-section"], "entry": true },
+    { "id": "checkout", "name": "CheckoutPage", "goal": "Complete the low-friction purchase.", "sections": ["checkout-panel"] },
+    { "id": "thank-you", "name": "ThankYouPage", "goal": "Confirm the purchase and prepare the follow-up offer or delivery.", "sections": ["confirmation-panel"], "terminal": true }
+  ],
+  "optionalSections": ["proof-strip", "guarantee-section"]
+}

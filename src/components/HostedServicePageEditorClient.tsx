@@ -1295,7 +1295,7 @@ export function HostedServicePageEditorClient({
   const previewBusinessName = previewData?.businessName?.trim() || title.trim() || serviceLabel;
   const previewRuntimeBlocks = useMemo(() => {
     const siteHandle = previewData?.siteHandle?.trim() || "";
-    const bookingPreviewFrame = siteHandle ? <PublicBookingClient target={{ kind: "slug", slug: siteHandle }} showBranding={false} embedded /> : undefined;
+    const bookingPreviewFrame = siteHandle ? <PublicBookingClient target={{ kind: "slug", slug: siteHandle }} showBranding={false} presentation="inline" /> : undefined;
     const newsletterLatest = Array.isArray(previewData?.summary?.latest)
       ? (previewData?.summary?.latest as Array<Record<string, unknown>>)
           .map((item) => ({

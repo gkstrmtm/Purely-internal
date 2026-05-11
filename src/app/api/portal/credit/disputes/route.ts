@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { readCreditDisputeLetterLifecycleMeta, writeCreditDisputeLetterLifecycleMeta } from "@/lib/creditLifecycle";
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 import { generateText } from "@/lib/ai";
@@ -21,6 +22,9 @@ const createSchema = z.object({
   templatePrompt: z.string().trim().optional(),
   templateBodyStarter: z.string().trim().optional(),
   creditPullId: z.string().trim().optional().nullable(),
+  sourceReportId: z.string().trim().optional().nullable(),
+  sourceReportItemId: z.string().trim().optional().nullable(),
+  sourceItemLabel: z.string().trim().max(240).optional().nullable(),
   subjectLine: z.string().trim().max(200).optional(),
   roundNumber: z.number().int().min(1).max(12).optional(),
 });
@@ -102,6 +106,9 @@ export async function POST(req: Request) {
   const recipientLabel = recipientName || "Recipient";
   const subjectFallback = `${roundLabel} - ${contact.name} - ${recipientLabel}`.trim();
   const subject = subjectFromClient || subjectFallback;
+  const sourceReportId = (parsed.data.sourceReportId || "").trim() || null;
+  const sourceReportItemId = (parsed.data.sourceReportItemId || "").trim() || null;
+  const sourceItemLabel = (parsed.data.sourceItemLabel || "").trim() || null;
 
   const system =
     "You draft consumer credit dispute letters. Output ONLY a plain-text mailed letter. " +
@@ -161,6 +168,16 @@ export async function POST(req: Request) {
     date: isoDate,
   });
 
+  const lifecycleMeta = {
+    version: 1 as const,
+    sourceReportId,
+    sourceReportItemId,
+    sourceItemLabel,
+    recipientName: recipientName || null,
+    recipientAddress: recipientAddress || null,
+    createdAt: new Date().toISOString(),
+  };
+
   const created = await prisma.creditDisputeLetter.create({
     data: {
       ownerId,
@@ -169,7 +186,7 @@ export async function POST(req: Request) {
       status: "GENERATED",
       subject,
       bodyText: bodyText || "(empty)",
-      promptText: user,
+      promptText: writeCreditDisputeLetterLifecycleMeta(user, lifecycleMeta),
       model,
       generatedAt: new Date(),
       updatedAt: new Date(),
@@ -190,6 +207,19 @@ export async function POST(req: Request) {
       creditPullId: true,
     },
   });
+
+  if (sourceReportId && sourceReportItemId) {
+    const sourceReport = await prisma.creditReport.findFirst({ where: { id: sourceReportId, ownerId }, select: { id: true } }).catch(() => null);
+    if (sourceReport) {
+      await prisma.creditReportItem.updateMany({
+        where: { id: sourceReportItemId, reportId: sourceReport.id },
+        data: {
+          disputeStatus: `Dispute created ${isoDate}`,
+          updatedAt: new Date(),
+        },
+      }).catch(() => null);
+    }
+  }
 
   // Auto-export PDF into Media Library.
   let pdf: null | { mediaItemId: string; openUrl: string; downloadUrl: string; shareUrl: string } = null;

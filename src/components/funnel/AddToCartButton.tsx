@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useState } from "react";
 
+import { fireMetaPixelEvent, trackPublicCreditFunnelEvent } from "@/components/funnel/clientFunnelTracking";
 import { useFunnelCart } from "@/components/funnel/cart/useFunnelCart";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -13,6 +14,7 @@ export function AddToCartButton({
   pageId,
   priceId,
   quantity,
+  metaPixelId,
   productName,
   productDescription,
   text,
@@ -23,6 +25,7 @@ export function AddToCartButton({
   pageId: string;
   priceId: string;
   quantity?: number;
+  metaPixelId?: string | null;
   productName?: string;
   productDescription?: string;
   text?: string;
@@ -44,9 +47,20 @@ export function AddToCartButton({
       productDescription,
     });
 
+    void trackPublicCreditFunnelEvent({
+      pageId,
+      eventType: "add_to_cart",
+      payload: {
+        priceId,
+        quantity: quantity ?? 1,
+        productName: productName || null,
+      },
+    });
+    fireMetaPixelEvent(metaPixelId || null, "add_to_cart", { pageId, priceId, quantity: quantity ?? 1 });
+
     setAdded(true);
     window.setTimeout(() => setAdded(false), 1100);
-  }, [cart, disabled, pageId, priceId, productDescription, productName, quantity]);
+  }, [cart, disabled, metaPixelId, pageId, priceId, productDescription, productName, quantity]);
 
   const label = (text || "Add to cart").trim() || "Add to cart";
 

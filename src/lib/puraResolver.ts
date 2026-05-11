@@ -5179,7 +5179,7 @@ export async function resolvePlanArgs(opts: {
     };
   }
 
-  let normalizedArgs =
+  const normalizedArgs =
     withAutoResolvedIdFields && typeof withAutoResolvedIdFields === "object" && !Array.isArray(withAutoResolvedIdFields)
       ? ({ ...(withAutoResolvedIdFields as Record<string, unknown>) } as Record<string, unknown>)
       : args && typeof args === "object" && !Array.isArray(args)

@@ -569,7 +569,7 @@ export async function GET(req: Request) {
           updatedAt: now,
           completedAt: null,
           attemptCount: Math.max(0, Number(e.attemptCount) || 0) + 1,
-        },
+        } as any,
         select: { id: true },
       });
 

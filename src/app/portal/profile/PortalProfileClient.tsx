@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppModal } from "@/components/AppModal";
-import { PortalPageLoadingShell } from "@/components/PortalPageLoadingShell";
 import {
   PORTAL_API_KEY_PERMISSION_OPTIONS,
   type PortalApiKeyPermission,
@@ -24,8 +23,7 @@ import {
   type SalesReportingProviderKey,
 } from "@/lib/salesReportingProviders";
 import { SuggestedSetupSection } from "./SuggestedSetupSection";
-import { IconChevron, IconCopy, IconEdit, IconEyeGlyph, IconEyeOffGlyph, IconMinusGlyph, IconPlusGlyph } from "@/app/portal/PortalIcons";
-import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
+import { IconChevron, IconCopy, IconEyeGlyph, IconEyeOffGlyph } from "@/app/portal/PortalIcons";
 
 type Me = {
   ok?: boolean;
@@ -214,8 +212,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const pathname = usePathname() || "";
   const searchParams = useSearchParams();
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
-  const portalVariant = portalBase === "/credit" ? "credit" : "portal";
-  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const fromOnboarding = (searchParams?.get("from") || "").trim().toLowerCase() === "onboarding";
   const [me, setMe] = useState<Me | null>(null);
   const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
@@ -231,7 +227,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const [mailboxError, setMailboxError] = useState<string | null>(null);
   const [mailboxNote, setMailboxNote] = useState<string | null>(null);
   const [mailboxLocalPart, setMailboxLocalPart] = useState<string>("");
-  const [mailboxEditorOpen, setMailboxEditorOpen] = useState(false);
 
   const [twilioMasked, setTwilioMasked] = useState<TwilioMasked | null>(null);
   // Twilio webhooks are auto-provisioned on connect; UI does not display URLs.
@@ -250,7 +245,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const [domainInput, setDomainInput] = useState("");
   const [domainBusy, setDomainBusy] = useState(false);
   const [domainVerifyBusy, setDomainVerifyBusy] = useState<Record<string, boolean>>({});
-  const [domainDeleteBusy, setDomainDeleteBusy] = useState<Record<string, boolean>>({});
   const [expandedDomains, setExpandedDomains] = useState<Record<string, boolean>>({});
   const [salesProvider, setSalesProvider] = useState<SalesReportingProviderKey>("stripe");
   const [stripeSecretKey, setStripeSecretKey] = useState<string>("");
@@ -360,6 +354,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     | "twilio"
     | "salesReporting"
     | "apiKeys"
+    | "businessEmail"
     | "businessInfo";
   const [pendingAdvancedScrollTarget, setPendingAdvancedScrollTarget] = useState<AdvancedScrollTarget | null>(null);
 
@@ -368,6 +363,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const twilioRef = useRef<HTMLDivElement | null>(null);
   const salesReportingRef = useRef<HTMLDivElement | null>(null);
   const apiKeysRef = useRef<HTMLDivElement | null>(null);
+  const businessEmailRef = useRef<HTMLDivElement | null>(null);
   const businessInfoRef = useRef<HTMLDivElement | null>(null);
 
   const ADVANCED_SCROLL_OFFSET_PX = 96;
@@ -396,6 +392,8 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
               ? salesReportingRef.current
               : pendingAdvancedScrollTarget === "apiKeys"
                 ? apiKeysRef.current
+              : pendingAdvancedScrollTarget === "businessEmail"
+                ? businessEmailRef.current
                 : pendingAdvancedScrollTarget === "businessInfo"
                   ? businessInfoRef.current
                   : null;
@@ -510,7 +508,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/portal/profile", { cache: "no-store", headers: variantHeaders });
+      const res = await fetch("/api/portal/profile", { cache: "no-store" });
       if (!mounted) return;
       if (res.ok) {
         const json = (await res.json()) as Me;
@@ -528,7 +526,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     })();
 
     (async () => {
-      const res = await fetch("/api/portal/me", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
+      const res = await fetch("/api/portal/me", { cache: "no-store" }).catch(() => null as any);
       if (!mounted) return;
       if (!res?.ok) {
         setPortalMe({ ok: false, error: "Forbidden" });
@@ -541,14 +539,14 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     return () => {
       mounted = false;
     };
-  }, [variantHeaders]);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
     if (!portalMe || portalMe.ok !== true) return;
 
     const loadDomains = async () => {
-      const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
+      const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any);
       if (!mounted) return;
       setFunnelDomainsLoaded(true);
       if (!res?.ok) {
@@ -564,7 +562,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
         if (mounted) setWebhooks(null);
         return;
       }
-      const res = await fetch("/api/portal/webhooks", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
+      const res = await fetch("/api/portal/webhooks", { cache: "no-store" }).catch(() => null as any);
       if (!mounted) return;
       if (!res?.ok) return;
       setWebhooks(((await res.json().catch(() => null)) as WebhooksRes | null) ?? null);
@@ -577,7 +575,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
         }
         return;
       }
-      const res = await fetch("/api/portal/integrations/twilio", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
+      const res = await fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any);
       if (!mounted) return;
       if (!res?.ok) return;
       const json = ((await res.json().catch(() => null)) as TwilioApiPayload | null) ?? null;
@@ -590,7 +588,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     void loadDomains();
 
     (async () => {
-      const res = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
+      const res = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any);
       if (!mounted) return;
       setSalesStatusLoaded(true);
       if (!res?.ok) return;
@@ -604,7 +602,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     (async () => {
       setMailboxLoading(true);
       setMailboxError(null);
-      const res = await fetch("/api/portal/mailbox", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
+      const res = await fetch("/api/portal/mailbox", { cache: "no-store" }).catch(() => null as any);
       if (!mounted) return;
 
       if (!res?.ok) {
@@ -626,16 +624,16 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       setMailboxLoading(false);
     })();
 
-    void loadApiKeysRef.current?.();
+    void loadApiKeys();
 
     return () => {
       mounted = false;
     };
-  }, [portalMe, canViewWebhooks, canViewTwilio, variantHeaders]);
+  }, [portalMe, canViewWebhooks, canViewTwilio]);
 
   async function reloadDomains() {
     setFunnelDomainsLoaded(false);
-    const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
+    const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any);
     setFunnelDomainsLoaded(true);
     if (!res?.ok) {
       setFunnelDomains([]);
@@ -662,7 +660,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setDomainBusy(true);
     const res = await fetch("/api/portal/funnel-builder/domains", {
       method: "POST",
-      headers: { "content-type": "application/json", ...variantHeaders },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ domain: next }),
     }).catch(() => null as any);
     const json = (res ? ((await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null) : null) ?? null;
@@ -683,7 +681,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const res = await fetch(`/api/portal/funnel-builder/domains/${encodeURIComponent(domain.id)}/verify`, {
       method: "POST",
       cache: "no-store",
-      headers: variantHeaders,
     }).catch(() => null as any);
     const json = (res ? ((await res.json().catch(() => null)) as { ok?: boolean; verified?: boolean; error?: string } | null) : null) ?? null;
     setDomainVerifyBusy((current) => ({ ...current, [domain.id]: false }));
@@ -696,45 +693,17 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     await reloadDomains();
   }
 
-  async function deleteDomain(domain: FunnelBuilderDomain) {
-    if (!domain?.id || domainDeleteBusy[domain.id]) return;
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm(`Delete ${domain.domain}? This also removes it from your saved domain list.`);
-      if (!confirmed) return;
-    }
-    setDomainDeleteBusy((current) => ({ ...current, [domain.id]: true }));
-    const res = await fetch(`/api/portal/funnel-builder/domains/${encodeURIComponent(domain.id)}`, {
-      method: "DELETE",
-      headers: variantHeaders,
-    }).catch(() => null as any);
-    const json = (await res?.json?.().catch(() => null)) as { ok?: boolean; error?: string } | null;
-    setDomainDeleteBusy((current) => ({ ...current, [domain.id]: false }));
-    if (!res?.ok || !json?.ok) {
-      toast.error(json?.error || "Unable to delete domain");
-      return;
-    }
-    toast.success("Domain deleted");
-    setExpandedDomains((current) => {
-      const next = { ...current };
-      delete next[domain.id];
-      return next;
-    });
-    await reloadDomains();
-  }
-
   async function refreshSalesStatus() {
-    const res = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
+    const res = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any);
     setSalesStatusLoaded(true);
     if (!res?.ok) return;
     const json = ((await res.json().catch(() => null)) as SalesIntegrationPayload | null) ?? null;
     if (json?.ok) setSalesStatus(json);
   }
 
-  const loadApiKeysRef = useRef<(() => Promise<void>) | null>(null);
-
-  const loadApiKeys = useCallback(async () => {
+  async function loadApiKeys() {
     setApiKeysError(null);
-    const res = await fetch("/api/portal/integrations/api-keys", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
+    const res = await fetch("/api/portal/integrations/api-keys", { cache: "no-store" }).catch(() => null as any);
     setApiKeysLoaded(true);
     if (!res?.ok) {
       const json = ((await res?.json().catch(() => null)) as PortalApiKeysResponse | null) ?? null;
@@ -749,9 +718,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       return;
     }
     setApiKeysState(json);
-  }, [variantHeaders]);
-
-  loadApiKeysRef.current = loadApiKeys;
+  }
 
   async function connectSelectedProvider() {
     if (!canEditProfile) {
@@ -790,7 +757,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/integrations/sales-reporting", {
       method: "PUT",
-      headers: { "content-type": "application/json", ...variantHeaders },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ action: "connect", data }),
     }).catch(() => null as any);
 
@@ -831,7 +798,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/integrations/sales-reporting", {
       method: "DELETE",
-      headers: { "content-type": "application/json", ...variantHeaders },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: salesProvider }),
     }).catch(() => null as any);
 
@@ -879,7 +846,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       editingApiKeyId ? `/api/portal/integrations/api-keys/${encodeURIComponent(editingApiKeyId)}` : "/api/portal/integrations/api-keys",
       {
         method: editingApiKeyId ? "PATCH" : "POST",
-        headers: { "content-type": "application/json", ...variantHeaders },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: newApiKeyName.trim(),
           permissions: newApiKeyPermissions,
@@ -909,7 +876,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setDeletingApiKeyId(keyId);
     const res = await fetch(`/api/portal/integrations/api-keys/${encodeURIComponent(keyId)}`, {
       method: "DELETE",
-      headers: variantHeaders,
     }).catch(() => null as any);
     const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
     setDeletingApiKeyId(null);
@@ -939,7 +905,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     setRevealingApiKeyId(keyId);
     const res = await fetch(`/api/portal/integrations/api-keys/${encodeURIComponent(keyId)}/reveal`, {
       method: "POST",
-      headers: variantHeaders,
     }).catch(() => null as any);
     const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
     setRevealingApiKeyId(null);
@@ -959,10 +924,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     if (next.toLowerCase() === String(mailbox.localPart || "").toLowerCase()) return false;
     return true;
   }, [mailbox, mailboxLocalPart]);
-
-  useEffect(() => {
-    if (!mailbox?.canChange) setMailboxEditorOpen(false);
-  }, [mailbox?.canChange]);
 
   const twilioHasPendingChanges = useMemo(() => {
     const nextFrom = twilioFromNumber.trim();
@@ -1072,7 +1033,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/mailbox", {
       method: "PUT",
-      headers: { "content-type": "application/json", ...variantHeaders },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ localPart: mailboxLocalPart }),
     });
 
@@ -1107,7 +1068,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/integrations/twilio", {
       method: "PUT",
-      headers: { "content-type": "application/json", ...variantHeaders },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
     });
 
@@ -1138,7 +1099,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/integrations/twilio", {
       method: "PUT",
-      headers: { "content-type": "application/json", ...variantHeaders },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ clear: true }),
     });
 
@@ -1220,7 +1181,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/profile", {
       method: "PUT",
-      headers: { "content-type": "application/json", ...variantHeaders },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
     });
 
@@ -1277,7 +1238,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
     const res = await fetch("/api/portal/profile/password", {
       method: "PUT",
-      headers: { "content-type": "application/json", ...variantHeaders },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         currentPassword: pwCurrent,
         newPassword: pwNext,
@@ -1322,13 +1283,15 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       ) : null}
 
       {loading ? (
-        <PortalPageLoadingShell
-          embedded={embedded}
-          showHeader={false}
-          sections={2}
-          minHeightClassName="min-h-[24rem]"
-          className="mt-6"
-        />
+        <div
+          className={
+            embedded
+              ? "mt-6 text-sm text-zinc-600"
+              : "mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600"
+          }
+        >
+          Loading…
+        </div>
       ) : (
         <div className="mt-6 space-y-4">
           {showSuggestedSetup ? <SuggestedSetupSection canEdit={canEditBusinessInfo} /> : null}
@@ -1484,6 +1447,15 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       API keys
                     </button>
                   ) : null}
+                  {showBusinessSections && portalMe?.ok === true ? (
+                    <button
+                      type="button"
+                      onClick={() => requestAdvancedScroll("businessEmail")}
+                      className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
+                    >
+                      Business email
+                    </button>
+                  ) : null}
                   {showBusinessSections && canViewBusinessInfo ? (
                     <button
                       type="button"
@@ -1515,7 +1487,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                           aria-label={domainComposerOpen ? "Close add domain" : "Open add domain"}
                           title={domainComposerOpen ? "Close" : "Add domain"}
                         >
-                          {domainComposerOpen ? <IconMinusGlyph size={18} /> : <IconPlusGlyph size={18} />}
+                          {domainComposerOpen ? "−" : "+"}
                         </button>
                       </div>
 
@@ -1682,14 +1654,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                         className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                                       >
                                         {domainVerifyBusy[domain.id] ? "Verifying…" : verified ? "Re-check DNS" : "Verify DNS"}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => void deleteDomain(domain)}
-                                        disabled={Boolean(domainDeleteBusy[domain.id])}
-                                        className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-100 disabled:opacity-60"
-                                      >
-                                        {domainDeleteBusy[domain.id] ? "Deleting…" : "Delete domain"}
                                       </button>
                                     </div>
                                   </>
@@ -2419,83 +2383,86 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
               {showBusinessSections && canViewBusinessInfo ? (
                 <div ref={businessInfoRef} className="scroll-mt-24">
+                  <PortalSettingsSection
+                    title="Business info"
+                    description="Update your business details and branding anytime."
+                    accent="pink"
+                    collapsible={false}
+                    dotClassName="hidden"
+                    variant={sectionVariant}
+                  >
                     <BusinessProfileForm
                       embedded
                       readOnly={!canEditBusinessInfo}
                       onSaved={() => setNotice("Business info saved.")}
-                      businessEmailContent={
-                        portalMe?.ok === true ? (
-                          <div className="space-y-3">
-                            <div>
-                              <div className="text-xs font-semibold text-zinc-600">Business email</div>
-                              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-900">
-                                <span>
-                                  {mailboxLoading
-                                    ? "Loading…"
-                                    : mailbox?.emailAddress
-                                      ? mailbox.emailAddress
-                                      : "Business email unavailable."}
-                                </span>
-                                {mailbox?.emailAddress ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => void copyText(mailbox.emailAddress)}
-                                    className="inline-flex h-9 w-9 items-center justify-center rounded-2xl text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900"
-                                    aria-label="Copy business email"
-                                    title="Copy"
-                                  >
-                                    <IconCopy size={16} />
-                                  </button>
-                                ) : null}
-                                {mailbox?.canChange && canEditBusinessInfo && !mailboxEditorOpen ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setMailboxEditorOpen(true)}
-                                    className="inline-flex h-9 w-9 items-center justify-center rounded-2xl text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900"
-                                    aria-label="Edit business email"
-                                    title="Edit"
-                                  >
-                                    <IconEdit size={16} />
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            {mailboxNote ? <div className="text-sm text-emerald-700">{mailboxNote}</div> : null}
-                            {mailboxError ? <div className="text-sm text-red-700">{mailboxError}</div> : null}
-
-                            {mailbox?.canChange && canEditBusinessInfo && mailboxEditorOpen ? (
-                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-                                <input
-                                  value={mailboxLocalPart}
-                                  onChange={(e) => setMailboxLocalPart(e.target.value)}
-                                  className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 font-mono text-sm outline-none focus:border-zinc-300"
-                                  placeholder="your-business"
-                                  autoComplete="off"
-                                />
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => setMailboxEditorOpen(false)}
-                                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
-                                  >
-                                    Done
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void saveMailboxOnce()}
-                                    disabled={!canSaveMailbox || mailboxSaving}
-                                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
-                                  >
-                                    {mailboxSaving ? "Saving…" : canSaveMailbox ? "Save" : "Saved"}
-                                  </button>
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null
-                      }
                     />
+                  </PortalSettingsSection>
+                </div>
+              ) : null}
+
+              {showBusinessSections && portalMe?.ok === true ? (
+                <div ref={businessEmailRef} className="scroll-mt-24">
+                  <PortalSettingsSection
+                    title="Business email"
+                    description="Your managed @purelyautomation.com email address (used for inbox sending + receiving)."
+                    accent="pink"
+                    collapsible={false}
+                    dotClassName="hidden"
+                    variant={sectionVariant}
+                  >
+                    <div className="space-y-3">
+                      {mailboxNote ? (
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{mailboxNote}</div>
+                      ) : null}
+
+                      {mailboxError ? (
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{mailboxError}</div>
+                      ) : null}
+
+                      {mailboxLoading ? (
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Loading…</div>
+                      ) : null}
+
+                      {mailbox ? (
+                        <CopyRow label="Business email" value={mailbox.emailAddress} />
+                      ) : mailboxLoading ? null : (
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Business email unavailable.</div>
+                      )}
+
+                      {mailbox?.canChange ? (
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                          <div className="text-sm font-semibold text-zinc-900">Change email name (one time)</div>
+                          <div className="mt-1 text-sm text-zinc-600">
+                            Pick the part before <span className="font-mono">@purelyautomation.com</span>. We’ll normalize spaces/symbols.
+                          </div>
+
+                          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                            <div className="sm:col-span-2">
+                              <label className="text-xs font-semibold text-zinc-600">Email name</label>
+                              <input
+                                value={mailboxLocalPart}
+                                onChange={(e) => setMailboxLocalPart(e.target.value)}
+                                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-sm outline-none focus:border-zinc-300"
+                                placeholder="your-business"
+                                autoComplete="off"
+                              />
+                            </div>
+                            <div className="sm:col-span-1 sm:flex sm:items-end">
+                              <button
+                                type="button"
+                                onClick={() => void saveMailboxOnce()}
+                                disabled={!canSaveMailbox || mailboxSaving}
+                                className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+                              >
+                                {mailboxSaving ? "Saving…" : canSaveMailbox ? "Save" : "Saved"}
+                              </button>
+                            </div>
+                          </div>
+                          <div className="mt-3 text-xs text-zinc-500">After saving, this will be locked.</div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </PortalSettingsSection>
                 </div>
               ) : null}
             </div>
@@ -2513,7 +2480,17 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
             hideHeaderDivider
             hideFooterDivider
             footer={
-              <div className="flex justify-end">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                  onClick={() => {
+                    setApiKeyModalOpen(false);
+                    resetApiKeyComposer();
+                  }}
+                >
+                  Cancel
+                </button>
                 <button
                   type="button"
                   onClick={() => void createApiKey()}

@@ -1,0 +1,1 @@
+export { runtime, dynamic, revalidate, POST } from "../route";

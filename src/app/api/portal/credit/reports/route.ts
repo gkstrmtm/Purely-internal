@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
-import { deriveCreditReportItemAudit, extractCreditReportSnapshot, normalizeCreditScope } from "@/lib/creditReports";
+import { ingestCreditReport } from "@/lib/creditReportIngest";
+import { extractCreditReportSnapshot, normalizeCreditScope } from "@/lib/creditReports";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 
 export const runtime = "nodejs";
@@ -15,42 +16,6 @@ const importSchema = z.object({
   creditScope: z.enum(["PERSONAL", "BUSINESS", "BOTH"]).optional().nullable(),
   rawJson: z.unknown(),
 });
-
-function extractItems(raw: any): any[] {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
-
-  const candidates: any[] = [
-    raw.items,
-    raw.accounts,
-    raw.tradelines,
-    raw.inquiries,
-    raw.collections,
-    raw.publicRecords,
-    raw.negativeItems,
-    raw?.report?.items,
-    raw?.report?.accounts,
-    raw?.report?.tradelines,
-  ];
-
-  for (const c of candidates) {
-    if (Array.isArray(c)) return c;
-  }
-
-  return [];
-}
-
-function labelForItem(item: any): string {
-  const parts = [item?.label, item?.name, item?.creditor, item?.furnisher, item?.company, item?.accountName, item?.accountNumber];
-  for (const p of parts) {
-    if (typeof p === "string" && p.trim()) return p.trim().slice(0, 180);
-  }
-  try {
-    return JSON.stringify(item).slice(0, 180);
-  } catch {
-    return "Item";
-  }
-}
 
 export async function GET() {
   const session = await requireCreditClientSession();
@@ -102,57 +67,12 @@ export async function POST(req: Request) {
     if (!exists) return NextResponse.json({ ok: false, error: "Contact not found" }, { status: 404 });
   }
 
-  const rawJson = parsed.data.rawJson;
-  const storedRawJson = rawJson && typeof rawJson === "object" && !Array.isArray(rawJson)
-    ? { ...(rawJson as Record<string, unknown>), creditScope }
-    : { creditScope, payload: rawJson };
-
-  const created = await prisma.creditReport.create({
-    data: {
-      ownerId,
-      contactId: contactId || null,
-      provider,
-      rawJson: storedRawJson as any,
-      importedAt: new Date(),
-      createdAt: new Date(),
-    },
-    select: { id: true },
-  });
-
-  const extracted = extractItems(rawJson);
-  if (extracted.length) {
-    const rows = extracted.slice(0, 1500).map((item: any) => {
-      const bureau = typeof item?.bureau === "string" ? item.bureau.slice(0, 40) : null;
-      const kind = typeof item?.kind === "string" ? item.kind.slice(0, 60) : null;
-      const label = labelForItem(item);
-      const { auditTag } = deriveCreditReportItemAudit({ bureau, kind, label, detailsJson: item, disputeStatus: null });
-      return {
-        reportId: created.id,
-        bureau,
-        kind,
-        label,
-        detailsJson: item as any,
-        auditTag,
-        disputeStatus: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-    });
-
-    await prisma.creditReportItem.createMany({ data: rows as any });
-  }
-
-  const report = await prisma.creditReport.findFirst({
-    where: { id: created.id, ownerId },
-    select: {
-      id: true,
-      provider: true,
-      importedAt: true,
-      contactId: true,
-      contact: { select: { id: true, name: true, email: true } },
-      rawJson: true,
-      _count: { select: { items: true } },
-    },
+  const report = await ingestCreditReport({
+    ownerId,
+    contactId: contactId || null,
+    provider,
+    creditScope,
+    rawJson: parsed.data.rawJson,
   });
 
   return NextResponse.json({
@@ -161,8 +81,8 @@ export async function POST(req: Request) {
       ? {
           ...report,
           creditScope,
-          creditSnapshot: extractCreditReportSnapshot(report.rawJson),
+          creditSnapshot: report.creditSnapshot ?? extractCreditReportSnapshot(report.rawJson),
         }
-      : report,
+      : null,
   });
 }

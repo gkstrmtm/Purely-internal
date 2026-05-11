@@ -127,6 +127,7 @@ export function FunnelHeaderNav({
   style,
   funnelPathBase,
   disabled,
+  onLogoClick,
 }: {
   logoUrl?: string;
   logoAlt?: string;
@@ -144,6 +145,7 @@ export function FunnelHeaderNav({
   style?: CSSProperties;
   funnelPathBase?: string;
   disabled?: boolean;
+  onLogoClick?: () => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -202,9 +204,10 @@ export function FunnelHeaderNav({
   const resolvedLogoHref = useMemo(() => {
     const raw = String(logoHref || "").trim();
     if (raw) return raw;
+    if (!logoUrl) return "#";
     const base = normalizePathBase(funnelPathBase || "");
     return base || "/";
-  }, [funnelPathBase, logoHref]);
+  }, [funnelPathBase, logoHref, logoUrl]);
 
   const onNavClick = useCallback(
     (e: React.MouseEvent) => {
@@ -252,6 +255,13 @@ export function FunnelHeaderNav({
         <a
           href={resolvedLogoHref}
           onClick={(e) => {
+            if (onLogoClick) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (mode === "dropdown") setOpen(false);
+              onLogoClick();
+              return;
+            }
             if (disabled) return onNavClick(e);
             if (mode === "dropdown") setOpen(false);
           }}
@@ -263,10 +273,10 @@ export function FunnelHeaderNav({
             <img src={logoUrl} alt={logoAlt || "Logo"} className="w-auto" style={{ height: logoHeightPx }} />
           ) : (
             <div
-              className="flex items-center rounded-lg border border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] px-2 py-1 text-xs font-semibold text-[color:var(--fhn-muted,#3f3f46)]"
+              className="flex items-center rounded-full border border-dashed border-[color:var(--fhn-border,rgba(24,24,27,0.18))] bg-[color:var(--fhn-surface,#fff)] px-3 py-1 text-xs font-semibold text-[color:var(--fhn-muted,#3f3f46)]"
               style={{ height: logoHeightPx }}
             >
-              Logo
+              {onLogoClick ? "Add logo" : "Logo"}
             </div>
           )}
         </a>

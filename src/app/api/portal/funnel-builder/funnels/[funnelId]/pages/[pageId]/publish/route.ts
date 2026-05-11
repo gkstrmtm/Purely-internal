@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSettingsStore";
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import {
@@ -7,6 +8,8 @@ import {
   normalizeDraftHtml,
   withDraftHtmlSelect,
 } from "@/lib/funnelPageDbCompat";
+import { readFunnelPageBrief } from "@/lib/funnelPageIntent";
+import { validateFunnelPageContract } from "@/lib/funnelPageContract";
 import { createFunnelPagePublishUpdate } from "@/lib/funnelPageState";
 
 export const dynamic = "force-dynamic";
@@ -32,10 +35,11 @@ export async function POST(
   }
 
   const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
+  const settings = await getCreditFunnelBuilderSettings(auth.session.user.id).catch(() => ({}));
 
   const page = await prisma.creditFunnelPage.findFirst({
     where: { id: pageId, funnelId, funnel: { ownerId: auth.session.user.id } },
-    select: withDraftHtmlSelect({ id: true, customHtml: true }, hasDraftHtml),
+    select: withDraftHtmlSelect({ id: true, slug: true, title: true, editorMode: true, blocksJson: true, customHtml: true }, hasDraftHtml),
   });
   if (!page) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
@@ -47,6 +51,21 @@ export async function POST(
   const publishUpdate = createFunnelPagePublishUpdate(normalizedPage);
   if (!publishUpdate) {
     return NextResponse.json({ ok: false, error: "No draft to publish" }, { status: 400 });
+  }
+
+  const contractValidation = validateFunnelPageContract({
+    ...normalizedPage,
+    intentProfile: readFunnelPageBrief(settings, pageId),
+  });
+  if (!contractValidation.ok) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `This ${contractValidation.pageType} page is not ready to publish yet.`,
+        issues: contractValidation.issues,
+      },
+      { status: 422 },
+    );
   }
 
   const updated = await prisma.creditFunnelPage.update({

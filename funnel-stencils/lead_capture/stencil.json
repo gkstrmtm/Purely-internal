@@ -1,0 +1,262 @@
+{
+  "schemaVersion": 1,
+  "stencilId": "lead_capture",
+  "funnelType": "lead_capture",
+  "title": "Lead Capture Funnel Stencil",
+  "conversionGoal": "Convert qualified visitors into captured leads with a single clear value exchange.",
+  "notes": [
+    "Derived from recurring landing-page structures across Cruip, Ixartz, Blazity, and Page UI source templates.",
+    "Brand styling, decorative media, complex animation, and source-specific copy were removed during normalization.",
+    "Sections stay intentionally neutral so downstream systems can bind copy, offer, proof, and routing context."
+  ],
+  "sources": [
+    {
+      "repository": "cruip/tailwind-landing-page-template",
+      "path": "app/(default)/page.tsx",
+      "notes": "Provided the home-page spine of hero, proof-like category block, features, testimonial, and CTA.",
+      "patterns": ["hero", "social proof", "features", "testimonial", "cta"]
+    },
+    {
+      "repository": "cruip/open-react-template",
+      "path": "app/(default)/page.tsx",
+      "notes": "Confirmed reusable proof, feature, testimonial, and CTA sequencing.",
+      "patterns": ["hero", "workflow", "features", "testimonials", "cta"]
+    },
+    {
+      "repository": "ixartz/Next-JS-Landing-Page-Starter-Template",
+      "path": "src/templates/Base.tsx",
+      "notes": "Confirmed the minimal landing backbone of hero, sponsor or proof strip, features, CTA, and footer.",
+      "patterns": ["hero", "proof strip", "features", "cta"]
+    },
+    {
+      "repository": "Blazity/next-saas-starter",
+      "path": "pages/contact.tsx",
+      "notes": "Added explicit lead-form page structure and FAQ-adjacent conversion support patterns.",
+      "patterns": ["contact form", "information split", "faq"]
+    },
+    {
+      "repository": "PageAI-Pro/page-ui",
+      "path": "components/landing/index.ts",
+      "notes": "Expanded the normalized inventory for proof, testimonials, CTA variants, FAQ, and newsletter capture.",
+      "patterns": ["proof", "testimonial grid", "faq", "newsletter", "cta"]
+    }
+  ],
+  "placeholderTokens": [
+    {
+      "token": "{{brand.primaryColor}}",
+      "category": "brand",
+      "description": "Primary brand color token for accents and buttons.",
+      "required": true
+    },
+    {
+      "token": "{{hero.headline}}",
+      "category": "content",
+      "description": "Primary landing promise above the fold.",
+      "required": true
+    },
+    {
+      "token": "{{hero.subheadline}}",
+      "category": "content",
+      "description": "Supporting explanation for the promise.",
+      "required": true
+    },
+    {
+      "token": "{{hero.primaryCta.label}}",
+      "category": "content",
+      "description": "Main call-to-action label.",
+      "required": true
+    },
+    {
+      "token": "{{proof.items[0].label}}",
+      "category": "content",
+      "description": "Short trust signal or metric label.",
+      "required": true
+    },
+    {
+      "token": "{{benefits.columns[0].items[0]}}",
+      "category": "content",
+      "description": "Benefit item used in the benefits grid.",
+      "required": true
+    },
+    {
+      "token": "{{form.fields[0].label}}",
+      "category": "form",
+      "description": "Lead form field label.",
+      "required": true
+    },
+    {
+      "token": "{{form.submitLabel}}",
+      "category": "form",
+      "description": "Lead form submission CTA.",
+      "required": true
+    },
+    {
+      "token": "{{testimonials.items[0].quote}}",
+      "category": "testimonial",
+      "description": "Representative testimonial quote.",
+      "required": true
+    },
+    {
+      "token": "{{faq.items[0].question}}",
+      "category": "content",
+      "description": "FAQ question used to reduce friction.",
+      "required": true
+    },
+    {
+      "token": "{{confirmation.heading}}",
+      "category": "confirmation",
+      "description": "Primary confirmation heading on thank-you page.",
+      "required": true
+    },
+    {
+      "token": "{{nextStep.ctaLabel}}",
+      "category": "confirmation",
+      "description": "CTA label for the next-step panel.",
+      "required": true
+    }
+  ],
+  "sections": [
+    {
+      "id": "hero",
+      "name": "Hero",
+      "archetype": "hero",
+      "purpose": "State the lead magnet or value exchange and present the primary CTA immediately.",
+      "placeholderTokens": [
+        "{{hero.eyebrow}}",
+        "{{hero.headline}}",
+        "{{hero.subheadline}}",
+        "{{hero.primaryCta.label}}",
+        "{{hero.secondaryCta.label}}"
+      ],
+      "sourcePatterns": ["primary image CTA", "primary text CTA", "hero one button"]
+    },
+    {
+      "id": "proof-strip",
+      "name": "ProofStrip",
+      "archetype": "proof",
+      "purpose": "Provide low-friction credibility markers before asking for form completion.",
+      "placeholderTokens": [
+        "{{proof.items[0].label}}",
+        "{{proof.items[1].label}}",
+        "{{proof.items[2].label}}"
+      ],
+      "sourcePatterns": ["sponsors", "logo cloud", "social proof band", "awards"]
+    },
+    {
+      "id": "benefits-section",
+      "name": "BenefitsSection",
+      "archetype": "features",
+      "purpose": "Translate the offer into concrete outcomes that justify exchanging contact information.",
+      "placeholderTokens": [
+        "{{benefits.heading}}",
+        "{{benefits.columns[0].items[0]}}",
+        "{{benefits.columns[1].items[0]}}"
+      ],
+      "sourcePatterns": ["vertical features", "feature grid", "feature list"]
+    },
+    {
+      "id": "lead-form",
+      "name": "LeadForm",
+      "archetype": "form",
+      "purpose": "Capture the lead with only the fields needed for the next routing step.",
+      "placeholderTokens": [
+        "{{form.heading}}",
+        "{{form.fields[0].label}}",
+        "{{form.submitLabel}}"
+      ],
+      "sourcePatterns": ["contact form", "newsletter input", "lead capture"]
+    },
+    {
+      "id": "testimonial-grid",
+      "name": "TestimonialGrid",
+      "archetype": "testimonials",
+      "purpose": "Support the offer with concise proof from comparable customers or users.",
+      "placeholderTokens": [
+        "{{testimonials.heading}}",
+        "{{testimonials.items[0].quote}}",
+        "{{testimonials.items[1].quote}}",
+        "{{testimonials.items[2].quote}}"
+      ],
+      "sourcePatterns": ["large testimonial", "testimonial grid", "testimonial slider"]
+    },
+    {
+      "id": "faq-section",
+      "name": "FAQSection",
+      "archetype": "faq",
+      "purpose": "Resolve common objections before the final CTA repeat.",
+      "placeholderTokens": [
+        "{{faq.heading}}",
+        "{{faq.items[0].question}}",
+        "{{faq.items[0].answer}}"
+      ],
+      "sourcePatterns": ["accordion", "faq collapsible"]
+    },
+    {
+      "id": "cta-section",
+      "name": "CTASection",
+      "archetype": "cta",
+      "purpose": "Restate the offer and point back to the single conversion action.",
+      "placeholderTokens": [
+        "{{cta.heading}}",
+        "{{cta.label}}"
+      ],
+      "sourcePatterns": ["cta banner", "sale cta", "wave cta"]
+    },
+    {
+      "id": "confirmation-panel",
+      "name": "ConfirmationPanel",
+      "archetype": "confirmation",
+      "purpose": "Confirm the conversion and set the expectation for what happens next.",
+      "placeholderTokens": [
+        "{{confirmation.heading}}",
+        "{{confirmation.message}}",
+        "{{confirmation.detailBody}}"
+      ],
+      "sourcePatterns": ["thank you", "confirmation state"]
+    },
+    {
+      "id": "next-step-panel",
+      "name": "NextStepPanel",
+      "archetype": "next_step",
+      "purpose": "Route the visitor to the follow-up action that keeps the funnel moving.",
+      "placeholderTokens": [
+        "{{nextStep.heading}}",
+        "{{nextStep.primaryDetail}}",
+        "{{nextStep.ctaLabel}}"
+      ],
+      "sourcePatterns": ["next step", "secondary CTA", "post-conversion routing"]
+    }
+  ],
+  "pages": [
+    {
+      "id": "landing",
+      "name": "LandingPage",
+      "goal": "Convert qualified traffic into a captured lead.",
+      "sections": [
+        "hero",
+        "proof-strip",
+        "benefits-section",
+        "lead-form",
+        "testimonial-grid",
+        "faq-section",
+        "cta-section"
+      ],
+      "entry": true
+    },
+    {
+      "id": "thank-you",
+      "name": "ThankYouPage",
+      "goal": "Confirm the lead was captured and route the visitor to the next meaningful step.",
+      "sections": [
+        "confirmation-panel",
+        "next-step-panel"
+      ],
+      "terminal": true
+    }
+  ],
+  "optionalSections": [
+    "proof-strip",
+    "testimonial-grid",
+    "faq-section"
+  ]
+}

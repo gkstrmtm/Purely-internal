@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "stencilId": "booking",
+  "funnelType": "booking",
+  "title": "Booking Funnel Stencil",
+  "conversionGoal": "Move qualified visitors into a booked time slot with clear expectations and trust signals.",
+  "notes": [
+    "Normalized from premium booking and consultation-oriented landing patterns.",
+    "The scheduler is represented as a structural availability block rather than a real calendar integration.",
+    "Proof, objections handling, and reassurance remain explicit because they materially affect booking conversion."
+  ],
+  "sources": [
+    {
+      "repository": "cruip/tailwind-landing-page-template",
+      "path": "app/(default)/page.tsx",
+      "notes": "Supplied the core hero, feature, testimonial, and CTA rhythm for top-of-funnel booking pages.",
+      "patterns": ["hero", "features", "testimonial", "cta"]
+    },
+    {
+      "repository": "Blazity/next-saas-starter",
+      "path": "pages/contact.tsx",
+      "notes": "Added explicit split information plus form or action page structure relevant to booking handoff.",
+      "patterns": ["contact", "form", "information split"]
+    },
+    {
+      "repository": "PageAI-Pro/page-ui",
+      "path": "components/landing/index.ts",
+      "notes": "Confirmed proof, testimonial, FAQ, and CTA archetypes that remain useful in booking funnels.",
+      "patterns": ["social proof", "testimonials", "faq", "cta"]
+    }
+  ],
+  "placeholderTokens": [
+    { "token": "{{booking.hero.headline}}", "category": "content", "description": "Primary booking offer headline.", "required": true },
+    { "token": "{{booking.scheduler.slots[0].title}}", "category": "booking", "description": "Availability or scheduling label.", "required": true },
+    { "token": "{{booking.confirmation.heading}}", "category": "confirmation", "description": "Booking confirmation heading.", "required": true }
+  ],
+  "sections": [
+    { "id": "hero", "name": "Hero", "archetype": "hero", "purpose": "Frame the consultation or booking value and direct visitors toward scheduling.", "placeholderTokens": ["{{booking.hero.headline}}", "{{booking.hero.primaryCta.label}}"] },
+    { "id": "proof-strip", "name": "ProofStrip", "archetype": "proof", "purpose": "Provide trust markers before the booking commitment.", "placeholderTokens": ["{{booking.proof.items[0].label}}"] },
+    { "id": "benefits-section", "name": "BenefitsSection", "archetype": "features", "purpose": "Clarify who the session is for and what the visitor gets.", "placeholderTokens": ["{{booking.benefits.heading}}", "{{booking.benefits.columns[0].items[0]}}"] },
+    { "id": "testimonial-grid", "name": "TestimonialGrid", "archetype": "testimonials", "purpose": "Support the booking decision with client proof.", "placeholderTokens": ["{{booking.testimonials.heading}}", "{{booking.testimonials.items[0].quote}}"] },
+    { "id": "booking-scheduler", "name": "BookingScheduler", "archetype": "booking", "purpose": "Represent the booking step and expected scheduling options.", "placeholderTokens": ["{{booking.scheduler.heading}}", "{{booking.scheduler.slots[0].title}}"] },
+    { "id": "faq-section", "name": "FAQSection", "archetype": "faq", "purpose": "Handle common timing, fit, and process questions.", "placeholderTokens": ["{{booking.faq.heading}}", "{{booking.faq.items[0].question}}"] },
+    { "id": "guarantee-section", "name": "GuaranteeSection", "archetype": "guarantee", "purpose": "Reduce friction around booking the call.", "placeholderTokens": ["{{booking.guarantee.heading}}", "{{booking.guarantee.detail}}"] },
+    { "id": "cta-section", "name": "CTASection", "archetype": "cta", "purpose": "Repeat the booking CTA on the landing page.", "placeholderTokens": ["{{booking.cta.heading}}", "{{booking.cta.label}}"] },
+    { "id": "confirmation-panel", "name": "ConfirmationPanel", "archetype": "confirmation", "purpose": "Confirm the booking and set expectations.", "placeholderTokens": ["{{booking.confirmation.heading}}", "{{booking.confirmation.detailBody}}"] },
+    { "id": "next-step-panel", "name": "NextStepPanel", "archetype": "next_step", "purpose": "Route the visitor into preparation or follow-up actions.", "placeholderTokens": ["{{booking.nextStep.heading}}", "{{booking.nextStep.ctaLabel}}"] }
+  ],
+  "pages": [
+    { "id": "landing", "name": "LandingPage", "goal": "Convince the visitor to start the booking flow.", "sections": ["hero", "proof-strip", "benefits-section", "testimonial-grid", "cta-section"], "entry": true },
+    { "id": "booking", "name": "BookingPage", "goal": "Represent schedule selection and resolve final objections.", "sections": ["booking-scheduler", "faq-section", "guarantee-section"] },
+    { "id": "confirmation", "name": "ConfirmationPage", "goal": "Confirm the booking and direct pre-call preparation.", "sections": ["confirmation-panel", "next-step-panel"], "terminal": true }
+  ],
+  "optionalSections": ["proof-strip", "testimonial-grid", "faq-section", "guarantee-section"]
+}

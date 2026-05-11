@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import { useCallback, useMemo, useState } from "react";
 
 import { AppModal } from "@/components/AppModal";
+import { fireMetaPixelEvent, readTrackingContextFromWindow } from "@/components/funnel/clientFunnelTracking";
 import { useFunnelCart } from "@/components/funnel/cart/useFunnelCart";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -12,12 +13,14 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function CartButton({
   pageId,
+  metaPixelId,
   text,
   className,
   style,
   disabled,
 }: {
   pageId: string;
+  metaPixelId?: string | null;
   text?: string;
   className?: string;
   style?: CSSProperties;
@@ -48,7 +51,11 @@ export function CartButton({
       const res = await fetch("/api/public/funnel-builder/checkout-session", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pageId, items: checkoutItems }),
+        body: JSON.stringify({
+          pageId,
+          items: checkoutItems,
+          trackingContext: readTrackingContextFromWindow({ pageId }),
+        }),
       });
 
       const contentType = (res.headers.get("content-type") || "").toLowerCase();
@@ -70,6 +77,11 @@ export function CartButton({
         return;
       }
 
+      fireMetaPixelEvent(metaPixelId || null, "checkout_started", {
+        pageId,
+        itemCount: checkoutItems.length,
+        quantity: cart.totalQuantity,
+      });
       window.location.href = nextUrl;
     } catch (e) {
       const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Network error";
@@ -77,7 +89,7 @@ export function CartButton({
     } finally {
       setBusy(false);
     }
-  }, [checkoutItems, disabled, pageId]);
+  }, [cart.totalQuantity, checkoutItems, disabled, metaPixelId, pageId]);
 
   return (
     <>

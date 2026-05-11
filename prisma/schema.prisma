@@ -22,18 +22,6 @@ enum ClientPortalVariant {
   CREDIT
 }
 
-enum HostedPageService {
-  BOOKING
-  NEWSLETTER
-  REVIEWS
-  BLOGS
-}
-
-enum HostedPageDocumentStatus {
-  DRAFT
-  PUBLISHED
-}
-
 enum PortalAdPlacement {
   SIDEBAR_BANNER
   TOP_BANNER
@@ -223,8 +211,6 @@ model User {
   portalAiChatMessagesCreated PortalAiChatMessage[] @relation("PortalAiChatMessageCreatedBy")
   portalAiChatRunsOwned       PortalAiChatRun[]     @relation("PortalAiChatRunOwner")
 
-  hostedPageDocuments HostedPageDocument[]
-
   employeeInvitesCreated EmployeeInvite[] @relation("EmployeeInviteCreatedBy")
   employeeInvitesUsed    EmployeeInvite[] @relation("EmployeeInviteUsedBy")
 
@@ -340,8 +326,6 @@ model PortalAiChatRun {
   workTitle  String?
   canvasUrl  String?
   summaryText String?
-  aiSummaryText String?
-  aiSummaryGeneratedAt DateTime?
 
   stepsJson               Json?
   followUpSuggestionsJson Json?
@@ -1569,9 +1553,6 @@ model PortalAiOutboundCallCampaign {
   // Optional: auto-apply tags after the first outbound message outcome.
   messageOutcomeTaggingJson Json?
 
-  // Optional booking extraction + calendar assignment settings for outbound calls.
-  bookingConfigJson Json?
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1595,12 +1576,8 @@ model PortalAiOutboundCallEnrollment {
 
   nextCallAt    DateTime?
   callSid       String?
-  conversationId String?
-  recordingSid   String?
-  transcriptText String?
   attemptCount  Int      @default(0)
   lastError     String?
-  bookingAnalysisJson Json?
   completedAt   DateTime?
 
   createdAt DateTime @default(now())
@@ -1677,7 +1654,6 @@ model PortalAiOutboundCallManualCall {
   recordingSid   String?
   recordingDurationSec Int?
   transcriptText String?
-  bookingAnalysisJson Json?
   lastError      String?
 
   createdAt DateTime @default(now())
@@ -2095,6 +2071,7 @@ model BusinessProfile {
   primaryGoals   Json?
   targetCustomer String?
   brandVoice     String?
+  businessContext String?
 
   logoUrl        String?
   brandPrimaryHex String?
@@ -2170,37 +2147,6 @@ model ClientBlogSite {
 
   @@index([ownerId])
   @@index([primaryDomain])
-}
-
-model HostedPageDocument {
-  id String @id @default(cuid())
-
-  ownerId String
-  service HostedPageService
-  pageKey String
-  title   String
-  slug    String?
-  status  HostedPageDocumentStatus @default(DRAFT)
-
-  contentMarkdown String @default("")
-  editorMode      CreditFunnelPageEditorMode @default(BLOCKS)
-  blocksJson      Json?
-  customHtml      String @default("")
-  customChatJson  Json?
-
-  seoTitle       String?
-  seoDescription String?
-  themeJson      Json?
-  dataBindingsJson Json?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-
-  @@unique([ownerId, service, pageKey])
-  @@unique([ownerId, service, slug])
-  @@index([ownerId, service, updatedAt])
 }
 
 model PortalBlogGenerationEvent {
@@ -2632,7 +2578,10 @@ model CreditFunnelPage {
   editorMode CreditFunnelPageEditorMode @default(MARKDOWN)
   blocksJson Json?
   customHtml String @default("")
+  draftHtml  String @default("")
   customChatJson Json?
+  foundationArtifactHash String?
+  foundationArtifactJson Json?
 
   sortOrder Int @default(0)
 

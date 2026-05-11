@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
+import { configuredCreditPullProviderLabel, getConfiguredCreditPullProvider } from "@/lib/creditExperian";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 
 export const runtime = "nodejs";
@@ -13,8 +14,7 @@ const createSchema = z.object({
 });
 
 function creditPullProvider() {
-  const p = (process.env.CREDIT_PULL_PROVIDER || "STUB").trim().toUpperCase();
-  return p || "STUB";
+  return getConfiguredCreditPullProvider();
 }
 
 export async function GET(req: Request) {
@@ -61,11 +61,9 @@ export async function POST(req: Request) {
 
   const provider = creditPullProvider();
 
-  // NOTE: this is intentionally a stub. We'll integrate a real credit provider later.
-  // For now, store a record so the rest of the dispute flow can reference it.
   const configured = Boolean((process.env.CREDIT_PULL_PROVIDER || "").trim()) && provider !== "STUB";
 
-  const status = configured ? "SUCCESS" : "FAILED";
+  const status = configured ? "PENDING" : "FAILED";
   const error = configured ? "" : "Credit pull provider not configured yet.";
 
   const rec = await prisma.creditPull.create({
@@ -78,14 +76,14 @@ export async function POST(req: Request) {
         ? {
             rawJson: {
               provider,
-              note: "Credit pull provider integration not implemented yet.",
+              note: `${configuredCreditPullProviderLabel()} is configured. Use the report pull endpoint to run the live pull and store the report output.`,
               pulledAt: new Date().toISOString(),
             },
           }
         : {}),
       ...(error ? { error } : {}),
       requestedAt: new Date(),
-      completedAt: new Date(),
+      ...(configured ? {} : { completedAt: new Date() }),
       updatedAt: new Date(),
     },
     select: {

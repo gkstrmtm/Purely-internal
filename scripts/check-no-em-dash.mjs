@@ -18,6 +18,7 @@ const ALLOWED_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".md
 const EXCLUDE_EXACT = new Set([
   // Transcript artifacts should never block CI.
   "src/lib/planningnotes.md",
+  "src/app/portal/app/services/lead-scraping/User: look at line 31528-31549 in this f.md",
 ]);
 
 const EXCLUDE_PREFIXES = [

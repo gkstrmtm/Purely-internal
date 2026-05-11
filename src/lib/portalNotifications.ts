@@ -38,6 +38,7 @@ export function getAppBaseUrl() {
 
 export type PortalNotificationKind =
   | "credits_purchased"
+  | "credit_report_update"
   | "password_changed"
   | "inbound_email"
   | "inbound_sms"
@@ -111,6 +112,7 @@ function serviceForNotificationKind(kind: PortalNotificationKind): PortalService
 
     // Generic/account-wide events.
     case "credits_purchased":
+    case "credit_report_update":
     case "form_submitted":
     case "task_created":
       return null;
@@ -128,6 +130,9 @@ function portalPathForNotificationKind(kind: PortalNotificationKind): string {
 
     case "task_created":
       return "/portal/app/services/tasks";
+
+    case "credit_report_update":
+      return "/credit/app/services/credit-reports";
 
     case "review_request_sent":
       return "/portal/app/services/reviews";

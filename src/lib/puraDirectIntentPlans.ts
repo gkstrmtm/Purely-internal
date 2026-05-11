@@ -50,6 +50,15 @@ type DirectRecurringAiChatIntent = {
   sendAtIso: string;
 };
 
+type DirectTaskLookupIntent = {
+  q: string;
+  status?: "ALL" | "OPEN";
+};
+
+type DirectContactLookupIntent = {
+  q: string;
+};
+
 type DirectBookingReminderSettingsIntent = {
   enabled: boolean;
   settings: {
@@ -1702,6 +1711,172 @@ function buildRecurringAiChatPlan(intent: DirectRecurringAiChatIntent, immediate
   return { ...steps[0], steps };
 }
 
+function extractDirectTaskLookupIntent(prompt: string): DirectTaskLookupIntent | null {
+  const raw = String(prompt || "").trim();
+  if (!raw) return null;
+
+  const patterns = [
+    /\bwhich\s+task\s+is\s+about\s+(.+?)(?:[.?!]|$)/i,
+    /\b(?:tell|show)\s+me\s+which\s+task\s+is\s+about\s+(.+?)(?:[.?!]|$)/i,
+    /\bfind\s+(?:the\s+)?task\s+(?:about|for)\s+(.+?)(?:[.?!]|$)/i,
+    /\b(?:show|tell)\s+me\s+(?:the\s+)?task\s+(?:about|for)\s+(.+?)(?:[.?!]|$)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    const q = cleanQuotedText(String(match?.[1] || "").slice(0, 200));
+    if (q) return { q, status: "ALL" };
+  }
+
+  return null;
+}
+
+function extractDirectContactLookupIntent(prompt: string): DirectContactLookupIntent | null {
+  const raw = String(prompt || "").trim();
+  if (!raw) return null;
+
+  const patterns = [
+    /\b(?:show|give|tell|get)\s+me\s+(?:the\s+)?(?:important\s+details|details|info(?:rmation)?)\s+(?:you\s+have\s+)?(?:on|for|about)\s+(.+?)(?:[.?!]|$)/i,
+    /\bwhat\s+do\s+we\s+know\s+about\s+(.+?)(?:[.?!]|$)/i,
+    /\bfind\s+(?:the\s+)?contact\s+who\s+(.+?)(?:[.?!]|$)/i,
+    /\bfind\s+(?:the\s+)?contact\s+(?:for|about)\s+(.+?)(?:[.?!]|$)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    const q = cleanQuotedText(String(match?.[1] || "").slice(0, 200));
+    if (q) return { q };
+  }
+
+  return null;
+}
+
+function buildDirectAccountAuditPlan(prompt: string): PuraDirectActionPlan | null {
+  const lower = String(prompt || "").trim().toLowerCase();
+  if (!lower) return null;
+
+  const wantsDiagnosis = /\b(?:blunt\s+assessment|weak|weakest|underused|confusing|fake|wake\s+this\s+account\s+up|biggest\s+opportunities|least\s+active|least\s+set\s+up|owner\s+update|skeptical\s+owner|real\s+operating\s+business|real\s+business|dressed-up\s+demo|half-set-up|embarrass\s+me|feel\s+thin|look\s+thin|thin|stale|trust|healthy|reputation|situation|usable(?:\s+enough)?|feel\s+empty|fix\s+first|focus\s+first|30\s+minutes)\b/.test(lower);
+  const wantsCrossSurfaceSummary = /\b(?:demo account|account|portal)\b/.test(lower) || /\b(?:services|tasks|inbox|reviews|dashboard|reporting|contacts|booking)\b/.test(lower);
+  if (!wantsDiagnosis || !wantsCrossSurfaceSummary) return null;
+
+  const wantsServiceUsageAudit = /\b(?:least\s+active|least\s+set\s+up|underused)\b/.test(lower) && /\bservices?\b/.test(lower);
+  const wantsServicePriorityAudit = /\bwhich\s+service\s+should\s+i\s+fix\s+first\b/.test(lower) || (/\bservices?\b/.test(lower) && /\bhalf-set-up\b/.test(lower));
+  const wantsReviewAudit = /\breviews?\b/.test(lower) && /\b(?:blunt|trust|thin|healthy|situation)\b/.test(lower);
+  const wantsBookingAudit = /\bbooking(s)?\b/.test(lower) && /\b(?:weak|weakest|goal\s+this\s+week|get\s+more\s+bookings|priority)\b/.test(lower);
+  const wantsContactAudit = /\bcontacts?\b/.test(lower) && /\b(?:usable|thin|quality|follow-up|follow up)\b/.test(lower);
+
+  if (wantsReviewAudit) {
+    const steps: PuraDirectActionStep[] = [
+      {
+        action: "reviews.inbox.list",
+        traceTitle: "List Reviews",
+        args: {},
+      },
+      {
+        action: "reporting.summary.get",
+        traceTitle: "Get Reporting Summary",
+        args: { range: "30d" },
+      },
+    ];
+    return { ...steps[0], steps };
+  }
+
+  if (wantsBookingAudit) {
+    const steps: PuraDirectActionStep[] = [
+      {
+        action: "booking.settings.get",
+        traceTitle: "Get Booking Settings",
+        args: {},
+      },
+      {
+        action: "booking.form.get",
+        traceTitle: "Get Booking Form",
+        args: {},
+      },
+      {
+        action: "booking.site.get",
+        traceTitle: "Get Booking Site",
+        args: {},
+      },
+      {
+        action: "reporting.summary.get",
+        traceTitle: "Get Reporting Summary",
+        args: { range: "30d" },
+      },
+    ];
+    return { ...steps[0], steps };
+  }
+
+  if (wantsContactAudit) {
+    const steps: PuraDirectActionStep[] = [
+      {
+        action: "contacts.list",
+        traceTitle: "List Contacts",
+        args: { limit: 20 },
+      },
+      {
+        action: "inbox.threads.list",
+        traceTitle: "List Inbox Threads",
+        args: { allChannels: true, take: 20 },
+      },
+    ];
+    return { ...steps[0], steps };
+  }
+
+  const steps: PuraDirectActionStep[] = wantsServiceUsageAudit || wantsServicePriorityAudit
+    ? [
+        {
+          action: "services.status.get",
+          traceTitle: "Get Service Status",
+          args: {},
+        },
+        {
+          action: "services.catalog.get",
+          traceTitle: "Get Service Catalog",
+          args: {},
+        },
+        {
+          action: "reporting.summary.get",
+          traceTitle: "Get Reporting Summary",
+          args: { range: "30d" },
+        },
+      ]
+    : [
+        {
+          action: "dashboard.analysis.get",
+          traceTitle: "Analyze Dashboard",
+          args: {},
+        },
+        {
+          action: "reporting.summary.get",
+          traceTitle: "Get Reporting Summary",
+          args: { range: "30d" },
+        },
+        {
+          action: "services.status.get",
+          traceTitle: "Get Service Status",
+          args: {},
+        },
+        {
+          action: "tasks.list",
+          traceTitle: "List Open Tasks",
+          args: { status: "OPEN", assigned: "all", limit: 25 },
+        },
+        {
+          action: "inbox.threads.list",
+          traceTitle: "List Inbox Threads",
+          args: { allChannels: true, take: 25 },
+        },
+        {
+          action: "reviews.inbox.list",
+          traceTitle: "List Reviews",
+          args: {},
+        },
+      ];
+
+  return { ...steps[0], steps };
+}
+
 function extractOutboundGoal(prompt: string): string {
   const match =
     prompt.match(/\bwith\s+(?:the\s+)?goal\s+(?:of|to)?\s+([\s\S]+?)\s*$/i) ||
@@ -1984,6 +2159,8 @@ export function getPuraDirectActionPlan(opts: {
   const directWeekdayScheduledSmsIntent = extractDirectWeekdayScheduledSmsIntent(prompt);
   const directAiChatScheduledReminderIntent = extractDirectAiChatScheduledReminderIntent(prompt, timeZoneHint);
   const directRecurringAiChatIntent = extractDirectRecurringAiChatIntent(prompt);
+  const directTaskLookupIntent = extractDirectTaskLookupIntent(prompt);
+  const directContactLookupIntent = extractDirectContactLookupIntent(prompt);
   const directBookingReminderSettingsIntent = extractDirectBookingReminderSettingsIntent(prompt);
   const directBookingSettingsUpdateIntent = extractDirectBookingSettingsUpdateIntent(prompt);
   const directAiReceptionistGreetingIntent = extractDirectAiReceptionistGreetingIntent(prompt);
@@ -2073,6 +2250,9 @@ export function getPuraDirectActionPlan(opts: {
   const directAiReceptionistSettingsGetIntent = isDirectAiReceptionistSettingsGetIntent(prompt);
   const directAiOutboundCampaignIntent = extractDirectAiOutboundCampaignIntent(prompt);
   const directAiOutboundManualCallIntent = extractDirectAiOutboundManualCallIntent(prompt);
+  const directAccountAuditPlan = buildDirectAccountAuditPlan(prompt);
+
+  if (directAccountAuditPlan) return directAccountAuditPlan;
 
   if (directRecurringAiChatIntent) {
     const recurringSignals = detectPuraDirectIntentSignals(directRecurringAiChatIntent.cleanedPrompt, threadContext);
@@ -2818,6 +2998,28 @@ export function getPuraDirectActionPlan(opts: {
       action: "tasks.list",
       traceTitle: "List Tasks",
       args: {},
+    };
+  }
+
+  if (directTaskLookupIntent) {
+    return {
+      action: "tasks.list",
+      traceTitle: "Find Matching Tasks",
+      args: {
+        q: directTaskLookupIntent.q,
+        ...(directTaskLookupIntent.status ? { status: directTaskLookupIntent.status } : {}),
+      },
+    };
+  }
+
+  if (directContactLookupIntent) {
+    return {
+      action: "contacts.list",
+      traceTitle: "Find Contact Details",
+      args: {
+        q: directContactLookupIntent.q,
+        limit: 10,
+      },
     };
   }
 

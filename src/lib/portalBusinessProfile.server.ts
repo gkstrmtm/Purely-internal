@@ -21,6 +21,7 @@ export const BusinessProfileUpsertSchema = z.object({
   primaryGoals: z.array(z.string().trim().min(1)).max(10).optional(),
   targetCustomer: z.string().trim().max(240).optional().or(z.literal("")),
   brandVoice: z.string().trim().max(240).optional().or(z.literal("")),
+  businessContext: z.string().trim().max(4000).optional().or(z.literal("")),
   businessContextNotes: z.string().trim().max(4000).optional().or(z.literal("")),
 
   logoUrl: z.string().trim().max(500).optional().or(z.literal("")),
@@ -256,6 +257,12 @@ function profileSelect(flags: ProfileColumnFlags) {
 }
 
 function normalizeProfile(row: any, flags: ProfileColumnFlags, extras?: Record<string, unknown> | null) {
+  const businessContextNotes = flags.businessContextNotes
+    ? (row.businessContextNotes ?? null)
+    : typeof extras?.businessContextNotes === "string"
+      ? String(extras.businessContextNotes)
+      : null;
+
   return {
     businessName: row.businessName,
     websiteUrl: flags.websiteUrl ? (row.websiteUrl ?? null) : null,
@@ -264,11 +271,8 @@ function normalizeProfile(row: any, flags: ProfileColumnFlags, extras?: Record<s
     primaryGoals: flags.primaryGoals ? ((row.primaryGoals as unknown) ?? null) : null,
     targetCustomer: flags.targetCustomer ? (row.targetCustomer ?? null) : null,
     brandVoice: flags.brandVoice ? (row.brandVoice ?? null) : null,
-    businessContextNotes: flags.businessContextNotes
-      ? (row.businessContextNotes ?? null)
-      : typeof extras?.businessContextNotes === "string"
-        ? String(extras.businessContextNotes)
-        : null,
+    businessContext: businessContextNotes,
+    businessContextNotes,
     logoUrl: flags.logoUrl ? (row.logoUrl ?? null) : null,
     brandPrimaryHex: flags.brandPrimaryHex ? (row.brandPrimaryHex ?? null) : null,
     brandSecondaryHex: flags.brandSecondaryHex ? (row.brandSecondaryHex ?? null) : null,
@@ -319,6 +323,8 @@ export async function upsertPortalBusinessProfile(opts: {
   const prevBusinessName = typeof prevProfile?.businessName === "string" ? prevProfile.businessName.trim() : "";
 
   const flags = await getProfileColumnFlags();
+  const businessContextInput = emptyToNull(parsed.data.businessContext);
+  const businessContextNotesInput = emptyToNull(parsed.data.businessContextNotes) ?? businessContextInput;
 
   const baseData: Record<string, unknown> = {
     ownerId,
@@ -333,7 +339,7 @@ export async function upsertPortalBusinessProfile(opts: {
   }
   if (flags.targetCustomer) baseData.targetCustomer = emptyToNull(parsed.data.targetCustomer);
   if (flags.brandVoice) baseData.brandVoice = emptyToNull(parsed.data.brandVoice);
-  if (flags.businessContextNotes) baseData.businessContextNotes = emptyToNull(parsed.data.businessContextNotes);
+  if (flags.businessContextNotes) baseData.businessContextNotes = businessContextNotesInput;
   if (flags.logoUrl) baseData.logoUrl = emptyToNull(parsed.data.logoUrl);
   if (flags.brandPrimaryHex) baseData.brandPrimaryHex = emptyToNull(parsed.data.brandPrimaryHex);
   if (flags.brandSecondaryHex) baseData.brandSecondaryHex = emptyToNull(parsed.data.brandSecondaryHex);
@@ -353,7 +359,7 @@ export async function upsertPortalBusinessProfile(opts: {
   }
   if (flags.targetCustomer) updateData.targetCustomer = emptyToNull(parsed.data.targetCustomer);
   if (flags.brandVoice) updateData.brandVoice = emptyToNull(parsed.data.brandVoice);
-  if (flags.businessContextNotes) updateData.businessContextNotes = emptyToNull(parsed.data.businessContextNotes);
+  if (flags.businessContextNotes) updateData.businessContextNotes = businessContextNotesInput;
   if (flags.logoUrl) updateData.logoUrl = emptyToNull(parsed.data.logoUrl);
   if (flags.brandPrimaryHex) updateData.brandPrimaryHex = emptyToNull(parsed.data.brandPrimaryHex);
   if (flags.brandSecondaryHex) updateData.brandSecondaryHex = emptyToNull(parsed.data.brandSecondaryHex);
@@ -370,7 +376,7 @@ export async function upsertPortalBusinessProfile(opts: {
   });
 
   await setProfileExtras(ownerId, {
-    businessContextNotes: emptyToNull(parsed.data.businessContextNotes),
+    businessContextNotes: businessContextNotesInput,
   }).catch(() => null);
 
   const hostedThemePatch = parsed.data.hostedTheme;

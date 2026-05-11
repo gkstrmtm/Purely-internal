@@ -3,6 +3,8 @@
 import type { CSSProperties } from "react";
 import { useCallback, useState } from "react";
 
+import { fireMetaPixelEvent, readTrackingContextFromWindow } from "@/components/funnel/clientFunnelTracking";
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -11,6 +13,7 @@ export function SalesCheckoutButton({
   pageId,
   priceId,
   quantity,
+  metaPixelId,
   text,
   className,
   style,
@@ -19,6 +22,7 @@ export function SalesCheckoutButton({
   pageId: string;
   priceId: string;
   quantity?: number;
+  metaPixelId?: string | null;
   text?: string;
   className?: string;
   style?: CSSProperties;
@@ -38,7 +42,12 @@ export function SalesCheckoutButton({
       const res = await fetch("/api/public/funnel-builder/checkout-session", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pageId, priceId, quantity: quantity ?? 1 }),
+        body: JSON.stringify({
+          pageId,
+          priceId,
+          quantity: quantity ?? 1,
+          trackingContext: readTrackingContextFromWindow({ pageId }),
+        }),
       });
       const contentType = (res.headers.get("content-type") || "").toLowerCase();
       const isJson = contentType.includes("application/json");
@@ -59,6 +68,7 @@ export function SalesCheckoutButton({
         return;
       }
 
+      fireMetaPixelEvent(metaPixelId || null, "checkout_started", { pageId, priceId, quantity: quantity ?? 1 });
       window.location.href = nextUrl;
     } catch (e) {
       const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Network error";
@@ -66,7 +76,7 @@ export function SalesCheckoutButton({
     } finally {
       setBusy(false);
     }
-  }, [disabled, pageId, priceId, quantity]);
+  }, [disabled, metaPixelId, pageId, priceId, quantity]);
 
   const label = (text || "Buy now").trim() || "Buy now";
 

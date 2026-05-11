@@ -11,7 +11,7 @@ import { PortalSearchableCombobox, type PortalSearchableOption } from "@/compone
 import { useToast } from "@/components/ToastProvider";
 import { portalGlassBackdropClass, portalGlassButtonClass, portalGlassPanelClass, portalGlassSectionClass } from "@/components/portalGlass";
 import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
-import { creditScopeLabel, extractCreditInquiryDate, type CreditReportSnapshot, type CreditScope } from "@/lib/creditReports";
+import { creditScopeLabel, extractCreditInquiryDate, type CreditReportOverviewSection, type CreditReportSnapshot, type CreditScope } from "@/lib/creditReports";
 
 type ContactLite = { id: string; name: string; email: string | null };
 
@@ -43,6 +43,28 @@ type ReportItemLite = {
 type ReportFull = ReportLite & {
   rawJson: any;
   creditSnapshot?: CreditReportSnapshot;
+  creditOverview?: CreditReportOverviewSection[];
+  creditLifecycle?: {
+    previousReportId: string | null;
+    carriedForwardCount: number;
+    removedCount: number;
+    resolvedCount: number;
+    lastReconciledAt: string;
+    notificationSummary: {
+      account: "sent" | "skipped" | "failed";
+      client: "sent" | "skipped" | "failed";
+      accountReason?: string | null;
+      clientReason?: string | null;
+    };
+    events: Array<{
+      kind: string;
+      title: string;
+      description: string;
+      createdAt: string;
+      itemLabel?: string | null;
+      bureau?: string | null;
+    }>;
+  } | null;
   items: ReportItemLite[];
 };
 
@@ -64,10 +86,10 @@ type FixedMenuStyle = { left: number; top: number; maxHeight: number };
 
 const REPORT_FILTER_LABELS: Record<"ALL" | "PENDING" | "NEGATIVE" | "POSITIVE" | "TRACKED", string> = {
   ALL: "All items",
-  PENDING: "Needs review",
-  NEGATIVE: "Needs dispute",
+  PENDING: "Review first",
+  NEGATIVE: "Move to dispute",
   POSITIVE: "Clean items",
-  TRACKED: "Follow-up",
+  TRACKED: "In progress",
 };
 
 function classNames(...values: Array<string | false | null | undefined>) {
@@ -86,8 +108,8 @@ function scoreReportItem(item: ReportItemLite) {
 function itemSummaryText(item: ReportItemLite) {
   if (item.disputeStatus) return `Latest follow-up: ${item.disputeStatus}`;
   if (item.auditReason) return item.auditReason;
-  if (item.auditTag === "NEGATIVE") return "This item is automatically flagged as a dispute priority.";
-  if (item.auditTag === "PENDING") return "This item needs review before it should move into dispute.";
+  if (item.auditTag === "NEGATIVE") return "This item is ready to move into a dispute draft now.";
+  if (item.auditTag === "PENDING") return "Review this item first. If it still hurts the file, move it into a dispute draft.";
   return "This item is reading as clean right now.";
 }
 
@@ -121,10 +143,44 @@ function readReviewDetails(details: unknown): Array<{ key: string; value: string
 }
 
 function scoreTone(score: number | null) {
-  if (score === null) return { label: "No score yet", accent: "#a1a1aa" };
-  if (score >= 720) return { label: "Strong", accent: "#2563eb" };
-  if (score >= 660) return { label: "Building", accent: "#fb7185" };
-  return { label: "Needs work", accent: "#f97316" };
+  if (score === null) return { label: "No score yet", accent: "#94a3b8", surfaceClass: "bg-slate-100 text-slate-700" };
+  if (score >= 740) return { label: "Excellent", accent: "#15803d", surfaceClass: "bg-emerald-100 text-emerald-700" };
+  if (score >= 680) return { label: "Good", accent: "#0f766e", surfaceClass: "bg-teal-100 text-teal-700" };
+  if (score >= 620) return { label: "Fair", accent: "#b45309", surfaceClass: "bg-amber-100 text-amber-700" };
+  return { label: "High risk", accent: "#be123c", surfaceClass: "bg-rose-100 text-rose-700" };
+}
+
+function utilizationTone(utilization: number | null) {
+  if (utilization === null) {
+    return {
+      label: "No utilization data",
+      accent: "#94a3b8",
+      surfaceClass: "bg-slate-100 text-slate-700",
+      summary: "Utilization will update once revolving balances are available.",
+    };
+  }
+  if (utilization <= 9) {
+    return {
+      label: "Healthy",
+      accent: "#15803d",
+      surfaceClass: "bg-emerald-100 text-emerald-700",
+      summary: `${100 - utilization}% of revolving room is still open.`,
+    };
+  }
+  if (utilization <= 29) {
+    return {
+      label: "Watch closely",
+      accent: "#b45309",
+      surfaceClass: "bg-amber-100 text-amber-700",
+      summary: `${100 - utilization}% of revolving room is open, but more paydown would help.`,
+    };
+  }
+  return {
+    label: "Hurting score",
+    accent: "#be123c",
+    surfaceClass: "bg-rose-100 text-rose-700",
+    summary: `${Math.max(0, 100 - utilization)}% of revolving room is open. Paying balances down should be a priority.`,
+  };
 }
 
 function ringTrack(segments: Array<{ value: number; color: string }>) {
@@ -277,7 +333,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const [contacts, setContacts] = useState<ContactLite[]>([]);
   const [selectedContactId, setSelectedContactId] = useState<string>("");
 
-  const [provider, setProvider] = useState<string>("IdentityIQ");
+  const [provider, setProvider] = useState<string>("Experian");
   const [creditScope] = useState<CreditScope>("PERSONAL");
   const [itemFilter, setItemFilter] = useState<"ALL" | "PENDING" | "NEGATIVE" | "POSITIVE" | "TRACKED">("ALL");
   const [itemFiltersMenu, setItemFiltersMenu] = useState<FixedMenuStyle | null>(null);
@@ -443,6 +499,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     () => buildOpportunityPlans(selectedReportSummary, selectedReport?.creditScope || creditScope, selectedReport?.creditSnapshot || null),
     [creditScope, selectedReport, selectedReportSummary],
   );
+  const selectedScoreTone = useMemo(() => scoreTone(selectedReport?.creditSnapshot?.currentScore ?? null), [selectedReport?.creditSnapshot?.currentScore]);
+  const selectedUtilizationTone = useMemo(() => utilizationTone(selectedReport?.creditSnapshot?.utilizationPercent ?? null), [selectedReport?.creditSnapshot?.utilizationPercent]);
   const overviewRingStyle = useMemo(
     () => ({
       backgroundImage: ringTrack([
@@ -910,7 +968,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Report not found.</div>
       ) : (
         <div className="mt-6 space-y-5">
-          <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <section className={classNames("rounded-4xl p-6 sm:p-7", portalGlassPanelClass)}>
             <div>
               <h2 className="text-2xl font-semibold text-zinc-900">{selectedReport.contact?.name || selectedReport.provider}</h2>
               <div className="mt-2 text-sm text-zinc-600">{creditScopeLabel(selectedReport.creditScope)} • {selectedReport.provider} • Imported {new Date(selectedReport.importedAt).toLocaleString()} • {selectedReport.items.length} items</div>
@@ -939,84 +997,60 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             </div>
 
             <div className="mt-5 grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
-              <div className="rounded-[28px] border border-zinc-200 bg-zinc-50 p-5">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report health</div>
+              <div className={classNames("rounded-[28px] p-5", portalGlassSectionClass)}>
+                <div className="text-xs font-medium text-zinc-500">Report health</div>
                 <div className="mt-4 flex items-center gap-4">
                   <div className="relative h-28 w-28 rounded-full" style={overviewRingStyle}>
                     <div className="absolute inset-3 flex items-center justify-center rounded-full bg-white text-center">
                       <div>
                         <div className="text-2xl font-bold text-zinc-900">{selectedReport.items.length}</div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Items</div>
+                        <div className="text-xs text-zinc-500">Items</div>
                       </div>
                     </div>
                   </div>
                   <div className="space-y-2 text-sm text-zinc-700">
-                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-brand-pink" />Needs dispute: {selectedReportSummary.negative}</div>
-                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[#2563eb]" />Needs review: {selectedReportSummary.pending}</div>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-rose-400" />Move to dispute: {selectedReportSummary.negative}</div>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-amber-400" />Review first: {selectedReportSummary.pending}</div>
                     <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />Clean items: {selectedReportSummary.positive}</div>
-                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-zinc-800" />Open disputes: {selectedReport.creditSnapshot?.openDisputes ?? selectedReportSummary.tracked}</div>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-sky-500" />Open disputes: {selectedReport.creditSnapshot?.openDisputes ?? selectedReportSummary.tracked}</div>
                   </div>
                 </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current score</div>
+                <div className={classNames("rounded-3xl p-4", portalGlassSectionClass)}>
+                  <div className="text-xs font-medium text-zinc-500">Current score</div>
                   <div className="mt-2 flex items-end justify-between gap-3">
                     <div className="text-3xl font-bold text-zinc-900">{selectedReport.creditSnapshot?.currentScore ?? "--"}</div>
-                    <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: scoreTone(selectedReport.creditSnapshot?.currentScore ?? null).accent }}>{scoreTone(selectedReport.creditSnapshot?.currentScore ?? null).label}</div>
+                    <div className={classNames("rounded-full px-2.5 py-1 text-xs font-semibold", selectedScoreTone.surfaceClass)}>{selectedScoreTone.label}</div>
                   </div>
                 </div>
-                <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Target score</div>
+                <div className={classNames("rounded-3xl p-4", portalGlassSectionClass)}>
+                  <div className="text-xs font-medium text-zinc-500">Target score</div>
                   <div className="mt-2 text-3xl font-bold text-zinc-900">{selectedReport.creditSnapshot?.targetScore ?? "--"}</div>
                   <div className="mt-1 text-xs text-zinc-500">Gap: {selectedReport.creditSnapshot?.scoreDelta ?? 0}</div>
                 </div>
-                <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Utilization</div>
+                <div className={classNames("rounded-3xl p-4", portalGlassSectionClass)}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs font-medium text-zinc-500">Utilization</div>
+                    <div className={classNames("rounded-full px-2.5 py-1 text-xs font-semibold", selectedUtilizationTone.surfaceClass)}>{selectedUtilizationTone.label}</div>
+                  </div>
                   <div className="mt-2 text-3xl font-bold text-zinc-900">{selectedReport.creditSnapshot?.utilizationPercent ?? 0}%</div>
-                  <div className="mt-1 text-xs text-zinc-500">Keep this under 10% if possible</div>
+                  <div className="mt-1 text-xs text-zinc-500">{selectedUtilizationTone.summary}</div>
                 </div>
-                <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Primary goal</div>
+                <div className={classNames("rounded-3xl p-4", portalGlassSectionClass)}>
+                  <div className="text-xs font-medium text-zinc-500">Primary goal</div>
                   <div className="mt-2 text-sm font-semibold text-zinc-900">{selectedReport.creditSnapshot?.goals?.[0] || "Set a score and funding goal"}</div>
                   <div className="mt-1 text-xs text-zinc-500">{selectedReport.creditSnapshot?.nextMilestone || "Use this report to drive the next action."}</div>
                 </div>
               </div>
             </div>
-            {selectedReport.creditSnapshot?.bureauScores?.length ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                {selectedReport.creditSnapshot.bureauScores.map((entry) => {
-                  const ringPercent = Math.max(0, Math.min(100, Math.round(((entry.score - 300) / 550) * 100)));
-                  return (
-                    <div key={entry.bureau} className="rounded-3xl border border-zinc-200 bg-white p-4">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{entry.bureau}</div>
-                      <div className="mt-3 flex items-center gap-3">
-                        <div className="relative h-16 w-16 rounded-full" style={{ backgroundImage: ringTrack([{ value: ringPercent, color: "#2563eb" }, { value: 100 - ringPercent, color: "#e4e4e7" }]) }}>
-                          <div className="absolute inset-2 flex items-center justify-center rounded-full bg-white text-sm font-semibold text-zinc-900">{entry.score}</div>
-                        </div>
-                        <div className="text-sm text-zinc-600">Auto-loaded bureau score for this report snapshot.</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-            {selectedReport.creditSnapshot?.goals?.length ? (
-              <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Goals</div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {selectedReport.creditSnapshot.goals.map((goal) => (
-                    <div key={goal} className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-800">{goal}</div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
             {detailTab === "items" ? (
             <div id="credit-report-items" className="mt-5 border-t border-zinc-200 pt-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Report items</div>
+                  <div className="mt-1 text-sm text-zinc-600">Open a draft only when an item is ready. Review-first items stay here until you make that call.</div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <input
@@ -1104,7 +1138,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-sm text-zinc-600">No matching items.</div>
               ) : (
                 filteredItems.map((it) => (
-                  <div key={it.id} className="rounded-[26px] border border-zinc-200 bg-white p-4 transition-colors duration-150 hover:border-zinc-300">
+                  <div key={it.id} className={classNames("rounded-[26px] p-4 transition-colors duration-150", portalGlassSectionClass)}>
                     <div className="flex flex-col gap-4">
                       <button
                         type="button"
@@ -1116,7 +1150,14 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                             <div className="truncate text-sm font-semibold text-zinc-900">{it.label}</div>
                             <div className="mt-1 text-xs text-zinc-500">{(it.bureau ? `${it.bureau} • ` : "") + (it.kind || "Uncategorized")}</div>
                           </div>
-                          <div className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">{REPORT_FILTER_LABELS[it.auditTag]}</div>
+                          <div className={classNames(
+                            "rounded-full px-2.5 py-1 text-xs font-semibold",
+                            it.auditTag === "NEGATIVE"
+                              ? "bg-rose-100 text-rose-700"
+                              : it.auditTag === "PENDING"
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-zinc-100 text-zinc-700",
+                          )}>{REPORT_FILTER_LABELS[it.auditTag]}</div>
                         </div>
                         <div className="text-xs text-zinc-500">{it.auditReason || itemSummaryText(it)}</div>
                       </button>
@@ -1131,22 +1172,25 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                             onClick={() => openDisputeComposer(it)}
                             className={PRIMARY_BUTTON_CLASS}
                           >
-                            Create dispute
+                            Open dispute draft
                           </button>
                         ) : it.auditTag === "PENDING" ? (
-                          <button type="button" onClick={() => setPriorityItemOpen(it)} className={SECONDARY_BUTTON_CLASS}>Review item</button>
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={() => { void markItemNoDisputeNeeded(it); }} className={SECONDARY_BUTTON_CLASS} disabled={itemDecisionBusyId === it.id}>{itemDecisionBusyId === it.id ? "Saving..." : "No dispute needed"}</button>
+                            <button type="button" onClick={() => { void moveItemToDispute(it); }} className={PRIMARY_BUTTON_CLASS} disabled={itemDecisionBusyId === it.id}>{itemDecisionBusyId === it.id ? "Saving..." : "Move to dispute draft"}</button>
+                          </div>
                         ) : null}
                       </div>
                     </div>
 
                     <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
-                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Automatic classification</div>
+                      <div className={classNames("rounded-2xl px-3 py-3", portalGlassButtonClass)}>
+                        <div className="text-xs font-medium text-zinc-500">Why it is in this lane</div>
                         <div className="mt-2 text-sm font-semibold text-zinc-900">{REPORT_FILTER_LABELS[it.auditTag]}</div>
-                        <div className="mt-1 text-sm text-zinc-600">{it.auditTag === "PENDING" ? "Review the item details, then either move it to dispute or mark that no dispute is needed." : it.auditReason || "Classification is derived from the account status and dispute signals in the report."}</div>
+                        <div className="mt-1 text-sm text-zinc-600">{it.auditTag === "PENDING" ? "Move to dispute opens a draft with this item prefilled. If it does not belong in the next letter, mark it as no dispute needed." : it.auditReason || "Classification is based on the imported account status and dispute signals in the report."}</div>
                       </div>
-                      <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute status</div>
+                      <div className={classNames("rounded-2xl px-3 py-3", portalGlassButtonClass)}>
+                        <div className="text-xs font-medium text-zinc-500">Dispute status</div>
                         <div className="mt-2 text-sm text-zinc-700">{it.disputeStatus || "No dispute started yet"}</div>
                       </div>
                     </div>
@@ -1162,29 +1206,108 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Action plan</div>
+                  <div className="mt-1 text-sm text-zinc-600">Strategy, goals, score context, and lifecycle updates live here so the items tab can stay focused.</div>
               </div>
             </div>
 
+              {selectedReport.creditSnapshot?.bureauScores?.length ? (
+                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                  {selectedReport.creditSnapshot.bureauScores.map((entry) => {
+                    const ringPercent = Math.max(0, Math.min(100, Math.round(((entry.score - 300) / 550) * 100)));
+                    return (
+                      <div key={entry.bureau} className={classNames("rounded-3xl p-4", portalGlassSectionClass)}>
+                        <div className="text-xs font-medium text-zinc-500">{entry.bureau}</div>
+                        <div className="mt-3 flex items-center gap-3">
+                          <div className="relative h-16 w-16 rounded-full" style={{ backgroundImage: ringTrack([{ value: ringPercent, color: scoreTone(entry.score).accent }, { value: 100 - ringPercent, color: "#e4e4e7" }]) }}>
+                            <div className="absolute inset-2 flex items-center justify-center rounded-full bg-white text-sm font-semibold text-zinc-900">{entry.score}</div>
+                          </div>
+                          <div className="text-sm text-zinc-600">This bureau score is included in the imported snapshot.</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              {selectedReport.creditSnapshot?.goals?.length ? (
+                <div className={classNames("mt-4 rounded-3xl p-4", portalGlassSectionClass)}>
+                  <div className="text-xs font-medium text-zinc-500">Goals</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedReport.creditSnapshot.goals.map((goal) => (
+                      <div key={goal} className={classNames("rounded-full px-3 py-1.5 text-xs font-semibold text-zinc-800", portalGlassButtonClass)}>{goal}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
             <div className="mt-5 grid gap-4 xl:grid-cols-2">
               {opportunityPlans.map((plan) => (
-                <div key={plan.key} className="rounded-[26px] border border-zinc-200 bg-white p-5 shadow-sm transition-shadow duration-150 hover:shadow-md">
+                <div key={plan.key} className={classNames("rounded-[26px] p-5", portalGlassSectionClass)}>
                   <div>
                     <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
                     <div className="mt-1 text-sm leading-6 text-zinc-700">{plan.summary}</div>
-                    <div className="mt-4 border-t border-zinc-200 pt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">{plan.readinessLabel}</div>
+                    <div className="mt-4 border-t border-zinc-200/70 pt-3 text-xs font-medium text-zinc-500">{plan.readinessLabel}</div>
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     {plan.offers.map((offer) => (
-                      <div key={offer.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                      <div key={offer.label} className={classNames("rounded-2xl px-3 py-3", portalGlassButtonClass)}>
                         <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
-                        <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
+                        <div className="mt-1 text-xs font-medium text-zinc-500">{offer.source}</div>
                       </div>
                     ))}
                   </div>
                 </div>
               ))}
             </div>
+
+              {selectedReport.creditOverview?.length ? (
+                <div className="mt-4 grid gap-3 xl:grid-cols-2">
+                  {selectedReport.creditOverview.map((section) => (
+                    <div key={section.key} className={classNames("rounded-3xl p-4", portalGlassSectionClass)}>
+                      <div className="text-xs font-medium text-zinc-500">{section.title}</div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {section.fields.map((field) => (
+                          <div key={`${section.key}-${field.label}`} className={classNames("rounded-2xl px-3 py-3", portalGlassButtonClass)}>
+                            <div className="text-xs font-medium text-zinc-500">{field.label}</div>
+                            <div className="mt-2 wrap-break-word text-sm font-medium text-zinc-900">{field.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {selectedReport.creditLifecycle?.events?.length ? (
+                <div id="credit-report-lifecycle" className={classNames("mt-4 scroll-mt-24 rounded-3xl p-4", portalGlassSectionClass)}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-medium text-zinc-500">Lifecycle updates</div>
+                      <div className="mt-1 text-sm text-zinc-600">Changes detected after comparing this report against the previous file.</div>
+                    </div>
+                    <div className="text-xs text-zinc-500">Reconciled {new Date(selectedReport.creditLifecycle.lastReconciledAt).toLocaleString()}</div>
+                  </div>
+                  <div className="mt-3 grid gap-3 xl:grid-cols-2">
+                    {selectedReport.creditLifecycle.events.map((event, index) => (
+                      <div key={`${event.kind}-${index}`} className={classNames("rounded-2xl px-4 py-3", portalGlassButtonClass)}>
+                        <div className="text-sm font-semibold text-zinc-900">{event.title}</div>
+                        <div className="mt-1 text-sm text-zinc-600">{event.description}</div>
+                        <div className="mt-2 text-xs text-zinc-500">
+                          {[event.bureau, event.createdAt ? new Date(event.createdAt).toLocaleDateString() : ""].filter(Boolean).join(" • ")}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-zinc-600">
+                    <div className={classNames("rounded-full px-3 py-1.5", portalGlassButtonClass)}>Carried forward: {selectedReport.creditLifecycle.carriedForwardCount}</div>
+                    <div className={classNames("rounded-full px-3 py-1.5", portalGlassButtonClass)}>Resolved: {selectedReport.creditLifecycle.resolvedCount}</div>
+                    <div className={classNames("rounded-full px-3 py-1.5", portalGlassButtonClass)}>Removed: {selectedReport.creditLifecycle.removedCount}</div>
+                    <div className={classNames("rounded-full px-3 py-1.5", portalGlassButtonClass)}>Account email: {selectedReport.creditLifecycle.notificationSummary.account}</div>
+                    <div className={classNames("rounded-full px-3 py-1.5", portalGlassButtonClass)}>Client email: {selectedReport.creditLifecycle.notificationSummary.client}</div>
+                  </div>
+                </div>
+              ) : null}
             </div>
             ) : null}
           </section>
@@ -1201,7 +1324,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 </div>
 
                 <div className="mt-5 space-y-3 text-sm text-zinc-700">
-                  <div className="flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-zinc-500">
                     <div>{REPORT_FILTER_LABELS[priorityItemOpen.auditTag]}</div>
                     <div>{priorityItemOpen.bureau || "No bureau"}</div>
                     <div>{priorityItemOpen.kind || "Uncategorized"}</div>
@@ -1209,13 +1332,13 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   </div>
                   <div>{priorityItemOpen.auditReason || itemSummaryText(priorityItemOpen)}</div>
                   {priorityItemOpen.auditTag === "PENDING" ? (
-                    <div>Review the details below. If it belongs in the next letter, move it to dispute.</div>
+                    <div>Move to dispute opens a new draft with this item prefilled. If it should stay off the next letter, mark it as no dispute needed instead.</div>
                   ) : null}
                 </div>
 
                 <div className={classNames("mt-5 rounded-3xl p-4", portalGlassSectionClass)}>
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Item details</div>
+                    <div className="text-xs font-medium text-zinc-500">Item details</div>
                     <div className="text-xs text-zinc-500">Updated {new Date(priorityItemOpen.updatedAt).toLocaleString()}</div>
                   </div>
 
@@ -1223,7 +1346,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
                       {readReviewDetails(priorityItemOpen.detailsJson).map((entry) => (
                         <div key={entry.key} className={classNames("rounded-2xl px-3 py-3", portalGlassSectionClass)}>
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{entry.key}</div>
+                          <div className="text-xs font-medium text-zinc-500">{entry.key}</div>
                           <div className="mt-2 text-sm text-zinc-800 wrap-break-word">{entry.value}</div>
                         </div>
                       ))}
@@ -1239,11 +1362,11 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   {priorityItemOpen.auditTag === "NEGATIVE" ? (
                     <button type="button" onClick={() => {
                       openDisputeComposer(priorityItemOpen);
-                    }} className={PRIMARY_BUTTON_CLASS}>Create dispute</button>
+                    }} className={PRIMARY_BUTTON_CLASS}>Open dispute draft</button>
                   ) : priorityItemOpen.auditTag === "PENDING" ? (
                     <>
                       <button type="button" onClick={() => { void markItemNoDisputeNeeded(priorityItemOpen); }} className={SECONDARY_BUTTON_CLASS} disabled={itemDecisionBusyId === priorityItemOpen.id}>{itemDecisionBusyId === priorityItemOpen.id ? "Saving..." : "No dispute needed"}</button>
-                      <button type="button" onClick={() => { void moveItemToDispute(priorityItemOpen); }} className={PRIMARY_BUTTON_CLASS} disabled={itemDecisionBusyId === priorityItemOpen.id}>{itemDecisionBusyId === priorityItemOpen.id ? "Saving..." : "Move to dispute"}</button>
+                      <button type="button" onClick={() => { void moveItemToDispute(priorityItemOpen); }} className={PRIMARY_BUTTON_CLASS} disabled={itemDecisionBusyId === priorityItemOpen.id}>{itemDecisionBusyId === priorityItemOpen.id ? "Saving..." : "Move to dispute draft"}</button>
                     </>
                   ) : null}
                 </div>

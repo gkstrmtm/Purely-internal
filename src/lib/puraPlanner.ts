@@ -100,7 +100,7 @@ function looksLikeAuditOrAnalysisRequest(textRaw: string): boolean {
 function looksLikeStrictReadOnlyRequest(textRaw: string): boolean {
   const t = String(textRaw || "").trim().toLowerCase();
   if (!t) return false;
-  return /(\bread[-\s]?only\b|\bwithout\s+changing\b|\bdo\s+not\s+change\b|\bdon't\s+change\b|\bjust\s+inspect\b|\bonly\s+inspect\b)/i.test(t);
+  return /(\bread[-\s]?only\b|\bwithout\s+changing\b|\bdo\s+not\s+change\b|\bdo\s+not\s+make\s+changes\b|\bdon't\s+change\b|\bjust\s+inspect\b|\bonly\s+inspect\b|\bread\b[\s\S]{0,40}\battach(?:ed|ment)s?\b|\banaly[sz]e\b[\s\S]{0,40}\battach(?:ed|ment)s?\b|\bquote\s+specific\s+areas\b)/i.test(t);
 }
 
 function extractRequestedBlogDraftTitle(textRaw: string): string | null {
@@ -356,6 +356,7 @@ export async function planPuraActions(opts: {
     "- Prefer using $ref hints that continue the active thread context instead of asking the user to restate the obvious.",
     "- When a request mixes discovery + mutation, prefer discovery first, then mutation only when the target is clear.",
     "- When the user asks for an audit, review, diagnosis, or 'see what's wrong', start with read-only inspection steps unless the request clearly includes a desired change.",
+    "- If the user asks you to read or analyze an attached file/image/document and they are not asking you to change portal data, answer from the attachment(s) in mode=explain or use read-only inspection only. Do NOT invent mutating portal actions for attachment analysis.",
     "- Do not add unrelated discovery or list steps just because they might be interesting. Every step must either directly satisfy the user's request or be required to resolve a later step.",
     "- Do not add people/users/team discovery to a non-people workflow unless the user explicitly asked about portal users, invites, owners, or team members, or the action truly requires selecting a user.",
     "- Funnel Builder page work:",

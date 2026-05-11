@@ -194,7 +194,16 @@ export const PortalAgentActionKeySchema = z.enum([
   "funnel_builder.pages.delete",
   "funnel_builder.pages.publish",
   "funnel_builder.pages.generate_html",
+  "funnel_builder.pages.chat",
+  "funnel_builder.pages.foundation",
   "funnel_builder.pages.export_custom_html",
+  "funnel_builder.visual_review",
+  "funnel_builder.threads.list",
+  "funnel_builder.threads.create",
+  "funnel_builder.threads.update",
+  "funnel_builder.threads.delete",
+  "funnel_builder.exhibit_archetypes.get",
+  "funnel_builder.exhibit_archetypes.generate",
   "funnel_builder.pages.global_header",
   "funnel_builder.custom_code_block.generate",
   "funnel_builder.sales.products.list",
@@ -1140,6 +1149,48 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "funnel_builder.pages.chat": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      pageId: z.string().trim().min(1).max(120),
+      prompt: z.string().trim().min(1).max(8000),
+      useLiveState: z.boolean().optional(),
+      currentHtml: z.string().optional().nullable(),
+      sectionPlanItems: z.array(z.string().trim().min(1).max(160)).max(20).optional().nullable(),
+      selectedRegion: z.unknown().optional().nullable(),
+      selectedTarget: z.unknown().optional().nullable(),
+      assistantContext: z.unknown().optional().nullable(),
+      allRegions: z.array(z.unknown()).max(40).optional().nullable(),
+      contextMedia: z
+        .array(
+          z
+            .object({
+              url: z.string().trim().min(1).max(800),
+              fileName: z.string().trim().max(200).optional(),
+              mimeType: z.string().trim().max(120).optional(),
+            })
+            .strip(),
+        )
+        .max(24)
+        .optional()
+        .nullable(),
+      designContext: z.unknown().optional().nullable(),
+      funnelBrief: z.unknown().optional().nullable(),
+      intentProfile: z.unknown().optional().nullable(),
+    })
+    .strict(),
+
+  "funnel_builder.pages.foundation": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      pageId: z.string().trim().min(1).max(120),
+      businessProfile: z.unknown().optional().nullable(),
+      capabilityInputs: z.unknown().optional().nullable(),
+      brief: z.unknown().optional().nullable(),
+      intent: z.unknown().optional().nullable(),
+    })
+    .strict(),
+
   "funnel_builder.pages.export_custom_html": z
     .object({
       funnelId: z.string().trim().min(1).max(120),
@@ -1147,6 +1198,71 @@ export const PortalAgentActionArgsSchemaByKey = {
       blocksJson: z.unknown().optional(),
       title: z.string().trim().max(200).optional(),
       setEditorMode: z.enum(["BLOCKS", "CUSTOM_HTML"]).optional(),
+    })
+    .strict(),
+
+  "funnel_builder.visual_review": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      pageId: z.string().trim().min(1).max(120),
+      prompt: z.string().trim().min(1).max(8000),
+      html: z.string().min(1),
+      css: z.string().optional().nullable(),
+      surface: z.enum(["structure", "source"]).optional(),
+      previewImageDataUrl: z.string().optional().nullable(),
+      intentProfile: z.unknown().optional().nullable(),
+      funnelBrief: z.unknown().optional().nullable(),
+    })
+    .strict(),
+
+  "funnel_builder.threads.list": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "funnel_builder.threads.create": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      kind: z.enum(["main", "page", "scratch", "campaign", "experiment"]).optional().nullable(),
+      pageId: z.string().trim().min(1).max(120).optional().nullable(),
+      title: z.string().trim().max(200).optional().nullable(),
+      messagesJson: z.unknown().optional().nullable(),
+      contextJson: z.unknown().optional().nullable(),
+      cloneFromThreadId: z.string().trim().min(1).max(120).optional().nullable(),
+    })
+    .strict(),
+
+  "funnel_builder.threads.update": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      threadId: z.string().trim().min(1).max(120),
+      pageId: z.string().trim().min(1).max(120).nullable().optional(),
+      title: z.string().trim().max(200).nullable().optional(),
+      kind: z.enum(["main", "page", "scratch", "campaign", "experiment"]).nullable().optional(),
+      messagesJson: z.unknown().optional().nullable(),
+      contextJson: z.unknown().optional().nullable(),
+      lastMessageAt: z.string().trim().max(80).optional().nullable(),
+    })
+    .strict(),
+
+  "funnel_builder.threads.delete": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      threadId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "funnel_builder.exhibit_archetypes.get": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "funnel_builder.exhibit_archetypes.generate": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      prompt: z.string().trim().max(2400).optional().nullable(),
     })
     .strict(),
 
@@ -4243,7 +4359,16 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- funnel_builder.pages.delete: Delete a page (fields: funnelId, pageId)",
     "- funnel_builder.pages.publish: Publish a page’s current draft HTML (fields: funnelId, pageId)",
     "- funnel_builder.pages.generate_html: Generate/update a page’s custom HTML with AI (fields: funnelId, pageId, prompt, currentHtml?, attachments?, contextKeys?, contextMedia?)",
+    "- funnel_builder.pages.chat: Ask Pura to critique/plan funnel page changes without directly rewriting the page (fields: funnelId, pageId, prompt, useLiveState?, currentHtml?, sectionPlanItems?, selectedRegion?, selectedTarget?, assistantContext?, allRegions?, contextMedia?, designContext?, funnelBrief?, intentProfile?)",
+    "- funnel_builder.pages.foundation: Synthesize or refresh a funnel page foundation artifact (fields: funnelId, pageId, businessProfile?, capabilityInputs?, brief?, intent?)",
     "- funnel_builder.pages.export_custom_html: Generate and store custom HTML from blocks (fields: funnelId, pageId, blocksJson?, title?, setEditorMode?)",
+    "- funnel_builder.visual_review: Run a funnel page visual review pass against HTML/CSS and an optional preview image (fields: funnelId, pageId, prompt, html, css?, surface=structure|source?, previewImageDataUrl?, intentProfile?, funnelBrief?)",
+    "- funnel_builder.threads.list: List or seed funnel builder threads for a funnel (fields: funnelId)",
+    "- funnel_builder.threads.create: Create a funnel builder thread (fields: funnelId, kind?, pageId?, title?, messagesJson?, contextJson?, cloneFromThreadId?)",
+    "- funnel_builder.threads.update: Update a funnel builder thread (fields: funnelId, threadId, pageId?, title?, kind?, messagesJson?, contextJson?, lastMessageAt?)",
+    "- funnel_builder.threads.delete: Delete a funnel builder thread while preserving at least one thread (fields: funnelId, threadId)",
+    "- funnel_builder.exhibit_archetypes.get: Get the stored exhibit archetype pack and seed prompt for a funnel (fields: funnelId)",
+    "- funnel_builder.exhibit_archetypes.generate: Generate and persist a new exhibit archetype pack for a funnel (fields: funnelId, prompt?)",
     "- hosted_pages.documents.list: List hosted page documents for a service (fields: service=all|booking|newsletter|reviews|blogs)",
     "- hosted_pages.documents.bootstrap: Create default hosted page documents for a service (fields: service=booking|newsletter|reviews|blogs)",
     "- hosted_pages.documents.get: Get one hosted page document (fields: documentId OR service+pageKey)",

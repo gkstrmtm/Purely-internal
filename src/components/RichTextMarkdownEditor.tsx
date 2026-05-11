@@ -60,7 +60,7 @@ function markdownToHtmlBasic(markdown: string): string {
       const safeAlt = String(alt || "");
       const safeUrl = String(url || "");
       if (safeUrl === "pa-signature://contact") {
-        return `<img src="${CONTACT_SIGNATURE_PREVIEW_SRC}" alt="${escapeHtml(safeAlt || "Contact signature")}" data-pa-signature="contact" />`;
+        return `<span data-pa-signature-wrap="contact" contenteditable="false"><img src="${CONTACT_SIGNATURE_PREVIEW_SRC}" alt="${escapeHtml(safeAlt || "Contact signature")}" data-pa-signature="contact" draggable="false" /></span>`;
       }
       return `<img src=\"${escapeHtml(safeUrl)}\" alt=\"${escapeHtml(safeAlt)}\" />`;
     });
@@ -183,6 +183,18 @@ function textContent(node: Node): string {
   return (node.textContent ?? "").replace(/\u00A0/g, " ");
 }
 
+function hasMeaningfulContent(node: Node): boolean {
+  if (node.nodeType === Node.TEXT_NODE) return textContent(node).trim().length > 0;
+  if (!(node instanceof HTMLElement)) return false;
+  if (node instanceof HTMLBRElement) return false;
+  return node.innerText.trim().length > 0 || Boolean(node.querySelector("img, li, blockquote, pre, h1, h2, h3"));
+}
+
+function blockContainsContactSignature(node: Element | null): boolean {
+  if (!(node instanceof HTMLElement)) return false;
+  return Boolean(node.querySelector('[data-pa-signature-wrap="contact"], img[data-pa-signature="contact"]'));
+}
+
 function htmlToMarkdownBasic(html: string): string {
   const input = String(html || "");
 
@@ -244,6 +256,12 @@ function htmlToMarkdownBasic(html: string): string {
 
     const tag = node.tagName.toLowerCase();
 
+    if (tag === "img") {
+      const t = inline(node).trim();
+      if (t) lines.push(t, "");
+      return;
+    }
+
     if (tag === "h1" || tag === "h2" || tag === "h3") {
       const level = tag === "h1" ? 1 : tag === "h2" ? 2 : 3;
       const t = inline(node).trim();
@@ -302,7 +320,8 @@ function htmlToMarkdownBasic(html: string): string {
 
 export type RichTextMarkdownEditorHandle = {
   focus: () => void;
-  insertMarkdown: (markdown: string, options?: { atPoint?: { x: number; y: number } }) => void;
+  insertMarkdown: (markdown: string, options?: { atPoint?: { x: number; y: number }; atEnd?: boolean }) => void;
+  moveContactSignatureToEnd: () => void;
 };
 
 type RichTextMarkdownEditorProps = {
@@ -374,6 +393,7 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
     if (focused) return;
 
     el.innerHTML = markdownToHtmlBasic(next);
+    ensureTrailingEditableParagraph(el);
     lastMarkdownRef.current = next;
   }, [focused, markdown]);
 
@@ -382,6 +402,7 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
     if (!el) return;
     // First mount.
     el.innerHTML = initialHtml;
+    ensureTrailingEditableParagraph(el);
     lastMarkdownRef.current = String(markdown || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -425,12 +446,61 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
     }
   };
 
-  const insertMarkdownSnippet = (snippet: string, point?: { x: number; y: number }) => {
+  const moveSelectionToEnd = () => {
+    const el = editorRef.current;
+    if (!el) return;
+    try {
+      const selection = window.getSelection();
+      if (!selection) return;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } catch {
+      // ignore
+    }
+  };
+
+  const ensureTrailingEditableParagraph = (root: HTMLElement) => {
+    const blocks = Array.from(root.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
+    const lastMeaningfulBlock = [...blocks].reverse().find((block) => hasMeaningfulContent(block)) || null;
+    if (!lastMeaningfulBlock || !blockContainsContactSignature(lastMeaningfulBlock)) return;
+
+    const trailingBlock = root.lastElementChild;
+    if (
+      trailingBlock instanceof HTMLElement &&
+      trailingBlock !== lastMeaningfulBlock &&
+      !blockContainsContactSignature(trailingBlock) &&
+      trailingBlock.innerText.trim().length === 0
+    ) {
+      return;
+    }
+
+    const paragraph = document.createElement("p");
+    paragraph.append(document.createElement("br"));
+    root.append(paragraph);
+  };
+
+  const removeEmptyBlocks = (root: HTMLElement) => {
+    for (const block of Array.from(root.querySelectorAll("p, div"))) {
+      if (!(block instanceof HTMLElement)) continue;
+      const containsSignature = block.querySelector('img[data-pa-signature="contact"]');
+      if (containsSignature) continue;
+      const meaningfulChildren = Array.from(block.childNodes).filter((node) => hasMeaningfulContent(node));
+      if (meaningfulChildren.length === 0) {
+        block.remove();
+      }
+    }
+  };
+
+  const insertMarkdownSnippet = (snippet: string, options?: { point?: { x: number; y: number }; atEnd?: boolean }) => {
     if (disabled) return;
     const nextSnippet = String(snippet || "");
     if (!nextSnippet.trim()) return;
     editorRef.current?.focus();
-    if (point) moveSelectionToPoint(point.x, point.y);
+    if (options?.point) moveSelectionToPoint(options.point.x, options.point.y);
+    if (options?.atEnd) moveSelectionToEnd();
     const html = markdownToHtmlBasic(nextSnippet);
     try {
       document.execCommand("insertHTML", false, html);
@@ -439,27 +509,48 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
       if (!el) return;
       el.innerHTML = `${el.innerHTML}${html}`;
     }
+    const el = editorRef.current;
+    if (el && nextSnippet.includes(CONTACT_SIGNATURE_MARKDOWN)) {
+      ensureTrailingEditableParagraph(el);
+    }
+    syncFromDom();
+    refreshFormats();
+  };
+
+  const moveContactSignatureToEnd = () => {
+    const el = editorRef.current;
+    if (!el || disabled) return;
+
+    const signatureNode = el.querySelector('[data-pa-signature-wrap="contact"]') || el.querySelector('img[data-pa-signature="contact"]');
+    if (!(signatureNode instanceof HTMLElement)) return;
+
+    const currentParent = signatureNode.parentElement;
+    signatureNode.remove();
+
+    if (
+      currentParent instanceof HTMLElement &&
+      ["p", "div"].includes(currentParent.tagName.toLowerCase()) &&
+      !currentParent.querySelector('img[data-pa-signature="contact"]') &&
+      currentParent.innerText.trim().length === 0
+    ) {
+      currentParent.remove();
+    }
+
+    const paragraph = document.createElement("p");
+    paragraph.append(signatureNode);
+    el.append(paragraph);
+    removeEmptyBlocks(el);
+    ensureTrailingEditableParagraph(el);
+    moveSelectionToEnd();
     syncFromDom();
     refreshFormats();
   };
 
   useImperativeHandle(ref, () => ({
     focus: () => editorRef.current?.focus(),
-    insertMarkdown: (snippet, options) => insertMarkdownSnippet(snippet, options?.atPoint),
+    insertMarkdown: (snippet, options) => insertMarkdownSnippet(snippet, { point: options?.atPoint, atEnd: options?.atEnd }),
+    moveContactSignatureToEnd,
   }));
-
-  const selectImageNode = (img: HTMLImageElement) => {
-    try {
-      const sel = window.getSelection();
-      if (!sel) return;
-      const r = document.createRange();
-      r.selectNode(img);
-      sel.removeAllRanges();
-      sel.addRange(r);
-    } catch {
-      // ignore
-    }
-  };
 
   const removeSelectedOrAdjacentImage = (dir: "backward" | "forward") => {
     const sel = window.getSelection();
@@ -529,6 +620,12 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
         return true;
       }
       if (candidate instanceof HTMLElement) {
+        if (candidate.getAttribute("data-pa-signature-wrap") === "contact") {
+          candidate.remove();
+          syncFromDom();
+          refreshFormats();
+          return true;
+        }
         const img = candidate.querySelector?.("img");
         if (img && img instanceof HTMLImageElement) {
           img.remove();
@@ -655,14 +752,6 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
         ref={editorRef}
         contentEditable={!disabled}
         suppressContentEditableWarning
-        onMouseDown={(e) => {
-          const target = e.target as HTMLElement | null;
-          if (!target) return;
-          const img = target instanceof HTMLImageElement ? target : (target.closest?.("img") as HTMLImageElement | null);
-          if (!img) return;
-          // Selecting the image node makes Backspace/Delete reliable.
-          window.requestAnimationFrame(() => selectImageNode(img));
-        }}
         onKeyDown={(e) => {
           if (disabled) return;
           if (e.key === "Backspace") {
@@ -686,7 +775,7 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
           const nextSnippet = onDropMarkdown?.(event.dataTransfer) || "";
           if (!nextSnippet) return;
           event.preventDefault();
-          insertMarkdownSnippet(nextSnippet, { x: event.clientX, y: event.clientY });
+          insertMarkdownSnippet(nextSnippet, { point: { x: event.clientX, y: event.clientY } });
         }}
         onInput={() => {
           syncFromDom();
@@ -735,6 +824,17 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
         }
         [contenteditable='true'] p {
           margin: 0.4em 0;
+        }
+        [contenteditable='true'] [data-pa-signature-wrap='contact'] {
+          display: inline-block;
+          max-width: 100%;
+          vertical-align: top;
+          user-select: all;
+        }
+        [contenteditable='true'] [data-pa-signature-wrap='contact'] img {
+          display: block;
+          max-width: 100%;
+          pointer-events: none;
         }
         [contenteditable='true'] ul,
         [contenteditable='true'] ol {

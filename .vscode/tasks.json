@@ -2586,6 +2586,70 @@
 				"$tsc"
 			],
 			"group": "build"
+		},
+		{
+			"label": "Seed: demo business credit",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"scripts/seed-demo-business-credit.mjs",
+				"shotbygkstr@gmail.com"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: credit signature move repro",
+			"type": "shell",
+			"command": "/opt/homebrew/bin/node",
+			"args": [
+				"tmp/debug_credit_signature_move.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: credit signature bottom type",
+			"type": "shell",
+			"command": "/opt/homebrew/bin/node",
+			"args": [
+				"tmp/verify_credit_signature_bottom_type.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: credit signature bottom type stdout",
+			"type": "shell",
+			"command": "/opt/homebrew/bin/node",
+			"args": [
+				"tmp/verify_credit_signature_bottom_type.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: credit signature bottom type final",
+			"type": "shell",
+			"command": "/opt/homebrew/bin/node",
+			"args": [
+				"tmp/verify_credit_signature_bottom_type.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: credit dispute editor final",
+			"type": "shell",
+			"command": "/opt/homebrew/bin/node",
+			"args": [
+				"tmp/verify_credit_dispute_editor.mjs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Verify: credit signature bottom type final 2",
+			"type": "shell",
+			"command": "/opt/homebrew/bin/node",
+			"args": [
+				"tmp/verify_credit_signature_bottom_type.mjs"
+			],
+			"isBackground": false
 		}
 	]
 }

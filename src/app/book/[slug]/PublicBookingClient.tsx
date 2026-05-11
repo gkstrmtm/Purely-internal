@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { useToast } from "@/components/ToastProvider";
+import { useOptionalToast } from "@/components/ToastProvider";
+import { notifyParentCreditFunnelEvent, readTrackingContextFromWindow } from "@/components/funnel/clientFunnelTracking";
+import { normalizeBookingSurfaceContext, type BookingSurfaceContext } from "@/lib/funnelBookingSurface";
 import { deriveHostedBrandTheme, type HostedBrandThemeInput } from "@/lib/hostedBrandTheme";
 
 type Site = {
@@ -23,6 +25,7 @@ type Site = {
   photoUrl?: string | null;
   meetingLocation?: string | null;
   meetingDetails?: string | null;
+  hostedThemeSource?: "account" | "funnel" | null;
 
   hostedTheme?: HostedBrandThemeInput["overrides"] | null;
 
@@ -77,6 +80,10 @@ function monthLabel(d: Date) {
   return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 }
 
+function normalizeInlineSurfaceText(value?: string | null) {
+  return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
 function makeMonthGrid(month: Date) {
   const first = startOfMonth(month);
   const startDow = first.getDay(); // 0=Sun
@@ -98,27 +105,51 @@ function getApiError(body: unknown): string | undefined {
   return typeof rec.error === "string" ? rec.error : undefined;
 }
 
-type PublicBookingTarget =
-  | { kind: "slug"; slug: string }
-  | { kind: "calendar"; ownerId: string; calendarId: string };
+export type PublicBookingTarget =
+  | { kind: "slug"; slug: string; funnelId?: string | null; pageId?: string | null; themeStage?: "current" | "published" | null }
+  | {
+      kind: "calendar";
+      ownerId: string;
+      calendarId: string;
+      funnelId?: string | null;
+      pageId?: string | null;
+      themeStage?: "current" | "published" | null;
+    };
 
 function bookingApiBase(target: PublicBookingTarget) {
   if (target.kind === "slug") return `/api/public/booking/${encodeURIComponent(target.slug)}`;
   return `/api/public/booking/u/${encodeURIComponent(target.ownerId)}/${encodeURIComponent(target.calendarId)}`;
 }
 
+function bookingSettingsUrl(target: PublicBookingTarget) {
+  const base = `${bookingApiBase(target)}/settings`;
+  const funnelId = String(target.funnelId || "").trim();
+  const pageId = String(target.pageId || "").trim();
+  const themeStage = target.themeStage === "published" ? "published" : target.themeStage === "current" ? "current" : "";
+  const params = new URLSearchParams();
+  if (funnelId) params.set("funnelId", funnelId);
+  if (pageId) params.set("pageId", pageId);
+  if (themeStage) params.set("themeStage", themeStage);
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
+function classNames(...parts: Array<string | false | null | undefined>) {
+  return parts.filter(Boolean).join(" ");
+}
+
 export function PublicBookingClient({
   target,
   showBranding = true,
-  embedded = false,
-  themeOverrides = null,
+  presentation = "page",
+  surfaceContext = null,
 }: {
   target: PublicBookingTarget;
   showBranding?: boolean;
-  embedded?: boolean;
-  themeOverrides?: HostedBrandThemeInput["overrides"] | null;
+  presentation?: "page" | "inline";
+  surfaceContext?: BookingSurfaceContext | null;
 }) {
-  const toast = useToast();
+  const toast = useOptionalToast();
   const [site, setSite] = useState<Site | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [step, setStep] = useState<Step>("date");
@@ -139,6 +170,9 @@ export function PublicBookingClient({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<Booking | null>(null);
   const [rescheduleUrl, setRescheduleUrl] = useState<string | null>(null);
+  const [successMeetingLocation, setSuccessMeetingLocation] = useState<string | null>(null);
+  const isInlinePresentation = presentation === "inline";
+  const resolvedSurfaceContext = useMemo(() => normalizeBookingSurfaceContext(surfaceContext), [surfaceContext]);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -148,7 +182,7 @@ export function PublicBookingClient({
     target.kind === "slug"
       ? `/api/public/booking/${encodeURIComponent(target.slug)}`
       : `/api/public/booking/u/${encodeURIComponent(target.ownerId)}/${encodeURIComponent(target.calendarId)}`;
-  const targetKey = bookingBase;
+  const targetKey = `${bookingBase}::${String(target.funnelId || "").trim()}::${String(target.pageId || "").trim()}::${String(target.themeStage || "").trim()}`;
 
   const canBook = useMemo(() => {
     if (!selected) return false;
@@ -171,18 +205,15 @@ export function PublicBookingClient({
   }, [answers, email, name, notes, phone, selected, site?.form]);
 
   const theme = useMemo(() => {
-    const mergedOverrides = {
-      ...(site?.hostedTheme ?? {}),
-      ...(themeOverrides ?? {}),
-    };
+    const prefersFunnelTheme = site?.hostedThemeSource === "funnel";
     return deriveHostedBrandTheme({
-      brandPrimaryHex: site?.brandPrimaryHex ?? null,
-      brandSecondaryHex: site?.brandSecondaryHex ?? null,
-      brandAccentHex: site?.brandAccentHex ?? null,
-      brandTextHex: site?.brandTextHex ?? null,
-      overrides: Object.keys(mergedOverrides).length ? mergedOverrides : null,
+      brandPrimaryHex: prefersFunnelTheme ? null : site?.brandPrimaryHex ?? null,
+      brandSecondaryHex: prefersFunnelTheme ? null : site?.brandSecondaryHex ?? null,
+      brandAccentHex: prefersFunnelTheme ? null : site?.brandAccentHex ?? null,
+      brandTextHex: prefersFunnelTheme ? null : site?.brandTextHex ?? null,
+      overrides: site?.hostedTheme ?? null,
     });
-  }, [site?.brandAccentHex, site?.brandPrimaryHex, site?.brandSecondaryHex, site?.brandTextHex, site?.hostedTheme, themeOverrides]);
+  }, [site?.brandAccentHex, site?.brandPrimaryHex, site?.brandSecondaryHex, site?.brandTextHex, site?.hostedTheme, site?.hostedThemeSource]);
 
   const bookingStyleVars = useMemo(
     () =>
@@ -230,14 +261,124 @@ export function PublicBookingClient({
     return slotsByDay.get(selectedDate) ?? [];
   }, [selectedDate, slotsByDay]);
 
+  const inlineShellStyle = resolvedSurfaceContext?.shellStyle ?? "default";
+  const inlineShellDensity = resolvedSurfaceContext?.shellDensity ?? "comfortable";
+  const compactEditorialSurface = isInlinePresentation && inlineShellStyle === "editorial" && inlineShellDensity === "compact";
+  const inlineSurfacePanelStyle = {
+    borderColor: "color-mix(in srgb, var(--booking-text) 7%, transparent)",
+    background: "color-mix(in srgb, var(--booking-surface) 96%, var(--booking-soft))",
+  } as const;
+  const inlineSurfaceInsetStyle = {
+    borderColor: "color-mix(in srgb, var(--booking-text) 6%, transparent)",
+    background: "color-mix(in srgb, var(--booking-bg) 94%, var(--booking-soft))",
+  } as const;
+  const showInlineSurfaceContext = false;
+
+  const inlineOuterCardClassName = isInlinePresentation
+    ? inlineShellDensity === "compact"
+      ? "rounded-[28px] border p-5 sm:p-6"
+      : "rounded-[30px] border p-6 sm:p-6.5"
+    : "rounded-3xl border p-8";
+
+  const inlineHeaderLayoutClassName = compactEditorialSurface
+    ? "space-y-3"
+    : "grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]";
+  const inlineContextDividerStyle = {
+    borderColor: "color-mix(in srgb, var(--booking-text) 6%, transparent)",
+  } as const;
+  const inlineSurfaceTitleMatchesSite = Boolean(
+    normalizeInlineSurfaceText(site?.title) &&
+      normalizeInlineSurfaceText(resolvedSurfaceContext?.title) &&
+      normalizeInlineSurfaceText(site?.title) === normalizeInlineSurfaceText(resolvedSurfaceContext?.title),
+  );
+  const showInlineProofPanel = Boolean(!compactEditorialSurface && (resolvedSurfaceContext?.proofLabel || resolvedSurfaceContext?.proofBody));
+
+  const inlineContextPanel = showInlineSurfaceContext ? (
+    <div className="mb-4 overflow-hidden rounded-[22px] border" style={inlineSurfacePanelStyle}>
+      <div className={classNames("px-5 py-4 sm:px-6", compactEditorialSurface ? "sm:py-4.5" : "sm:py-5", inlineHeaderLayoutClassName)}>
+        <div className={classNames(showInlineProofPanel ? "lg:pr-6" : "") }>
+          {resolvedSurfaceContext?.kicker ? (
+            <div
+              className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+              style={{ color: "var(--booking-link)" }}
+            >
+              {resolvedSurfaceContext.kicker}
+            </div>
+          ) : null}
+          {resolvedSurfaceContext?.title && !inlineSurfaceTitleMatchesSite ? (
+            <div
+              className={classNames("mt-2 font-semibold tracking-[-0.03em]", inlineShellDensity === "compact" ? "text-[1.65rem] leading-[1.05]" : "text-[clamp(1.55rem,2.4vw,2rem)] leading-[1.06]")}
+              style={{ color: "var(--booking-text)" }}
+            >
+              {resolvedSurfaceContext.title}
+            </div>
+          ) : null}
+          {resolvedSurfaceContext?.body ? (
+            <p
+              className="mt-3 max-w-[60ch] text-sm leading-6.5 sm:text-[15px]"
+              style={{ color: "var(--booking-muted)" }}
+            >
+              {resolvedSurfaceContext.body}
+            </p>
+          ) : null}
+          {resolvedSurfaceContext?.note ? (
+            compactEditorialSurface ? (
+              <div className="mt-4 border-t pt-4 text-sm leading-6" style={{ ...inlineContextDividerStyle, color: "var(--booking-muted)" }}>
+                {resolvedSurfaceContext.note}
+              </div>
+            ) : (
+              <div
+                className="mt-4 rounded-2xl border px-4 py-3 text-sm leading-6"
+                style={{ ...inlineSurfaceInsetStyle, color: "var(--booking-text)" }}
+              >
+                {resolvedSurfaceContext.note}
+              </div>
+            )
+          ) : null}
+          {compactEditorialSurface && (resolvedSurfaceContext?.proofLabel || resolvedSurfaceContext?.proofBody) ? (
+            <div className="mt-4 border-t pt-4" style={inlineContextDividerStyle}>
+              {resolvedSurfaceContext?.proofLabel ? (
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--booking-link)" }}>
+                  {resolvedSurfaceContext.proofLabel}
+                </div>
+              ) : null}
+              {resolvedSurfaceContext?.proofBody ? (
+                <div className="mt-2 text-sm leading-6" style={{ color: "var(--booking-text)" }}>
+                  {resolvedSurfaceContext.proofBody}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {showInlineProofPanel ? (
+          <div
+            className="border-t pt-4 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6"
+            style={inlineContextDividerStyle}
+          >
+            {resolvedSurfaceContext?.proofLabel ? (
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--booking-link)" }}>
+                {resolvedSurfaceContext.proofLabel}
+              </div>
+            ) : null}
+            {resolvedSurfaceContext?.proofBody ? (
+              <div className="mt-3 text-sm leading-7 sm:text-[15px]" style={{ color: "var(--booking-text)" }}>
+                {resolvedSurfaceContext.proofBody}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
+
   const loadSettings = useCallback(async () => {
-    const res = await fetch(`${bookingBase}/settings`, {
+    const res = await fetch(bookingSettingsUrl(target), {
       cache: "no-store",
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(getApiError(body) ?? "Booking page not found");
     setSite((body as { site: Site }).site);
-  }, [bookingBase]);
+  }, [target]);
 
   async function loadSlots(fromIso?: string) {
     setSlotsLoading(true);
@@ -346,6 +487,7 @@ export function PublicBookingClient({
         contactPhone: form?.phone?.enabled ? (phone.trim() ? phone : null) : null,
         notes: form?.notes?.enabled ? (notes.trim() ? notes : null) : null,
         answers,
+        trackingContext: readTrackingContextFromWindow(),
       }),
     });
 
@@ -362,54 +504,36 @@ export function PublicBookingClient({
 
     setSuccess((body as { booking: Booking }).booking);
     setRescheduleUrl(typeof (body as any).rescheduleUrl === "string" ? ((body as any).rescheduleUrl as string) : null);
+    setSuccessMeetingLocation(typeof (body as any).meetingLocation === "string" ? ((body as any).meetingLocation as string) : null);
+    notifyParentCreditFunnelEvent({
+      eventType: "booking_created",
+      pageId: readTrackingContextFromWindow().pageId || null,
+      payload: { bookingId: (body as any)?.booking?.id || null },
+    });
   }
 
   if (loading) {
-    const content = embedded ? (
-      <div style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}>
-        <div className="mx-auto max-w-3xl px-6 py-12">
-          <div className="overflow-hidden rounded-3xl border p-6" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
-            <div className="h-5 w-32 rounded-full bg-(--booking-soft)" aria-hidden="true" />
-            <div className="mt-5 h-9 w-2/3 rounded-2xl bg-(--booking-soft)" aria-hidden="true" />
-            <div className="mt-3 h-4 w-full rounded-full bg-(--booking-soft)" aria-hidden="true" />
-            <div className="mt-2 h-4 w-5/6 rounded-full bg-(--booking-soft)" aria-hidden="true" />
-            <div className="mt-8 grid gap-3 sm:grid-cols-2" aria-hidden="true">
-              <div className="rounded-2xl border p-4" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-bg)" }}>
-                <div className="h-4 w-24 rounded-full bg-(--booking-soft)" />
-                <div className="mt-4 space-y-2">
-                  <div className="h-10 rounded-2xl bg-(--booking-soft)" />
-                  <div className="h-10 rounded-2xl bg-(--booking-soft)" />
-                  <div className="h-10 rounded-2xl bg-(--booking-soft)" />
-                </div>
-              </div>
-              <div className="rounded-2xl border p-4" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-bg)" }}>
-                <div className="h-4 w-28 rounded-full bg-(--booking-soft)" />
-                <div className="mt-4 space-y-3">
-                  <div className="h-12 rounded-2xl bg-(--booking-soft)" />
-                  <div className="h-12 rounded-2xl bg-(--booking-soft)" />
-                  <div className="h-12 rounded-2xl bg-(--booking-soft)" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    ) : (
-      <div style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}>
-        <div className="mx-auto max-w-3xl px-6 py-12">
+    return (
+      <div
+        className={isInlinePresentation ? "w-full" : "min-h-screen"}
+        style={{ ...(bookingStyleVars as any), backgroundColor: isInlinePresentation ? "transparent" : "var(--booking-bg)", color: "var(--booking-text)" }}
+      >
+        <div className={isInlinePresentation ? "w-full" : "mx-auto max-w-3xl px-6 py-12"}>
           <div className="rounded-3xl border p-6 text-sm" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)", color: "var(--booking-muted)" }}>
             Loading…
           </div>
         </div>
       </div>
     );
-    return embedded ? content : <div className="min-h-screen">{content}</div>;
   }
 
   if (error && !site) {
-    const content = (
-      <div style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}>
-        <div className="mx-auto max-w-3xl px-6 py-12">
+    return (
+      <div
+        className={isInlinePresentation ? "w-full" : "min-h-screen"}
+        style={{ ...(bookingStyleVars as any), backgroundColor: isInlinePresentation ? "transparent" : "var(--booking-bg)", color: "var(--booking-text)" }}
+      >
+        <div className={isInlinePresentation ? "w-full" : "mx-auto max-w-3xl px-6 py-12"}>
           <div className="rounded-3xl border p-6" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
             <div className="text-base font-semibold" style={{ color: "var(--booking-text)" }}>
               Booking page not found
@@ -426,21 +550,21 @@ export function PublicBookingClient({
         </div>
       </div>
     );
-    return embedded ? content : <div className="min-h-screen">{content}</div>;
   }
 
   if (success && site) {
     const thankYou = (site.form?.thankYouMessage ?? "").trim();
-    const content = (
+    return (
       <div
+        className={isInlinePresentation ? "w-full" : "min-h-screen"}
         style={{
           ...(bookingStyleVars as any),
-          backgroundColor: "var(--booking-bg)",
+          backgroundColor: isInlinePresentation ? "transparent" : "var(--booking-bg)",
           color: "var(--booking-text)",
         }}
       >
-        <div className="mx-auto max-w-3xl px-6 py-12">
-          <div className="rounded-3xl border p-8" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
+        <div className={isInlinePresentation ? "w-full" : "mx-auto max-w-3xl px-6 py-12"}>
+          <div className={isInlinePresentation ? inlineOuterCardClassName : "rounded-3xl border p-8"} style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
             <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--booking-link)" }}>
               Booked
             </div>
@@ -456,9 +580,9 @@ export function PublicBookingClient({
             <p className="mt-3 text-sm" style={{ color: "var(--booking-muted)" }}>
               {new Date(success.startAt).toLocaleString()} ({site.durationMinutes} minutes)
             </p>
-            {site.meetingLocation ? (
+            {(successMeetingLocation || site.meetingLocation) ? (
               <div className="mt-2 whitespace-pre-line text-sm" style={{ color: "var(--booking-muted)" }}>
-                Location: {site.meetingLocation}
+                Location: {successMeetingLocation || site.meetingLocation}
               </div>
             ) : null}
             {site.meetingDetails ? (
@@ -497,23 +621,37 @@ export function PublicBookingClient({
         </div>
       </div>
     );
-    return embedded ? content : <div className="min-h-screen">{content}</div>;
   }
 
-  const content = (
+  return (
     <div
+      className={isInlinePresentation ? "w-full" : "min-h-screen"}
       style={{
         ...(bookingStyleVars as any),
-        backgroundColor: "var(--booking-bg)",
+        backgroundColor: isInlinePresentation ? "transparent" : "var(--booking-bg)",
         color: "var(--booking-text)",
       }}
     >
-      <div className="mx-auto max-w-5xl px-6 py-12">
-        <div className="rounded-3xl border p-8" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
+      <div className={isInlinePresentation ? "w-full" : "mx-auto max-w-5xl px-6 py-12"}>
+          <div
+            className={isInlinePresentation ? inlineOuterCardClassName : "rounded-3xl border p-8"}
+            style={{
+              borderColor: "var(--booking-border)",
+              backgroundColor: "var(--booking-surface)",
+              boxShadow: isInlinePresentation ? "0 1px 0 rgba(15,23,42,0.03)" : undefined,
+            }}
+          >
+          {inlineContextPanel}
           {!site?.enabled ? (
-            <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              This booking link isn’t accepting bookings yet.
-            </div>
+            isInlinePresentation ? (
+              <div className="mb-4 text-sm" style={{ color: "var(--booking-muted)" }}>
+                This booking link isn’t accepting bookings yet.
+              </div>
+            ) : (
+              <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                This booking link isn’t accepting bookings yet.
+              </div>
+            )
           ) : null}
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -863,5 +1001,4 @@ export function PublicBookingClient({
       </div>
     </div>
   );
-  return embedded ? content : <div className="min-h-screen">{content}</div>;
 }

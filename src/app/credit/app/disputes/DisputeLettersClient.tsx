@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { IconExport, IconFunnel } from "@/app/portal/PortalIcons";
+import { IconDownload, IconFunnel } from "@/app/portal/PortalIcons";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
+import { AppModal } from "@/components/AppModal";
 import LiquidGlassPopupSurface from "@/components/LiquidGlassPopupSurface";
 import { RichTextMarkdownEditor, type RichTextMarkdownEditorHandle } from "@/components/RichTextMarkdownEditor";
 import { SignatureDisplay } from "@/components/SignatureDisplay";
@@ -42,6 +43,16 @@ type LetterFull = LetterLite & {
   pdfMediaItemId?: string | null;
   pdfGeneratedAt?: string | null;
   pdfMediaItem?: { id: string; publicToken: string } | null;
+  lifecycleMeta?: {
+    sourceReportId?: string | null;
+    sourceReportItemId?: string | null;
+    sourceItemLabel?: string | null;
+    recipientName?: string | null;
+    recipientAddress?: string | null;
+    mailedAt?: string | null;
+    expectedDeliveryDate?: string | null;
+    latestOutcome?: string | null;
+  } | null;
 };
 
 type CreditReportLite = {
@@ -84,8 +95,6 @@ type TemplateConfig = {
 };
 
 type FixedMenuStyle = { left: number; top: number; maxHeight: number };
-
-const DISPUTE_SOURCE_STORAGE_PREFIX = "creditDisputeLetterSource:";
 
 function formatDisputeLetterListTitle(subject: string) {
   const raw = String(subject || "").trim();
@@ -183,6 +192,57 @@ function formatDateTime(value: string | null | undefined) {
   }
 }
 
+function toDateInputValue(value: string | null | undefined) {
+  if (!value) return "";
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const direct = raw.match(/^\d{4}-\d{2}-\d{2}$/);
+  if (direct) return direct[0];
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
+function normalizeMailDestinationLine(value: string | null | undefined) {
+  return String(value || "").replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function parseMailDestinationFromLetter(letter: Pick<LetterFull, "bodyText" | "lifecycleMeta" | "lastSentTo"> | null | undefined) {
+  const explicitRecipientName = normalizeMailDestinationLine(letter?.lifecycleMeta?.recipientName);
+  const explicitRecipientAddress = String(letter?.lifecycleMeta?.recipientAddress || "")
+    .split(/\r?\n/)
+    .map((line) => normalizeMailDestinationLine(line))
+    .filter(Boolean);
+  const explicitParts = [explicitRecipientName, ...explicitRecipientAddress].filter(Boolean);
+  if (explicitParts.length) return explicitParts.join(", ");
+
+  const lastSentTo = normalizeMailDestinationLine(letter?.lastSentTo);
+  if (lastSentTo) return lastSentTo;
+
+  const lines = String(letter?.bodyText || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line, index, source) => {
+      if (line) return true;
+      const prev = source[index - 1] || "";
+      const next = source[index + 1] || "";
+      return Boolean(prev && next);
+    });
+  if (!lines.length) return "";
+
+  const dateLineIndex = lines.findIndex((line) => /^date\s*:/i.test(line));
+  const reLineIndex = lines.findIndex((line) => /^re\s*:/i.test(line));
+  const startIndex = dateLineIndex >= 0 ? dateLineIndex + 1 : 0;
+  const endIndex = reLineIndex > startIndex ? reLineIndex : Math.min(lines.length, startIndex + 4);
+  const recipientLines = lines
+    .slice(startIndex, endIndex)
+    .map((line) => normalizeMailDestinationLine(line))
+    .filter(Boolean)
+    .filter((line) => !/^to whom it may concern/i.test(line));
+
+  return recipientLines.join(", ");
+}
+
 function statusLabel(status: LetterLite["status"]) {
   if (status === "GENERATED") return "Generated";
   if (status === "SENT") return "Mailed";
@@ -190,9 +250,9 @@ function statusLabel(status: LetterLite["status"]) {
 }
 
 function statusClasses(status: LetterLite["status"]) {
-  if (status === "GENERATED") return "border-emerald-200/80 bg-emerald-100/75 text-emerald-800 supports-backdrop-filter:bg-emerald-100/55";
-  if (status === "SENT") return "border-sky-200/80 bg-sky-100/75 text-sky-800 supports-backdrop-filter:bg-sky-100/55";
-  return "border-white/70 bg-white/70 text-zinc-700 supports-backdrop-filter:bg-white/45";
+  if (status === "GENERATED") return "bg-emerald-100/80 text-emerald-800 supports-backdrop-filter:bg-emerald-100/60";
+  if (status === "SENT") return "bg-sky-100/80 text-sky-800 supports-backdrop-filter:bg-sky-100/60";
+  return "bg-zinc-100/85 text-zinc-700 supports-backdrop-filter:bg-white/55";
 }
 
 function computeFixedMenuStyle(rect: DOMRect, width = 288, estHeight = 320): FixedMenuStyle {
@@ -322,6 +382,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const [selectedLetter, setSelectedLetter] = useState<LetterFull | null>(null);
   const [subject, setSubject] = useState("");
   const [bodyText, setBodyText] = useState("");
+  const [savedDraft, setSavedDraft] = useState<{ subject: string; bodyText: string } | null>(null);
   const [editingSubject, setEditingSubject] = useState(false);
   const [subjectSnapshot, setSubjectSnapshot] = useState("");
   const [pdfDownloadUrl, setPdfDownloadUrl] = useState("");
@@ -343,7 +404,13 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const [reportItemQuery, setReportItemQuery] = useState("");
   const [sourceReportId, setSourceReportId] = useState("");
   const [sourceReportItemId, setSourceReportItemId] = useState("");
+  const [mailTo, setMailTo] = useState("");
+  const [mailedDate, setMailedDate] = useState("");
+  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
+  const [mailModalOpen, setMailModalOpen] = useState(false);
   const editorRef = useRef<RichTextMarkdownEditorHandle | null>(null);
+  const subjectRef = useRef("");
+  const bodyTextRef = useRef("");
 
   const roundNumber = useMemo(() => Math.max(1, Number.parseInt(round, 10) || 1), [round]);
   const cleanItems = useMemo(() => items.map((item) => item.trim()).filter(Boolean), [items]);
@@ -397,6 +464,47 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     keywords: [item.label, item.bureau || "", item.kind || ""],
   })), [composerReportItems]);
   const canGenerate = Boolean(contactId && recipientName.trim() && cleanItems.length);
+  const hasInlineSignature = useMemo(() => bodyText.includes(CONTACT_SIGNATURE_MARKDOWN), [bodyText]);
+  const hasDraftChanges = useMemo(() => {
+    if (!savedDraft) return false;
+    return subject.trim() !== savedDraft.subject.trim() || bodyText !== savedDraft.bodyText;
+  }, [bodyText, savedDraft, subject]);
+
+  const setSubjectValue = useCallback((value: string) => {
+    subjectRef.current = value;
+    setSubject(value);
+  }, []);
+
+  const setBodyTextValue = useCallback((value: string) => {
+    bodyTextRef.current = value;
+    setBodyText(value);
+  }, []);
+
+  const applyLoadedLetter = useCallback((letter: LetterFull) => {
+    const normalizedBody = normalizeDisputeLetterText(letter.bodyText || "", {
+      contactName: letter.contact?.name || "",
+      signature: readContactSignature(letter.contact?.customVariables) || letter.contact?.name || "",
+      email: letter.contact?.email || "",
+      phone: letter.contact?.phone || "",
+      address: readContactAddress(letter.contact?.customVariables),
+    });
+
+    setSelectedLetter(letter);
+    setSubjectValue(letter.subject || "");
+    setBodyTextValue(normalizedBody);
+    setSavedDraft({ subject: letter.subject || "", bodyText: normalizedBody });
+    setSourceReportId(letter.lifecycleMeta?.sourceReportId || "");
+    setSourceReportItemId(letter.lifecycleMeta?.sourceReportItemId || "");
+    setMailTo(parseMailDestinationFromLetter(letter));
+    setMailedDate(toDateInputValue(letter.sentAt || letter.lifecycleMeta?.mailedAt) || new Date().toISOString().slice(0, 10));
+    setExpectedDeliveryDate(toDateInputValue(letter.lifecycleMeta?.expectedDeliveryDate) || "");
+    if (letter.pdfMediaItem?.id && letter.pdfMediaItem?.publicToken) {
+      setPdfDownloadUrl(`/api/public/media/item/${letter.pdfMediaItem.id}/${letter.pdfMediaItem.publicToken}?download=1`);
+    } else {
+      setPdfDownloadUrl("");
+    }
+    setEditingSubject(false);
+  }, [setBodyTextValue, setSubjectValue]);
 
   const loadContacts = useCallback(async (query = "") => {
     setContactsLoading(true);
@@ -432,25 +540,11 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
         cache: "no-store",
         headers: variantHeaders,
       });
-      setSelectedLetter(data.letter);
-      setSubject(data.letter.subject || "");
-      setBodyText(normalizeDisputeLetterText(data.letter.bodyText || "", {
-        contactName: data.letter.contact?.name || "",
-        signature: readContactSignature(data.letter.contact?.customVariables) || data.letter.contact?.name || "",
-        email: data.letter.contact?.email || "",
-        phone: data.letter.contact?.phone || "",
-        address: readContactAddress(data.letter.contact?.customVariables),
-      }));
-      if (data.letter.pdfMediaItem?.id && data.letter.pdfMediaItem?.publicToken) {
-        setPdfDownloadUrl(`/api/public/media/item/${data.letter.pdfMediaItem.id}/${data.letter.pdfMediaItem.publicToken}?download=1`);
-      } else {
-        setPdfDownloadUrl("");
-      }
-      setEditingSubject(false);
+      applyLoadedLetter(data.letter);
     } finally {
       setLetterLoading(false);
     }
-  }, [variantHeaders]);
+  }, [applyLoadedLetter, variantHeaders]);
 
   const loadComposerReportItems = useCallback(async (nextContactId: string) => {
     if (!nextContactId) {
@@ -589,21 +683,6 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     clearComposerQuery();
   }, [clearComposerQuery, mode, openComposer, searchParams]);
 
-  useEffect(() => {
-    if (!selectedLetterId) return;
-    try {
-      const raw = window.localStorage.getItem(`${DISPUTE_SOURCE_STORAGE_PREFIX}${selectedLetterId}`);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { reportId?: string; itemId?: string };
-      if (parsed?.reportId && parsed?.itemId) {
-        setSourceReportId(String(parsed.reportId));
-        setSourceReportItemId(String(parsed.itemId));
-      }
-    } catch {
-      // ignore
-    }
-  }, [selectedLetterId]);
-
   const handleOpenComposer = useCallback(() => {
     openComposer();
   }, [openComposer]);
@@ -622,7 +701,15 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   }, [composerReportItems]);
 
   const insertSignatureIntoLetter = useCallback(() => {
-    editorRef.current?.insertMarkdown(CONTACT_SIGNATURE_SNIPPET);
+    if (hasInlineSignature) {
+      editorRef.current?.moveContactSignatureToEnd();
+      return;
+    }
+    editorRef.current?.insertMarkdown(CONTACT_SIGNATURE_SNIPPET, { atEnd: true });
+  }, [hasInlineSignature]);
+
+  const moveSignatureToBottom = useCallback(() => {
+    editorRef.current?.moveContactSignatureToEnd();
   }, []);
 
   const readSignatureDropMarkdown = useCallback((dataTransfer: DataTransfer) => {
@@ -646,6 +733,9 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
           contactId,
           recipientName: recipientName.trim(),
           recipientAddress: recipientAddress.trim(),
+          sourceReportId: sourceReportId || undefined,
+          sourceReportItemId: sourceReportItemId || undefined,
+          sourceItemLabel: cleanItems[0] || undefined,
           disputesText: cleanItems.map((item) => `- ${item}`).join("\n"),
           templateLabel: template.label,
           templatePrompt: toPrompt(template, roundNumber, followUpDays, nextTemplate.label, recipientName.trim()),
@@ -655,31 +745,6 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
         }),
       });
       await loadLetters();
-
-      // If we came from a specific credit report item, mark it as "dispute created" and persist mapping for mailed updates.
-      if (sourceReportId && sourceReportItemId) {
-        try {
-          window.localStorage.setItem(
-            `${DISPUTE_SOURCE_STORAGE_PREFIX}${data.letter.id}`,
-            JSON.stringify({ reportId: sourceReportId, itemId: sourceReportItemId }),
-          );
-        } catch {
-          // ignore
-        }
-
-        try {
-          await fetchJson(
-            `/api/portal/credit/reports/${encodeURIComponent(sourceReportId)}/items/${encodeURIComponent(sourceReportItemId)}`,
-            {
-              method: "PATCH",
-              headers: variantHeaders,
-              body: JSON.stringify({ disputeStatus: "Dispute created (not mailed)" }),
-            },
-          );
-        } catch {
-          // Best-effort only.
-        }
-      }
       setComposerOpen(false);
       setSelectedLetterId(data.letter.id);
       window.location.href = routeSet.editorHref(data.letter.id);
@@ -690,57 +755,69 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     }
   }, [cleanItems, contactId, contacts, followUpDays, loadLetters, nextTemplate.label, recipientAddress, recipientName, roundNumber, routeSet, selectedContact?.name, sourceReportId, sourceReportItemId, template, variantHeaders]);
 
-  const saveLetter = useCallback(async () => {
+  const saveLetter = useCallback(async (options?: { silent?: boolean }) => {
     if (!selectedLetterId) return;
+    const nextSubject = subjectRef.current.trim();
+    const nextBodyText = bodyTextRef.current;
+    const draftChanged = !savedDraft
+      ? false
+      : nextSubject !== savedDraft.subject.trim() || nextBodyText !== savedDraft.bodyText;
+    if (!draftChanged) return true;
     setWorking("save");
+    setError(null);
     try {
-      await fetchJson(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}`, {
+      const data = await fetchJson<{ ok: true; letter: LetterFull }>(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}`, {
         method: "PATCH",
         headers: variantHeaders,
-        body: JSON.stringify({ subject: subject.trim(), bodyText }),
+        body: JSON.stringify({ subject: nextSubject, bodyText: nextBodyText }),
       });
-      await loadLetter(selectedLetterId);
+      applyLoadedLetter(data.letter);
       await loadLetters();
+      if (!options?.silent) {
+        setError(null);
+      }
+      return true;
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "Failed to save letter");
+      return false;
     } finally {
       setWorking(null);
     }
-  }, [bodyText, loadLetter, loadLetters, selectedLetterId, subject, variantHeaders]);
+  }, [applyLoadedLetter, loadLetters, savedDraft, selectedLetterId, variantHeaders]);
 
   const markLetterMailed = useCallback(async () => {
     if (!selectedLetterId) return;
+    const saveOk = await saveLetter({ silent: true });
+    if (!saveOk) return;
     setWorking("mail");
+    setError(null);
     try {
       await fetchJson(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/send`, {
         method: "POST",
         headers: variantHeaders,
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          to: mailTo.trim() || null,
+          mailedAt: mailedDate || null,
+          expectedDeliveryDate: expectedDeliveryDate || null,
+        }),
       });
 
-      if (sourceReportId && sourceReportItemId) {
-        try {
-          await fetchJson(
-            `/api/portal/credit/reports/${encodeURIComponent(sourceReportId)}/items/${encodeURIComponent(sourceReportItemId)}`,
-            {
-              method: "PATCH",
-              headers: variantHeaders,
-              body: JSON.stringify({ disputeStatus: "Dispute mailed" }),
-            },
-          );
-        } catch {
-          // Best-effort only.
-        }
-      }
-
+      setMailModalOpen(false);
       await loadLetter(selectedLetterId);
       await loadLetters();
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "Failed to mark letter as mailed");
     } finally {
       setWorking(null);
     }
-  }, [loadLetter, loadLetters, selectedLetterId, sourceReportId, sourceReportItemId, variantHeaders]);
+  }, [expectedDeliveryDate, loadLetter, loadLetters, mailTo, mailedDate, saveLetter, selectedLetterId, variantHeaders]);
 
-  const refreshPdf = useCallback(async (options?: { force?: boolean }) => {
+  const refreshPdf = useCallback(async (options?: { force?: boolean; openDownload?: boolean }) => {
     if (!selectedLetterId) return;
+    const saveOk = await saveLetter({ silent: true });
+    if (!saveOk) return;
     setWorking("pdf");
+    setError(null);
     try {
       const data = await fetchJson<{ ok: true; pdf: { downloadUrl: string } }>(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/pdf`, {
         method: "POST",
@@ -750,16 +827,70 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       setPdfDownloadUrl(data.pdf.downloadUrl);
       await loadLetter(selectedLetterId);
       await loadLetters();
+      if (options?.openDownload) {
+        window.open(data.pdf.downloadUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "Failed to refresh PDF");
     } finally {
       setWorking(null);
     }
-  }, [loadLetter, loadLetters, selectedLetterId, variantHeaders]);
+  }, [loadLetter, loadLetters, saveLetter, selectedLetterId, variantHeaders]);
 
   useEffect(() => {
     if (mode !== "editor") return;
     if (!selectedLetterId || !selectedLetter || letterLoading || working || pdfDownloadUrl) return;
     void refreshPdf().catch(() => undefined);
   }, [letterLoading, mode, pdfDownloadUrl, refreshPdf, selectedLetter, selectedLetterId, working]);
+
+  const mailModal = (
+    <AppModal
+      open={mailModalOpen}
+      title="Mail letter"
+      description="Add the mailing details right before marking this letter as mailed."
+      onClose={() => {
+        if (!working) setMailModalOpen(false);
+      }}
+      widthClassName="w-[min(560px,calc(100vw-32px))]"
+      bodyClassName="space-y-4"
+      footer={
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={() => setMailModalOpen(false)}
+            className={classNames("rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-white/80 disabled:opacity-60", portalGlassButtonClass)}
+            disabled={working !== null}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void markLetterMailed()}
+            className={PRIMARY_BUTTON_CLASS}
+            disabled={working !== null}
+          >
+            {working === "mail" ? "Mailing..." : "Mail"}
+          </button>
+        </div>
+      }
+    >
+      <label className="block">
+        <div className="mb-2 text-xs font-medium text-zinc-500">Mailed to</div>
+        <input value={mailTo} onChange={(event) => setMailTo(event.target.value)} className={GLASS_INPUT_CLASS} placeholder="Recipient or mailing note" />
+      </label>
+      <label className="block">
+        <div className="mb-2 text-xs font-medium text-zinc-500">Mail date</div>
+        <input type="date" value={mailedDate} onChange={(event) => setMailedDate(event.target.value)} className={GLASS_INPUT_CLASS} />
+      </label>
+      <label className="block">
+        <div className="mb-2 text-xs font-medium text-zinc-500">Expected delivery</div>
+        <input type="date" value={expectedDeliveryDate} onChange={(event) => setExpectedDeliveryDate(event.target.value)} className={GLASS_INPUT_CLASS} />
+      </label>
+      <div className={classNames("rounded-2xl p-4 text-xs text-zinc-600", portalGlassSectionClass)}>
+        These details are saved with the letter when you confirm mailing so follow-up status stays accurate.
+      </div>
+    </AppModal>
+  );
 
   const composer = composerOpen ? (
     <div className={classNames("fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4", portalGlassBackdropClass)} onMouseDown={() => working !== "generate" && closeComposer()}>
@@ -955,7 +1086,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
               {editingSubject ? (
                 <input
                   value={subject}
-                  onChange={(event) => setSubject(event.target.value)}
+                  onChange={(event) => setSubjectValue(event.target.value)}
                   onBlur={() => setEditingSubject(false)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
@@ -964,7 +1095,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                     }
                     if (event.key === "Escape") {
                       event.preventDefault();
-                      setSubject(subjectSnapshot);
+                      setSubjectValue(subjectSnapshot);
                       setEditingSubject(false);
                     }
                   }}
@@ -985,26 +1116,24 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                   {subject.trim() || "Dispute letter"}
                 </button>
               )}
-              <div className="mt-1 text-xs font-semibold text-zinc-500">Click the title to rename. Save draft to persist.</div>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
-              {selectedLetter ? <span className={classNames("rounded-full border px-2.5 py-1 text-xs font-semibold", statusClasses(selectedLetter.status))}>{statusLabel(selectedLetter.status)}</span> : null}
+              {selectedLetter ? <span className={classNames("rounded-full px-2.5 py-1 text-xs font-semibold", statusClasses(selectedLetter.status))}>{statusLabel(selectedLetter.status)}</span> : null}
+              {selectedLetter ? <span className={classNames("rounded-full px-2.5 py-1 text-xs font-semibold", hasDraftChanges ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700")}>{hasDraftChanges ? "Unsaved changes" : "Saved"}</span> : null}
               <span>{selectedLetter ? `Updated ${formatDateTime(selectedLetter.updatedAt)}` : letterLoading ? "Loading letter…" : "No letter selected"}</span>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {pdfDownloadUrl ? (
-              <a
-                href={pdfDownloadUrl}
-                target="_blank"
-                rel="noreferrer"
-                className={ICON_BUTTON_CLASS}
-                aria-label="Download PDF"
-                title="Download PDF"
-              >
-                <IconExport size={18} />
-              </a>
-            ) : null}
+            <button
+              type="button"
+              disabled={!selectedLetterId || working !== null}
+              onClick={() => void refreshPdf({ force: true, openDownload: true })}
+              className={ICON_BUTTON_CLASS}
+              aria-label="Download PDF"
+              title="Download PDF"
+            >
+              <IconDownload size={18} />
+            </button>
             <button
               type="button"
               disabled={!selectedLetterId || working !== null}
@@ -1014,8 +1143,8 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             >
               {working === "pdf" ? "Regenerating..." : "Regenerate PDF"}
             </button>
-            <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void saveLetter()} className={SECONDARY_BUTTON_CLASS}>{working === "save" ? "Saving..." : "Save draft"}</button>
-            <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void markLetterMailed()} className={PRIMARY_BUTTON_CLASS}>{working === "mail" ? "Marking..." : "Mark mailed"}</button>
+            <button type="button" disabled={!selectedLetterId || working !== null || !hasDraftChanges} onClick={() => void saveLetter()} className={SECONDARY_BUTTON_CLASS}>{working === "save" ? "Saving..." : "Save draft"}</button>
+            <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => setMailModalOpen(true)} className={PRIMARY_BUTTON_CLASS}>Mail</button>
           </div>
         </div>
         {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
@@ -1026,27 +1155,27 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
               <RichTextMarkdownEditor
                 ref={editorRef}
                 markdown={bodyText}
-                onChange={(nextValue) => setBodyText(normalizeDisputeLetterText(nextValue, { contactName: selectedLetter?.contact?.name || "", signature: readContactSignature(selectedLetter?.contact?.customVariables) || selectedLetter?.contact?.name || "", email: selectedLetter?.contact?.email || "", phone: selectedLetter?.contact?.phone || "", address: readContactAddress(selectedLetter?.contact?.customVariables) }))}
+                onChange={setBodyTextValue}
                 onDropMarkdown={readSignatureDropMarkdown}
                 placeholder="Write the dispute letter..."
               />
             </label>
-            <div className="mt-3 text-xs text-zinc-500">Formatting and inserted contact signatures carry into the generated PDF.</div>
+            <div className="mt-3 text-xs text-zinc-500">Save before mailing. Downloading the PDF now saves your latest draft automatically first.</div>
           </section>
           <aside className="space-y-4">
             <section className={classNames(GLASS_PANEL_CLASS, "p-5")}>
               <div className="text-sm font-semibold text-zinc-900">Letter status</div>
               <div className="mt-3 grid gap-3 text-sm text-zinc-700">
                 <div className={classNames("rounded-2xl border border-white/70 p-4", portalGlassButtonClass)}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Status</div>
-                  <div className="mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold text-zinc-900">{selectedLetter ? statusLabel(selectedLetter.status) : "Not available"}</div>
+                  <div className="text-xs font-medium text-zinc-500">Status</div>
+                  <div className={classNames("mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold", selectedLetter ? statusClasses(selectedLetter.status) : "bg-zinc-100 text-zinc-700")}>{selectedLetter ? statusLabel(selectedLetter.status) : "Not available"}</div>
                 </div>
                 <div className={classNames("rounded-2xl border border-white/70 p-4", portalGlassButtonClass)}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Updated</div>
+                  <div className="text-xs font-medium text-zinc-500">Updated</div>
                   <div className="mt-2 font-medium text-zinc-900">{selectedLetter ? formatDateTime(selectedLetter.updatedAt) : "Not available"}</div>
                 </div>
                 <div className={classNames("rounded-2xl border border-white/70 p-4", portalGlassButtonClass)}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mailed</div>
+                  <div className="text-xs font-medium text-zinc-500">Mailed</div>
                   <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.sentAt ? formatDateTime(selectedLetter.sentAt) : "Not marked yet"}</div>
                 </div>
               </div>
@@ -1057,7 +1186,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                 <div className={classNames("mt-3 rounded-2xl border border-white/70 p-4", portalGlassButtonClass)}>
                   <div className="text-sm font-semibold text-zinc-900">{selectedLetter.contact.name}</div>
                   <div className="mt-1 text-xs text-zinc-600">{selectedLetter.contact.email || "No email"}{selectedLetter.contact.phone ? ` • ${selectedLetter.contact.phone}` : ""}</div>
-                  <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Signature on file</div>
+                  <div className="mt-3 text-xs font-medium text-zinc-500">Signature on file</div>
                   <div className="mt-1">
                     <SignatureDisplay
                       value={readContactCustomValue(selectedLetter.contact.customVariables, "signature")}
@@ -1065,24 +1194,17 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                     />
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" onClick={insertSignatureIntoLetter} className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}>
-                      Add signature to letter
+                    <button type="button" onClick={insertSignatureIntoLetter} disabled={hasInlineSignature || (!selectedContactSignatureImage && !selectedContactSignatureText)} className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80 disabled:opacity-60", portalGlassButtonClass)}>
+                      {hasInlineSignature ? "Signature already added" : "Add signature to letter"}
                     </button>
-                    <div
-                      draggable
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData("application/x-pa-dispute-signature", CONTACT_SIGNATURE_SNIPPET);
-                        event.dataTransfer.setData("text/plain", CONTACT_SIGNATURE_SNIPPET);
-                        event.dataTransfer.effectAllowed = "copy";
-                      }}
-                      className={classNames("inline-flex cursor-grab items-center rounded-2xl border border-dashed border-white/80 px-3 py-2 text-xs font-semibold text-zinc-600 active:cursor-grabbing", portalGlassButtonClass)}
-                      title="Drag into the letter editor"
-                    >
-                      Drag signature into letter
-                    </div>
+                    {hasInlineSignature ? (
+                      <button type="button" onClick={moveSignatureToBottom} className={classNames("rounded-2xl px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-white/80", portalGlassButtonClass)}>
+                        Move signature to bottom
+                      </button>
+                    ) : null}
                   </div>
                   {selectedContactSignatureImage || selectedContactSignatureText ? (
-                    <div className="mt-2 text-[11px] text-zinc-500">Use the button or drag target to place the contact signature exactly where it should appear in the PDF.</div>
+                    <div className="mt-2 text-[11px] text-zinc-500">Use the button to place the saved signature where it should appear in the PDF.</div>
                   ) : null}
                 </div>
               ) : (
@@ -1091,6 +1213,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             </section>
           </aside>
         </div>
+        {mailModal}
         {composer}
       </div>
     );
@@ -1222,7 +1345,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                       <div className="font-medium text-zinc-900">{letter.contact.name}</div>
                       <div className="mt-1 text-xs text-zinc-500">{letter.contact.email || "No email"}</div>
                     </td>
-                    <td className="px-4 py-3"><span className={classNames("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", statusClasses(letter.status))}>{statusLabel(letter.status)}</span></td>
+                    <td className="px-4 py-3"><span className={classNames("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold", statusClasses(letter.status))}>{statusLabel(letter.status)}</span></td>
                     <td className="px-4 py-3 text-zinc-600">
                       <div>{formatDateTime(letter.updatedAt)}</div>
                       <div className="mt-1 text-xs text-zinc-400">Click to open</div>

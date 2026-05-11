@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { readCreditReportLifecycle } from "@/lib/creditLifecycle";
 import { prisma } from "@/lib/db";
-import { deriveCreditReportItemAudit, extractCreditReportSnapshot, normalizeCreditScope } from "@/lib/creditReports";
+import { deriveCreditReportItemAudit, extractCreditReportOverview, extractCreditReportSnapshot, normalizeCreditScope } from "@/lib/creditReports";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 
 export const runtime = "nodejs";
@@ -54,6 +55,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ reportId: stri
       ...report,
       creditScope: normalizeCreditScope((report.rawJson as any)?.creditScope ?? (report.rawJson as any)?.scope),
       creditSnapshot: extractCreditReportSnapshot(report.rawJson, report.items),
+      creditOverview: extractCreditReportOverview(report.rawJson),
+      creditLifecycle: readCreditReportLifecycle(report.rawJson),
       items: report.items.map((item) => {
         const derived = deriveCreditReportItemAudit(item);
         return {

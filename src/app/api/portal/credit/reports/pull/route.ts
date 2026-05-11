@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
-import { extractCreditReportSnapshot, normalizeCreditScope } from "@/lib/creditReports";
+import { executeExperianCreditPull, getConfiguredCreditPullProvider } from "@/lib/creditExperian";
+import { ingestCreditReport } from "@/lib/creditReportIngest";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
+import { normalizeCreditScope } from "@/lib/creditReports";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,8 +19,16 @@ const schema = z.object({
 
 function normalizeProvider(raw: unknown) {
   const s = typeof raw === "string" ? raw.trim() : "";
-  if (!s) return "IdentityIQ";
+  if (!s) return getConfiguredCreditPullProvider() === "EXPERIAN" ? "Experian" : "IdentityIQ";
   return s.slice(0, 40);
+}
+
+function requestIpAddress(req: Request) {
+  const forwarded = req.headers.get("x-forwarded-for") || "";
+  const first = forwarded.split(",").map((part) => part.trim()).find(Boolean);
+  const candidate = first || req.headers.get("x-real-ip") || "";
+  const ipv4 = candidate.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+  return ipv4 ? ipv4[0] : null;
 }
 
 export async function POST(req: Request) {
@@ -36,58 +46,72 @@ export async function POST(req: Request) {
 
   const contact = await prisma.portalContact.findFirst({
     where: { id: contactId, ownerId },
-    select: { id: true, name: true, email: true },
+    select: { id: true, name: true, email: true, phone: true, customVariables: true },
   });
   if (!contact) return NextResponse.json({ ok: false, error: "Contact not found" }, { status: 404 });
 
-  const now = new Date();
-
-  // Integration stub: creates a placeholder report row so the UX flow works.
-  // A real provider integration will replace rawJson + items asynchronously.
-  const created = await prisma.creditReport.create({
+  const pull = await prisma.creditPull.create({
     data: {
       ownerId,
       contactId,
       provider,
-      importedAt: now,
-      createdAt: now,
+      status: "PENDING",
+      requestedAt: new Date(),
       rawJson: {
-        status: "PENDING",
         provider,
         creditScope,
-        requestedAt: now.toISOString(),
-        contact: { id: contact.id, name: contact.name, email: contact.email },
-        profile: {
-          currentScore: 642,
-          targetScore: 700,
-          bureauScores: {
-            Experian: 638,
-            Equifax: 646,
-            TransUnion: 642,
-          },
-          goals: [
-            "Remove remaining derogatory accounts",
-            "Bring utilization below 10%",
-            "Get funding-ready for the next application round",
-          ],
-          utilizationPercent: 28,
-          openDisputes: 0,
-          nextMilestone: "Provider sync is pending. Once the report lands, review negatives first and confirm current utilization.",
-        },
-        note: "Provider pull integration not configured yet",
+        requestedAt: new Date().toISOString(),
       } as any,
     },
     select: {
       id: true,
-      provider: true,
-      importedAt: true,
-      createdAt: true,
-      rawJson: true,
-      contactId: true,
-      contact: { select: { id: true, name: true, email: true } },
-      _count: { select: { items: true } },
     },
   });
 
-  return NextResponse.json({ ok: true, report: { ...created, creditScope, creditSnapshot: extractCreditReportSnapshot(created.rawJson) } });
+  try {
+    if (provider.trim().toLowerCase() !== "experian") {
+      throw Object.assign(new Error("Only the Experian pull flow is wired right now. Select Experian as the provider."), { status: 400 });
+    }
+
+    const experian = await executeExperianCreditPull({
+      contact,
+      creditScope,
+      ipAddress: requestIpAddress(req),
+    });
+
+    const report = await ingestCreditReport({
+      ownerId,
+      contactId,
+      provider: experian.provider,
+      creditScope,
+      rawJson: experian.rawJson,
+    });
+
+    await prisma.creditPull.update({
+      where: { id: pull.id },
+      data: {
+        status: "SUCCESS",
+        completedAt: new Date(),
+        rawJson: experian.summary as any,
+        updatedAt: new Date(),
+      },
+    });
+
+    return NextResponse.json({ ok: true, report });
+  } catch (error) {
+    const status = typeof (error as any)?.status === "number" ? (error as any).status : 500;
+    const message = error instanceof Error ? error.message : "Unable to pull report";
+
+    await prisma.creditPull.update({
+      where: { id: pull.id },
+      data: {
+        status: "FAILED",
+        completedAt: new Date(),
+        error: message,
+        updatedAt: new Date(),
+      },
+    });
+
+    return NextResponse.json({ ok: false, error: message }, { status });
+  }
 }

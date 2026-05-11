@@ -175,8 +175,8 @@ async function getEnrollmentRow(ownerId: string, enrollmentId: string) {
       createdAt: true,
       updatedAt: true,
       campaign: { select: { bookingConfigJson: true } },
-    },
-  });
+    } as any,
+  }) as Promise<any>;
 }
 
 export async function refreshAiOutboundEnrollmentArtifacts(opts: { ownerId: string; enrollmentId: string }) {
@@ -296,7 +296,7 @@ export async function refreshAiOutboundEnrollmentArtifacts(opts: { ownerId: stri
   if (Object.keys(updates).length) {
     await prisma.portalAiOutboundCallEnrollment.update({
       where: { id: row.id },
-      data: updates,
+      data: updates as any,
       select: { id: true },
     });
   }

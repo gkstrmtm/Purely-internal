@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { readCreditDisputeLetterLifecycleMeta } from "@/lib/creditLifecycle";
 import { normalizeDisputeLetterText, readContactAddress, readContactSignature } from "@/lib/creditDisputeLetters";
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
@@ -36,6 +37,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ letterId: stri
       pdfGeneratedAt: true,
       sentAt: true,
       lastSentTo: true,
+      promptText: true,
       contactId: true,
       creditPullId: true,
       contact: { select: { id: true, name: true, email: true, phone: true, customVariables: true } },
@@ -44,7 +46,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ letterId: stri
   });
 
   if (!letter) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
-  return NextResponse.json({ ok: true, letter });
+  return NextResponse.json({ ok: true, letter: { ...letter, lifecycleMeta: readCreditDisputeLetterLifecycleMeta(letter.promptText) } });
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: string }> }) {
@@ -120,6 +122,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: str
       pdfGeneratedAt: true,
       sentAt: true,
       lastSentTo: true,
+      promptText: true,
       creditPullId: true,
       contact: { select: { id: true, name: true, email: true, phone: true, customVariables: true } },
       pdfMediaItem: { select: { id: true, publicToken: true } },
@@ -127,5 +130,5 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: str
   });
 
   if (!letter) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
-  return NextResponse.json({ ok: true, letter });
+  return NextResponse.json({ ok: true, letter: { ...letter, lifecycleMeta: readCreditDisputeLetterLifecycleMeta(letter.promptText) } });
 }

@@ -2,7 +2,7 @@ import { type Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
-import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
+import { coerceBlocksJson, type CreditFunnelBlock, type HostedRuntimeBlockType } from "@/lib/creditFunnelBlocks";
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
 import { listHostedTemplateOptions } from "@/lib/hostedPageTemplateIntents";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
@@ -720,12 +720,20 @@ function hostedRuntimeSection(
     anchorId?: string;
     heading: string;
     body: string;
-    blockType: "hostedBookingApp" | "hostedNewsletterArchive" | "hostedReviewsApp" | "hostedBlogsArchive" | "hostedBlogPostBody";
+    blockType: HostedRuntimeBlockType;
     sectionStyle?: Record<string, unknown>;
     headingStyle?: Record<string, unknown>;
     bodyStyle?: Record<string, unknown>;
   },
 ): CreditFunnelBlock {
+  const runtimeBlock: CreditFunnelBlock = {
+    id: `${id}-runtime`,
+    type: opts.blockType,
+    props: {
+      style: { borderRadiusPx: 24 } as any,
+    },
+  };
+
   return {
     id,
     type: "section",
@@ -750,13 +758,7 @@ function hostedRuntimeSection(
             style: { fontSizePx: 17, marginBottomPx: 22, maxWidthPx: 820, ...(opts.bodyStyle ?? {}) } as any,
           },
         },
-        {
-          id: `${id}-runtime`,
-          type: opts.blockType,
-          props: {
-            style: { borderRadiusPx: 24 } as any,
-          },
-        },
+        runtimeBlock,
       ],
       style: {
         maxWidthPx: CONTAINER_WIDTH,

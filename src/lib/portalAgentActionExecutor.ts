@@ -69,6 +69,7 @@ import { getBlogAppearance, setBlogAppearance } from "@/lib/blogAppearance";
 import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug, setStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { normalizeAssistantLinkUrl } from "@/lib/portalAssistantLinks";
 import { cleanPuraGeneratedReply, isLowQualityPuraGeneratedReply } from "@/lib/puraReplyQuality";
+import { getCreditFunnelBuilderSettings, mutateCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSettingsStore";
 import {
   getAppointmentReminderSettingsForCalendar,
   listAppointmentReminderEvents,
@@ -150,7 +151,7 @@ import { getOrCreateStripeCustomerId, isStripeConfigured, stripeDelete, stripeGe
 import { generatePuraText as generateText, generatePuraTextWithImages as generateTextWithImages, isPuraAiConfigured, runWithPuraAiProfile, transcribePuraAudio as transcribeAudio, transcribePuraAudioVerbose as transcribeAudioVerbose } from "@/lib/puraAi";
 import { normalizePuraAiProfile } from "@/lib/puraAiProfile";
 import { createScopedPortalApiKey, deletePortalApiKey, listPortalApiKeys, revealPortalApiKey, updateScopedPortalApiKey } from "@/lib/portalApiKeys.server";
-import { getBusinessProfileAiContext, getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
+import { getBusinessProfileAiContext, getBusinessProfileFoundationContext, getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccountUsers, tryNotifyPortalUserIds } from "@/lib/portalNotifications";
 import { GET as authVerificationEmailCronGET } from "@/app/api/portal/auth/verification-email/cron/route";
 import { GET as blogsAutomationCronGET } from "@/app/api/portal/blogs/automation/cron/route";
@@ -189,6 +190,31 @@ import {
   normalizeDraftHtml,
   withDraftHtmlSelect,
 } from "@/lib/funnelPageDbCompat";
+import {
+  applyFoundationArtifactWriteCompat,
+  dbHasCreditFunnelPageFoundationArtifactColumns,
+  withFoundationArtifactSelect,
+} from "@/lib/funnelPageDbCompat";
+import {
+  buildFunnelFoundationMaterialHash,
+  coerceStoredFunnelFoundationArtifact,
+  synthesizeFunnelFoundationArtifact,
+} from "@/lib/funnelFoundationArtifact.server";
+import { buildExhibitArchetypeSeedPrompt, fetchFunnelExhibitArchetypePack } from "@/lib/funnelExhibitArchetypePack.server";
+import { readFunnelExhibitArchetypePack, writeFunnelExhibitArchetypePack } from "@/lib/funnelExhibitArchetypes";
+import { extractSourceActionChatPayload, type SourceActionPlan } from "@/lib/funnelSourceActionPlan";
+import {
+  buildDefaultFunnelThreadTitle,
+  normalizeFunnelThreadContext,
+  normalizeFunnelThreadKind,
+  normalizeFunnelThreadMessages,
+  normalizeFunnelThreadTitle,
+  readFunnelThreadLastMessageAt,
+  readPersistedFunnelThreads,
+  writePersistedFunnelThreads,
+  type FunnelThreadRecord,
+} from "@/lib/funnelThreads";
+import { inferFunnelBriefProfile, inferFunnelPageIntentProfile, readFunnelBrief, readFunnelPageBrief } from "@/lib/funnelPageIntent";
 import { generateCreditText } from "@/lib/creditAi";
 import { clearStripeIntegration, getStripeIntegrationStatus, getStripeSecretKeyForOwner, setStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { connectStripeAndActivate, disconnectSalesProvider, getSalesReportingStatus, setActiveSalesProvider, setProviderCredentials } from "@/lib/salesReportingIntegration.server";
@@ -2619,6 +2645,8 @@ function deriveLinkUrlForAction(action: PortalAgentActionKey, json: any, args?: 
     action === "funnel_builder.pages.create" ||
     action === "funnel_builder.pages.update" ||
     action === "funnel_builder.pages.generate_html" ||
+    action === "funnel_builder.pages.chat" ||
+    action === "funnel_builder.pages.foundation" ||
     action === "funnel_builder.pages.export_custom_html"
   ) {
     const funnelId = String(json?.page?.funnelId || args?.funnelId || "").trim();
@@ -10483,6 +10511,605 @@ async function runDirectAction(opts: {
       }
 
       return { status: 200, json: { ok: true, html, css } };
+    }
+
+    case "funnel_builder.pages.chat": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      const pageId = String(args?.pageId || "").trim();
+      const prompt = typeof args?.prompt === "string" ? args.prompt.trim() : "";
+      if (!funnelId || !pageId || !prompt) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const hasDraftHtml = await canUseCreditFunnelPageDraftHtml();
+      const page = await prisma.creditFunnelPage.findFirst({
+        where: { id: pageId, funnelId, funnel: { ownerId } },
+        select: withDraftHtmlSelect(
+          {
+            id: true,
+            slug: true,
+            title: true,
+            editorMode: true,
+            blocksJson: true,
+            customHtml: true,
+            customChatJson: true,
+            funnel: { select: { id: true, slug: true, name: true } },
+          },
+          hasDraftHtml,
+        ) as any,
+      });
+      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const normalizedPage = normalizeDraftHtml(page as any);
+      const currentHtml =
+        typeof args?.currentHtml === "string" && args.currentHtml.trim()
+          ? String(args.currentHtml)
+          : getFunnelPageCurrentHtml(normalizedPage);
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+      const history = normalizeFunnelThreadMessages((normalizedPage as any).customChatJson)
+        .slice(-10)
+        .map((entry) => ({ role: entry.role, content: entry.content }));
+      const contextMedia = Array.isArray(args?.contextMedia)
+        ? (args.contextMedia as unknown[])
+            .map((item) => (item && typeof item === "object" && typeof (item as any).url === "string" ? String((item as any).url).trim() : ""))
+            .filter((url) => /^(https?:\/\/|data:image\/)/i.test(url))
+            .slice(0, 6)
+        : [];
+
+      const system = [
+        "You are Pura inside Funnel Builder.",
+        "Analyze the current funnel page and the user's prompt, then return a single JSON object.",
+        "Do not rewrite the page here. Focus on what should change and why.",
+        "Output schema:",
+        '{"assistantText":"string","sourceActionPlan":{"summary":"string","moves":[{"key":"string","target":"string","change":"string","why":"string","priority":"primary|secondary|optional","executionMode":"bounded-edit|model-led","confidence":"high|medium|low","selectorHint":"optional","diff":["optional before -> after"]}],"watchouts":["optional"]}|null}',
+        `Funnel: ${String((normalizedPage as any).funnel?.name || "Funnel")}`,
+        `Page: ${String((normalizedPage as any).title || (normalizedPage as any).slug || "Page")}`,
+        `Route: /${[String((normalizedPage as any).funnel?.slug || "").trim(), String((normalizedPage as any).slug || "").trim()].filter(Boolean).join("/")}`,
+        businessContext ? `Business context:\n${businessContext.slice(0, 1600)}` : "",
+        currentHtml.trim() ? `Current HTML:\n${currentHtml.slice(0, 22000)}` : "No current HTML is available.",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const historyBlock = history.length
+        ? `Recent chat context:\n${history.map((entry) => `${entry.role}: ${entry.content}`).join("\n\n")}`
+        : "";
+      const userPrompt = [historyBlock, prompt].filter(Boolean).join("\n\n");
+
+      let raw = "";
+      try {
+        raw = contextMedia.length
+          ? await generateTextWithImages({
+              system,
+              user: userPrompt,
+              imageUrls: contextMedia,
+              temperature: 0.45,
+            })
+          : await generateText({
+              system,
+              user: userPrompt,
+              temperature: 0.45,
+            });
+      } catch (error: any) {
+        return { status: 500, json: { ok: false, error: String(error?.message || error || "AI chat failed") } };
+      }
+
+      const parsed = extractSourceActionChatPayload(raw);
+      const assistantText = String(parsed?.assistantText || "").trim() || "Pura reviewed the current page and queued a focused edit plan for the next pass.";
+      const sourceActionPlan = (parsed?.sourceActionPlan || null) as SourceActionPlan | null;
+      const userMsg = { role: "user" as const, content: prompt, at: new Date().toISOString() };
+      const assistantMsg = {
+        role: "assistant" as const,
+        content: assistantText,
+        at: new Date().toISOString(),
+        ...(sourceActionPlan ? { sourceActionPlan } : {}),
+      };
+      const nextChat = normalizeFunnelThreadMessages([
+        ...(Array.isArray((normalizedPage as any).customChatJson) ? ((normalizedPage as any).customChatJson as any[]) : []),
+        userMsg,
+        assistantMsg,
+      ]);
+
+      const updated = await prisma.creditFunnelPage.update({
+        where: { id: normalizedPage.id },
+        data: { customChatJson: nextChat as any },
+        select: withDraftHtmlSelect(
+          {
+            id: true,
+            slug: true,
+            title: true,
+            editorMode: true,
+            blocksJson: true,
+            customHtml: true,
+            customChatJson: true,
+            updatedAt: true,
+          },
+          hasDraftHtml,
+        ) as any,
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          assistantText,
+          sourceActionPlan,
+          page: {
+            ...normalizeDraftHtml(updated as any),
+            customChatJson: normalizeFunnelThreadMessages((updated as any).customChatJson),
+          },
+        },
+      };
+    }
+
+    case "funnel_builder.pages.foundation": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      const pageId = String(args?.pageId || "").trim();
+      if (!funnelId || !pageId) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const hasFoundationArtifact = await dbHasCreditFunnelPageFoundationArtifactColumns();
+      const page = await prisma.creditFunnelPage.findFirst({
+        where: { id: pageId, funnelId, funnel: { ownerId } },
+        select: withFoundationArtifactSelect(
+          {
+            id: true,
+            slug: true,
+            title: true,
+            funnel: { select: { id: true, slug: true, name: true } },
+          },
+          hasFoundationArtifact,
+        ) as any,
+      });
+      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const settings = await getCreditFunnelBuilderSettings(ownerId).catch(() => ({} as Record<string, unknown>));
+      const effectiveBrief = inferFunnelBriefProfile({
+        existing: args?.brief ?? readFunnelBrief(settings, (page as any).funnel.id),
+        funnelName: String((page as any).funnel.name || ""),
+        funnelSlug: String((page as any).funnel.slug || ""),
+      });
+      const effectiveIntent = inferFunnelPageIntentProfile({
+        existing: args?.intent ?? readFunnelPageBrief(settings, (page as any).id),
+        funnelBrief: effectiveBrief,
+        funnelName: String((page as any).funnel.name || ""),
+        funnelSlug: String((page as any).funnel.slug || ""),
+        pageTitle: String((page as any).title || ""),
+        pageSlug: String((page as any).slug || ""),
+      });
+      const businessProfile =
+        args?.businessProfile && typeof args.businessProfile === "object" && !Array.isArray(args.businessProfile)
+          ? (args.businessProfile as any)
+          : await getBusinessProfileFoundationContext(ownerId).catch(() => null);
+      const capabilityInputs =
+        args?.capabilityInputs && typeof args.capabilityInputs === "object" && !Array.isArray(args.capabilityInputs)
+          ? (args.capabilityInputs as any)
+          : null;
+      const routeLabel = `/${[String((page as any).funnel.slug || "").trim(), String((page as any).slug || "").trim()].filter(Boolean).join("/")}` || "/page";
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+      const materialHash = buildFunnelFoundationMaterialHash({
+        routeLabel,
+        funnelName: String((page as any).funnel.name || ""),
+        pageTitle: String((page as any).title || ""),
+        brief: effectiveBrief,
+        intent: effectiveIntent,
+        businessProfile,
+        capabilityInputs,
+        businessContext,
+      });
+      const storedArtifact = hasFoundationArtifact
+        ? coerceStoredFunnelFoundationArtifact((page as any).foundationArtifactJson)
+        : null;
+
+      if (
+        hasFoundationArtifact &&
+        (page as any).foundationArtifactHash === materialHash &&
+        storedArtifact?.materialHash === materialHash
+      ) {
+        return { status: 200, json: { ok: true, cached: true, foundation: storedArtifact } };
+      }
+
+      const foundation = await synthesizeFunnelFoundationArtifact({
+        routeLabel,
+        funnelName: String((page as any).funnel.name || ""),
+        pageTitle: String((page as any).title || ""),
+        brief: effectiveBrief,
+        intent: effectiveIntent,
+        businessProfile,
+        capabilityInputs,
+        businessContext,
+      });
+
+      if (hasFoundationArtifact) {
+        await prisma.creditFunnelPage.update({
+          where: { id: String((page as any).id) },
+          data: applyFoundationArtifactWriteCompat(
+            {
+              foundationArtifactHash: foundation.materialHash,
+              foundationArtifactJson: foundation as any,
+            },
+            hasFoundationArtifact,
+          ) as any,
+          select: { id: true },
+        });
+      }
+
+      return { status: 200, json: { ok: true, cached: false, foundation } };
+    }
+
+    case "funnel_builder.visual_review": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      const pageId = String(args?.pageId || "").trim();
+      const prompt = typeof args?.prompt === "string" ? args.prompt.trim() : "";
+      const html = typeof args?.html === "string" ? args.html : "";
+      const css = typeof args?.css === "string" ? args.css : "";
+      const surface = args?.surface === "source" ? "source" : "structure";
+      if (!funnelId || !pageId || !prompt || !html.trim()) {
+        return { status: 400, json: { ok: false, error: "Missing required review fields" } };
+      }
+
+      const page = await prisma.creditFunnelPage.findFirst({
+        where: { id: pageId, funnelId, funnel: { ownerId } },
+        select: { id: true, slug: true, title: true, funnel: { select: { id: true, slug: true, name: true } } },
+      });
+      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const system = [
+        "You review funnel page output after an AI generation pass.",
+        "Return a single JSON object with keys: summary, warnings, strengths, visualReviewed.",
+        "Keep warnings to at most 4 short items and strengths to at most 3 short items.",
+        "Be specific to conversion clarity, hierarchy, proof, CTA rhythm, and visual composition.",
+        `Funnel: ${String((page as any).funnel?.name || "Funnel")}`,
+        `Page: ${String((page as any).title || (page as any).slug || "Page")}`,
+        `Route: /${[String((page as any).funnel?.slug || "").trim(), String((page as any).slug || "").trim()].filter(Boolean).join("/")}`,
+        `Surface: ${surface}`,
+        `HTML:\n${html.slice(0, 24000)}`,
+        css.trim() ? `CSS:\n${css.slice(0, 12000)}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      const extractFirstJsonObject = (text: string) => {
+        const trimmed = String(text || "").trim();
+        if (!trimmed) return null;
+        const fenced = trimmed.match(/```json\s*([\s\S]*?)\s*```/i);
+        const candidate = fenced?.[1] ? fenced[1].trim() : trimmed.match(/\{[\s\S]*\}/)?.[0] || "";
+        if (!candidate) return null;
+        try {
+          return JSON.parse(candidate) as any;
+        } catch {
+          return null;
+        }
+      };
+
+      let raw = "";
+      try {
+        const previewImageDataUrl = typeof args?.previewImageDataUrl === "string" ? args.previewImageDataUrl.trim() : "";
+        raw = previewImageDataUrl
+          ? await generateTextWithImages({
+              system,
+              user: prompt,
+              imageUrls: [previewImageDataUrl],
+              temperature: 0.35,
+            })
+          : await generateText({
+              system,
+              user: prompt,
+              temperature: 0.35,
+            });
+      } catch (error: any) {
+        return { status: 500, json: { ok: false, error: String(error?.message || error || "Visual review failed") } };
+      }
+
+      const parsed = extractFirstJsonObject(raw) || {};
+      const warnings = Array.isArray(parsed?.warnings)
+        ? parsed.warnings.map((item: unknown) => String(item || "").trim()).filter(Boolean).slice(0, 4)
+        : [];
+      const strengths = Array.isArray(parsed?.strengths)
+        ? parsed.strengths.map((item: unknown) => String(item || "").trim()).filter(Boolean).slice(0, 3)
+        : [];
+      const summary = String(parsed?.summary || "").trim() || "Pura reviewed the current visual output and flagged the next structural improvements.";
+      const visualReviewed = parsed?.visualReviewed === false ? false : true;
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          summary,
+          warnings,
+          strengths,
+          visualReviewed,
+          scene: {
+            dominantIssue: warnings[0] || null,
+            structuralPriorities: warnings.slice(0, 3),
+          },
+        },
+      };
+    }
+
+    case "funnel_builder.threads.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid funnelId" } };
+
+      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
+      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const sortThreads = (threads: FunnelThreadRecord[]) =>
+        [...threads].sort((left, right) => {
+          const leftAt = Date.parse(left.lastMessageAt || left.updatedAt || left.createdAt || "") || 0;
+          const rightAt = Date.parse(right.lastMessageAt || right.updatedAt || right.createdAt || "") || 0;
+          return rightAt - leftAt;
+        });
+
+      const settings = await getCreditFunnelBuilderSettings(ownerId).catch(() => ({} as Record<string, unknown>));
+      let threads = readPersistedFunnelThreads(settings, funnelId);
+
+      if (!threads.length) {
+        const pages = await prisma.creditFunnelPage.findMany({
+          where: { funnelId, funnel: { ownerId } },
+          select: { id: true, title: true, customChatJson: true, updatedAt: true },
+          orderBy: { sortOrder: "asc" },
+        });
+
+        const nowIso = new Date().toISOString();
+        const seededThreads: FunnelThreadRecord[] = [
+          {
+            id: String(crypto.randomUUID()),
+            funnelId,
+            pageId: null,
+            title: buildDefaultFunnelThreadTitle({ kind: "main" }),
+            kind: "main",
+            messages: [],
+            context: { seededFrom: "system" },
+            lastMessageAt: null,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          },
+        ];
+
+        for (const pageRow of pages) {
+          const messages = normalizeFunnelThreadMessages((pageRow as any).customChatJson);
+          if (!messages.length) continue;
+          const updatedAt = pageRow.updatedAt.toISOString();
+          seededThreads.push({
+            id: String(crypto.randomUUID()),
+            funnelId,
+            pageId: pageRow.id,
+            title: buildDefaultFunnelThreadTitle({ kind: "page", pageTitle: pageRow.title }),
+            kind: "page",
+            messages,
+            context: { seededFrom: "page.customChatJson", pageId: pageRow.id, pageTitle: pageRow.title },
+            lastMessageAt: readFunnelThreadLastMessageAt(messages, updatedAt),
+            createdAt: updatedAt,
+            updatedAt,
+          });
+        }
+
+        const result = await mutateCreditFunnelBuilderSettings(ownerId, (current) => ({
+          next: writePersistedFunnelThreads(current, funnelId, sortThreads(seededThreads)),
+          value: sortThreads(seededThreads),
+        }));
+        threads = result.value;
+      }
+
+      return { status: 200, json: { ok: true, threads } };
+    }
+
+    case "funnel_builder.threads.create": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid funnelId" } };
+
+      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
+      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const pageId = typeof args?.pageId === "string" && args.pageId.trim() ? args.pageId.trim() : null;
+      if (pageId) {
+        const page = await prisma.creditFunnelPage.findFirst({ where: { id: pageId, funnelId, funnel: { ownerId } }, select: { id: true } });
+        if (!page) return { status: 404, json: { ok: false, error: "Page not found" } };
+      }
+
+      const sortThreads = (threads: FunnelThreadRecord[]) =>
+        [...threads].sort((left, right) => {
+          const leftAt = Date.parse(left.lastMessageAt || left.updatedAt || left.createdAt || "") || 0;
+          const rightAt = Date.parse(right.lastMessageAt || right.updatedAt || right.createdAt || "") || 0;
+          return rightAt - leftAt;
+        });
+
+      const result = await mutateCreditFunnelBuilderSettings(ownerId, (current) => {
+        const existingThreads = readPersistedFunnelThreads(current, funnelId);
+        const cloneFromThreadId = typeof args?.cloneFromThreadId === "string" && args.cloneFromThreadId.trim() ? args.cloneFromThreadId.trim() : null;
+        const cloneFrom = cloneFromThreadId ? existingThreads.find((thread) => thread.id === cloneFromThreadId) || null : null;
+        const messages = normalizeFunnelThreadMessages(args?.messagesJson ?? cloneFrom?.messages);
+        const pageTitle =
+          args?.contextJson && typeof args.contextJson === "object" && !Array.isArray(args.contextJson)
+            ? String((args.contextJson as Record<string, unknown>).pageTitle || "").trim()
+            : String(cloneFrom?.context?.pageTitle || "").trim();
+        const kind = normalizeFunnelThreadKind(args?.kind);
+        const nowIso = new Date().toISOString();
+        const thread: FunnelThreadRecord = {
+          id: String(crypto.randomUUID()),
+          funnelId,
+          pageId,
+          title: normalizeFunnelThreadTitle(args?.title, buildDefaultFunnelThreadTitle({ kind, pageTitle })),
+          kind,
+          messages,
+          context: normalizeFunnelThreadContext(args?.contextJson ?? cloneFrom?.context),
+          lastMessageAt: readFunnelThreadLastMessageAt(messages, nowIso),
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        };
+        const nextThreads = sortThreads([thread, ...existingThreads]);
+        return {
+          next: writePersistedFunnelThreads(current, funnelId, nextThreads),
+          value: thread,
+        };
+      });
+
+      return { status: 200, json: { ok: true, thread: result.value } };
+    }
+
+    case "funnel_builder.threads.update": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      const threadId = String(args?.threadId || "").trim();
+      if (!funnelId || !threadId) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
+      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const requestedPageId = Object.prototype.hasOwnProperty.call(args ?? {}, "pageId")
+        ? typeof args?.pageId === "string" && args.pageId.trim()
+          ? args.pageId.trim()
+          : null
+        : undefined;
+      if (requestedPageId) {
+        const page = await prisma.creditFunnelPage.findFirst({ where: { id: requestedPageId, funnelId, funnel: { ownerId } }, select: { id: true } });
+        if (!page) return { status: 404, json: { ok: false, error: "Page not found" } };
+      }
+
+      const sortThreads = (threads: FunnelThreadRecord[]) =>
+        [...threads].sort((left, right) => {
+          const leftAt = Date.parse(left.lastMessageAt || left.updatedAt || left.createdAt || "") || 0;
+          const rightAt = Date.parse(right.lastMessageAt || right.updatedAt || right.createdAt || "") || 0;
+          return rightAt - leftAt;
+        });
+
+      const result = await mutateCreditFunnelBuilderSettings(ownerId, (current) => {
+        const threads = readPersistedFunnelThreads(current, funnelId);
+        const existing = threads.find((thread) => thread.id === threadId) || null;
+        if (!existing) throw new Error("THREAD_NOT_FOUND");
+
+        const messages = Object.prototype.hasOwnProperty.call(args ?? {}, "messagesJson")
+          ? normalizeFunnelThreadMessages(args?.messagesJson)
+          : existing.messages;
+        const updatedThread: FunnelThreadRecord = {
+          ...existing,
+          pageId: requestedPageId !== undefined ? requestedPageId : existing.pageId,
+          title: Object.prototype.hasOwnProperty.call(args ?? {}, "title")
+            ? normalizeFunnelThreadTitle(args?.title, existing.title)
+            : existing.title,
+          kind: Object.prototype.hasOwnProperty.call(args ?? {}, "kind")
+            ? normalizeFunnelThreadKind(args?.kind)
+            : existing.kind,
+          messages,
+          context: Object.prototype.hasOwnProperty.call(args ?? {}, "contextJson")
+            ? normalizeFunnelThreadContext(args?.contextJson)
+            : existing.context,
+          lastMessageAt:
+            Object.prototype.hasOwnProperty.call(args ?? {}, "messagesJson") || Object.prototype.hasOwnProperty.call(args ?? {}, "lastMessageAt")
+              ? readFunnelThreadLastMessageAt(messages, typeof args?.lastMessageAt === "string" ? args.lastMessageAt : existing.lastMessageAt)
+              : existing.lastMessageAt,
+          updatedAt: new Date().toISOString(),
+        };
+        const nextThreads = sortThreads(threads.map((thread) => (thread.id === threadId ? updatedThread : thread)));
+        return {
+          next: writePersistedFunnelThreads(current, funnelId, nextThreads),
+          value: updatedThread,
+        };
+      }).catch((error) => {
+        if ((error as Error)?.message === "THREAD_NOT_FOUND") return null;
+        throw error;
+      });
+
+      if (!result) return { status: 404, json: { ok: false, error: "Not found" } };
+      return { status: 200, json: { ok: true, thread: result.value } };
+    }
+
+    case "funnel_builder.threads.delete": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      const threadId = String(args?.threadId || "").trim();
+      if (!funnelId || !threadId) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
+      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const result = await mutateCreditFunnelBuilderSettings(ownerId, (current) => {
+        const threads = readPersistedFunnelThreads(current, funnelId);
+        if (!threads.some((thread) => thread.id === threadId)) throw new Error("THREAD_NOT_FOUND");
+        if (threads.length <= 1) throw new Error("THREAD_MINIMUM");
+
+        return {
+          next: writePersistedFunnelThreads(current, funnelId, threads.filter((thread) => thread.id !== threadId)),
+          value: true,
+        };
+      }).catch((error) => {
+        const message = (error as Error)?.message || "";
+        if (message === "THREAD_NOT_FOUND" || message === "THREAD_MINIMUM") return message;
+        throw error;
+      });
+
+      if (result === "THREAD_NOT_FOUND") return { status: 404, json: { ok: false, error: "Not found" } };
+      if (result === "THREAD_MINIMUM") return { status: 400, json: { ok: false, error: "Keep at least one thread for this funnel" } };
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "funnel_builder.exhibit_archetypes.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const funnel = await prisma.creditFunnel.findFirst({
+        where: { id: funnelId, ownerId },
+        select: { id: true, slug: true, name: true },
+      });
+      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const settings = await getCreditFunnelBuilderSettings(ownerId).catch(() => ({} as Record<string, unknown>));
+      const pack = readFunnelExhibitArchetypePack(settings, funnel.id);
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          funnel,
+          pack,
+          seedPrompt: buildExhibitArchetypeSeedPrompt({ funnelName: funnel.name, routeLabel: `/${funnel.slug}` }),
+        },
+      };
+    }
+
+    case "funnel_builder.exhibit_archetypes.generate": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const funnel = await prisma.creditFunnel.findFirst({
+        where: { id: funnelId, ownerId },
+        select: { id: true, slug: true, name: true },
+      });
+      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const settings = await getCreditFunnelBuilderSettings(ownerId).catch(() => ({} as Record<string, unknown>));
+      const brief = readFunnelBrief(settings, funnel.id);
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+      const prompt = typeof args?.prompt === "string" ? args.prompt.trim().slice(0, 2400) : "";
+      const { pack, promptUsed, diagnostics } = await fetchFunnelExhibitArchetypePack({
+        prompt,
+        funnelName: funnel.name,
+        routeLabel: `/${funnel.slug}`,
+        audience: (brief as any)?.audienceSummary,
+        offer: (brief as any)?.offerSummary,
+        primaryCta: "",
+        brief: brief as any,
+        businessContext,
+      });
+
+      await mutateCreditFunnelBuilderSettings(ownerId, (current) => ({
+        next: writeFunnelExhibitArchetypePack(current, funnel.id, pack),
+        value: true,
+      }));
+
+      return { status: 200, json: { ok: true, funnel, pack, promptUsed, diagnostics } };
     }
 
     case "funnel_builder.pages.global_header": {
@@ -33519,6 +34146,8 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     if (
       (action === "funnel_builder.pages.update" ||
         action === "funnel_builder.pages.generate_html" ||
+        action === "funnel_builder.pages.chat" ||
+        action === "funnel_builder.pages.foundation" ||
         action === "funnel_builder.pages.export_custom_html") &&
       ((json as any).page?.id || (args as any)?.pageId)
     ) {
@@ -33548,6 +34177,21 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
     }
 
     if (action === "funnel_builder.pages.delete" && typeof (args as any)?.funnelId === "string") {
+      const id = cleanId((args as any).funnelId);
+      if (id) {
+        return { lastFunnel: { id, label: "Funnel" } };
+      }
+    }
+
+    if (
+      (action === "funnel_builder.threads.list" ||
+        action === "funnel_builder.threads.create" ||
+        action === "funnel_builder.threads.update" ||
+        action === "funnel_builder.threads.delete" ||
+        action === "funnel_builder.exhibit_archetypes.get" ||
+        action === "funnel_builder.exhibit_archetypes.generate") &&
+      typeof (args as any)?.funnelId === "string"
+    ) {
       const id = cleanId((args as any).funnelId);
       if (id) {
         return { lastFunnel: { id, label: "Funnel" } };
