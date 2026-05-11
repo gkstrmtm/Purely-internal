@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import { useCallback, useState } from "react";
 
 import { fireMetaPixelEvent, trackPublicCreditFunnelEvent } from "@/components/funnel/clientFunnelTracking";
+import { FUNNEL_BUTTON_MOTION_CLASS, FUNNEL_BUTTON_RAISE_CLASS } from "@/components/funnel/funnelButtonMotion";
 import { useFunnelCart } from "@/components/funnel/cart/useFunnelCart";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -73,6 +74,8 @@ export function AddToCartButton({
       style={style}
       className={classNames(
         "inline-flex items-center justify-center rounded-xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60",
+        FUNNEL_BUTTON_MOTION_CLASS,
+        FUNNEL_BUTTON_RAISE_CLASS,
         className,
       )}
     >

@@ -4,6 +4,7 @@ import { generateText, generateTextWithImages } from "@/lib/ai";
 import { getBusinessProfileFoundationContext, getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import { sanitizeTrustedAiAttachmentUrl } from "@/lib/funnelBuilderAttachmentPolicy";
 import {
   buildFunnelBriefPromptBlock,
   buildFunnelPageIntentPromptBlock,
@@ -32,6 +33,33 @@ export const revalidate = 0;
 function clampText(s: string, maxLen: number) {
   if (s.length <= maxLen) return s;
   return s.slice(0, maxLen) + " [truncated]";
+}
+
+function buildAssistantHistoryContext(input: {
+  content: string;
+  plan: SourceActionPlan | null;
+  currentHtml: string;
+  sectionPlanItems: string[];
+  observedSections: ObservedSection[];
+}) {
+  const content = clampText(String(input.content || "").trim(), 1200);
+  const sanitizedPlan = vetSourceActionPlanAgainstObservedStructure(
+    vetSourceActionPlanAgainstCurrentPage(input.plan, input.currentHtml, input.sectionPlanItems),
+    input.observedSections,
+  );
+  const planLines = sanitizedPlan?.moves?.length
+    ? sanitizedPlan.moves
+      .slice(0, 4)
+      .map((move) => `- ${move.target}: ${move.change}`)
+      .join("\n")
+    : "";
+
+  if (content && planLines) {
+    return `${content}\n\n[Saved source-action plan:\n${planLines}]`;
+  }
+  if (content) return content;
+  if (planLines) return `[Saved source-action plan:\n${planLines}]`;
+  return "";
 }
 
 /**
@@ -619,6 +647,7 @@ function coerceSelectedTarget(rawTarget: unknown) {
   const blockId = typeof entry.blockId === "string" ? entry.blockId.trim().slice(0, 160) : "";
   const summary = typeof entry.summary === "string" ? entry.summary.trim().slice(0, 400) : "";
   const itemIndex = typeof entry.itemIndex === "number" && Number.isFinite(entry.itemIndex) ? Math.max(0, Math.floor(entry.itemIndex)) : null;
+  const featureIndex = typeof entry.featureIndex === "number" && Number.isFinite(entry.featureIndex) ? Math.max(0, Math.floor(entry.featureIndex)) : null;
   const currentState = coerceSelectedTargetCurrentState(entry.currentState);
   return {
     label,
@@ -626,6 +655,7 @@ function coerceSelectedTarget(rawTarget: unknown) {
     blockType,
     blockId,
     itemIndex,
+    featureIndex,
     currentState,
   };
 }
@@ -635,6 +665,17 @@ function extractStrictSelectedTargetReplacement(prompt: string) {
   return colonMatch?.[1]?.trim() || "";
 }
 
+function isExplicitPageStructureRequest(prompt: string) {
+  const text = String(prompt || "").trim().toLowerCase();
+  if (!text) return false;
+
+  const structureAction = /\b(add|insert|create|build|include|move|reorder|restructure|remove|replace)\b/.test(text);
+  const structureSurface = /\b(section|hero|pricing|offer|checkout|faq|guarantee|testimonial|proof|cta|booking|calendar|footer|header)\b/.test(text);
+  const explicitPageScope = /\b(page|whole page|entire page|landing page|this page)\b/.test(text);
+
+  return explicitPageScope || (structureAction && structureSurface);
+}
+
 function isStrictSelectedTargetEditPrompt(
   prompt: string,
   selectedTarget: ReturnType<typeof coerceSelectedTarget>,
@@ -642,11 +683,167 @@ function isStrictSelectedTargetEditPrompt(
   if (!selectedTarget) return false;
   const text = String(prompt || "").trim().toLowerCase();
   if (!text) return false;
+  if (isExplicitPageStructureRequest(text)) return false;
 
-  const localAction = /\b(change|replace|rewrite|update|edit|fix|shorten|tighten|make)\b/.test(text);
+  const localAction = /\b(change|replace|rewrite|update|edit|fix|shorten|tighten|make|adjust|reduce|increase|decrease|nudge|soften|blend|align|separate|lighten|darken|shrink|grow)\b/.test(text);
   const localScope = /\b(only|just|this|selected)\b/.test(text);
   const targetLanguage = /\b(heading|headline|title|cta|button|card|section|paragraph|text|copy)\b/.test(text);
-  return localAction && (localScope || targetLanguage);
+  const microDetail = /\b(padding|spacing|space|gap|margin|radius|corner|shadow|border|contrast|color|tone|surface|background|blend|alignment|align|width|height|size)\b/.test(text);
+  return localAction && (localScope || targetLanguage || microDetail);
+}
+
+function buildSelectedTargetMicroEditPlan(input: {
+  prompt: string;
+  selectedTarget: ReturnType<typeof coerceSelectedTarget>;
+  selectedRegion: { key: string; label: string; summary: string } | null;
+}): SourceActionPlan | null {
+  const selectedTarget = input.selectedTarget;
+  if (!selectedTarget) return null;
+
+  const rawPrompt = String(input.prompt || "").trim();
+  const prompt = rawPrompt.toLowerCase();
+  if (!prompt) return null;
+
+  const targetLabel = selectedTarget.label;
+  const selectorHint = input.selectedRegion?.key ? `#${input.selectedRegion.key}` : undefined;
+  const currentStateSummary = selectedTarget.currentState ? formatSelectedTargetCurrentState(selectedTarget.currentState) : "";
+  const anchorDiff = currentStateSummary ? `Current selected state: ${currentStateSummary}` : "Scope: selected target only";
+
+  const buildPlan = (change: string, why: string, diff: string[]) => ({
+    summary: change,
+    moves: [
+      {
+        key: `micro-${slugifyPlanKey(selectedTarget.blockId || targetLabel)}`,
+        target: targetLabel,
+        change,
+        why,
+        priority: "primary" as const,
+        executionMode: "bounded-edit" as const,
+        confidence: "high" as const,
+        ...(selectorHint ? { selectorHint } : {}),
+        diff: [anchorDiff, ...diff],
+      },
+    ],
+    watchouts: [
+      "Do not widen this into a broader page strategy or section rewrite.",
+      "Keep neighboring sections and unrelated CTA logic untouched.",
+    ],
+  } satisfies SourceActionPlan);
+
+  if (/\b(padding|spacing|space|gap|margin|closer|tighter|looser|breathing room)\b/.test(prompt)) {
+    return buildPlan(
+      `Adjust only ${targetLabel} spacing and local padding so the complained-about gap is corrected without changing the rest of the page.`,
+      "The user is calling out a precise spacing problem, so the next pass should make a small local diff instead of widening into a redesign.",
+      [
+        "Spacing cadence: current local gap/padding -> tighter, cleaner spacing on this selected surface only",
+      ],
+    );
+  }
+
+  if (/\b(blend|background|surface|panel|card|border|shadow|depth|flat|texture|separate)\b/.test(prompt)) {
+    return buildPlan(
+      `Adjust only ${targetLabel} surface treatment so it separates cleanly from nearby content instead of blending in.`,
+      "The user is reacting to a local surface problem, so this pass should improve separation and depth on the selected target only.",
+      [
+        "Surface treatment: current flat or blended appearance -> clearer separation, border, or depth on this selected surface only",
+      ],
+    );
+  }
+
+  if (/\b(contrast|color|tone|lighten|darken|muted|readable|legible)\b/.test(prompt)) {
+    return buildPlan(
+      `Adjust only ${targetLabel} color and contrast treatment so the local readability issue is corrected without changing the rest of the page.`,
+      "The user is pointing at a small visual readability complaint, so the fix should stay scoped to this selected target.",
+      [
+        "Color/contrast: current local tone balance -> clearer contrast and readability on this selected surface only",
+      ],
+    );
+  }
+
+  if (/\b(radius|corner|rounding|size|smaller|larger|bigger|width|height|scale)\b/.test(prompt)) {
+    return buildPlan(
+      `Adjust only ${targetLabel} local sizing and edge treatment so the complained-about proportion issue is corrected without moving the rest of the page.`,
+      "The user is asking for a precise visual proportion change, so this should stay a bounded local refinement.",
+      [
+        "Proportion: current local size or corner treatment -> corrected sizing and edge treatment on this selected surface only",
+      ],
+    );
+  }
+
+  if (/\b(align|alignment|center|left|right|flush|line up|offset)\b/.test(prompt)) {
+    return buildPlan(
+      `Adjust only ${targetLabel} alignment and local positioning so the selected surface lines up cleanly without changing the rest of the page.`,
+      "The user is asking for a technical alignment correction, so the next pass should stay on this surface and not reopen the whole page.",
+      [
+        "Alignment: current local offset or misalignment -> cleaner alignment on this selected surface only",
+      ],
+    );
+  }
+
+  return null;
+}
+
+function coerceApplyFailureContext(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const entry = raw as Record<string, unknown>;
+  const failureStage = entry.failureStage === "apply" ? "apply" : entry.failureStage === "derive" ? "derive" : null;
+  const originalPrompt = typeof entry.originalPrompt === "string" ? entry.originalPrompt.trim().slice(0, 800) : "";
+  const planSummary = typeof entry.planSummary === "string" ? entry.planSummary.trim().slice(0, 600) : "";
+  const planMoves = Array.isArray(entry.planMoves)
+    ? entry.planMoves
+        .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        .map((item) => item.trim().slice(0, 240))
+        .slice(0, 4)
+    : [];
+  const warnings = Array.isArray(entry.warnings)
+    ? entry.warnings
+        .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        .map((item) => item.trim().slice(0, 240))
+        .slice(0, 4)
+    : [];
+
+  if (!failureStage && !originalPrompt && !planSummary && !planMoves.length && !warnings.length) return null;
+
+  return {
+    failureStage,
+    originalPrompt,
+    planSummary,
+    planMoves,
+    warnings,
+  };
+}
+
+function buildApplyFailureContextBlock(input: NonNullable<ReturnType<typeof coerceApplyFailureContext>>) {
+  return [
+    "Apply clarification mode is active for this turn.",
+    input.failureStage === "derive"
+      ? "A builder auto-apply pass could not be mapped into concrete page mutations."
+      : input.failureStage === "apply"
+        ? "A builder auto-apply pass derived mutations, but none of them actually changed the current page."
+        : "A builder auto-apply pass stalled before making any visible change.",
+    input.originalPrompt ? `Original operator request: ${input.originalPrompt}` : "",
+    input.planSummary ? `Planned pass: ${input.planSummary}` : "",
+    input.planMoves.length ? `Planned moves:\n${input.planMoves.map((item) => `- ${item}`).join("\n")}` : "",
+    input.warnings.length ? `What blocked the apply:\n${input.warnings.map((item) => `- ${item}`).join("\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildApplyFailureFallbackAssistantReply(input: {
+  context: NonNullable<ReturnType<typeof coerceApplyFailureContext>>;
+  selectedRegion: { key: string; label: string; summary: string } | null;
+  selectedTarget: ReturnType<typeof coerceSelectedTarget>;
+}) {
+  const anchor = input.selectedTarget?.label || input.selectedRegion?.label || "that part of the page";
+  const lead = input.context.warnings[0]
+    || `Pura could not map that apply request onto ${anchor} clearly enough to change it truthfully.`;
+  const ask = input.selectedTarget?.label
+    ? `Name the exact change you want inside ${input.selectedTarget.label}, and Pura can stay anchored there.`
+    : input.selectedRegion?.label
+      ? `Name the exact block, line, or visual change inside ${input.selectedRegion.label}, and Pura can try again without widening scope.`
+      : "Name the exact block, section, or line that should change, and Pura can try again without guessing.";
+  return `${lead} ${ask}`.trim();
 }
 
 function ensurePlanAnchorsSelectedTarget(
@@ -755,6 +952,8 @@ function coerceSelectedTargetCurrentState(rawState: unknown) {
   if (scope) next.scope = scope;
 
   for (const [key, maxLen] of [
+    ["fieldKind", 80],
+    ["itemLabel", 120],
     ["name", 120],
     ["price", 80],
     ["billingPeriod", 80],
@@ -798,6 +997,12 @@ function formatSelectedTargetCurrentState(state: Record<string, string | number 
 
   const name = stringValue("name");
   if (name) parts.push(`name ${name}`);
+
+  const itemLabel = stringValue("itemLabel");
+  if (itemLabel) parts.push(`item ${itemLabel}`);
+
+  const fieldKind = stringValue("fieldKind");
+  if (fieldKind) parts.push(`field ${fieldKind}`);
 
   const price = stringValue("price");
   const billingPeriod = stringValue("billingPeriod");
@@ -866,48 +1071,10 @@ function coerceContextMedia(raw: unknown): ContextMedia[] {
   return out;
 }
 
-function toAbsoluteUrl(req: Request, url: string): string {
-  const trimmed = String(url || "").trim();
-  if (!trimmed) return "";
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  const origin = new URL(req.url).origin;
-  return new URL(trimmed, origin).toString();
-}
-
 function isContextMediaImage(item: ContextMedia) {
   const mime = String(item.mimeType || "").toLowerCase();
   if (mime.startsWith("image/")) return true;
   return /\.(png|jpe?g|gif|webp|svg)(?:[?#].*)?$/i.test(String(item.url || ""));
-}
-
-function isPrivateIpv4Hostname(hostname: string) {
-  const match = /^((?:\d{1,3}\.){3}\d{1,3})$/.exec(hostname);
-  if (!match) return false;
-  const parts = match[1].split(".").map((part) => Number(part));
-  if (parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  if (parts[0] === 10 || parts[0] === 127) return true;
-  if (parts[0] === 192 && parts[1] === 168) return true;
-  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-  return false;
-}
-
-function canForwardImageUrlToAi(url: string) {
-  const trimmed = String(url || "").trim();
-  if (!trimmed) return false;
-  if (/^data:image\//i.test(trimmed)) return true;
-
-  try {
-    const parsed = new URL(trimmed);
-    const protocol = parsed.protocol.toLowerCase();
-    const hostname = parsed.hostname.trim().toLowerCase();
-    if (protocol !== "https:" && protocol !== "http:") return false;
-    if (!hostname) return false;
-    if (hostname === "localhost" || hostname.endsWith(".local") || hostname === "127.0.0.1") return false;
-    if (isPrivateIpv4Hostname(hostname)) return false;
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function isRecoverableVisionRequestError(message: string) {
@@ -998,9 +1165,101 @@ function buildFoundationContextPromptBlock(foundation: ReturnType<typeof buildRe
     .join("\n");
 }
 
+function describePageHandoff(pageType: FunnelPageIntentProfile["pageType"]) {
+  if (pageType === "booking") return "booking handoff";
+  if (pageType === "lead-capture") return "capture handoff";
+  if (pageType === "webinar") return "registration handoff";
+  if (pageType === "application") return "qualification handoff";
+  if (pageType === "sales" || pageType === "checkout") return "purchase handoff";
+  return "conversion handoff";
+}
+
+function buildPageJobRule(pageType: FunnelPageIntentProfile["pageType"]) {
+  if (pageType === "booking") {
+    return "Respect the page job: this page should earn the scheduling step with trust, expectation-setting, and a clear booking handoff instead of reading like a direct-purchase page.";
+  }
+  if (pageType === "lead-capture") {
+    return "Respect the page job: this page should make the value exchange feel specific and low-friction, with proof supporting form completion instead of pushing a hard sale.";
+  }
+  if (pageType === "webinar") {
+    return "Respect the page job: this page should sharpen the event promise, audience fit, and registration momentum instead of drifting into a general sales letter.";
+  }
+  if (pageType === "application") {
+    return "Respect the page job: this page should qualify the right people, clarify the commitment, and make the application step feel worth completing instead of acting like instant checkout.";
+  }
+  if (pageType === "sales" || pageType === "checkout") {
+    return "Respect the page job: this page should build purchase confidence, strengthen comparison and proof, and remove hesitation around the buying step instead of hiding the decision behind vague consultation language.";
+  }
+  return "Respect the page job: keep the page aligned to its real next step and conversion mechanism instead of forcing a generic funnel pattern.";
+}
+
+function buildPageMoveExamples(pageType: FunnelPageIntentProfile["pageType"]) {
+  if (pageType === "booking") {
+    return "Prefer moves like: tighten hero hierarchy, move proof beside the CTA, clarify the booking handoff, cut low-value sections, restage CTA rhythm.";
+  }
+  if (pageType === "lead-capture") {
+    return "Prefer moves like: tighten the lead promise, clarify the value exchange before the form, move proof beside the opt-in ask, cut friction around the capture step, restage CTA rhythm.";
+  }
+  if (pageType === "webinar") {
+    return "Prefer moves like: sharpen the event promise, clarify who the webinar is for, move proof beside the registration ask, cut low-value explanation, restage CTA rhythm around registration.";
+  }
+  if (pageType === "application") {
+    return "Prefer moves like: tighten the qualification framing, clarify who should apply, move proof beside the application ask, cut low-value sections, restage CTA rhythm around the application step.";
+  }
+  if (pageType === "sales" || pageType === "checkout") {
+    return "Prefer moves like: tighten hero hierarchy, move proof beside the buying CTA, clarify the purchase handoff, sharpen offer comparison, restage CTA rhythm.";
+  }
+  return "Prefer moves like: tighten hero hierarchy, move proof beside the CTA, clarify the main conversion handoff, cut low-value sections, restage CTA rhythm.";
+}
+
+function inferPromptRequestedPageType(prompt: string, fallback: FunnelPageIntentProfile["pageType"]) {
+  const normalized = String(prompt || "").toLowerCase();
+  if (/\bwebinar|registration page|register for\b/.test(normalized)) return "webinar";
+  if (/\bapplication page|apply now|application funnel|qualif(?:y|ication)\b/.test(normalized)) return "application";
+  if (/\bbooking page|book a call|schedule|consultation page\b/.test(normalized)) return "booking";
+  if (/\bcheckout(?:-focused)? page|checkout flow|checkout path|purchase step|purchase flow\b/.test(normalized)) return "checkout";
+  if (/\bsales page|purchase page|buy now\b/.test(normalized)) return "sales";
+
+  const mentionsLeadCaptureRoute = /\blead capture|lead-capture|email funnel|contact funnel|lead funnel|signup funnel|sign up funnel|opt-?in\b/.test(normalized);
+  const mentionsEducationalShift = /\beducational page|education page|educational\b/.test(normalized);
+  const mentionsSingleLowFrictionAction = /\bone cta|single cta|one call to action|single call to action|sign up|contact us|get updates|learn more\b/.test(normalized);
+  if (mentionsLeadCaptureRoute || (mentionsEducationalShift && mentionsSingleLowFrictionAction)) {
+    return "lead-capture";
+  }
+
+  return fallback;
+}
+
+function buildRecentUserConversationContext(messages: Array<Record<string, unknown>>, prompt: string) {
+  const recentUserTurns = messages
+    .filter((message) => String(message.role || "") === "user")
+    .map((message) => String(message.content || "").trim())
+    .filter(Boolean)
+    .slice(-4);
+  const currentPrompt = String(prompt || "").trim();
+  if (!currentPrompt) return recentUserTurns.join("\n");
+  if (recentUserTurns[recentUserTurns.length - 1] === currentPrompt) return recentUserTurns.join("\n");
+  return [...recentUserTurns, currentPrompt].join("\n");
+}
+
+function buildPromptDirectedPageTypeShiftBlock(input: {
+  storedPageType: FunnelPageIntentProfile["pageType"];
+  requestedPageType: FunnelPageIntentProfile["pageType"];
+}) {
+  if (input.storedPageType === input.requestedPageType) return "";
+  return [
+    "PROMPT_DIRECTED_PAGE_JOB_SHIFT:",
+    `- Stored page type: ${input.storedPageType}`,
+    `- Requested page type for this turn: ${input.requestedPageType}`,
+    "- Treat this turn as a controlled pivot toward the requested page job.",
+    "- Do not keep recommending moves from the stored page type when they conflict with the requested job.",
+  ].join("\n");
+}
+
 function buildChatRequestInterpretationBlock(input: {
   prompt: string;
   selectedRegion: { key: string; label: string; summary: string } | null;
+  pageType: FunnelPageIntentProfile["pageType"];
 }) {
   const normalized = String(input.prompt || "").toLowerCase();
   const directives: string[] = [];
@@ -1015,7 +1274,7 @@ function buildChatRequestInterpretationBlock(input: {
     directives.push("Primary focus: visual surfaces, contrast, proof objects, CTA treatment, and styling discipline.");
   }
   if (/structural|flow|sequence|clarity|section|booking clarity|conversion path/.test(normalized)) {
-    directives.push("Primary focus: section roles, proof placement, booking handoff, and CTA rhythm.");
+    directives.push(`Primary focus: section roles, proof placement, ${describePageHandoff(input.pageType)}, and CTA rhythm.`);
   }
   if (input.selectedRegion) {
     directives.push(`Locality rule: anchor the critique to ${input.selectedRegion.label} before widening to the whole page.`);
@@ -1234,6 +1493,7 @@ function buildFallbackSourceActionPlan(sceneQuality: ReturnType<typeof assessFun
 }
 
 function buildIntentAwareFallbackSourceActionPlan(input: {
+  prompt: string;
   currentHtml: string;
   intentProfile: FunnelPageIntentProfile;
   shellFrame: ReturnType<typeof resolveFunnelShellFrame>;
@@ -1241,6 +1501,7 @@ function buildIntentAwareFallbackSourceActionPlan(input: {
   sectionPlanItems: string[];
   selectedRegion: { key: string; label: string; summary: string } | null;
 }): SourceActionPlan | null {
+  const promptText = String(input.prompt || "").toLowerCase().replace(/[’]/g, "'");
   const text = htmlToPlainText(input.currentHtml).toLowerCase();
   const selectedLabel = input.selectedRegion?.label || input.sectionPlanItems[0] || "hero";
   const pageType = input.intentProfile.pageType;
@@ -1253,6 +1514,12 @@ function buildIntentAwareFallbackSourceActionPlan(input: {
   const hasAudienceFitSection = /\b(who this is for|best for|property managers|regional operators|leasing and marketing)\b/.test(text);
   const hasAgendaSection = /\b(agenda|what attendees will learn|what this session covers|what you will learn|outcomes)\b/.test(text);
   const hasRegistrationTruth = /\b(placeholder test form|not a webinar registration flow|temporary connection|temporary handoff|still need to be finalized)\b/.test(text);
+  const hasEducationalPositioning = /\b(educational|education|learn|teaches?|guide|walkthrough|explainer|how it works)\b/.test(promptText) || /\b(learn|guide|educational|how it works)\b/.test(text);
+  const hasValuePropUnsettled = /\b(don'?t know|do not know|not sure|still forming|not final|not finalized|figure out|working out)\b.{0,80}\b(value prop|value proposition|reward|offer|sign(?:\s|-)?up|cta|lead magnet)\b/.test(promptText);
+  const wantsSingleCta = /\b(one cta|single cta|one call to action|single call to action)\b/.test(promptText);
+  const mentionsLeadCaptureShift = /\b(email funnel|contact funnel|lead funnel|lead capture|interest funnel|signup funnel|sign up funnel)\b/.test(promptText);
+  const hasSalesOrBookingEnergy = /\b(book a call|booking|schedule|consultation|sales offer|buy now|purchase|reserve)\b/.test(text);
+  const hasFlexibleInterestLanguage = /\b(join the waitlist|join the list|get updates|raise your hand|show interest|request details|learn more|get the guide|see how it works)\b/.test(text);
   const moves: SourceActionPlanMove[] = [];
 
   if (pageType === "booking" || input.intentProfile.formStrategy === "booking") {
@@ -1260,7 +1527,7 @@ function buildIntentAwareFallbackSourceActionPlan(input: {
       moves.push({
         key: "booking-hero-specificity",
         target: "hero",
-        change: `Replace the scaffold hero copy with an outcome-led promise for ${input.foundation.audience} that makes ${input.foundation.offer} feel worth booking now.`,
+        change: `Replace the scaffold hero copy with a tighter opening container: an outcome-led promise for ${input.foundation.audience}, a narrower max-width headline, and a proof module beside the CTA that makes ${input.foundation.offer} feel worth booking now.`,
         why: "The current hero still reads like setup copy, so it is not yet carrying the authority or specificity expected from this booking page.",
         priority: "primary",
         executionMode: "model-led",
@@ -1269,7 +1536,7 @@ function buildIntentAwareFallbackSourceActionPlan(input: {
       moves.push({
         key: "booking-proof-specificity",
         target: "proof strip",
-        change: "Replace placeholder trust-strip language with named proof, concrete outcomes, or authority signals that directly support the booking decision.",
+        change: "Replace placeholder trust-strip language with a real proof module that uses named proof, concrete outcomes, or authority signals and sits closer to the booking decision.",
         why: "A booking page needs proof that reduces hesitation before the visitor reaches the scheduler, not a placeholder reminder that proof should exist.",
         priority: "primary",
         executionMode: "model-led",
@@ -1280,7 +1547,7 @@ function buildIntentAwareFallbackSourceActionPlan(input: {
       moves.push({
         key: `booking-offer-${slugifyPlanKey(selectedLabel)}`,
         target: selectedLabel,
-        change: `Rewrite ${selectedLabel} so it frames ${input.foundation.offer} for ${input.foundation.audience} instead of sounding like a generic consultation page.`,
+        change: `Rewrite ${selectedLabel} so it frames ${input.foundation.offer} for ${input.foundation.audience} inside a cleaner container with a narrower max-width headline and clearer proof placement instead of sounding like a generic consultation page.`,
         why: `The stored page intent expects a ${input.foundation.shellFrameLabel.toLowerCase()} shell, so the opening needs clearer offer and audience filtering before the booking ask.`,
         priority: "primary",
         executionMode: "model-led",
@@ -1292,7 +1559,7 @@ function buildIntentAwareFallbackSourceActionPlan(input: {
       moves.push({
         key: "booking-proof-handoff",
         target: "proof and booking handoff",
-        change: "Stage concrete proof close to the first CTA and repeat reassurance at the booking handoff instead of leaving the scheduler to stand alone.",
+        change: "Stage concrete proof in a tighter proof module close to the first CTA and repeat reassurance inside the booking container instead of leaving the scheduler to stand alone.",
         why: `The resolved shell frame expects proof to support ${input.foundation.primaryCta.toLowerCase()} before visitors hit the booking step.`,
         priority: "primary",
         executionMode: "model-led",
@@ -1303,7 +1570,7 @@ function buildIntentAwareFallbackSourceActionPlan(input: {
       moves.push({
         key: "booking-expectations",
         target: "booking section",
-        change: "Clarify who the session is for, what happens on the call, and what the visitor leaves with right at the booking handoff.",
+        change: "Clarify who the session is for, what happens on the call, and what the visitor leaves with right inside the booking container at the handoff.",
         why: "Booking clarity improves when the scheduler is framed as a concrete next step instead of a naked action widget.",
         priority: "secondary",
         executionMode: "model-led",
@@ -1314,7 +1581,7 @@ function buildIntentAwareFallbackSourceActionPlan(input: {
       moves.push({
         key: "booking-structure",
         target: "section flow",
-        change: "Insert the missing trust and expectation beats between the opening, proof, and booking handoff so the page earns the existing CTA instead of jumping there too early.",
+        change: "Insert the missing trust and expectation beats between the opening container, proof module, and booking handoff so the page earns the existing CTA instead of jumping there too early.",
         why: "The resolved section plan is more developed than the current surface, so the page still needs its core trust and expectation beats.",
         priority: "secondary",
         executionMode: "model-led",
@@ -1384,14 +1651,167 @@ function buildIntentAwareFallbackSourceActionPlan(input: {
     }
   }
 
+  if (pageType === "lead-capture") {
+    moves.push({
+      key: `lead-capture-opening-${slugifyPlanKey(selectedLabel)}`,
+      target: selectedLabel,
+      change: hasValuePropUnsettled
+        ? `Reframe ${selectedLabel} around early interest and practical relevance without pretending the final reward is locked yet.`
+        : `Rewrite ${selectedLabel} so the visitor immediately understands the value exchange instead of reading generic sales language.`,
+      why: hasValuePropUnsettled
+        ? "There is enough directional intent to move the page away from sales energy, but the copy should stay flexible until the exact reward is finalized."
+        : "Lead-capture pages convert when the opening makes the signup value obvious in one scan instead of sounding like a consultation or purchase pitch.",
+      priority: "primary",
+      executionMode: "model-led",
+      confidence: "high",
+      ...(input.selectedRegion ? { selectorHint: `#${input.selectedRegion.key}` } : {}),
+    });
+
+    if (hasSalesOrBookingEnergy || mentionsLeadCaptureShift || hasEducationalPositioning) {
+      moves.push({
+        key: "lead-capture-posture-shift",
+        target: "page posture",
+        change: "Remove direct sales or booking energy and restage the page as an educational or low-friction interest path with one clear next step.",
+        why: "The user is signaling a lead-capture job, so the page should stop acting like a hard-sell or consultation page before anything else.",
+        priority: "primary",
+        executionMode: "model-led",
+        confidence: "high",
+      });
+    }
+
+    if (wantsSingleCta || !hasFlexibleInterestLanguage) {
+      moves.push({
+        key: "lead-capture-single-cta",
+        target: "primary CTA path",
+        change: hasValuePropUnsettled
+          ? "Center the page on one low-friction interest CTA using flexible signup or contact language, and keep the route tied to the current safe handoff instead of inventing a new offer path."
+          : "Center the page on one clear opt-in CTA and remove competing asks so the value exchange feels singular and easy to act on.",
+        why: hasValuePropUnsettled
+          ? "The CTA route should stay truthful and reversible while the exact offer is still forming."
+          : "Multiple asks dilute lead capture, especially when the page is supposed to convert on a single signup action.",
+        priority: "primary",
+        executionMode: "model-led",
+        confidence: "high",
+      });
+    }
+
+    if (!hasNamedProof) {
+      moves.push({
+        key: "lead-capture-proof-support",
+        target: "proof near CTA",
+        change: "Use proof to reduce hesitation around the signup step without inventing testimonials or claims that are not already supported.",
+        why: "Lead capture still needs belief, but it should stay honest when hard proof details are not finalized yet.",
+        priority: "secondary",
+        executionMode: "model-led",
+        confidence: "medium",
+      });
+    }
+  }
+
+  if (pageType === "application") {
+    moves.push({
+      key: `application-fit-${slugifyPlanKey(selectedLabel)}`,
+      target: selectedLabel,
+      change: `Rewrite ${selectedLabel} so it qualifies the right applicant, clarifies the commitment, and makes the application step feel intentional instead of generic.`,
+      why: "Application pages should help the right people self-select quickly instead of reading like a vague contact or sales page.",
+      priority: "primary",
+      executionMode: "model-led",
+      confidence: "high",
+      ...(input.selectedRegion ? { selectorHint: `#${input.selectedRegion.key}` } : {}),
+    });
+
+    if (!hasAudienceFitSection) {
+      moves.push({
+        key: "application-fit-section",
+        target: "qualification section",
+        change: "Add or tighten a qualification beat that says who this is for, who it is not for, and why the application exists.",
+        why: "Applications work best when the page filters clearly before the form ask instead of waiting until after submission.",
+        priority: "primary",
+        executionMode: "model-led",
+        confidence: "high",
+      });
+    }
+
+    if (!hasClearBookingHandoff) {
+      moves.push({
+        key: "application-handoff",
+        target: "application handoff",
+        change: "Clarify the application CTA and next-step expectations so the visitor knows what happens after they apply.",
+        why: "Without expectation-setting, the application step feels heavier and more ambiguous than it needs to.",
+        priority: "secondary",
+        executionMode: "model-led",
+        confidence: "high",
+      });
+    }
+  }
+
+  if (pageType === "sales" || pageType === "checkout") {
+    if (!hasOfferSpecificity || hasScaffoldCopy) {
+      moves.push({
+        key: `${pageType === "checkout" ? "checkout-offer" : "sales-offer"}-${slugifyPlanKey(selectedLabel)}`,
+        target: selectedLabel,
+        change: pageType === "checkout"
+          ? `Rewrite ${selectedLabel} so the purchase step, buyer fit, and expected outcome are explicit instead of sounding like generic placeholder sales copy.`
+          : `Rewrite ${selectedLabel} so the offer, buyer fit, and outcome are explicit instead of sounding like generic placeholder sales copy.`,
+        why: pageType === "checkout"
+          ? "A checkout-focused page should make the purchase step feel clear and safe immediately; vague sales language hides what the buyer is committing to right now."
+          : "A sales page should make the decision object legible immediately; generic sales language hides what is actually being bought.",
+        priority: "primary",
+        executionMode: "model-led",
+        confidence: "high",
+        ...(input.selectedRegion ? { selectorHint: `#${input.selectedRegion.key}` } : {}),
+      });
+    }
+
+    if (!hasNamedProof) {
+      moves.push({
+        key: pageType === "checkout" ? "checkout-proof-near-cta" : "sales-proof-near-cta",
+        target: "proof near purchase CTA",
+        change: "Move or strengthen proof beside the buying decision so the purchase step is supported by specific trust, not generic reassurance.",
+        why: pageType === "checkout"
+          ? "Checkout pages need trust closest to the payment decision so the buyer does not carry final hesitation alone."
+          : "Sales pages should earn the decision close to the CTA instead of asking the buyer to carry that belief alone.",
+        priority: "primary",
+        executionMode: "model-led",
+        confidence: "high",
+      });
+    }
+
+    if (sections <= 2) {
+      moves.push({
+        key: pageType === "checkout" ? "checkout-reassurance-clarity" : "sales-comparison-clarity",
+        target: "decision flow",
+        change: pageType === "checkout"
+          ? "Insert one compact reassurance or objection-handling beat between the promise and the purchase action so the page does more than make a naked payment ask."
+          : "Insert one compact mechanism, comparison, or reassurance beat between the promise and the purchase action so the page does more than make a naked ask.",
+        why: pageType === "checkout"
+          ? "A thin checkout page often needs one more confidence beat before payment, not a full rewrite."
+          : "A thin sales page often needs one more decision-support beat before the CTA, not a full rewrite.",
+        priority: "secondary",
+        executionMode: "model-led",
+        confidence: "medium",
+      });
+    }
+  }
+
   if (!moves.length) return null;
+
+  const watchouts = pageType === "lead-capture"
+    ? [
+        hasValuePropUnsettled
+          ? "Keep the CTA route honest and low-friction while the exact value prop is still forming."
+          : "Keep the page centered on one low-friction capture step instead of drifting back into sales language.",
+      ]
+    : pageType === "checkout"
+      ? ["Keep the page centered on one clear purchase step and do not drift back into booking or lead capture language."]
+      : [
+          `Keep the critique aligned to the resolved conversion path: ${input.foundation.conversionPath}`,
+        ];
 
   return {
     summary: moves[0]?.change || `Tighten ${selectedLabel} around the resolved page intent.`,
     moves: moves.slice(0, 4),
-    watchouts: [
-      `Keep the critique aligned to the resolved conversion path: ${input.foundation.conversionPath}`,
-    ],
+    watchouts,
   };
 }
 
@@ -1415,7 +1835,7 @@ function buildObservedPageDiffSourceActionPlan(input: {
     moves.push({
       key: "observed-hero-offer-clarity",
       target: "hero",
-      change: `Rewrite the hero so it promises a specific outcome for ${input.foundation.audience} instead of using generic consultation language.`,
+      change: `Rewrite the hero into a tighter opening container with a clearer outcome promise for ${input.foundation.audience}, a narrower max-width headline, and a proof module sitting beside the CTA instead of generic consultation language.`,
       why: `The current opening still reads as '${observed.heroHeadline || "generic booking copy"}', so it does not yet explain why this booking matters now.`,
       priority: "primary",
       executionMode: "model-led",
@@ -1432,7 +1852,7 @@ function buildObservedPageDiffSourceActionPlan(input: {
     moves.push({
       key: "observed-proof-specificity",
       target: observed.hasProofNearCta ? "proof" : "proof strip",
-      change: "Replace the generic trust line with specific proof like named outcomes, client types, or credibility markers that earn the booking ask.",
+      change: "Replace the generic trust line with a tighter proof module that names outcomes, client types, or credibility markers and sits closer to the booking CTA.",
       why: `The current proof copy still reads as '${observed.proofCopy || "generic trust language"}', which signals credibility loosely but does not actually prove the offer.`,
       priority: "primary",
       executionMode: "model-led",
@@ -1444,7 +1864,7 @@ function buildObservedPageDiffSourceActionPlan(input: {
     moves.push({
       key: "observed-booking-expectations",
       target: observed.hasDedicatedBookingSection ? "booking section" : "cta path",
-      change: "Clarify the existing CTA handoff with a short expectation-setting line that explains who the call is for, what happens next, and what the visitor gets from booking.",
+      change: "Clarify the existing CTA handoff with a short expectation-setting line inside the booking container that explains who the call is for, what happens next, and what the visitor gets from booking.",
       why: "The page asks for the booking, but it does not yet reduce uncertainty around the handoff.",
       priority: "primary",
       executionMode: "model-led",
@@ -1504,22 +1924,57 @@ function isThinAssistantReply(text: string) {
 function stripFutureActionLead(text: string) {
   const compact = String(text || "").trim().replace(/\s+/g, " ");
   if (!compact) return "";
-  if (/\b(i|we|pura)\s+will\b|\bgoing to\b|\babout to\b/i.test(compact)) return "";
+  if (/has been successfully updated|feel free to preview|take a moment to preview|i'?m here to help/i.test(compact)) return "";
+  if (/\b(i|we|pura)\s+will\s+(take|make|do|handle)\s+(these|the following)\s+steps\b/i.test(compact)) return "";
   return compact;
+}
+
+function replySoundsConsultative(text: string) {
+  const compact = String(text || "").trim().replace(/\s+/g, " ");
+  if (!compact) return false;
+  return /to make this effective|will help clarify|key moves will include|focus on clarity and purpose|likely around|to support your new goal|start by clarifying|will require focusing on/i.test(compact);
+}
+
+function planConflictsWithPageType(plan: SourceActionPlan | null, pageType: FunnelPageIntentProfile["pageType"]) {
+  if (!plan) return false;
+  const haystack = [
+    plan.summary,
+    ...plan.moves.map((move) => `${move.target} ${move.change} ${move.why}`),
+  ].join(" ").toLowerCase();
+
+  if (pageType === "lead-capture") {
+    return /\bbooking section\b|\bbook a call\b|\bbooking handoff\b|\bschedule\b|\bconsultation\b/.test(haystack);
+  }
+
+  if (pageType === "application") {
+    return /\bbooking section\b|\bbook a call\b|\bschedule\b/.test(haystack);
+  }
+
+  if (pageType === "checkout") {
+    return /\blead capture\b|\blead-capture\b|\bopt-?in\b|\bsign up\b|\bcontact funnel\b|\bbook a call\b|\bbooking section\b/.test(haystack);
+  }
+
+  return false;
 }
 
 function analyzeCurrentPageState(currentHtml: string, sectionPlanItems: string[] = []) {
   const html = String(currentHtml || "").toLowerCase();
   const sectionLabels = sectionPlanItems.map((item) => String(item || "").toLowerCase());
   const pageText = htmlToPlainText(currentHtml).toLowerCase();
+  const hasScaffoldOfferCopy = /frame the consultation or booking value|generic consultation page|generic placeholder sales copy|booking value/.test(pageText);
+  const hasScaffoldProofCopy = /provide trust markers|proof point one|proof point two|proof point three|support the booking decision with client proof|add one short trust marker|use this space for a second proof point|keep the testimonials concrete/.test(pageText);
+  const hasScaffoldExpectationCopy = /clarify who the session is for and what the visitor gets|use this to explain one clear outcome or deliverable|show what changes for the visitor after this step/.test(pageText);
   const hasLightSurface = /bg-white|background(?:-color)?\s*:\s*(?:white|#fff(?:fff)?\b|#f8fafc\b|#f9fafb\b|#fafafa\b|rgb\(255\s*,\s*255\s*,\s*255\)|rgba\(255\s*,\s*255\s*,\s*255\s*,)|from-white|to-white/.test(html);
   const hasDarkReadableText = /text-(?:black|zinc-9\d\d|slate-9\d\d|gray-9\d\d|neutral-9\d\d)|color\s*:\s*(?:#0f172a\b|#111827\b|#18181b\b|#000\b|black\b|rgb\(15\s*,\s*23\s*,\s*42\)|rgb\(17\s*,\s*24\s*,\s*39\))/.test(html);
   const hasHeroSection = sectionLabels.some((label) => /hero|opening|headline/.test(label)) || /<h1\b|hero|headline/.test(html);
   const hasProofSection = sectionLabels.some((label) => /proof|testimonial|review|credib|trust/.test(label)) || /testimonial|review|proof|trusted by|results?|case stud/.test(pageText);
   const hasCtaSection = sectionLabels.some((label) => /cta|book|schedule|call to action|handoff/.test(label)) || /book|schedule|call|consultation/.test(pageText);
-  const hasBookingExpectationCopy = /what happens|during the call|on the call|session includes|leave with|who this is for|best fit|next step|what to expect/.test(pageText);
-  const hasConcreteOfferCopy = /audit|assessment|consultation|implementation|workflow|automation|strategy|quote|diagnostic/.test(pageText);
-  const hasSpecificProofCopy = /case stud|results?|saved \d+|increased|reduced|operators across|founder|client/.test(pageText);
+  const hasBookingExpectationCopy = /what happens|during the call|on the call|session includes|leave with|who this is for|best fit|next step|what to expect/.test(pageText)
+    && !hasScaffoldExpectationCopy;
+  const hasConcreteOfferCopy = /audit|assessment|consultation|implementation|workflow|automation|strategy|quote|diagnostic/.test(pageText)
+    && !hasScaffoldOfferCopy;
+  const hasSpecificProofCopy = /case stud|results?|saved \d+|increased|reduced|operators across|founder|client/.test(pageText)
+    && !hasScaffoldProofCopy;
   return {
     hasLightSurface,
     hasDarkReadableText,
@@ -1613,6 +2068,7 @@ function ensurePlanAnchorsSelectedRegion(
 function buildDirectPromptSourceActionPlan(input: {
   prompt: string;
   selectedRegion: { key: string; label: string; summary: string } | null;
+  selectedTarget: ReturnType<typeof coerceSelectedTarget>;
 }): SourceActionPlan | null {
   const prompt = String(input.prompt || "").trim();
   if (!prompt) return null;
@@ -1641,13 +2097,20 @@ function buildDirectPromptSourceActionPlan(input: {
     };
   }
 
+  const microEditPlan = buildSelectedTargetMicroEditPlan({
+    prompt,
+    selectedTarget: input.selectedTarget,
+    selectedRegion: input.selectedRegion,
+  });
+  if (microEditPlan) return microEditPlan;
+
   return null;
 }
 
 function buildDirectPromptAssistantReply(plan: SourceActionPlan | null) {
   const move = plan?.moves?.[0];
   if (!move) return "";
-  return `${move.change} This pass stays local to that headline and leaves the rest of the page untouched.`;
+  return `${move.change} This pass stays local to ${move.target || "that selected target"} and leaves the rest of the page untouched.`;
 }
 
 function buildStructuredAssistantReply(input: {
@@ -1661,25 +2124,75 @@ function buildStructuredAssistantReply(input: {
 }) {
   const moves = (input.plan?.moves || []).slice(0, 3);
   const preferredLead = stripFutureActionLead(input.assistantText || "");
-  const lead = preferredLead || input.plan?.summary || (!input.hasCurrentHtml && (input.sectionPlanItems?.length || 0) > 0
-    ? `This page is still on its initial scaffold. The next pass should turn ${joinHumanList((input.sectionPlanItems || []).slice(0, 3))} from placeholder structure into a real conversion sequence.`
-    : input.visualPolishSummary
-      ? `The main visual gap right now: ${input.visualPolishSummary}.`
-      : input.sceneQuality.dominantIssue.detail);
+  const lead = preferredLead || (input.plan?.moves?.length && input.specificitySignal.underSpecified
+    ? "There is enough direction here to make a reversible pass. The page can move away from its current posture, keep the copy flexible where the offer is not finalized, and center the next version on one clearer action."
+    : input.plan?.summary || (!input.hasCurrentHtml && (input.sectionPlanItems?.length || 0) > 0
+      ? `This page is still on its initial scaffold. The next pass should turn ${joinHumanList((input.sectionPlanItems || []).slice(0, 3))} from placeholder structure into a real conversion sequence.`
+      : input.visualPolishSummary
+        ? `The main visual gap right now: ${input.visualPolishSummary}.`
+        : input.sceneQuality.dominantIssue.detail));
   const moveLines = moves.length
     ? moves.map((move) => `- ${move.change} — ${move.why}`)
     : [`- ${input.sceneQuality.dominantIssue.detail}`];
-  const closing = input.specificitySignal.underSpecified
-    ? "If you want, I can turn these into an anchored pass on the hero, proof strip, or booking handoff without waiting for more setup."
-    : "Reply with the exact section you want pushed harder and I will keep the next pass anchored there.";
+  const closing = input.plan?.moves?.length
+    ? input.specificitySignal.underSpecified
+      ? "Smallest open item: lock the final offer, proof, or CTA wording only where the page would otherwise need fake specificity. The current pass can stay flexible and reversible until then."
+      : input.plan.watchouts[0]
+        ? `Smallest open item: ${input.plan.watchouts[0]}`
+        : "Smallest open item: choose the next section you want pushed harder and the next pass can stay anchored there."
+    : input.specificitySignal.underSpecified
+      ? "One focused answer can unlock the next pass if the page would otherwise need invented facts."
+      : "Reply with the exact section you want pushed harder and the next pass can stay anchored there.";
 
-  return [lead, "", "What I would change next:", ...moveLines, "", closing].join("\n");
+  return [lead, "", input.plan?.moves?.length ? "Next pass:" : "What I would change next:", ...moveLines, "", closing].join("\n");
 }
 
-function shouldForceStructuredAssistantReply(text: string, plan: SourceActionPlan | null) {
+function planHasBookingSpatialLanguage(plan: SourceActionPlan | null) {
+  if (!plan?.moves?.length) return false;
+  const text = [plan.summary, ...plan.moves.map((move) => `${move.target} ${move.change} ${move.why}`)].join(" ").toLowerCase();
+  return /\b(container|max-width|padding|spacing|clamp|proof module|section rhythm)\b/.test(text);
+}
+
+function buildBookingSpatialSupportPlan(input: {
+  foundation: ReturnType<typeof buildResolvedFunnelFoundation>;
+  selectedRegion: { key: string; label: string; summary: string } | null;
+}): SourceActionPlan {
+  const heroMove: SourceActionPlanMove = {
+    key: "booking-spatial-hero-cluster",
+    target: input.selectedRegion?.label || "hero",
+    change: `Rewrite the hero into one tighter container with a narrower max-width headline, a proof module beside the CTA, and cleaner spacing so ${input.foundation.offer} feels worth booking immediately for ${input.foundation.audience}.`,
+    why: "Booking pages convert more cleanly when the first screen carries the promise, proof, and action in one readable decision surface.",
+    priority: "primary",
+    executionMode: "model-led",
+    confidence: "high",
+    ...(input.selectedRegion ? { selectorHint: `#${input.selectedRegion.key}` } : {}),
+  };
+  const handoffMove: SourceActionPlanMove = {
+    key: "booking-spatial-handoff-rhythm",
+    target: "booking section",
+    change: "Tighten the booking handoff into a single-column container with clearer expectation copy, steadier section rhythm, and proof support that stays visible at the moment of scheduling.",
+    why: "The handoff should feel like the next logical step, not a separate widget that makes the visitor reconstruct trust on their own.",
+    priority: "secondary",
+    executionMode: "model-led",
+    confidence: "high",
+  };
+
+  return {
+    summary: heroMove.change,
+    moves: [heroMove, handoffMove],
+    watchouts: [
+      `Keep the critique aligned to the resolved conversion path: ${input.foundation.conversionPath}`,
+    ],
+  };
+}
+
+function shouldForceStructuredAssistantReply(text: string, plan: SourceActionPlan | null, forceOperational = false) {
   const compact = String(text || "").trim();
   if (!compact) return true;
+  if (forceOperational) return true;
+  if (!plan?.moves?.length && /\?$/.test(compact)) return false;
   if (plan?.moves?.length === 1 && plan.moves[0]?.executionMode === "bounded-edit") return false;
+  if (replySoundsConsultative(compact)) return true;
   if (isThinAssistantReply(compact)) return true;
   if (/(^|\n)\s*[-*]/.test(compact)) return false;
   if (/what i would change next:/i.test(compact)) return false;
@@ -1705,15 +2218,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const body = (await req.json().catch(() => null)) as any;
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt) return NextResponse.json({ ok: false, error: "Prompt is required" }, { status: 400 });
+  const requestThreadMessages = stripFunnelPageIntentMessages<Record<string, unknown>>(
+    normalizeFunnelThreadMessages(body?.threadMessages) as Array<Record<string, unknown>>,
+  ) as Array<Record<string, unknown>>;
   const useLiveState = body?.useLiveState === true;
+  const persistAssistantOnly = body?.persistAssistantOnly === true;
+  const applyFailureContext = coerceApplyFailureContext(body?.applyFailureContext);
   const currentHtmlFromClient = typeof body?.currentHtml === "string" ? body.currentHtml : "";
   const clientSectionPlanItems = coerceSectionPlanItems(body?.sectionPlanItems);
   const selectedRegion = coerceSelectedRegion(body?.selectedRegion);
   const selectedTarget = coerceSelectedTarget(body?.selectedTarget);
-  const strictSelectedTargetEdit = isStrictSelectedTargetEditPrompt(prompt, selectedTarget);
+  const strictSelectedTargetEdit = !applyFailureContext && isStrictSelectedTargetEditPrompt(prompt, selectedTarget);
   const assistantContext = coerceAssistantContext(body?.assistantContext);
   const allRegions = coerceRegionSummaryList(body?.allRegions);
   const contextMedia = coerceContextMedia(body?.contextMedia);
+  const trustedContextMedia = contextMedia
+    .map((item) => {
+      const trustedUrl = sanitizeTrustedAiAttachmentUrl(req, item.url);
+      return trustedUrl ? { ...item, url: trustedUrl } : null;
+    })
+    .filter((item): item is ContextMedia => Boolean(item));
   const designContext = sanitizeFunnelDesignContext(body?.designContext);
 
   const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
@@ -1767,6 +2291,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     pageTitle: normalizedPage.title,
     pageSlug: normalizedPage.slug,
   });
+  const recentConversationContext = buildRecentUserConversationContext(requestThreadMessages, prompt);
+  const requestedPageType = inferPromptRequestedPageType(recentConversationContext || prompt, intentProfile.pageType);
   const shellFrame = resolveFunnelShellFrame({
     frameId: intentProfile.shellFrameId,
     pageType: intentProfile.pageType,
@@ -1796,7 +2322,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const bookingRuntimeBoundaryRequested = wantsBookingRuntimeBoundaryAnswer(prompt);
   const visualPolishAnalysis = analyzeVisualPolish(currentHtml);
   const specificitySignal = assessChatSpecificitySignal({ currentHtml, businessContext, sectionPlanItems: critiqueSectionPlanItems });
-  const directPromptPlan = buildDirectPromptSourceActionPlan({ prompt, selectedRegion });
+  const directPromptPlan = applyFailureContext ? null : buildDirectPromptSourceActionPlan({ prompt, selectedRegion, selectedTarget });
   const sceneQuality = assessFunnelSceneQuality({
     pageAnatomy: buildFragmentSceneAnatomy(currentHtml, ""),
     proofResolved: hasLikelyProofSurface(currentHtml),
@@ -1805,23 +2331,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   });
   const visualWhyBlock = buildFunnelVisualWhyBlock({
     prompt,
-    pageType: intentProfile.pageType,
+    pageType: requestedPageType,
     shellFrame,
     archetypes: [],
   });
-  const requestInterpretationBlock = buildChatRequestInterpretationBlock({ prompt, selectedRegion });
+  const requestInterpretationBlock = buildChatRequestInterpretationBlock({
+    prompt,
+    selectedRegion,
+    pageType: requestedPageType,
+  });
+  const promptDirectedPageTypeShiftBlock = buildPromptDirectedPageTypeShiftBlock({
+    storedPageType: intentProfile.pageType,
+    requestedPageType,
+  });
   const buildFallbackChatPlan = () => {
     const observedPageDiffPlan = buildObservedPageDiffSourceActionPlan({
       currentHtml,
       observedSections,
       foundation,
-      pageType: intentProfile.pageType,
+      pageType: requestedPageType,
       selectedRegion,
       visualPolishRequested,
     });
     const intentAwareFallbackPlan = buildIntentAwareFallbackSourceActionPlan({
+      prompt,
       currentHtml,
-      intentProfile,
+      intentProfile: {
+        ...intentProfile,
+        pageType: requestedPageType,
+      },
       shellFrame,
       foundation,
       sectionPlanItems: critiqueSectionPlanItems,
@@ -1854,11 +2392,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   };
 
   // Build prior chat history for context window (last 10 messages, strip intent-only messages)
-  const prevChat = stripFunnelPageIntentMessages<Record<string, unknown>>(
-    normalizeFunnelThreadMessages(normalizedPage.customChatJson) as Array<Record<string, unknown>>,
-  ) as Array<{
+  const prevChatSource = requestThreadMessages.length
+    ? requestThreadMessages
+    : stripFunnelPageIntentMessages<Record<string, unknown>>(
+      normalizeFunnelThreadMessages(normalizedPage.customChatJson) as Array<Record<string, unknown>>,
+    );
+
+  const prevChat = prevChatSource as Array<{
         role: string;
         content: string;
+        sourceActionPlan?: SourceActionPlan | null;
         at?: string;
       }>;
 
@@ -1869,23 +2412,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       const content = String(m.content);
       if (m.role === "assistant") {
         const plan = (m as Record<string, unknown>).sourceActionPlan as SourceActionPlan | null | undefined;
-        const sanitizedPlan = vetSourceActionPlanAgainstObservedStructure(
-          vetSourceActionPlanAgainstCurrentPage(plan || null, currentHtml, critiqueSectionPlanItems),
+        const assistantContext = buildAssistantHistoryContext({
+          content,
+          plan: plan || null,
+          currentHtml,
+          sectionPlanItems: critiqueSectionPlanItems,
           observedSections,
-        );
-        if (sanitizedPlan?.moves?.length) {
-          const planLines = sanitizedPlan.moves
-            .slice(0, 4)
-            .map((move) => `- ${move.target}: ${move.change}`)
-            .join("\n");
-          return {
-            role: "assistant" as const,
-            content: `[Previously recommended moves on this page:\n${planLines}]`,
-          };
-        }
-        return null;
+        });
+        if (!assistantContext) return null;
+        return {
+          role: "assistant" as const,
+          content: assistantContext,
+        };
       }
-      return { role: m.role as "user" | "assistant", content };
+      return { role: m.role as "user" | "assistant", content: clampText(content, 1200) };
     })
     .filter((entry): entry is { role: "user" | "assistant"; content: string } => Boolean(entry));
 
@@ -1899,7 +2439,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     sectionPlanItems.length ? `Stored builder sections: ${sectionPlanItems.join(" -> ")}` : "",
     assistantContext ? `Editor surface context:\n${formatAssistantContext(assistantContext)}` : "",
     selectedRegion ? `Current focus region: ${selectedRegion.label}${selectedRegion.summary ? ` - ${selectedRegion.summary}` : ""}` : "",
-    selectedTarget ? `Current selected edit target: ${selectedTarget.label}${selectedTarget.blockType ? ` [${selectedTarget.blockType}]` : ""}${typeof selectedTarget.itemIndex === "number" ? ` card ${selectedTarget.itemIndex + 1}` : ""}${selectedTarget.summary ? ` - ${selectedTarget.summary}` : ""}` : "",
+    selectedTarget ? `Current selected edit target: ${selectedTarget.label}${selectedTarget.blockType ? ` [${selectedTarget.blockType}]` : ""}${typeof selectedTarget.itemIndex === "number" ? ` card ${selectedTarget.itemIndex + 1}` : ""}${typeof selectedTarget.featureIndex === "number" ? ` feature ${selectedTarget.featureIndex + 1}` : ""}${selectedTarget.summary ? ` - ${selectedTarget.summary}` : ""}` : "",
     selectedTarget?.currentState ? `Selected target current state: ${formatSelectedTargetCurrentState(selectedTarget.currentState)}` : "",
     allRegions.length ? `Current source regions: ${allRegions.map((region) => `${region.label}${region.summary ? ` (${region.summary})` : ""}`).join(" | ")}` : "",
     buildPageHtmlContextBlock(currentHtml, selectedRegion),
@@ -1918,26 +2458,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     `- Dominant issue: ${sceneQuality.dominantIssue.title}. ${sceneQuality.dominantIssue.detail}`,
     ...sceneQuality.structuralPriorities.slice(0, 3).map((item, index) => `- Priority ${index + 1}: ${item.title}. ${item.detail}`),
   ].join("\n");
+  const applyFailureBlock = applyFailureContext ? buildApplyFailureContextBlock(applyFailureContext) : "";
   const visualPolishBlock = [
     `Visual polish requested: ${visualPolishRequested ? "yes" : "no"}`,
     `Visual polish diagnosis: ${visualPolishAnalysis.summary}.`,
   ].join("\n");
-  const contextMediaBlock = contextMedia.length
+  const contextMediaBlock = trustedContextMedia.length
     ? [
         "Selected visual references:",
-        ...contextMedia.map((item) => {
+        ...trustedContextMedia.map((item) => {
           const name = item.fileName ? ` ${item.fileName}` : "";
           const mime = item.mimeType ? ` (${item.mimeType})` : "";
-          return `- ${name}${mime}: ${toAbsoluteUrl(req, item.url)}`.trim();
+          return `- ${name}${mime}: ${item.url}`.trim();
         }),
       ].join("\n")
     : "";
   const designContextBlock = buildFunnelDesignContextPromptBlock(designContext);
   const bookingRuntimeBlock = buildBookingRuntimeContextBlock(bookingRuntimeSlots);
-  const contextImageUrls = contextMedia
+  const contextImageUrls = trustedContextMedia
     .filter((item) => isContextMediaImage(item))
-    .map((item) => toAbsoluteUrl(req, item.url))
-    .filter((url) => canForwardImageUrlToAi(url))
+    .map((item) => item.url)
     .filter(Boolean)
     .slice(0, 8);
 
@@ -1957,9 +2497,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "If the user sounds confused, lost, or says they do not know what to do: open with one sentence that orients them to where the page is now, then list the 2-3 most important moves. Do not overwhelm them.",
     "If the user is vague (says 'make it better', 'fix it', 'help me'): pick the most impactful move from the current page and lead with that decision. Do not ask clarifying questions unless truly blocked.",
     "If the user asks a precise question (about CTA position, proof proximity, hierarchy, conversion flow): answer it directly and specifically. Do not hedge.",
-    "If the user wants to book more clients or has a business goal: translate that goal into page-level moves. Tell them what on the page is costing them and what to change first.",
+    "Treat the prior chat history as a real ongoing conversation. Carry forward user constraints, decisions, and unresolved context unless the newest turn explicitly changes them.",
+    "If the user wants more leads, bookings, registrations, applications, sales, or has a business goal: translate that goal into page-level moves. Tell them what on the page is costing them and what to change first.",
+    "If the promised reward, outcome, or value exchange is fuzzy or missing, lead with that gap first. Clarify exactly what the visitor is signing up for, what they get, and why the next step is worth taking before drifting into secondary layout or styling advice.",
+    "Do not freeze just because some business details are unfinished. If the direction is clear enough and the pass is reversible, act on it instead of defaulting to a consultation-only answer.",
+    "When details are missing but not critical, use flexible truthful copy and keep the pass adjustable. Ask one focused question only when the edit would otherwise require invented price, proof, guarantees, claims, or a risky CTA route change.",
+    "Do not force the same response pattern on every turn. Sometimes the right move is a direct answer, sometimes a reversible page pass, and sometimes one focused clarifying question.",
     "Treat the funnel as a system with required jobs: attention, belief building, proof, mechanism, CTA, reinforcement, and handoff. Work out which jobs are weak or missing before proposing style changes.",
     "When stored brief, page intent, shell frame, or foundation context exists, treat it as the intended blueprint. Compare the live page to that blueprint and return diffs, not generic advice.",
+    buildPageJobRule(requestedPageType),
     "If booking runtime mounts are present, explicitly separate page-shell ownership from booking-runtime ownership. Do not talk as if the whole booking experience lives only in shell copy or only in scheduler mechanics.",
     "If there is more than one booking runtime mount, explain the role of the dominant slot and the quieter fallback slot separately. Preserve their hierarchy instead of flattening them into duplicate CTAs.",
     strictSelectedTargetEdit
@@ -1972,10 +2518,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
           "sourceActionPlan should start with one bounded-edit move anchored to the selected edit target.",
         ].join("\n")
       : "",
+    applyFailureContext
+      ? [
+          "Apply clarification mode overrides normal planning for this turn.",
+          "Do not claim that any page change was made.",
+          "Explain, in natural language, what part of the requested apply could not be mapped or verified against the current page.",
+          "If one precise follow-up instruction would unblock the apply, say exactly what Pura still needs next.",
+          "Do not turn this into a broad redesign plan or a generic fallback speech.",
+          "Set sourceActionPlan to null unless returning a real plan is the only truthful response.",
+        ].join("\n")
+      : "",
 
     // Move quality rules
     "When enough page context exists, sourceActionPlan should contain 3-5 concrete moves tied to the current page structure.",
-    "Prefer moves like: tighten hero hierarchy, move proof beside the CTA, clarify the booking handoff, cut low-value sections, restage CTA rhythm.",
+    buildPageMoveExamples(requestedPageType),
     "If current builder sections are provided, anchor moves to those exact sections. Do not propose new structure until existing sections are specific.",
     "If the page is still on a scaffold, describe how Pura will upgrade the existing scaffold sections. Do not pretend the page already has finished business-specific copy.",
     "Each move should read like a page diff: what is there now, what it should become, and why that change helps conversion.",
@@ -1997,10 +2553,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     businessBlock,
     funnelBriefBlock,
     intentProfileBlock,
+    promptDirectedPageTypeShiftBlock,
     shellFrameBlock,
     foundationContextBlock,
     specificityBlock,
     sceneQualityBlock,
+    applyFailureBlock,
     visualPolishBlock,
     requestInterpretationBlock,
     designContextBlock,
@@ -2032,6 +2590,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       '    "watchouts": ["optional — short failure modes to avoid, max 3"]',
       '  }',
       "}",
+      "If enough context exists for a reversible pass, return a real sourceActionPlan and assistantText that sounds operational, not merely advisory.",
+      "If clarification is truly required, ask one focused question in assistantText and explain why that answer changes the page direction. Do not ask a long intake list.",
       "Set sourceActionPlan to null only if a concrete plan would be dishonest (e.g. user asked a pure yes/no question).",
     ].join("\n"),
   ]
@@ -2064,30 +2624,67 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         })
       : await runTextOnlyChat();
     const parsed = extractSourceActionChatPayload(raw);
-    sourceActionPlan = directPromptPlan || parsed?.sourceActionPlan || null;
+    sourceActionPlan = applyFailureContext ? null : (directPromptPlan || parsed?.sourceActionPlan || null);
     assistantText = directPromptPlan ? buildDirectPromptAssistantReply(directPromptPlan) : (parsed?.assistantText || "").trim();
     if (!assistantText) {
-      sourceActionPlan = sourceActionPlan || fallbackChatPlan;
-      assistantText = "";
-    } else if (!directPromptPlan && fallbackChatPlan && (specificitySignal.underSpecified || !sourceActionPlan || sourceActionPlan.moves.length < 3)) {
+      if (applyFailureContext) {
+        assistantText = buildApplyFailureFallbackAssistantReply({ context: applyFailureContext, selectedRegion, selectedTarget });
+        sourceActionPlan = null;
+      } else {
+        sourceActionPlan = sourceActionPlan || fallbackChatPlan;
+        assistantText = "";
+      }
+    } else if (!applyFailureContext && !directPromptPlan && !strictSelectedTargetEdit && fallbackChatPlan && (specificitySignal.underSpecified || !sourceActionPlan || sourceActionPlan.moves.length < 3)) {
       sourceActionPlan = mergeSourceActionPlans(fallbackChatPlan, sourceActionPlan);
     }
   } catch {
-    sourceActionPlan = directPromptPlan || fallbackChatPlan;
-    assistantText = directPromptPlan ? buildDirectPromptAssistantReply(directPromptPlan) : "";
+    if (applyFailureContext) {
+      sourceActionPlan = null;
+      assistantText = buildApplyFailureFallbackAssistantReply({ context: applyFailureContext, selectedRegion, selectedTarget });
+    } else if (directPromptPlan) {
+      sourceActionPlan = directPromptPlan;
+      assistantText = buildDirectPromptAssistantReply(directPromptPlan);
+    } else if (strictSelectedTargetEdit && selectedTarget) {
+      sourceActionPlan = ensurePlanAnchorsSelectedTarget(null, selectedTarget, prompt);
+      assistantText = buildStrictSelectedTargetAssistantReply(prompt, selectedTarget);
+    } else {
+      sourceActionPlan = fallbackChatPlan;
+      assistantText = "";
+    }
   }
 
-  sourceActionPlan = vetSourceActionPlanAgainstCurrentPage(sourceActionPlan, currentHtml, critiqueSectionPlanItems);
-  sourceActionPlan = vetSourceActionPlanAgainstObservedStructure(sourceActionPlan, observedSections);
-  sourceActionPlan = ensurePlanAnchorsSelectedRegion(sourceActionPlan, selectedRegion);
-  if (strictSelectedTargetEdit && selectedTarget) {
+  sourceActionPlan = applyFailureContext
+    ? null
+    : vetSourceActionPlanAgainstCurrentPage(sourceActionPlan, currentHtml, critiqueSectionPlanItems);
+  sourceActionPlan = applyFailureContext ? null : vetSourceActionPlanAgainstObservedStructure(sourceActionPlan, observedSections);
+  sourceActionPlan = applyFailureContext ? null : ensurePlanAnchorsSelectedRegion(sourceActionPlan, selectedRegion);
+  const needsOperationalRewrite = !applyFailureContext && (
+    replySoundsConsultative(assistantText)
+    || planConflictsWithPageType(sourceActionPlan, requestedPageType)
+  );
+  if (!applyFailureContext && fallbackChatPlan && needsOperationalRewrite) {
+    sourceActionPlan = mergeSourceActionPlans(fallbackChatPlan, sourceActionPlan);
+    assistantText = "";
+  }
+  if (!applyFailureContext && strictSelectedTargetEdit && selectedTarget) {
     sourceActionPlan = ensurePlanAnchorsSelectedTarget(sourceActionPlan, selectedTarget, prompt);
+    if (sourceActionPlan?.moves?.length) {
+      const primaryMove = sourceActionPlan.moves[0];
+      sourceActionPlan = {
+        summary: primaryMove.change,
+        moves: [primaryMove],
+        watchouts: [
+          ...(sourceActionPlan.watchouts || []).filter(Boolean).slice(0, 2),
+          "Do not widen this into a broader page strategy pass.",
+        ],
+      };
+    }
     if (!assistantText.trim() || /\?|what is|what's|which|should it|offer or service/i.test(assistantText)) {
       assistantText = buildStrictSelectedTargetAssistantReply(prompt, selectedTarget);
     }
   }
 
-  if (bookingRuntimeBoundaryRequested) {
+  if (!applyFailureContext && bookingRuntimeBoundaryRequested) {
     const boundaryPlan = buildBookingRuntimeBoundarySourceActionPlan({
       slots: bookingRuntimeSlots,
       selectedRegion,
@@ -2101,7 +2698,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     }
   }
 
-  if (shouldForceStructuredAssistantReply(assistantText, sourceActionPlan)) {
+  if (!applyFailureContext && requestedPageType === "booking" && (!sourceActionPlan?.moves?.length || sourceActionPlan.moves.length < 2 || !planHasBookingSpatialLanguage(sourceActionPlan))) {
+    sourceActionPlan = mergeSourceActionPlans(
+      buildBookingSpatialSupportPlan({ foundation, selectedRegion }),
+      sourceActionPlan,
+    );
+  }
+
+  if (!applyFailureContext && shouldForceStructuredAssistantReply(assistantText, sourceActionPlan, needsOperationalRewrite)) {
     assistantText = buildStructuredAssistantReply({
       sceneQuality,
       plan: sourceActionPlan,
@@ -2113,17 +2717,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     });
   }
 
-  const userMsg = { role: "user" as const, content: prompt, at: new Date().toISOString() };
-  const assistantMsg = {
+  const userMsg = persistAssistantOnly ? null : { role: "user" as const, content: prompt, at: new Date().toISOString() };
+  const assistantMsg = assistantText.trim() ? {
     role: "assistant" as const,
     content: assistantText,
     at: new Date().toISOString(),
     ...(sourceActionPlan ? { sourceActionPlan } : {}),
-  };
+  } : null;
   const nextChat = normalizeFunnelThreadMessages([
     ...(Array.isArray(normalizedPage.customChatJson) ? (normalizedPage.customChatJson as any[]) : []),
-    userMsg,
-    assistantMsg,
+    ...(userMsg ? [userMsg] : []),
+    ...(assistantMsg ? [assistantMsg] : []),
   ]);
 
   const updated = await prisma.creditFunnelPage.update({

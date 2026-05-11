@@ -1,0 +1,1 @@
+export * from "../../pages/[pageId]/export-custom-html/route";

@@ -30,6 +30,7 @@ import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { useToast } from "@/components/ToastProvider";
+import { reportPortalActionFailure } from "@/lib/portalDiagnostics.client";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -385,6 +386,19 @@ export function PortalAiReceptionistClient() {
   const pathname = usePathname() || "";
   const toast = useToast();
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
+  const reportReceptionistFailure = useCallback(
+    (action: string, message: string, status?: number | null, meta?: Record<string, unknown>) => {
+      reportPortalActionFailure({
+        area: "ai_receptionist",
+        action,
+        message,
+        status,
+        source: "portal_ai_receptionist",
+        ...(meta ? { meta } : {}),
+      });
+    },
+    [],
+  );
 
   const isMobileApp = useMemo(() => {
     try {
@@ -854,13 +868,17 @@ export function PortalAiReceptionistClient() {
       const res = await fetch("/api/portal/ai-receptionist/settings", { cache: "no-store" }).catch(() => null as any);
       if (!res?.ok) {
         const rawError = res ? await readJsonError(res) : null;
-        setError(friendlyApiError({ status: res?.status, rawError, action: "load" }));
+        const message = friendlyApiError({ status: res?.status, rawError, action: "load" });
+        reportReceptionistFailure("load_settings", message, res?.status);
+        setError(message);
         return null;
       }
 
       const data = (await res.json().catch(() => null)) as ApiPayload | null;
       if (!data?.ok || !data.settings) {
-        setError(friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "load" }));
+        const message = friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "load" });
+        reportReceptionistFailure("load_settings", message, res.status);
+        setError(message);
         return null;
       }
 
@@ -896,7 +914,7 @@ export function PortalAiReceptionistClient() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [friendlyApiError, readJsonError]);
+  }, [friendlyApiError, readJsonError, reportReceptionistFailure]);
 
   const loadEventsOnly = useCallback(async (): Promise<boolean> => {
     const res = await fetch("/api/portal/ai-receptionist/settings", { cache: "no-store" }).catch(() => null as any);
@@ -931,12 +949,14 @@ export function PortalAiReceptionistClient() {
           await load();
         }
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Unable to refresh call artifacts");
+        const message = e instanceof Error ? e.message : "Unable to refresh call artifacts";
+        reportReceptionistFailure("sync_call_artifacts", message, undefined, { callSid: sid });
+        toast.error(message);
       } finally {
         setCallSyncBusy(false);
       }
     },
-    [callSyncBusy, load, loadEventsOnly, toast],
+    [callSyncBusy, load, loadEventsOnly, reportReceptionistFailure, toast],
   );
 
   const [confirmDeleteCallSid, setConfirmDeleteCallSid] = useState<string | null>(null);
@@ -964,12 +984,14 @@ export function PortalAiReceptionistClient() {
           await load();
         }
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Unable to delete call");
+        const message = e instanceof Error ? e.message : "Unable to delete call";
+        reportReceptionistFailure("delete_call", message, undefined, { callSid: sid });
+        toast.error(message);
       } finally {
         setCallSyncBusy(false);
       }
     },
-    [callSyncBusy, load, loadEventsOnly, toast],
+    [callSyncBusy, load, loadEventsOnly, reportReceptionistFailure, toast],
   );
 
   const deleteCallEvent = useCallback(
@@ -1307,7 +1329,9 @@ export function PortalAiReceptionistClient() {
     const data = (await res.json().catch(() => null)) as ApiPayload | null;
     if (!res.ok || !data?.ok) {
       setSaving(false);
-      setError(friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "save" }));
+      const message = friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "save" });
+      reportReceptionistFailure("save_settings", message, res.status);
+      setError(message);
       return;
     }
 
@@ -1336,7 +1360,9 @@ export function PortalAiReceptionistClient() {
     const data = (await res.json().catch(() => null)) as ApiPayload | null;
     if (!res.ok || !data?.ok) {
       setSaving(false);
-      setError(friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "save" }));
+      const message = friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "save" });
+      reportReceptionistFailure("save_sms_settings", message, res.status);
+      setError(message);
       return;
     }
 
@@ -1366,13 +1392,13 @@ export function PortalAiReceptionistClient() {
     if (!res?.ok || !data?.ok) {
       setSavingEnabled(false);
       setSettings((cur) => (cur ? { ...cur, enabled: prev } : cur));
-      setError(
-        friendlyApiError({
-          status: res?.status,
-          rawError: (data as any)?.error ?? null,
-          action: "save",
-        }),
-      );
+      const message = friendlyApiError({
+        status: res?.status,
+        rawError: (data as any)?.error ?? null,
+        action: "save",
+      });
+      reportReceptionistFailure("toggle_enabled", message, res?.status, { nextEnabled });
+      setError(message);
       return;
     }
 

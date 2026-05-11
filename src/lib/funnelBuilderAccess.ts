@@ -1,15 +1,30 @@
 import { prisma } from "@/lib/db";
+import { isCreditsCanceledForOwner } from "@/lib/credits";
 import { getPortalUser } from "@/lib/portalAuth";
 import { authenticatePortalApiKeyForFunnelBuilder, sessionUserFromApiKeyContext } from "@/lib/portalApiKeys.server";
 import { headers } from "next/headers";
 
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
+function resolveStoredPortalVariant(raw: unknown) {
+  return typeof raw === "string" && raw.trim().toUpperCase() === "CREDIT" ? "credit" : "portal";
+}
+
 export async function requireFunnelBuilderSession(req?: Request) {
   const apiKeyAuth = await authenticatePortalApiKeyForFunnelBuilder(req);
   if (apiKeyAuth.present) {
     if (!apiKeyAuth.ok) {
       return { ok: false as const, status: apiKeyAuth.status, session: null };
+    }
+
+    if (await isCreditsCanceledForOwner(apiKeyAuth.context.ownerId).catch(() => false)) {
+      return {
+        ok: false as const,
+        status: 403 as const,
+        session: {
+          user: sessionUserFromApiKeyContext(apiKeyAuth.context),
+        },
+      };
     }
 
     return {
@@ -46,35 +61,44 @@ export async function requireFunnelBuilderSession(req?: Request) {
   const h = await headers();
   const headerVariant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER));
   if (headerVariant && headerVariant !== variant) {
-    if (process.env.NODE_ENV !== "production") {
-      throw new Error(
-        `Funnel Builder auth variant mismatch: header=${headerVariant} resolved=${variant}. Use variant-aware auth (auto) and set x-portal-variant correctly.`,
-      );
-    }
-    return { ok: false as const, status: 400 as const, session: null };
+    return { ok: false as const, status: 403 as const, session: null };
   }
 
-  // Credit portal has additional restrictions (must be a credit-variant client portal user).
-  if (variant === "credit") {
-    const dbUser = await prisma.user
-      .findUnique({ where: { id: user.id }, select: { clientPortalVariant: true } })
-      .catch(() => null);
+  const dbUser = await prisma.user
+    .findUnique({ where: { id: user.id }, select: { clientPortalVariant: true } })
+    .catch(() => null);
+  const storedVariant = resolveStoredPortalVariant(dbUser?.clientPortalVariant);
 
-    if (dbUser?.clientPortalVariant !== "CREDIT") {
-      return {
-        ok: false as const,
-        status: 403 as const,
-        session: {
-          user: {
-            id: user.id,
-            email: user.email,
-            role: user.role,
-            name: user.name ?? undefined,
-            memberId: user.memberId ?? undefined,
-          },
+  if (storedVariant !== variant) {
+    return {
+      ok: false as const,
+      status: 403 as const,
+      session: {
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          name: user.name ?? undefined,
+          memberId: user.memberId ?? undefined,
         },
-      };
-    }
+      },
+    };
+  }
+
+  if (await isCreditsCanceledForOwner(user.id).catch(() => false)) {
+    return {
+      ok: false as const,
+      status: 403 as const,
+      session: {
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          name: user.name ?? undefined,
+          memberId: user.memberId ?? undefined,
+        },
+      },
+    };
   }
 
   return {

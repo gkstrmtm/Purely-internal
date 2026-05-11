@@ -30,6 +30,8 @@ const PROFILE_SETUP_SLUG = "profile";
 const INTEGRATIONS_SETUP_SLUG = "integrations";
 const AI_RECEPTIONIST_SETUP_SLUG = "ai-receptionist";
 const ENGAGEMENT_SETUP_SLUG = "portal_engagement";
+const DIAGNOSTICS_SETUP_SLUG = "portal_diagnostics";
+const BUG_REPORT_SETUP_SLUG = "bug-reports";
 const DELETED_ACCOUNT_SETUP_SLUG = "__portal_deleted_account";
 
 function parseDeletedAccountTombstone(dataJson: unknown): { originalEmail: string | null; originalName: string | null; deletedAtIso: string | null } {
@@ -74,6 +76,124 @@ function readActivityList(value: unknown): Array<{ atMs: number; path: string; p
   }
   out.sort((a, b) => b.atMs - a.atMs);
   return out;
+}
+
+function readPortalDiagnostics(value: unknown): Array<{
+  id: string;
+  kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure";
+  createdAtIso: string;
+  lastSeenAtIso: string;
+  count: number;
+  message: string;
+  path?: string;
+  source?: string;
+  file?: string;
+  line?: number;
+  column?: number;
+  meta?: Record<string, unknown>;
+}> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const rec = value as Record<string, unknown>;
+  if (!Array.isArray(rec.events)) return [];
+  return rec.events.flatMap((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [] as Array<any>;
+    const item = raw as Record<string, unknown>;
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    const kind =
+      item.kind === "runtime_error" ||
+      item.kind === "unhandled_rejection" ||
+      item.kind === "resource_error" ||
+      item.kind === "action_failure"
+        ? item.kind
+        : null;
+    const createdAtIso = typeof item.createdAtIso === "string" ? item.createdAtIso.trim() : "";
+    const lastSeenAtIso = typeof item.lastSeenAtIso === "string" ? item.lastSeenAtIso.trim() : createdAtIso;
+    const message = typeof item.message === "string" ? item.message.trim().slice(0, 4000) : "";
+    const count = Number.isFinite(Number(item.count)) ? Math.max(1, Math.floor(Number(item.count))) : 1;
+    if (!id || !kind || !createdAtIso || !message) return [] as Array<any>;
+    return [
+      {
+        id,
+        kind,
+        createdAtIso,
+        lastSeenAtIso: lastSeenAtIso || createdAtIso,
+        count,
+        message,
+        ...(typeof item.path === "string" && item.path.trim() ? { path: item.path.trim().slice(0, 512) } : {}),
+        ...(typeof item.source === "string" && item.source.trim() ? { source: item.source.trim().slice(0, 64) } : {}),
+        ...(typeof item.file === "string" && item.file.trim() ? { file: item.file.trim().slice(0, 2000) } : {}),
+        ...(Number.isFinite(Number(item.line)) ? { line: Math.max(0, Math.floor(Number(item.line))) } : {}),
+        ...(Number.isFinite(Number(item.column)) ? { column: Math.max(0, Math.floor(Number(item.column))) } : {}),
+        ...(item.meta && typeof item.meta === "object" && !Array.isArray(item.meta) ? { meta: item.meta as Record<string, unknown> } : {}),
+      },
+    ];
+  });
+}
+
+function readMetaString(meta: Record<string, unknown> | undefined, key: string) {
+  if (!meta) return null;
+  const value = meta[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readMetaNumber(meta: Record<string, unknown> | undefined, key: string) {
+  if (!meta) return null;
+  const value = meta[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function incrementMap(map: Map<string, number>, key: string | null | undefined, amount: number) {
+  const safeKey = String(key || "unknown").trim() || "unknown";
+  map.set(safeKey, (map.get(safeKey) ?? 0) + Math.max(1, amount));
+}
+
+function bucketLabelForEnvironment(key: string) {
+  if (key === "local") return "Local / dev";
+  if (key === "preview") return "Preview";
+  if (key === "production") return "Production";
+  return "Unknown";
+}
+
+function bucketLabelForSurface(key: string) {
+  if (key === "admin_portal") return "Admin portal";
+  if (key === "hosted_funnel") return "Hosted funnel";
+  if (key === "public_site") return "Public site";
+  return "Unknown";
+}
+
+function bucketLabelForAudience(key: string) {
+  if (key === "internal_operator") return "Internal operator";
+  if (key === "customer_surface") return "Customer-facing";
+  return "Unknown";
+}
+
+function topBuckets(map: Map<string, number>, labelFor: (key: string) => string, take: number) {
+  return Array.from(map.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, take)
+    .map(([key, count]) => ({ key, label: labelFor(key), count }));
+}
+
+function readBugReports(value: unknown): Array<{ id: string; createdAtIso: string; title?: string; area?: string; url?: string }> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const rec = value as Record<string, unknown>;
+  if (!Array.isArray(rec.reports)) return [];
+  return rec.reports.flatMap((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [] as Array<any>;
+    const item = raw as Record<string, unknown>;
+    const id = typeof item.id === "string" ? item.id.trim() : "";
+    const createdAtIso = typeof item.createdAtIso === "string" ? item.createdAtIso.trim() : "";
+    if (!id || !createdAtIso) return [] as Array<any>;
+    return [
+      {
+        id,
+        createdAtIso,
+        ...(typeof item.title === "string" && item.title.trim() ? { title: item.title.trim().slice(0, 120) } : {}),
+        ...(typeof item.area === "string" && item.area.trim() ? { area: item.area.trim().slice(0, 200) } : {}),
+        ...(typeof item.url === "string" && item.url.trim() ? { url: item.url.trim().slice(0, 2000) } : {}),
+      },
+    ];
+  });
 }
 
 function topEntriesByValue(map: Record<string, number>, take: number): Array<{ key: string; seconds: number }> {
@@ -234,6 +354,8 @@ export async function GET(req: Request) {
               INTEGRATIONS_SETUP_SLUG,
               AI_RECEPTIONIST_SETUP_SLUG,
               ENGAGEMENT_SETUP_SLUG,
+              DIAGNOSTICS_SETUP_SLUG,
+              BUG_REPORT_SETUP_SLUG,
               DELETED_ACCOUNT_SETUP_SLUG,
             ],
           },
@@ -264,6 +386,59 @@ export async function GET(req: Request) {
   const recentActivity = readActivityList(engagementRec.recentActivity);
   const topPages = topEntriesByValue(pathTimeSec, 12);
   const topServicesByTime = topEntriesByValue(serviceTimeSec, 8);
+  const portalDiagnostics = readPortalDiagnostics(getSetup(DIAGNOSTICS_SETUP_SLUG));
+  const bugReports = readBugReports(getSetup(BUG_REPORT_SETUP_SLUG));
+  const diagnosticsLastSeenAt = portalDiagnostics.length
+    ? portalDiagnostics
+        .map((item) => Date.parse(item.lastSeenAtIso || item.createdAtIso))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => b - a)[0] ?? null
+    : null;
+  const diagnosticsCounts = portalDiagnostics.reduce(
+    (acc, item) => {
+      if (item.kind === "action_failure") acc.actionFailureCount += item.count;
+      if (item.kind === "runtime_error") acc.runtimeErrorCount += item.count;
+      if (item.kind === "unhandled_rejection") acc.unhandledRejectionCount += item.count;
+      if (item.kind === "resource_error") acc.resourceErrorCount += item.count;
+      return acc;
+    },
+    { actionFailureCount: 0, runtimeErrorCount: 0, unhandledRejectionCount: 0, resourceErrorCount: 0 },
+  );
+  const diagnosticsSegments = { localOperator: 0, previewOperator: 0, productionOperator: 0, customerFacing: 0, unknown: 0 };
+  const diagnosticsEnvironmentMap = new Map<string, number>();
+  const diagnosticsSurfaceMap = new Map<string, number>();
+  const diagnosticsAudienceMap = new Map<string, number>();
+  const diagnosticsHostMap = new Map<string, number>();
+  const diagnosticsPathMap = new Map<string, number>();
+  const diagnosticsActionMap = new Map<string, { area: string; action: string; count: number }>();
+
+  for (const item of portalDiagnostics) {
+    const environment = readMetaString(item.meta, "viewEnvironment") || "unknown";
+    const surface = readMetaString(item.meta, "viewSurface") || "unknown";
+    const audience = readMetaString(item.meta, "viewAudience") || "unknown";
+    const host = readMetaString(item.meta, "viewHost") || "unknown";
+
+    incrementMap(diagnosticsEnvironmentMap, environment, item.count);
+    incrementMap(diagnosticsSurfaceMap, surface, item.count);
+    incrementMap(diagnosticsAudienceMap, audience, item.count);
+    incrementMap(diagnosticsHostMap, host, item.count);
+    if (item.path) incrementMap(diagnosticsPathMap, item.path, item.count);
+
+    if (audience === "internal_operator" && environment === "local") diagnosticsSegments.localOperator += item.count;
+    else if (audience === "internal_operator" && environment === "preview") diagnosticsSegments.previewOperator += item.count;
+    else if (audience === "internal_operator" && environment === "production") diagnosticsSegments.productionOperator += item.count;
+    else if (audience === "customer_surface") diagnosticsSegments.customerFacing += item.count;
+    else diagnosticsSegments.unknown += item.count;
+
+    if (item.kind === "action_failure") {
+      const area = readMetaString(item.meta, "area") || "unknown";
+      const action = readMetaString(item.meta, "action") || "unknown";
+      const key = `${area}::${action}`;
+      const prev = diagnosticsActionMap.get(key);
+      if (prev) prev.count += item.count;
+      else diagnosticsActionMap.set(key, { area, action, count: item.count });
+    }
+  }
 
   const deletedTombstone = parseDeletedAccountTombstone(getSetup(DELETED_ACCOUNT_SETUP_SLUG));
   const displayEmail = deletedTombstone.originalEmail ?? user.email;
@@ -602,6 +777,49 @@ export async function GET(req: Request) {
           topPages,
           topServicesByTime,
           recentActivity: recentActivity.slice(0, 500),
+        },
+        portalDiagnostics: {
+          lastSeenAt: diagnosticsLastSeenAt ? new Date(diagnosticsLastSeenAt).toISOString() : null,
+          actionFailureCount: diagnosticsCounts.actionFailureCount,
+          runtimeErrorCount: diagnosticsCounts.runtimeErrorCount,
+          unhandledRejectionCount: diagnosticsCounts.unhandledRejectionCount,
+          resourceErrorCount: diagnosticsCounts.resourceErrorCount,
+          segments: diagnosticsSegments,
+          contexts: {
+            environments: topBuckets(diagnosticsEnvironmentMap, bucketLabelForEnvironment, 6),
+            surfaces: topBuckets(diagnosticsSurfaceMap, bucketLabelForSurface, 6),
+            audiences: topBuckets(diagnosticsAudienceMap, bucketLabelForAudience, 6),
+            hosts: topBuckets(diagnosticsHostMap, (key) => key, 8),
+          },
+          topPaths: Array.from(diagnosticsPathMap.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 8)
+            .map(([path, count]) => ({ path, count })),
+          topActions: Array.from(diagnosticsActionMap.values()).sort((a, b) => b.count - a.count).slice(0, 8),
+          recentEvents: portalDiagnostics.slice(0, 100).map((item) => ({
+            id: item.id,
+            kind: item.kind,
+            createdAtIso: item.createdAtIso,
+            lastSeenAtIso: item.lastSeenAtIso,
+            count: item.count,
+            message: item.message,
+            ...(item.path ? { path: item.path } : {}),
+            ...(item.source ? { source: item.source } : {}),
+            ...(item.file ? { file: item.file } : {}),
+            ...(typeof item.line === "number" ? { line: item.line } : {}),
+            ...(typeof item.column === "number" ? { column: item.column } : {}),
+            area: readMetaString(item.meta, "area"),
+            action: readMetaString(item.meta, "action"),
+            status: readMetaNumber(item.meta, "status"),
+            viewHost: readMetaString(item.meta, "viewHost"),
+            viewEnvironment: readMetaString(item.meta, "viewEnvironment") || "unknown",
+            viewSurface: readMetaString(item.meta, "viewSurface") || "unknown",
+            viewAudience: readMetaString(item.meta, "viewAudience") || "unknown",
+          })),
+          bugReports: {
+            count: bugReports.length,
+            lastReportedAt: bugReports[0]?.createdAtIso ?? null,
+          },
         },
         blog: {
           generationEventsLast30: blogGenLast30,

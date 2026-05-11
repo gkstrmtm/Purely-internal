@@ -10,6 +10,7 @@ import { prisma } from "@/lib/db";
 import { coerceBlocksJson } from "@/lib/creditFunnelBlocks";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import {
+  createEmptyCreditFunnelEventMetrics,
   dbHasCreditFunnelEventTable,
   getCreditFunnelPageMetrics,
   normalizeCreditFunnelMetaPixelId,
@@ -189,7 +190,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     });
 
     data.blocksJson = blockSnapshotUpdate.blocksJson;
-    if (typeof body?.customHtml !== "string") data.customHtml = blockSnapshotUpdate.customHtml;
     if (typeof body?.draftHtml !== "string") data.draftHtml = blockSnapshotUpdate.draftHtml;
   }
 
@@ -209,7 +209,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
 
     data.editorMode = "BLOCKS";
     data.blocksJson = mutationSnapshotUpdate.blocksJson;
-    if (typeof body?.customHtml !== "string") data.customHtml = mutationSnapshotUpdate.customHtml;
     if (typeof body?.draftHtml !== "string") data.draftHtml = mutationSnapshotUpdate.draftHtml;
   }
 
@@ -295,15 +294,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     dbHasCreditFunnelEventTable(),
     getCreditFunnelPageMetrics([pageId]),
   ]);
-  const metrics =
-    pageMetrics.get(pageId) || {
-      page_view: 0,
-      cta_click: 0,
-      form_submitted: 0,
-      booking_created: 0,
-      checkout_started: 0,
-      add_to_cart: 0,
-    };
+  const metrics = pageMetrics.get(pageId) || createEmptyCreditFunnelEventMetrics();
 
   return NextResponse.json({
     ok: true,
@@ -354,7 +345,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ funnelId: s
       return { next: nextJson, value: true };
     });
 
-    await tx.creditFunnelPage.delete({ where: { id: pageId } });
+    await tx.creditFunnelPage.deleteMany({ where: { id: pageId } });
   });
 
   return NextResponse.json({ ok: true });

@@ -10,13 +10,36 @@ import {
 } from "@/lib/funnelPageDbCompat";
 import { readFunnelPageBrief } from "@/lib/funnelPageIntent";
 import { validateFunnelPageContract } from "@/lib/funnelPageContract";
+import { auditPublishedFunnelPage } from "@/lib/funnelPagePublishAudit";
 import { createFunnelPagePublishUpdate } from "@/lib/funnelPageState";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function readAssignedFunnelDomain(settingsJson: unknown, funnelId: string): string | null {
+  if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return null;
+  const funnelDomains = (settingsJson as Record<string, unknown>).funnelDomains;
+  if (!funnelDomains || typeof funnelDomains !== "object" || Array.isArray(funnelDomains)) return null;
+  const raw = (funnelDomains as Record<string, unknown>)[funnelId];
+  let domain = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!domain) return null;
+
+  domain = domain.replace(/^https?:\/\//, "");
+  domain = domain.split("/")[0] || "";
+  domain = domain.split("?")[0] || "";
+  domain = domain.split("#")[0] || "";
+
+  if (!domain) return null;
+  if (domain.length > 253) return null;
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return null;
+  if (domain.includes("..")) return null;
+  if (domain.startsWith("-") || domain.endsWith("-")) return null;
+
+  return domain;
+}
+
 export async function POST(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ funnelId: string; pageId: string }> },
 ) {
   const auth = await requireFunnelBuilderSession();
@@ -86,5 +109,21 @@ export async function POST(
     }, hasDraftHtml),
   });
 
-  return NextResponse.json({ ok: true, page: normalizeDraftHtml(updated) });
+  const funnel = await prisma.creditFunnel.findFirst({
+    where: { id: funnelId, ownerId: auth.session.user.id },
+    select: { id: true, slug: true },
+  });
+  const assignedDomain = readAssignedFunnelDomain(settings, funnelId);
+  const requestOrigin = new URL(req.url).origin;
+  const audit = funnel?.slug
+    ? await auditPublishedFunnelPage({
+        requestOrigin,
+        assignedDomain,
+        funnelSlug: funnel.slug,
+        funnelId: funnel.id,
+        pageSlug: updated.slug,
+      })
+    : null;
+
+  return NextResponse.json({ ok: true, page: normalizeDraftHtml(updated), audit });
 }

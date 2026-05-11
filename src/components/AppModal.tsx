@@ -3,6 +3,12 @@
 import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  FUNNEL_BUTTON_MOTION_CLASS,
+  FUNNEL_BUTTON_RAISE_CLASS,
+  FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+} from "@/components/funnel/funnelButtonMotion";
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -106,10 +112,12 @@ export function AppModal({
                   <button
                     type="button"
                     className={classNames(
-                      "shrink-0 select-none transition-all duration-150 hover:-translate-y-0.5",
+                      "shrink-0 select-none",
+                      FUNNEL_BUTTON_MOTION_CLASS,
                       closeVariant === "x"
-                        ? "grid h-10 w-10 place-items-center rounded-2xl border border-transparent bg-white text-lg leading-none font-semibold text-zinc-500 hover:scale-105 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
+                        ? "grid h-10 w-10 place-items-center rounded-2xl border border-transparent bg-white text-lg leading-none font-semibold text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
                         : "rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50",
+                      FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
                     )}
                     onClick={onClose}
                     aria-label="Close"
@@ -164,7 +172,11 @@ export function AppConfirmModal({
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+            className={classNames(
+              "rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+              FUNNEL_BUTTON_MOTION_CLASS,
+              FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+            )}
             onClick={onClose}
           >
             {cancelLabel || "Cancel"}
@@ -173,6 +185,8 @@ export function AppConfirmModal({
             type="button"
             className={classNames(
               "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+              FUNNEL_BUTTON_MOTION_CLASS,
+              FUNNEL_BUTTON_RAISE_CLASS,
               destructive ? "bg-red-600 hover:bg-red-700" : "bg-brand-ink hover:opacity-95",
             )}
             onClick={onConfirm}

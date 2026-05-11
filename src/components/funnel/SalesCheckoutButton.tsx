@@ -3,7 +3,12 @@
 import type { CSSProperties } from "react";
 import { useCallback, useState } from "react";
 
-import { fireMetaPixelEvent, readTrackingContextFromWindow } from "@/components/funnel/clientFunnelTracking";
+import {
+  fireMetaPixelEvent,
+  readTrackingContextFromWindow,
+  trackPublicCreditFunnelEvent,
+} from "@/components/funnel/clientFunnelTracking";
+import { FUNNEL_BUTTON_MOTION_CLASS, FUNNEL_BUTTON_RAISE_CLASS } from "@/components/funnel/funnelButtonMotion";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -30,6 +35,22 @@ export function SalesCheckoutButton({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const reportCheckoutFailure = useCallback(
+    (message: string, reason: string) => {
+      void trackPublicCreditFunnelEvent({
+        pageId,
+        eventType: "checkout_failed",
+        payload: {
+          message: String(message || "Unable to start checkout").slice(0, 240),
+          reason,
+          priceId,
+          quantity: quantity ?? 1,
+        },
+      });
+    },
+    [pageId, priceId, quantity],
+  );
 
   const onClick = useCallback(async () => {
     if (disabled) return;
@@ -59,12 +80,14 @@ export function SalesCheckoutButton({
           (json && typeof json.error === "string" && json.error) ||
           (fallbackText.trim() ? fallbackText.trim().slice(0, 240) : "Unable to start checkout");
         setError(msg);
+        reportCheckoutFailure(msg, "server_rejected");
         return;
       }
 
       const nextUrl = json.url.trim();
       if (!nextUrl) {
         setError("Stripe did not return a checkout URL");
+        reportCheckoutFailure("Stripe did not return a checkout URL", "missing_checkout_url");
         return;
       }
 
@@ -73,10 +96,11 @@ export function SalesCheckoutButton({
     } catch (e) {
       const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Network error";
       setError(msg || "Network error");
+      reportCheckoutFailure(msg || "Network error", "network_error");
     } finally {
       setBusy(false);
     }
-  }, [disabled, metaPixelId, pageId, priceId, quantity]);
+  }, [disabled, metaPixelId, pageId, priceId, quantity, reportCheckoutFailure]);
 
   const label = (text || "Buy now").trim() || "Buy now";
 
@@ -90,6 +114,8 @@ export function SalesCheckoutButton({
         style={style}
         className={classNames(
           "inline-flex items-center justify-center rounded-xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60",
+          FUNNEL_BUTTON_MOTION_CLASS,
+          FUNNEL_BUTTON_RAISE_CLASS,
           className,
         )}
       >

@@ -84,6 +84,10 @@ function selectVariantFromHeader(raw: string | null | undefined, fallback: Porta
   return normalizePortalVariant(raw) ?? fallback;
 }
 
+function resolveOwnerPortalVariant(raw: unknown): PortalVariant {
+  return typeof raw === "string" && raw.trim().toUpperCase() === "CREDIT" ? "credit" : "portal";
+}
+
 async function requestHeaders(req?: Request): Promise<Headers> {
   if (req?.headers) return req.headers;
   return await headers();
@@ -335,6 +339,7 @@ async function lookupPortalApiKey(req?: Request): Promise<PortalApiKeyLookupResu
 
   const keyHash = hashPortalApiKey(rawKey);
   const h = await requestHeaders(req);
+  const requestedVariant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER));
   const row = await (prisma as any).portalApiKey.findUnique({
     where: { keyHash },
     select: {
@@ -345,12 +350,17 @@ async function lookupPortalApiKey(req?: Request): Promise<PortalApiKeyLookupResu
       permissionsJson: true,
       creditLimit: true,
       creditsUsed: true,
-      owner: { select: { email: true, name: true } },
+      owner: { select: { email: true, name: true, clientPortalVariant: true } },
     },
   });
 
   if (!row || row.status !== "ACTIVE") {
     return { present: true, ok: false, status: 401, error: "Invalid API key" };
+  }
+
+  const ownerVariant = resolveOwnerPortalVariant(row.owner?.clientPortalVariant);
+  if (requestedVariant && requestedVariant !== ownerVariant) {
+    return { present: true, ok: false, status: 403, error: "API key does not match this portal variant" };
   }
 
   const context: PortalApiKeyAuthContext = {
@@ -362,7 +372,7 @@ async function lookupPortalApiKey(req?: Request): Promise<PortalApiKeyLookupResu
     permissions: normalizePortalApiKeyPermissions(row.permissionsJson),
     creditLimit: readInt(row.creditLimit),
     creditsUsed: Math.max(0, Math.floor(row.creditsUsed || 0)),
-    portalVariant: selectVariantFromHeader(h.get(PORTAL_VARIANT_HEADER), "portal"),
+    portalVariant: ownerVariant,
   };
 
   return { present: true, ok: true, context };

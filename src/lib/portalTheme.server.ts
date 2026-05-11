@@ -27,7 +27,7 @@ export async function getPortalThemeMode(userId?: string | null): Promise<Portal
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId: cleanUserId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
     select: { dataJson: true },
-  });
+  }).catch(() => null);
 
   const rec = asThemeRec(row?.dataJson);
   return normalizeThemeMode(rec.themeMode);

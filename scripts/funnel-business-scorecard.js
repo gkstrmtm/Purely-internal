@@ -257,6 +257,7 @@ function analyzeHtml(html) {
   const buttons = countMatches(source, /<(a|button)\b/gi);
   const forms = countMatches(source, /<(form|input|textarea|select)\b/gi);
   const media = countMatches(source, /<(img|picture|video|svg)\b/gi);
+  const bookingRuntimeMounts = countMatches(source, /data-pa-booking-runtime=|booking-inline-runtime|booking-native-shell/gi);
   const bookingSignals = countMatches(text, /\b(book|booking|schedule|call|consultation|calendar)\b/gi);
   const proofSignals = countMatches(text, /\b(testimonial|review|reviews|results|outcomes|proof|trusted|case study|client|founder|operators|saved|increased|reduced)\b/gi);
   const confirmationSignals = countMatches(text, /\b(confirm|confirmation|next step|what happens next|after you book|follow-up)\b/gi);
@@ -279,6 +280,7 @@ function analyzeHtml(html) {
     buttons,
     forms,
     media,
+    bookingRuntimeMounts,
     bookingSignals,
     proofSignals,
     confirmationSignals,
@@ -480,26 +482,37 @@ function gradeBlankCreate(result) {
   const hasPage = Boolean(result.pageId);
   const pageCount = result.pageCount || 0;
   const initSummary = String(result.initializationSummary || "");
+  const html = String(result.pageHtml || "");
+  const analysis = analyzeHtml(html);
+  const surface = analyzeConversionSurface(html);
+  const runtime = analyzeHostedPerformanceReadiness(html);
+  const hasStarterJourney = analysis.sections >= 3 && analysis.buttons >= 1 && (analysis.proofSignals >= 2 || analysis.confirmationSignals >= 1);
+  const hasPrimaryCta = Boolean(surface.primaryCtaText);
 
   const scores = makeDimensionScores({
-    intentInterpretation: created && initSummary ? 1 : created ? 1 : 0,
-    localEditPrecision: 1,
-    structuralConversionQuality: hasPage && pageCount >= 1 ? 2 : 0,
-    proofCredibility: 1,
-    leadDataCaptureReadiness: 1,
-    bookingOrCheckoutReadiness: 1,
-    conversionSurfaceFit: hasPage ? 1 : 0,
+    intentInterpretation: created && initSummary && hasStarterJourney ? 2 : created && initSummary ? 1 : 0,
+    localEditPrecision: hasPage && pageCount === 1 && analysis.sections <= 5 ? 2 : hasPage ? 1 : 0,
+    structuralConversionQuality:
+      analysis.hasStrongOpening && analysis.sections >= 3 && analysis.buttons >= 1 ? 2 : hasPage && pageCount >= 1 ? 1 : 0,
+    proofCredibility: analysis.proofSignals >= 3 ? 2 : analysis.proofSignals >= 1 ? 1 : 0,
+    leadDataCaptureReadiness: hasPrimaryCta && (analysis.captureSignals >= 2 || analysis.buttons >= 1) ? 2 : hasPrimaryCta ? 1 : 0,
+    bookingOrCheckoutReadiness:
+      hasPrimaryCta && (surface.inferredSurface !== "generic" || analysis.confirmationSignals >= 1) ? 2 : hasPrimaryCta ? 1 : 0,
+    conversionSurfaceFit:
+      hasPrimaryCta && (surface.inferredSurface !== "generic" || analysis.confirmationSignals >= 1) ? 2 : hasPrimaryCta ? 1 : 0,
     publishOperationalReadiness: created && hasFunnel && hasPage ? 2 : 0,
-    hostedPerformanceReadiness: hasPage ? 1 : 0,
-    visualAutonomy: hasPage ? 1 : 0,
-    artDirectionStrength: hasPage ? 1 : 0,
-    spatialDiscipline: hasPage ? 1 : 0,
+    hostedPerformanceReadiness: scoreHostedPerformanceReadiness(runtime, analysis),
+    visualAutonomy: analysis.hasDistinctVisualDirection ? 2 : html ? 1 : 0,
+    artDirectionStrength: analysis.hasAwardLevelArtDirection ? 2 : analysis.hasDistinctVisualDirection ? 1 : html ? 1 : 0,
+    spatialDiscipline: analysis.hasSpatialDiscipline ? 2 : html ? 1 : 0,
   });
 
   const failures = [];
   if (!created) failures.push("Funnel create route did not return success.");
   if (!hasPage) failures.push("New funnel did not materialize an editable first page.");
   if (!initSummary) failures.push("Create response did not provide an initialization summary worth grading.");
+  if (!html) failures.push("Blank create did not produce starter page HTML for the first page.");
+  if (html && analysis.sections < 3) failures.push("Blank create starter page is still too thin to give operators a real first-run conversion structure.");
 
   return summarizeScenario(
     "blank-funnel-create",
@@ -510,6 +523,11 @@ function gradeBlankCreate(result) {
       pageId: result.pageId,
       pageCount,
       initializationSummary: truncate(initSummary),
+      sections: analysis.sections,
+      buttons: analysis.buttons,
+      proofSignals: analysis.proofSignals,
+      primaryCtaText: truncate(surface.primaryCtaText, 120),
+      conversionSurface: surface.inferredSurface,
     },
     failures,
   );
@@ -664,7 +682,7 @@ function gradeBookingGeneration(result) {
     proofCredibility:
       analysis.hasTrustNearAsk && analysis.proofSignals >= 3 ? 2 : analysis.proofSignals >= 1 ? 1 : 0,
     leadDataCaptureReadiness:
-      analysis.forms > 0 || analysis.captureSignals >= 3 ? 2 : analysis.bookingSignals >= 2 ? 1 : 0,
+      analysis.forms > 0 || analysis.captureSignals >= 3 || analysis.bookingRuntimeMounts >= 1 ? 2 : analysis.bookingSignals >= 2 ? 1 : 0,
     bookingOrCheckoutReadiness:
       analysis.bookingSignals >= 4 && analysis.hasSinglePrimaryCtaLanguage ? 2 : analysis.bookingSignals >= 2 ? 1 : 0,
     conversionSurfaceFit: scoreConversionSurfaceFit(surface, "booking"),
@@ -672,7 +690,7 @@ function gradeBookingGeneration(result) {
       result.generateStatus >= 200 && result.reviewStatus >= 200 && strengths >= 0 ? 2 : 0,
     hostedPerformanceReadiness: scoreHostedPerformanceReadiness(runtime, analysis),
     visualAutonomy:
-      analysis.hasDistinctVisualDirection && warningCount === 0 ? 3 : analysis.hasDistinctVisualDirection ? 2 : html ? 1 : 0,
+      analysis.hasDistinctVisualDirection && warningCount <= 1 ? 3 : analysis.hasDistinctVisualDirection ? 2 : html ? 1 : 0,
     artDirectionStrength:
       analysis.hasAwardLevelArtDirection && warningCount <= 1 && strengths >= 3
         ? 3
@@ -740,6 +758,7 @@ function gradeBookingGeneration(result) {
       generateMs: result.generateMs,
       sections: analysis.sections,
       proofSignals: analysis.proofSignals,
+      bookingRuntimeMounts: analysis.bookingRuntimeMounts,
       bookingSignals: analysis.bookingSignals,
       conversionSurface: surface.inferredSurface,
       primaryCtaText: truncate(surface.primaryCtaText, 120),
@@ -764,19 +783,28 @@ function gradeBookingGeneration(result) {
 }
 
 function gradeBuilderUiAudit(result) {
+  const headingsBlob = result.headings.join(" ");
+  const buttonsBlob = result.buttons.join(" ");
+  const hasPageStructure = result.headings.length >= 4;
+  const hasProofSurface = /proof|testimonial|review|results?/i.test(headingsBlob);
+  const hasConversionTools = /booking|commerce|checkout|register|apply|open live|preview|publish/i.test(buttonsBlob);
+  const hasEditorWorkflow = result.buttons.some((label) => /page actions/i.test(label)) && result.buttons.some((label) => /\+ page|publish|preview/i.test(label));
+  const hasActiveEditorPosture = hasPageStructure && hasEditorWorkflow;
+
   const scores = makeDimensionScores({
-    intentInterpretation: 1,
-    localEditPrecision: 1,
-    structuralConversionQuality: result.headings.length >= 1 && result.buttons.length >= 3 ? 2 : 1,
-    proofCredibility: 1,
-    leadDataCaptureReadiness: result.buttons.some((label) => /save|publish|preview/i.test(label)) ? 2 : 1,
-    bookingOrCheckoutReadiness: 1,
-    conversionSurfaceFit: result.buttons.some((label) => /save|publish|preview|open live/i.test(label)) ? 1 : 0,
+    intentInterpretation: hasActiveEditorPosture ? 2 : result.url ? 1 : 0,
+    localEditPrecision: hasActiveEditorPosture && /open booking|open commerce|open tracking|open advanced/i.test(buttonsBlob) ? 2 : hasActiveEditorPosture ? 1 : 0,
+    structuralConversionQuality: hasPageStructure && result.buttons.length >= 4 ? 2 : result.headings.length >= 1 && result.buttons.length >= 3 ? 1 : 0,
+    proofCredibility: hasProofSurface ? 2 : result.headings.length >= 1 ? 1 : 0,
+    leadDataCaptureReadiness:
+      result.buttons.some((label) => /save|publish|preview/i.test(label)) && hasEditorWorkflow ? 2 : result.buttons.some((label) => /save|publish|preview/i.test(label)) ? 1 : 0,
+    bookingOrCheckoutReadiness: /booking|commerce|checkout|register|apply/i.test(buttonsBlob) ? 2 : hasConversionTools ? 1 : 0,
+    conversionSurfaceFit: hasActiveEditorPosture && hasConversionTools ? 2 : hasActiveEditorPosture ? 1 : 0,
     publishOperationalReadiness: !result.consoleErrors.length && !result.pageErrors.length && !result.failedRequests.length ? 2 : 0,
     hostedPerformanceReadiness: !result.failedRequests.length && result.iframeCount <= 1 ? 2 : 1,
-    visualAutonomy: 1,
-    artDirectionStrength: 1,
-    spatialDiscipline: 1,
+    visualAutonomy: hasPageStructure ? 1 : 0,
+    artDirectionStrength: hasProofSurface && hasPageStructure ? 1 : 0,
+    spatialDiscipline: hasPageStructure && result.iframeCount <= 1 ? 1 : 0,
   });
 
   const failures = [];
@@ -793,6 +821,9 @@ function gradeBuilderUiAudit(result) {
       headings: result.headings.slice(0, 8),
       buttons: result.buttons.slice(0, 12),
       tabs: result.tabs.slice(0, 8),
+      activeEditorPosture: hasActiveEditorPosture,
+      proofSurfaceVisible: hasProofSurface,
+      conversionToolsVisible: hasConversionTools,
       iframeCount: result.iframeCount,
       consoleErrors: result.consoleErrors.slice(0, 5),
       pageErrors: result.pageErrors.slice(0, 5),
@@ -988,7 +1019,13 @@ async function run() {
 
     logStep("builder ui audit");
     const uiOutcome = await safely(async () => {
-      const seed = await createBookingScenario(auth.cookie, "ui-audit");
+      const seed = bookingOutcome.ok && bookingOutcome.value.seed.funnelId
+        ? bookingOutcome.value.seed
+        : ctaOutcome.ok && ctaOutcome.value.seed.funnelId
+          ? ctaOutcome.value.seed
+          : discussOutcome.ok && discussOutcome.value.seed.funnelId
+            ? discussOutcome.value.seed
+            : await createBookingScenario(auth.cookie, "ui-audit");
       const audit = seed.funnelId ? await runBuilderUiAudit(auth.cookie, seed.funnelId) : {
         url: "",
         headings: [],
@@ -1009,6 +1046,10 @@ async function run() {
             funnelId: blankCreateOutcome.value.funnelId,
             pageId: blankCreateOutcome.value.page ? blankCreateOutcome.value.page.id : null,
             pageCount: blankCreateOutcome.value.pages.json && Array.isArray(blankCreateOutcome.value.pages.json.pages) ? blankCreateOutcome.value.pages.json.pages.length : 0,
+            pageHtml:
+              blankCreateOutcome.value.page && (blankCreateOutcome.value.page.draftHtml || blankCreateOutcome.value.page.customHtml)
+                ? blankCreateOutcome.value.page.draftHtml || blankCreateOutcome.value.page.customHtml
+                : "",
             initializationSummary:
               blankCreateOutcome.value.created.json && blankCreateOutcome.value.created.json.initialization
                 ? blankCreateOutcome.value.created.json.initialization.summary

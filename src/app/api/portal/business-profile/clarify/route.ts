@@ -3,13 +3,19 @@ import { z } from "zod";
 
 import { generateText } from "@/lib/ai";
 import { requireClientSessionForService } from "@/lib/portalAccess";
-import { BusinessProfileUpsertSchema } from "@/lib/portalBusinessProfile.server";
+import {
+  BusinessProfileUpsertSchema,
+  normalizeBusinessProfileWorkspaceDraft,
+  setBusinessProfileWorkspaceData,
+} from "@/lib/portalBusinessProfile.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const clarifyDraftSchema = BusinessProfileUpsertSchema.partial();
+const clarifyDraftSchema = BusinessProfileUpsertSchema.partial().extend({
+  businessName: z.string().trim().max(200).optional().or(z.literal("")),
+});
 
 const clarifyResponseSchema = z.object({
   summary: z.string().trim().min(1).max(500),
@@ -192,13 +198,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
   }
 
+  const ownerId = auth.session.user.id;
+
   const draft = normalizeDraft(parsed.data);
+  const sourceSignature = JSON.stringify(draft);
   const fallbackQuestions = buildFallbackQuestions(draft);
   const fallback = {
     ok: true as const,
     summary: buildFallbackSummary(draft, fallbackQuestions),
     questions: fallbackQuestions,
     recommendedContext: buildFallbackRecommendedContext(draft),
+    sourceSignature,
+    generatedAt: new Date().toISOString(),
   };
 
   const signalStrength = [
@@ -215,6 +226,10 @@ export async function POST(req: Request) {
     .trim().length;
 
   if (signalStrength < 20) {
+    await setBusinessProfileWorkspaceData(ownerId, {
+      draftProfile: normalizeBusinessProfileWorkspaceDraft(parsed.data),
+      clarification: fallback,
+    });
     return NextResponse.json(fallback);
   }
 
@@ -242,16 +257,35 @@ export async function POST(req: Request) {
     const raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-5.4", temperature: 0.3 });
     const decoded = extractJsonObject(raw);
     const clarified = clarifyResponseSchema.safeParse(decoded);
-    if (!clarified.success) return NextResponse.json(fallback);
+    if (!clarified.success) {
+      await setBusinessProfileWorkspaceData(ownerId, {
+        draftProfile: normalizeBusinessProfileWorkspaceDraft(parsed.data),
+        clarification: fallback,
+      });
+      return NextResponse.json(fallback);
+    }
 
-    return NextResponse.json({
+    const response = {
       ok: true,
       summary: clarified.data.summary,
       questions: clarified.data.questions,
       recommendedContext: clarified.data.recommendedContext,
+      sourceSignature,
+      generatedAt: new Date().toISOString(),
+    };
+
+    await setBusinessProfileWorkspaceData(ownerId, {
+      draftProfile: normalizeBusinessProfileWorkspaceDraft(parsed.data),
+      clarification: response,
     });
+
+    return NextResponse.json(response);
   } catch (error) {
     console.error("/api/portal/business-profile/clarify: generation failed", error);
+    await setBusinessProfileWorkspaceData(ownerId, {
+      draftProfile: normalizeBusinessProfileWorkspaceDraft(parsed.data),
+      clarification: fallback,
+    });
     return NextResponse.json(fallback);
   }
 }

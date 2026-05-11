@@ -101,6 +101,49 @@ type OwnerDetails = {
         topServicesByTime: Array<{ key: string; seconds: number }>;
         recentActivity: Array<{ atMs: number; path: string; pageKey?: string; dtSec: number }>;
       };
+      portalDiagnostics?: {
+        lastSeenAt: string | null;
+        actionFailureCount: number;
+        runtimeErrorCount: number;
+        unhandledRejectionCount: number;
+        resourceErrorCount: number;
+        segments: {
+          localOperator: number;
+          previewOperator: number;
+          productionOperator: number;
+          customerFacing: number;
+          unknown: number;
+        };
+        contexts: {
+          environments: Array<{ key: string; label: string; count: number }>;
+          surfaces: Array<{ key: string; label: string; count: number }>;
+          audiences: Array<{ key: string; label: string; count: number }>;
+          hosts: Array<{ key: string; label: string; count: number }>;
+        };
+        topPaths: Array<{ path: string; count: number }>;
+        topActions: Array<{ area: string; action: string; count: number }>;
+        recentEvents: Array<{
+          id: string;
+          kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure";
+          createdAtIso: string;
+          lastSeenAtIso: string;
+          count: number;
+          message: string;
+          path?: string;
+          source?: string;
+          file?: string;
+          line?: number;
+          column?: number;
+          area?: string | null;
+          action?: string | null;
+          status?: number | null;
+          viewHost?: string | null;
+          viewEnvironment: string;
+          viewSurface: string;
+          viewAudience: string;
+        }>;
+        bugReports: { count: number; lastReportedAt: string | null };
+      };
       newsletter: { failedLast30: number; sentLast30: number; requestedLast30: number; sendEventsLast30: number };
       leadScraping: { runsLast30: number; createdLast30: number; chargedCreditsLast30: number; errorsLast30: number };
       booking: { site: { enabled: boolean; slug: string; title: string } | null; bookingsCreatedLast30: number; bookingsUpcoming: number };
@@ -159,6 +202,46 @@ function formatDurationShort(secondsRaw: number | null | undefined) {
   const hours = Math.floor(minutes / 60);
   const remMin = minutes % 60;
   return remMin ? `${hours}h ${remMin}m` : `${hours}h`;
+}
+
+function portalDiagnosticKindLabel(kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure") {
+  if (kind === "action_failure") return "Action";
+  if (kind === "runtime_error") return "Runtime";
+  if (kind === "unhandled_rejection") return "Promise";
+  return "Resource";
+}
+
+function portalDiagnosticKindClassName(kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure") {
+  if (kind === "action_failure") return "bg-amber-100 text-amber-900";
+  if (kind === "runtime_error") return "bg-red-100 text-red-900";
+  if (kind === "unhandled_rejection") return "bg-orange-100 text-orange-900";
+  return "bg-sky-100 text-sky-900";
+}
+
+function portalDiagnosticViewEnvironmentLabel(value: string | null | undefined) {
+  if (value === "local") return "Local / dev";
+  if (value === "preview") return "Preview";
+  if (value === "production") return "Production";
+  return "Unknown";
+}
+
+function portalDiagnosticViewSurfaceLabel(value: string | null | undefined) {
+  if (value === "admin_portal") return "Admin portal";
+  if (value === "hosted_funnel") return "Hosted funnel";
+  if (value === "public_site") return "Public site";
+  return "Unknown";
+}
+
+function portalDiagnosticViewAudienceLabel(value: string | null | undefined) {
+  if (value === "internal_operator") return "Internal operator";
+  if (value === "customer_surface") return "Customer-facing";
+  return "Unknown";
+}
+
+function humanizePortalDiagnosticAction(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Unknown action";
+  return raw.replace(/_/g, " ");
 }
 
 function groupRecentActivity(
@@ -283,6 +366,7 @@ export default function PortalOverridesClient() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [detailsByOwnerId, setDetailsByOwnerId] = useState<Record<string, OwnerDetails>>({});
+  const [detailsTab, setDetailsTab] = useState<"account" | "diagnostics">("account");
   const [creditSeedingOwnerId, setCreditSeedingOwnerId] = useState<string | null>(null);
 
   const testingUser = useMemo(() => {
@@ -296,6 +380,11 @@ export default function PortalOverridesClient() {
     if (!id) return null;
     return detailsByOwnerId[id] ?? null;
   }, [detailsByOwnerId, detailsOwnerId]);
+
+  useEffect(() => {
+    if (!detailsOwnerId) return;
+    setDetailsTab("account");
+  }, [detailsOwnerId]);
 
   const testingAiReceptionistAgentId =
     testingUser?.voiceAgentIds?.aiReceptionist ?? testingUser?.voiceAgentIds?.profile ?? null;
@@ -831,7 +920,32 @@ export default function PortalOverridesClient() {
               ) : null}
 
               {details ? (
-                <div className="grid gap-5 p-5 lg:grid-cols-2">
+                <div className="p-5">
+                <div className="mb-5 inline-flex w-full flex-wrap items-center gap-2 rounded-2xl bg-zinc-100/70 p-1">
+                  {([
+                    { key: "account" as const, label: "Account" },
+                    { key: "diagnostics" as const, label: "Diagnostics" },
+                  ] as const).map((item) => {
+                    const active = detailsTab === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => setDetailsTab(item.key)}
+                        aria-current={active ? "page" : undefined}
+                        className={
+                          active
+                            ? "inline-flex items-center rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-brand-ink ring-1 ring-zinc-200"
+                            : "inline-flex items-center rounded-2xl px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-white hover:text-zinc-900"
+                        }
+                      >
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {detailsTab === "account" ? (
+                <div className="grid gap-5 lg:grid-cols-2">
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="text-sm font-semibold text-zinc-900">Business</div>
@@ -1095,6 +1209,83 @@ export default function PortalOverridesClient() {
                     </div>
                   ) : null}
 
+                  {details.owner.usage.portalDiagnostics ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-900">Portal diagnostics</div>
+                          <div className="mt-1 text-xs text-zinc-500">Automatic app-side failures captured from the portal shell, plus manual bug reports.</div>
+                        </div>
+                        <div className="text-right text-xs text-zinc-500">
+                          {details.owner.usage.portalDiagnostics.lastSeenAt ? formatIso(details.owner.usage.portalDiagnostics.lastSeenAt) : "No diagnostics yet"}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-zinc-700 md:grid-cols-5">
+                        <div>
+                          <div className="text-xs text-zinc-500">Action failures</div>
+                          <div className={details.owner.usage.portalDiagnostics.actionFailureCount ? "font-semibold text-amber-800" : "font-semibold text-zinc-900"}>
+                            {details.owner.usage.portalDiagnostics.actionFailureCount}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-zinc-500">Runtime errors</div>
+                          <div className={details.owner.usage.portalDiagnostics.runtimeErrorCount ? "font-semibold text-amber-800" : "font-semibold text-zinc-900"}>
+                            {details.owner.usage.portalDiagnostics.runtimeErrorCount}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-zinc-500">Unhandled rejections</div>
+                          <div className={details.owner.usage.portalDiagnostics.unhandledRejectionCount ? "font-semibold text-amber-800" : "font-semibold text-zinc-900"}>
+                            {details.owner.usage.portalDiagnostics.unhandledRejectionCount}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-zinc-500">Resource errors</div>
+                          <div className={details.owner.usage.portalDiagnostics.resourceErrorCount ? "font-semibold text-amber-800" : "font-semibold text-zinc-900"}>
+                            {details.owner.usage.portalDiagnostics.resourceErrorCount}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-zinc-500">Manual bug reports</div>
+                          <div className={details.owner.usage.portalDiagnostics.bugReports.count ? "font-semibold text-amber-800" : "font-semibold text-zinc-900"}>
+                            {details.owner.usage.portalDiagnostics.bugReports.count}
+                          </div>
+                        </div>
+                      </div>
+
+                      {details.owner.usage.portalDiagnostics.recentEvents.length ? (
+                        <div className="mt-3 max-h-72 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="grid gap-2">
+                            {details.owner.usage.portalDiagnostics.recentEvents.slice(0, 30).map((item) => (
+                              <div key={item.id} className="rounded-xl border border-zinc-200 bg-white p-3 text-xs text-zinc-700">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="font-semibold text-zinc-900">
+                                      {portalDiagnosticKindLabel(item.kind)}
+                                      {item.count > 1 ? ` x${item.count}` : ""}
+                                    </div>
+                                    <div className="mt-1 wrap-break-word text-zinc-700">{item.message}</div>
+                                    {item.path ? <div className="mt-1 font-mono text-[11px] text-zinc-500">{item.path}</div> : null}
+                                    {item.file ? <div className="mt-1 font-mono text-[11px] text-zinc-400">{item.file}</div> : null}
+                                  </div>
+                                  <div className="shrink-0 text-right text-[11px] text-zinc-500">
+                                    <div>{formatIso(item.lastSeenAtIso || item.createdAtIso)}</div>
+                                    {item.source ? <div className="mt-1 uppercase tracking-wide">{item.source}</div> : null}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-500">
+                          No automatic client failures have been recorded for this owner yet.
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+
                   {details.hostedLinks ? (
                     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                       <div className="text-sm font-semibold text-zinc-900">Hosted links</div>
@@ -1184,6 +1375,105 @@ export default function PortalOverridesClient() {
                     </div>
                   ) : null}
                 </div>
+                </div>
+                ) : (
+                <div className="space-y-4">
+                  {details.owner.usage.portalDiagnostics ? (
+                    <>
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-zinc-900">Diagnostics overview</div>
+                            <div className="mt-1 text-sm text-zinc-600">Manager-side failure view for this account, with local/dev operator activity separated from customer-facing traffic.</div>
+                          </div>
+                          <div className="text-right text-xs text-zinc-500">
+                            {details.owner.usage.portalDiagnostics.lastSeenAt ? formatIso(details.owner.usage.portalDiagnostics.lastSeenAt) : "No diagnostics yet"}
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Action failures</div><div className="mt-1 text-lg font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.actionFailureCount}</div></div>
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Runtime errors</div><div className="mt-1 text-lg font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.runtimeErrorCount}</div></div>
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Promise failures</div><div className="mt-1 text-lg font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.unhandledRejectionCount}</div></div>
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Resource failures</div><div className="mt-1 text-lg font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.resourceErrorCount}</div></div>
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Bug reports</div><div className="mt-1 text-lg font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.bugReports.count}</div></div>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-5">
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Local / dev operator</div><div className="mt-1 text-base font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.segments.localOperator}</div></div>
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Preview operator</div><div className="mt-1 text-base font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.segments.previewOperator}</div></div>
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Production operator</div><div className="mt-1 text-base font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.segments.productionOperator}</div></div>
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Customer-facing</div><div className="mt-1 text-base font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.segments.customerFacing}</div></div>
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"><div className="text-xs text-zinc-500">Unknown</div><div className="mt-1 text-base font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.segments.unknown}</div></div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 xl:grid-cols-2">
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                          <div className="text-sm font-semibold text-zinc-900">Top failing actions</div>
+                          <div className="mt-3 space-y-2">
+                            {details.owner.usage.portalDiagnostics.topActions.length ? details.owner.usage.portalDiagnostics.topActions.map((item) => (
+                              <div key={`${item.area}:${item.action}`} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                                <div className="min-w-0"><div className="truncate text-sm font-semibold text-brand-ink">{humanizePortalDiagnosticAction(item.action)}</div><div className="mt-0.5 text-xs text-zinc-500">{item.area.replace(/_/g, " ")}</div></div>
+                                <div className="shrink-0 text-sm font-semibold text-zinc-900">{item.count}</div>
+                              </div>
+                            )) : <div className="text-sm text-zinc-600">No explicit action failures recorded yet.</div>}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                          <div className="text-sm font-semibold text-zinc-900">Context mix</div>
+                          <div className="mt-3 space-y-3 text-xs text-zinc-700">
+                            <div><div className="font-semibold text-zinc-600">Environment</div><div className="mt-2 flex flex-wrap gap-2">{details.owner.usage.portalDiagnostics.contexts.environments.map((item) => <span key={`env:${item.key}`} className="rounded-full bg-zinc-100 px-2.5 py-1 font-semibold">{item.label}: {item.count}</span>)}</div></div>
+                            <div><div className="font-semibold text-zinc-600">Surface</div><div className="mt-2 flex flex-wrap gap-2">{details.owner.usage.portalDiagnostics.contexts.surfaces.map((item) => <span key={`surface:${item.key}`} className="rounded-full bg-zinc-100 px-2.5 py-1 font-semibold">{item.label}: {item.count}</span>)}</div></div>
+                            <div><div className="font-semibold text-zinc-600">Audience</div><div className="mt-2 flex flex-wrap gap-2">{details.owner.usage.portalDiagnostics.contexts.audiences.map((item) => <span key={`aud:${item.key}`} className="rounded-full bg-zinc-100 px-2.5 py-1 font-semibold">{item.label}: {item.count}</span>)}</div></div>
+                            <div><div className="font-semibold text-zinc-600">Hosts</div><div className="mt-2 space-y-2">{details.owner.usage.portalDiagnostics.contexts.hosts.length ? details.owner.usage.portalDiagnostics.contexts.hosts.map((item) => <div key={`host:${item.key}`} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2"><div className="min-w-0 truncate font-mono text-[11px]">{item.label}</div><div className="shrink-0 font-semibold">{item.count}</div></div>) : <div className="text-sm text-zinc-500">No host data yet.</div>}</div></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 xl:grid-cols-2">
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                          <div className="text-sm font-semibold text-zinc-900">Top paths</div>
+                          <div className="mt-3 space-y-2">{details.owner.usage.portalDiagnostics.topPaths.length ? details.owner.usage.portalDiagnostics.topPaths.map((item) => <div key={item.path} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2"><div className="min-w-0 truncate font-mono text-[11px] text-zinc-700">{item.path}</div><div className="shrink-0 text-sm font-semibold text-zinc-900">{item.count}</div></div>) : <div className="text-sm text-zinc-600">No repeated paths are standing out yet.</div>}</div>
+                        </div>
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                          <div className="text-sm font-semibold text-zinc-900">Manual bug reports</div>
+                          <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="text-xs text-zinc-500">Reports in storage</div><div className="mt-1 text-lg font-bold text-brand-ink">{details.owner.usage.portalDiagnostics.bugReports.count}</div><div className="mt-1 text-xs text-zinc-500">{details.owner.usage.portalDiagnostics.bugReports.lastReportedAt ? `Last report: ${formatIso(details.owner.usage.portalDiagnostics.bugReports.lastReportedAt)}` : "No bug reports recorded yet."}</div></div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                        <div className="text-sm font-semibold text-zinc-900">Recent diagnostics</div>
+                        {details.owner.usage.portalDiagnostics.recentEvents.length ? (
+                          <div className="mt-3 space-y-3">{details.owner.usage.portalDiagnostics.recentEvents.slice(0, 40).map((item) => (
+                            <div key={item.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-700">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className={`rounded-full px-2.5 py-1 font-semibold ${portalDiagnosticKindClassName(item.kind)}`}>{portalDiagnosticKindLabel(item.kind)}</span>
+                                    {item.area ? <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-zinc-700">{item.area.replace(/_/g, " ")}</span> : null}
+                                    {item.action ? <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-zinc-700">{humanizePortalDiagnosticAction(item.action)}</span> : null}
+                                    {typeof item.status === "number" ? <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-zinc-700">HTTP {item.status}</span> : null}
+                                  </div>
+                                  <div className="mt-2 text-sm font-semibold text-zinc-900">{item.message}</div>
+                                </div>
+                                <div className="shrink-0 text-right text-[11px] text-zinc-500">{formatIso(item.lastSeenAtIso || item.createdAtIso)}{item.count > 1 ? ` · x${item.count}` : ""}</div>
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-2"><span className="rounded-full bg-white px-2.5 py-1 font-semibold text-zinc-700">{portalDiagnosticViewEnvironmentLabel(item.viewEnvironment)}</span><span className="rounded-full bg-white px-2.5 py-1 font-semibold text-zinc-700">{portalDiagnosticViewSurfaceLabel(item.viewSurface)}</span><span className="rounded-full bg-white px-2.5 py-1 font-semibold text-zinc-700">{portalDiagnosticViewAudienceLabel(item.viewAudience)}</span>{item.viewHost ? <span className="rounded-full bg-white px-2.5 py-1 font-mono font-semibold text-zinc-700">{item.viewHost}</span> : null}</div>
+                              {item.path ? <div className="mt-2 font-mono text-[11px] text-zinc-500">{item.path}</div> : null}
+                              {item.file ? <div className="mt-1 font-mono text-[11px] text-zinc-400">{item.file}</div> : null}
+                            </div>
+                          ))}</div>
+                        ) : (
+                          <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-500">No automatic client failures have been recorded for this owner yet.</div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">Diagnostics are not available for this account yet.</div>
+                  )}
+                </div>
+                )}
                 </div>
               ) : null}
             </div>

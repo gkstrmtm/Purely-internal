@@ -2,11 +2,12 @@ import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
 import { getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
+import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
-import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
+import { resolveFunnelBookingCalendarId } from "@/lib/funnelBookingRouting";
 import { readFunnelOffers } from "@/lib/funnelOffers";
 import { resolveFunnelBookingSurfaceContext } from "@/lib/funnelBookingSurface";
 import { resolveFunnelPageRenderState } from "@/lib/funnelPageGraph";
@@ -56,7 +57,10 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
   const settings = funnel.ownerId
     ? await prisma.creditFunnelBuilderSettings.findUnique({ where: { ownerId: funnel.ownerId }, select: { dataJson: true } }).catch(() => null)
     : null;
-  const defaultBookingCalendarId = readFunnelBookingRouting(settings?.dataJson ?? null, funnel.id)?.calendarId ?? null;
+  const bookingCalendars = funnel.ownerId
+    ? await getBookingCalendarsConfig(funnel.ownerId).catch(() => ({ version: 1 as const, calendars: [] }))
+    : { version: 1 as const, calendars: [] };
+  const defaultBookingCalendarId = resolveFunnelBookingCalendarId(settings?.dataJson ?? null, funnel.id, bookingCalendars.calendars) || null;
   const offers = readFunnelOffers(settings?.dataJson ?? null, funnel.id);
 
   const page = funnel.pages[0] || null;

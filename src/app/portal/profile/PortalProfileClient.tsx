@@ -192,7 +192,7 @@ function ToggleChip({ checked }: { checked: boolean }) {
       <span
         className={classNames(
           "pa-portal-toggle-track pointer-events-none absolute inset-0 rounded-full bg-zinc-200 transition-colors duration-200",
-          checked && "bg-[color:var(--color-brand-blue)]",
+          checked && "bg-(--color-brand-blue)",
         )}
       />
       <span
@@ -606,7 +606,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       if (!mounted) return;
 
       if (!res?.ok) {
-        const json = (await res?.json().catch(() => ({}))) as { error?: string };
+        const json = res ? (((await res.json().catch(() => ({}))) as { error?: string }) ?? {}) : {};
         setMailbox(null);
         setMailboxError(json.error ?? "Unable to load business email");
         setMailboxLoading(false);

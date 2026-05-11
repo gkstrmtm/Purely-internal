@@ -1,9 +1,11 @@
 import type { FunnelFoundationBusinessContext } from "@/lib/funnelPageIntent";
 
 import { assessBusinessProfileContextHealth } from "@/lib/businessProfileContextHealth";
+import { resolveBusinessProfileRuntimeSnapshot } from "@/lib/businessProfileRuntimeSnapshot";
 import { deriveBusinessProfileTemplateVars } from "@/lib/businessProfileTemplateVars";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import { getPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
 
 type ProfileColumnFlags = {
   websiteUrl: boolean;
@@ -115,28 +117,30 @@ export async function getBusinessProfileFoundationContext(ownerId: string): Prom
   const id = String(ownerId || "").trim();
   if (!id) return null;
 
-  const flags = await getProfileColumnFlags();
+  const result = await getPortalBusinessProfile({ ownerId: id }).catch(() => null);
+  const json = result?.json as
+    | {
+        ok?: boolean;
+        profile?: Record<string, unknown> | null;
+        draftProfile?: Record<string, unknown> | null;
+        guidedIntake?: Record<string, string[]> | null;
+      }
+    | undefined;
+  if (!json?.ok) return null;
 
-  const select: Record<string, boolean> = {
-    businessName: true,
-  };
-  if (flags.industry) select.industry = true;
-  if (flags.businessModel) select.businessModel = true;
-  if (flags.primaryGoals) select.primaryGoals = true;
-  if (flags.targetCustomer) select.targetCustomer = true;
-  if (flags.brandVoice) select.brandVoice = true;
-  if (flags.businessContext) select.businessContext = true;
+  const profile = resolveBusinessProfileRuntimeSnapshot({
+    profile: json.profile,
+    draftProfile: json.draftProfile,
+    guidedIntake: json.guidedIntake,
+  });
 
-  const profile = await prisma.businessProfile.findUnique({ where: { ownerId: id }, select: select as any }).catch(() => null);
-  if (!profile) return null;
-
-  const businessName = safeLine((profile as any).businessName, 200);
-  const industry = flags.industry ? safeLine((profile as any).industry, 160) : "";
-  const businessModel = flags.businessModel ? safeLine((profile as any).businessModel, 240) : "";
-  const primaryGoals = flags.primaryGoals ? safeGoals((profile as any).primaryGoals) : [];
-  const targetCustomer = flags.targetCustomer ? safeLine((profile as any).targetCustomer, 240) : "";
-  const brandVoice = flags.brandVoice ? safeLine((profile as any).brandVoice, 240) : "";
-  const businessContext = flags.businessContext ? safeParagraph((profile as any).businessContext, 3200) : "";
+  const businessName = profile.businessName;
+  const industry = profile.industry;
+  const businessModel = profile.businessModel;
+  const primaryGoals = profile.primaryGoals;
+  const targetCustomer = profile.targetCustomer;
+  const brandVoice = profile.brandVoice;
+  const businessContext = profile.businessContext;
 
   if (!businessName && !industry && !businessModel && !primaryGoals.length && !targetCustomer && !brandVoice && !businessContext) {
     return null;
@@ -157,75 +161,64 @@ export async function getBusinessProfileTemplateVars(ownerId: string): Promise<R
   const id = String(ownerId || "").trim();
   if (!id) return {};
 
-  const flags = await getProfileColumnFlags();
+  const result = await getPortalBusinessProfile({ ownerId: id }).catch(() => null);
+  const json = result?.json as
+    | {
+        ok?: boolean;
+        profile?: Record<string, unknown> | null;
+        draftProfile?: Record<string, unknown> | null;
+        guidedIntake?: Record<string, string[]> | null;
+      }
+    | undefined;
+  if (!json?.ok) return {};
 
-  const select: Record<string, boolean> = {
-    businessName: true,
-  };
-  if (flags.websiteUrl) select.websiteUrl = true;
-  if (flags.industry) select.industry = true;
-  if (flags.businessModel) select.businessModel = true;
-  if (flags.targetCustomer) select.targetCustomer = true;
-  if (flags.brandVoice) select.brandVoice = true;
-  if (flags.businessContext) select.businessContext = true;
-  if (flags.logoUrl) select.logoUrl = true;
-  if (flags.brandPrimaryHex) select.brandPrimaryHex = true;
-  if (flags.brandSecondaryHex) select.brandSecondaryHex = true;
-  if (flags.brandAccentHex) select.brandAccentHex = true;
-  if (flags.brandTextHex) select.brandTextHex = true;
-  if (flags.brandFontFamily) select.brandFontFamily = true;
-  if (flags.brandFontGoogleFamily) select.brandFontGoogleFamily = true;
-
-  const profile = await prisma.businessProfile.findUnique({ where: { ownerId: id }, select: select as any }).catch(() => null);
-  if (!profile) return {};
-
-  return deriveBusinessProfileTemplateVars(profile);
+  return deriveBusinessProfileTemplateVars(
+    resolveBusinessProfileRuntimeSnapshot({
+      profile: json.profile,
+      draftProfile: json.draftProfile,
+      guidedIntake: json.guidedIntake,
+    }),
+  );
 }
 
 export async function getBusinessProfileAiContext(ownerId: string): Promise<string> {
   const id = String(ownerId || "").trim();
   if (!id) return "";
 
-  const flags = await getProfileColumnFlags();
+  const result = await getPortalBusinessProfile({ ownerId: id }).catch(() => null);
+  const json = result?.json as
+    | {
+        ok?: boolean;
+        profile?: Record<string, unknown> | null;
+        draftProfile?: Record<string, unknown> | null;
+        guidedIntake?: Record<string, string[]> | null;
+      }
+    | undefined;
+  if (!json?.ok) return "";
 
-  const select: Record<string, boolean> = {
-    businessName: true,
-  };
-  if (flags.websiteUrl) select.websiteUrl = true;
-  if (flags.industry) select.industry = true;
-  if (flags.businessModel) select.businessModel = true;
-  if (flags.primaryGoals) select.primaryGoals = true;
-  if (flags.targetCustomer) select.targetCustomer = true;
-  if (flags.brandVoice) select.brandVoice = true;
-  if (flags.businessContext) select.businessContext = true;
-  if (flags.logoUrl) select.logoUrl = true;
-  if (flags.brandPrimaryHex) select.brandPrimaryHex = true;
-  if (flags.brandSecondaryHex) select.brandSecondaryHex = true;
-  if (flags.brandAccentHex) select.brandAccentHex = true;
-  if (flags.brandTextHex) select.brandTextHex = true;
-  if (flags.brandFontFamily) select.brandFontFamily = true;
-  if (flags.brandFontGoogleFamily) select.brandFontGoogleFamily = true;
+  const profile = resolveBusinessProfileRuntimeSnapshot({
+    profile: json.profile,
+    draftProfile: json.draftProfile,
+    guidedIntake: json.guidedIntake,
+  });
 
-  const profile = await prisma.businessProfile.findUnique({ where: { ownerId: id }, select: select as any });
-  if (!profile) return "";
-
-  const businessName = safeLine((profile as any).businessName, 200);
+  const businessName = profile.businessName;
   if (!businessName) return "";
 
-  const websiteUrl = flags.websiteUrl ? safeUrl((profile as any).websiteUrl, 400) : "";
-  const industry = flags.industry ? safeLine((profile as any).industry, 160) : "";
-  const businessModel = flags.businessModel ? safeLine((profile as any).businessModel, 240) : "";
-  const primaryGoals = flags.primaryGoals ? safeGoals((profile as any).primaryGoals) : [];
-  const targetCustomer = flags.targetCustomer ? safeLine((profile as any).targetCustomer, 240) : "";
-  const brandVoice = flags.brandVoice ? safeLine((profile as any).brandVoice, 240) : "";
-  const businessContext = flags.businessContext ? safeParagraph((profile as any).businessContext, 3200) : "";
-  const logoUrl = flags.logoUrl ? safeUrl((profile as any).logoUrl, 500) : "";
-  const brandPrimaryHex = flags.brandPrimaryHex ? safeLine((profile as any).brandPrimaryHex, 16) : "";
-  const brandSecondaryHex = flags.brandSecondaryHex ? safeLine((profile as any).brandSecondaryHex, 16) : "";
-  const brandAccentHex = flags.brandAccentHex ? safeLine((profile as any).brandAccentHex, 16) : "";
-  const brandTextHex = flags.brandTextHex ? safeLine((profile as any).brandTextHex, 16) : "";
-  const brandFontFamily = flags.brandFontFamily ? safeLine((profile as any).brandFontFamily, 120) : "";
-  const brandFontGoogleFamily = flags.brandFontGoogleFamily ? safeLine((profile as any).brandFontGoogleFamily, 160) : "";
+  const websiteUrl = profile.websiteUrl;
+  const industry = profile.industry;
+  const businessModel = profile.businessModel;
+  const primaryGoals = profile.primaryGoals;
+  const targetCustomer = profile.targetCustomer;
+  const brandVoice = profile.brandVoice;
+  const businessContext = profile.businessContext;
+  const logoUrl = profile.logoUrl;
+  const brandPrimaryHex = profile.brandPrimaryHex;
+  const brandSecondaryHex = profile.brandSecondaryHex;
+  const brandAccentHex = profile.brandAccentHex;
+  const brandTextHex = profile.brandTextHex;
+  const brandFontFamily = profile.brandFontFamily;
+  const brandFontGoogleFamily = profile.brandFontGoogleFamily;
   const health = assessBusinessProfileContextHealth({
     businessName,
     websiteUrl,
@@ -250,7 +243,7 @@ export async function getBusinessProfileAiContext(ownerId: string): Promise<stri
     `- Context health: ${health.score}/100 (${health.label})`,
     `- Context health note: ${health.explanation}`,
     `- Assistant confidence guidance: ${health.assistantGuidance}`,
-    health.nextSteps.length ? `- Smallest next steps: ${health.nextSteps.join("; ")}` : "",
+    health.nextSteps.length ? `- Smallest next steps: ${health.nextSteps.map((step) => step.label).join("; ")}` : "",
     websiteUrl ? `- Website: ${websiteUrl}` : "",
     industry ? `- Industry: ${industry}` : "",
     businessModel ? `- Business model: ${businessModel}` : "",

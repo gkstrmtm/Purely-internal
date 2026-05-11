@@ -25,7 +25,7 @@ export default async function HostedFormPage({
   // Canonicalize to a collision-safe URL that includes a short key derived from the form id.
   // If multiple forms share the same slug (across different owners), the slug-only URL is ambiguous.
   const matches = await prisma.creditForm
-    .findMany({ where: { slug: s }, select: { id: true }, take: 2 })
+    .findMany({ where: { slug: s, status: "ACTIVE" }, select: { id: true }, take: 2 })
     .catch(() => null);
 
   if (!matches || matches.length === 0) notFound();

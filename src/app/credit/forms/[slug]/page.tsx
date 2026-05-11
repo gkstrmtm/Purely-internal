@@ -25,7 +25,7 @@ export default async function CreditHostedFormPage({
   const embed = Array.isArray(embedRaw) ? embedRaw[0] === "1" : embedRaw === "1";
 
   const form = await prisma.creditForm
-    .findUnique({ where: { slug: s }, select: { name: true, slug: true, status: true, schemaJson: true } })
+    .findFirst({ where: { slug: s, status: "ACTIVE" }, select: { name: true, slug: true, status: true, schemaJson: true } })
     .catch(() => null);
 
   if (!form) notFound();

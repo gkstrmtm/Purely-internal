@@ -8,13 +8,19 @@ import { hasPublicTable } from "@/lib/dbSchema";
 export const CREDIT_FUNNEL_EVENT_TYPES = [
   "page_view",
   "cta_click",
+  "form_started",
   "form_submitted",
+  "validation_failed",
   "booking_created",
   "checkout_started",
+  "checkout_failed",
   "add_to_cart",
+  "save_failed",
+  "publish_failed",
 ] as const;
 
 export type CreditFunnelEventType = (typeof CREDIT_FUNNEL_EVENT_TYPES)[number];
+export type CreditFunnelEventMetrics = Record<CreditFunnelEventType, number>;
 
 export type CreditFunnelTrackingContext = {
   funnelId?: string | null;
@@ -91,6 +97,26 @@ export async function dbHasCreditFunnelEventTable() {
 
 export function invalidateCreditFunnelEventTableCache() {
   hasCreditFunnelEventTablePromise = null;
+}
+
+export function createEmptyCreditFunnelEventMetrics(): CreditFunnelEventMetrics {
+  return {
+    page_view: 0,
+    cta_click: 0,
+    form_started: 0,
+    form_submitted: 0,
+    validation_failed: 0,
+    booking_created: 0,
+    checkout_started: 0,
+    checkout_failed: 0,
+    add_to_cart: 0,
+    save_failed: 0,
+    publish_failed: 0,
+  };
+}
+
+function countValue(value: bigint | number | null | undefined) {
+  return typeof value === "bigint" ? Number(value) : Number(value || 0);
 }
 
 export function parseCreditFunnelTrackingContext(raw: unknown): CreditFunnelTrackingContext | null {
@@ -286,19 +312,105 @@ export async function getCreditFunnelPageMetrics(pageIds: string[]) {
       const pageId = cleanText(row.pageId, 120);
       const eventType = cleanText(row.eventType, 80) as CreditFunnelEventType;
       if (!pageId || !CREDIT_FUNNEL_EVENT_TYPES.includes(eventType)) continue;
-      const current = out.get(pageId) || {
-        page_view: 0,
-        cta_click: 0,
-        form_submitted: 0,
-        booking_created: 0,
-        checkout_started: 0,
-        add_to_cart: 0,
-      };
-      current[eventType] = Number(row.count || 0);
+      const current = out.get(pageId) || createEmptyCreditFunnelEventMetrics();
+      current[eventType] = countValue(row.count);
       out.set(pageId, current);
     }
     return out;
   } catch {
     return new Map<string, Record<CreditFunnelEventType, number>>();
+  }
+}
+
+export async function getCreditFunnelWindowAnalytics(input: { funnelId: string; since?: Date }) {
+  const funnelId = cleanText(input.funnelId, 120);
+  const since = input.since instanceof Date && Number.isFinite(input.since.getTime()) ? input.since : new Date(0);
+  const trackingReady = await dbHasCreditFunnelEventTable();
+
+  const totals = createEmptyCreditFunnelEventMetrics();
+  const pageMetrics = new Map<string, CreditFunnelEventMetrics>();
+  const pageSessions = new Map<string, number>();
+
+  if (!funnelId || !trackingReady) {
+    return {
+      trackingReady,
+      since: since.toISOString(),
+      totalEvents: 0,
+      totalSessions: 0,
+      totals,
+      pageMetrics,
+      pageSessions,
+    };
+  }
+
+  try {
+    const [eventRows, pageSessionRows, totalSessionRows] = await Promise.all([
+      prisma.$queryRaw<Array<{ pageId: string | null; eventType: string; count: bigint | number }>>`
+        SELECT "pageId" as "pageId", "eventType" as "eventType", COUNT(*) as "count"
+        FROM "CreditFunnelEvent"
+        WHERE "funnelId" = ${funnelId}
+          AND "createdAt" >= ${since}
+        GROUP BY "pageId", "eventType"
+      `,
+      prisma.$queryRaw<Array<{ pageId: string | null; count: bigint | number }>>`
+        SELECT "pageId" as "pageId", COUNT(DISTINCT "sessionId") as "count"
+        FROM "CreditFunnelEvent"
+        WHERE "funnelId" = ${funnelId}
+          AND "createdAt" >= ${since}
+          AND "sessionId" IS NOT NULL
+        GROUP BY "pageId"
+      `,
+      prisma.$queryRaw<Array<{ count: bigint | number }>>`
+        SELECT COUNT(DISTINCT "sessionId") as "count"
+        FROM "CreditFunnelEvent"
+        WHERE "funnelId" = ${funnelId}
+          AND "createdAt" >= ${since}
+          AND "sessionId" IS NOT NULL
+      `,
+    ]);
+
+    for (const row of eventRows) {
+      const eventType = cleanText(row.eventType, 80) as CreditFunnelEventType;
+      if (!CREDIT_FUNNEL_EVENT_TYPES.includes(eventType)) continue;
+
+      const count = countValue(row.count);
+      totals[eventType] += count;
+
+      const pageId = cleanText(row.pageId, 120);
+      if (!pageId) continue;
+
+      const current = pageMetrics.get(pageId) || createEmptyCreditFunnelEventMetrics();
+      current[eventType] += count;
+      pageMetrics.set(pageId, current);
+    }
+
+    for (const row of pageSessionRows) {
+      const pageId = cleanText(row.pageId, 120);
+      if (!pageId) continue;
+      pageSessions.set(pageId, countValue(row.count));
+    }
+
+    const totalEvents = CREDIT_FUNNEL_EVENT_TYPES.reduce((sum, key) => sum + totals[key], 0);
+    const totalSessions = countValue(totalSessionRows[0]?.count ?? 0);
+
+    return {
+      trackingReady,
+      since: since.toISOString(),
+      totalEvents,
+      totalSessions,
+      totals,
+      pageMetrics,
+      pageSessions,
+    };
+  } catch {
+    return {
+      trackingReady,
+      since: since.toISOString(),
+      totalEvents: 0,
+      totalSessions: 0,
+      totals,
+      pageMetrics,
+      pageSessions,
+    };
   }
 }

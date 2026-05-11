@@ -37,6 +37,7 @@ import { usePortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 import type { Entitlements } from "@/lib/entitlements.shared";
 import { usePortalActiveTimeTracker } from "@/lib/portalActiveTime.client";
+import { usePortalDiagnosticsTracker } from "@/lib/portalDiagnostics.client";
 import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 import { usePuraCanvasUiBridgeResponder } from "@/lib/puraCanvasUiBridge.client";
@@ -173,6 +174,7 @@ const PREVIEW_ANALYSIS = {
 export function PortalShell({ children }: { children: React.ReactNode }) {
   const uiPreview = usePortalUiPreview();
   usePortalActiveTimeTracker({ enabled: !uiPreview });
+  usePortalDiagnosticsTracker({ enabled: !uiPreview, source: "portal_shell" });
   usePuraCanvasUiBridgeResponder();
 
   const pathname = usePathname();

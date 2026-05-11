@@ -77,6 +77,31 @@ html {
   text-size-adjust: 100%;
 }
 
+@keyframes pa-skeleton-sweep {
+  0%   { background-position: -800px 0; }
+  100% { background-position: 800px 0; }
+}
+
+.pa-skeleton {
+  background: linear-gradient(
+    90deg,
+    #f1f5f9 0px,
+    #e8edf3 200px,
+    #f1f5f9 400px
+  );
+  background-size: 1200px 100%;
+  animation: pa-skeleton-sweep 2.8s linear infinite;
+}
+
+@keyframes pa-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.pa-content-enter {
+  animation: pa-fade-in 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 * {
   scrollbar-color: rgba(148, 163, 184, 0.18) transparent;
   scrollbar-width: thin;

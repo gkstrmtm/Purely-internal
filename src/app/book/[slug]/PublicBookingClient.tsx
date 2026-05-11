@@ -183,6 +183,7 @@ export function PublicBookingClient({
       ? `/api/public/booking/${encodeURIComponent(target.slug)}`
       : `/api/public/booking/u/${encodeURIComponent(target.ownerId)}/${encodeURIComponent(target.calendarId)}`;
   const targetKey = `${bookingBase}::${String(target.funnelId || "").trim()}::${String(target.pageId || "").trim()}::${String(target.themeStage || "").trim()}`;
+  const settingsUrl = useMemo(() => bookingSettingsUrl(target), [targetKey]);
 
   const canBook = useMemo(() => {
     if (!selected) return false;
@@ -372,13 +373,13 @@ export function PublicBookingClient({
   ) : null;
 
   const loadSettings = useCallback(async () => {
-    const res = await fetch(bookingSettingsUrl(target), {
+    const res = await fetch(settingsUrl, {
       cache: "no-store",
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(getApiError(body) ?? "Booking page not found");
     setSite((body as { site: Site }).site);
-  }, [target]);
+  }, [settingsUrl]);
 
   async function loadSlots(fromIso?: string) {
     setSlotsLoading(true);
@@ -519,8 +520,53 @@ export function PublicBookingClient({
         style={{ ...(bookingStyleVars as any), backgroundColor: isInlinePresentation ? "transparent" : "var(--booking-bg)", color: "var(--booking-text)" }}
       >
         <div className={isInlinePresentation ? "w-full" : "mx-auto max-w-3xl px-6 py-12"}>
-          <div className="rounded-3xl border p-6 text-sm" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)", color: "var(--booking-muted)" }}>
-            Loading…
+          <div
+            aria-busy="true"
+            className={isInlinePresentation ? inlineOuterCardClassName : "rounded-3xl border p-8"}
+            style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}
+          >
+            <div className="animate-pulse">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="h-6 w-40 rounded-full" style={{ backgroundColor: "color-mix(in srgb, var(--booking-text) 10%, transparent)" }} />
+                  <div className="mt-3 h-4 w-full max-w-xl rounded-full" style={{ backgroundColor: "color-mix(in srgb, var(--booking-text) 8%, transparent)" }} />
+                  <div className="mt-2 h-4 w-40 rounded-full" style={{ backgroundColor: "color-mix(in srgb, var(--booking-text) 8%, transparent)" }} />
+                </div>
+              </div>
+
+              <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
+                <div className="lg:col-span-2">
+                  <div className="h-4 w-28 rounded-full" style={{ backgroundColor: "color-mix(in srgb, var(--booking-text) 10%, transparent)" }} />
+                  <div className="mt-4 h-10 w-full rounded-2xl" style={{ backgroundColor: "color-mix(in srgb, var(--booking-soft) 82%, var(--booking-surface))", border: "1px solid var(--booking-border)" }} />
+                  <div className="mt-4 grid grid-cols-7 gap-2">
+                    {Array.from({ length: 14 }).map((_, index) => (
+                      <div
+                        key={index}
+                        className="h-12 rounded-2xl"
+                        style={{ backgroundColor: "color-mix(in srgb, var(--booking-soft) 88%, var(--booking-surface))", border: "1px solid var(--booking-border)" }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="h-4 w-20 rounded-full" style={{ backgroundColor: "color-mix(in srgb, var(--booking-text) 10%, transparent)" }} />
+                  <div className="mt-3 space-y-3">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <div
+                        key={index}
+                        className="h-12 rounded-2xl"
+                        style={{ backgroundColor: "color-mix(in srgb, var(--booking-soft) 88%, var(--booking-surface))", border: "1px solid var(--booking-border)" }}
+                      />
+                    ))}
+                    <div
+                      className="h-11 rounded-2xl"
+                      style={{ backgroundColor: "color-mix(in srgb, var(--booking-primary) 22%, var(--booking-surface))" }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

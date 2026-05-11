@@ -8,6 +8,7 @@ import { loadStripe } from "@stripe/stripe-js";
 
 import { useToast } from "@/components/ToastProvider";
 import { IconCopy } from "@/app/portal/PortalIcons";
+import { reportPortalActionFailure } from "@/lib/portalDiagnostics.client";
 import { formatUsd } from "@/lib/pricing.shared";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { BuyCreditsModal } from "@/app/portal/billing/BuyCreditsModal";
@@ -275,6 +276,20 @@ export function PortalBillingClient({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+
+  const reportBillingFailure = useCallback(
+    (action: string, message: string, status?: number | null, meta?: Record<string, unknown>) => {
+      reportPortalActionFailure({
+        area: "billing",
+        action,
+        message,
+        status,
+        source: "portal_billing",
+        ...(meta ? { meta } : {}),
+      });
+    },
+    [],
+  );
 
   const billingColRef = useRef<HTMLDivElement | null>(null);
   const [billingColHeightPx, setBillingColHeightPx] = useState<number | null>(null);
@@ -616,7 +631,9 @@ export function PortalBillingClient({
       if (!mounted) return;
       if (!billingRes.ok) {
         const body = await billingRes.json().catch(() => ({}));
-        setError(body?.error ?? "Unable to load billing");
+        const message = body?.error ?? "Unable to load billing";
+        reportBillingFailure("load", message, billingRes.status);
+        setError(message);
         setLoading(false);
         return;
       }
@@ -685,7 +702,7 @@ export function PortalBillingClient({
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [reportBillingFailure]);
 
   useEffect(() => {
     try {
@@ -838,13 +855,16 @@ export function PortalBillingClient({
     const body = await res.json().catch(() => ({}));
     setActionBusy(null);
     if (!res.ok) {
-      setError(body?.error ?? "Unable to start checkout");
+      const message = body?.error ?? "Unable to start checkout";
+      reportBillingFailure("start_module_checkout", message, res.status, { module });
+      setError(message);
       return;
     }
     if (body?.url && typeof body.url === "string") {
       window.location.href = body.url;
       return;
     }
+    reportBillingFailure("start_module_checkout", "Unable to start checkout", res.status, { module, missingUrl: true });
     setError("Unable to start checkout");
   }
 
@@ -896,7 +916,9 @@ export function PortalBillingClient({
     const body = await res.json().catch(() => ({}));
     setActionBusy(null);
     if (!res.ok || !body?.ok) {
-      setError(body?.error ?? "Unable to update service");
+      const message = body?.error ?? "Unable to update service";
+      reportBillingFailure("update_service_lifecycle", message, res.status, { serviceSlug, lifecycleAction: action });
+      setError(message);
       return;
     }
     toast.success("Updated.");
@@ -917,7 +939,9 @@ export function PortalBillingClient({
 
     if (!res.ok || !body?.ok) {
       setActionBusy(null);
-      setError(body?.error ?? "Unable to update credits-only billing");
+      const message = body?.error ?? "Unable to update credits-only billing";
+      reportBillingFailure("update_credits_only_lifecycle", message, res.status, { lifecycleAction: action });
+      setError(message);
       return;
     }
 
@@ -938,7 +962,9 @@ export function PortalBillingClient({
     const body = await res.json().catch(() => ({}));
     setActionBusy(null);
     if (!res.ok) {
-      setError(body?.error ?? "Unable to update auto top-up");
+      const message = body?.error ?? "Unable to update auto top-up";
+      reportBillingFailure("update_auto_topup", message, res.status, { requestedValue: next });
+      setError(message);
       return;
     }
     setAutoTopUp(Boolean(body?.autoTopUp));
@@ -968,7 +994,9 @@ export function PortalBillingClient({
     setActionBusy(null);
 
     if (!res.ok) {
-      setError(body?.error ?? "Unable to purchase credits");
+      const message = body?.error ?? "Unable to purchase credits";
+      reportBillingFailure("start_credits_checkout", message, res.status, { requestedCredits: requested });
+      setError(message);
       return;
     }
 
@@ -1000,7 +1028,9 @@ export function PortalBillingClient({
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(body?.error ?? "Unable to cancel subscription");
+      const message = body?.error ?? "Unable to cancel subscription";
+      reportBillingFailure("cancel_subscription", message, res.status, { subscriptionId, immediate });
+      setError(message);
       setActionBusy(null);
       return;
     }

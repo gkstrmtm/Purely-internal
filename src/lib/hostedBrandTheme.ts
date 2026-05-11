@@ -70,7 +70,6 @@ export type HostedBrandTheme = {
 
 export function deriveHostedBrandTheme(input: HostedBrandThemeInput): HostedBrandTheme {
   const fallbackPrimary = "#1d4ed8";
-  const fallbackSecondary = "#22c55e";
   const fallbackAccent = "#fb7185";
   const fallbackText = "#18181b";
 
@@ -79,7 +78,7 @@ export function deriveHostedBrandTheme(input: HostedBrandThemeInput): HostedBran
   const cardSurfaceHex = normalizeHex(overrides?.surfaceHex) ?? "#ffffff";
 
   const rawPrimary = normalizeHex(input.brandPrimaryHex) ?? fallbackPrimary;
-  const rawSecondary = normalizeHex(input.brandSecondaryHex) ?? fallbackSecondary;
+  const rawSecondary = normalizeHex(input.brandSecondaryHex) ?? rawPrimary;
   const rawAccent = normalizeHex(input.brandAccentHex) ?? fallbackAccent;
 
   const preferredText = normalizeHex(overrides?.textHex) ?? normalizeHex(input.brandTextHex) ?? fallbackText;

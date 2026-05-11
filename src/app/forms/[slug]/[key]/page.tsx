@@ -30,7 +30,7 @@ export default async function HostedFormWithKeyPage({
     .findFirst({ where: { slug: s, id: { endsWith: k } }, select: { id: true, name: true, slug: true, status: true, schemaJson: true } })
     .catch(() => null);
 
-  if (!form) notFound();
+  if (!form || form.status === "ARCHIVED") notFound();
   // Backward compatible: accept older links that used a different short-key length.
   if (publicKeyFromId(form.id, k.length) !== k) notFound();
 

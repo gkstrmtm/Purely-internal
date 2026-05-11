@@ -5,11 +5,12 @@ import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
+import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { parseCreditFormContent, parseCreditFormFields, parseCreditFormStyle, parseCreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
-import { readFunnelBookingRouting } from "@/lib/funnelBookingRouting";
+import { resolveFunnelBookingCalendarId } from "@/lib/funnelBookingRouting";
 import { readFunnelOffers } from "@/lib/funnelOffers";
 import { resolveFunnelBookingSurfaceContext } from "@/lib/funnelBookingSurface";
 import { resolveFunnelPageRenderState } from "@/lib/funnelPageGraph";
@@ -332,7 +333,10 @@ async function renderFunnel(
   const page = funnel.pages[0] || null;
   if (pageSlug && !page) notFound();
   const renderState = resolveFunnelPageRenderState(page, "published");
-  const defaultBookingCalendarId = readFunnelBookingRouting(settingsRow?.dataJson ?? null, funnel.id)?.calendarId ?? null;
+  const bookingCalendars = funnel.ownerId
+    ? await getBookingCalendarsConfig(funnel.ownerId).catch(() => ({ version: 1 as const, calendars: [] }))
+    : { version: 1 as const, calendars: [] };
+  const defaultBookingCalendarId = resolveFunnelBookingCalendarId(settingsRow?.dataJson ?? null, funnel.id, bookingCalendars.calendars) || null;
   const offers = readFunnelOffers(settingsRow?.dataJson ?? null, funnel.id);
   const markdownBlocks = renderState.kind === "markdown" ? parseBlogContent(renderState.markdown) : [];
   const templateVars = funnel.ownerId ? await getBusinessProfileTemplateVars(funnel.ownerId).catch(() => ({})) : {};

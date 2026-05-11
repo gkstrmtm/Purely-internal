@@ -4,7 +4,15 @@ import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import {
+  FUNNEL_BUTTON_MOTION_CLASS,
+  FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+} from "@/components/funnel/funnelButtonMotion";
 import { BASE_POPUP_Z_INDEX, popupZIndexForAnchor } from "@/components/popupLayering";
+
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
 
 export type PortalListboxOption<T extends string> = {
   value: T;
@@ -130,14 +138,15 @@ export function PortalListboxDropdown<T extends string>(props: {
                 type="button"
                 title={o.label}
                 data-selected={isSel ? "true" : "false"}
-                className={
-                  "pa-portal-listbox-option w-full rounded-xl px-3 py-2 text-left text-sm transition " +
-                  (disabled
+                className={[
+                  "pa-portal-listbox-option w-full rounded-xl px-3 py-2 text-left text-sm",
+                  FUNNEL_BUTTON_MOTION_CLASS,
+                  disabled
                     ? "cursor-not-allowed text-zinc-400"
                     : isSel
                       ? "bg-(--color-brand-blue) text-white"
-                      : "hover:bg-zinc-50 text-zinc-900")
-                }
+                      : ["text-zinc-900 hover:bg-zinc-50", FUNNEL_BUTTON_SUBTLE_RAISE_CLASS].join(" "),
+                ].join(" ")}
                 onClick={() => {
                   if (disabled) return;
                   onChange(o.value);
@@ -232,11 +241,13 @@ export function PortalListboxDropdown<T extends string>(props: {
         type="button"
         id={buttonId}
         disabled={disabled}
-        className={
-          (buttonClassName ||
-            "pa-portal-listbox-button flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50") +
-          (disabled ? " cursor-not-allowed opacity-60" : "")
-        }
+        className={classNames(
+          buttonClassName ||
+            "pa-portal-listbox-button flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50",
+          FUNNEL_BUTTON_MOTION_CLASS,
+          FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+          disabled ? "cursor-not-allowed opacity-60" : "",
+        )}
         onMouseDown={(e) => {
           e.stopPropagation();
         }}

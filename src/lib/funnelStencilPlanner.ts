@@ -138,8 +138,8 @@ function buildCustomDecision(
     reason,
     summary:
       confidence === "low"
-        ? "Start in minimal custom mode until the funnel structure is clearer."
-        : "Start in custom mode with a minimal entry page and preserve the structure once it is established.",
+        ? "Start with a conversion-ready custom starter page until the funnel structure is clearer."
+        : "Start in custom mode with a conversion-ready starter page and preserve the structure as the funnel gets more specific.",
     question,
     suggestions,
     preserveStructure: true,

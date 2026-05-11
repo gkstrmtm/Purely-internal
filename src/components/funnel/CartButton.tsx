@@ -4,7 +4,16 @@ import type { CSSProperties } from "react";
 import { useCallback, useMemo, useState } from "react";
 
 import { AppModal } from "@/components/AppModal";
-import { fireMetaPixelEvent, readTrackingContextFromWindow } from "@/components/funnel/clientFunnelTracking";
+import {
+  fireMetaPixelEvent,
+  readTrackingContextFromWindow,
+  trackPublicCreditFunnelEvent,
+} from "@/components/funnel/clientFunnelTracking";
+import {
+  FUNNEL_BUTTON_MOTION_CLASS,
+  FUNNEL_BUTTON_RAISE_CLASS,
+  FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+} from "@/components/funnel/funnelButtonMotion";
 import { useFunnelCart } from "@/components/funnel/cart/useFunnelCart";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -39,6 +48,22 @@ export function CartButton({
     [cart.items],
   );
 
+  const reportCheckoutFailure = useCallback(
+    (message: string, reason: string) => {
+      void trackPublicCreditFunnelEvent({
+        pageId,
+        eventType: "checkout_failed",
+        payload: {
+          message: String(message || "Unable to start checkout").slice(0, 240),
+          reason,
+          itemCount: checkoutItems.length,
+          quantity: cart.totalQuantity,
+        },
+      });
+    },
+    [cart.totalQuantity, checkoutItems.length, pageId],
+  );
+
   const startCheckout = useCallback(async () => {
     if (disabled) return;
     if (!pageId) return;
@@ -68,12 +93,14 @@ export function CartButton({
           (json && typeof json.error === "string" && json.error) ||
           (fallbackText.trim() ? fallbackText.trim().slice(0, 240) : "Unable to start checkout");
         setError(msg);
+        reportCheckoutFailure(msg, "server_rejected");
         return;
       }
 
       const nextUrl = String(json.url || "").trim();
       if (!nextUrl) {
         setError("Stripe did not return a checkout URL");
+        reportCheckoutFailure("Stripe did not return a checkout URL", "missing_checkout_url");
         return;
       }
 
@@ -86,10 +113,11 @@ export function CartButton({
     } catch (e) {
       const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Network error";
       setError(msg || "Network error");
+      reportCheckoutFailure(msg || "Network error", "network_error");
     } finally {
       setBusy(false);
     }
-  }, [cart.totalQuantity, checkoutItems, disabled, metaPixelId, pageId]);
+  }, [cart.totalQuantity, checkoutItems, disabled, metaPixelId, pageId, reportCheckoutFailure]);
 
   return (
     <>
@@ -105,6 +133,8 @@ export function CartButton({
         style={style}
         className={classNames(
           "inline-flex items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60",
+          FUNNEL_BUTTON_MOTION_CLASS,
+          FUNNEL_BUTTON_RAISE_CLASS,
           className,
         )}
       >
@@ -134,7 +164,11 @@ export function CartButton({
               type="button"
               disabled={busy || !hasItems}
               onClick={() => cart.clear()}
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+              className={classNames(
+                "rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60",
+                FUNNEL_BUTTON_MOTION_CLASS,
+                FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+              )}
             >
               Clear cart
             </button>
@@ -144,6 +178,8 @@ export function CartButton({
               onClick={() => void startCheckout()}
               className={classNames(
                 "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                FUNNEL_BUTTON_MOTION_CLASS,
+                FUNNEL_BUTTON_RAISE_CLASS,
                 busy || !hasItems ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
               )}
             >
@@ -170,7 +206,11 @@ export function CartButton({
                       type="button"
                       disabled={busy}
                       onClick={() => cart.removeItem(it.priceId)}
-                      className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                      className={classNames(
+                        "shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60",
+                        FUNNEL_BUTTON_MOTION_CLASS,
+                        FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+                      )}
                     >
                       Remove
                     </button>
@@ -182,7 +222,11 @@ export function CartButton({
                       type="button"
                       disabled={busy || it.quantity <= 1}
                       onClick={() => cart.setQuantity(it.priceId, Math.max(1, it.quantity - 1))}
-                      className="h-9 w-9 rounded-xl border border-zinc-200 bg-white text-sm font-bold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                      className={classNames(
+                        "h-9 w-9 rounded-xl border border-zinc-200 bg-white text-sm font-bold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60",
+                        FUNNEL_BUTTON_MOTION_CLASS,
+                        FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+                      )}
                       aria-label="Decrease quantity"
                     >
                       −
@@ -199,7 +243,11 @@ export function CartButton({
                       type="button"
                       disabled={busy || it.quantity >= 20}
                       onClick={() => cart.setQuantity(it.priceId, Math.min(20, it.quantity + 1))}
-                      className="h-9 w-9 rounded-xl border border-zinc-200 bg-white text-sm font-bold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                      className={classNames(
+                        "h-9 w-9 rounded-xl border border-zinc-200 bg-white text-sm font-bold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60",
+                        FUNNEL_BUTTON_MOTION_CLASS,
+                        FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+                      )}
                       aria-label="Increase quantity"
                     >
                       +

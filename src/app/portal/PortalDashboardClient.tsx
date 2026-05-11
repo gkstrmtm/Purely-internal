@@ -9,6 +9,7 @@ import { useToast } from "@/components/ToastProvider";
 import { IconEdit } from "@/app/portal/PortalIcons";
 import { formatSavedTime } from "@/lib/formatSavedTime";
 import { buildDashboardLayout, type DashboardLayoutItem as SharedDashboardLayoutItem, type DashboardWidgetId } from "@/lib/portalDashboardLayout";
+import { reportPortalActionFailure } from "@/lib/portalDiagnostics.client";
 import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
 
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
@@ -73,6 +74,15 @@ type ReportingPayload = {
   startIso: string;
   endIso: string;
   creditsRemaining: number;
+  diagnostics: {
+    actionFailures: number;
+    runtimeErrors: number;
+    unhandledRejections: number;
+    resourceErrors: number;
+    manualBugReports: number;
+    topPaths: Array<{ path: string; count: number }>;
+    topMessages: Array<{ kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure"; message: string; count: number }>;
+  };
   kpis: {
     automationsRun: number;
     aiCalls: number;
@@ -347,6 +357,15 @@ const PREVIEW_REPORTING: ReportingPayload = {
   startIso: "2026-03-14T00:00:00.000Z",
   endIso: "2026-04-13T00:00:00.000Z",
   creditsRemaining: 1240,
+  diagnostics: {
+    actionFailures: 4,
+    runtimeErrors: 2,
+    unhandledRejections: 1,
+    resourceErrors: 3,
+    manualBugReports: 2,
+    topPaths: [{ path: "/portal/app/services/funnel-builder", count: 5 }],
+    topMessages: [{ kind: "action_failure", message: "Unable to save dashboard", count: 2 }],
+  },
   kpis: {
     automationsRun: 412,
     aiCalls: 87,
@@ -507,6 +526,14 @@ export function PortalDashboardClient() {
           if (repRes?.ok) {
             const rep = (await repRes.json().catch(() => null)) as ReportingPayload | null;
             if (rep?.ok) setReporting(rep);
+          } else if (repRes) {
+            reportPortalActionFailure({
+              area: "dashboard",
+              action: "load_reporting",
+              status: repRes.status,
+              message: "Unable to load reporting",
+              source: "portal_dashboard",
+            });
           }
 
           if (statsRes?.ok) {
@@ -537,7 +564,9 @@ export function PortalDashboardClient() {
 
         if (!meRes.ok) {
           const body = await meRes.json().catch(() => ({}));
-          setError(body?.error ?? "Unable to load dashboard");
+          const message = body?.error ?? "Unable to load dashboard";
+          reportPortalActionFailure({ area: "dashboard", action: "load_me", status: meRes.status, message, source: "portal_dashboard" });
+          setError(message);
           return;
         }
 
@@ -545,7 +574,9 @@ export function PortalDashboardClient() {
 
         if (!dashRes.ok) {
           const body = await dashRes.json().catch(() => ({}));
-          setError(body?.error ?? "Unable to load dashboard layout");
+          const message = body?.error ?? "Unable to load dashboard layout";
+          reportPortalActionFailure({ area: "dashboard", action: "load_layout", status: dashRes.status, message, source: "portal_dashboard" });
+          setError(message);
           return;
         }
 
@@ -570,8 +601,10 @@ export function PortalDashboardClient() {
       } catch (err) {
         if (!mounted) return;
         if (err instanceof DOMException && err.name === "AbortError") {
+          reportPortalActionFailure({ area: "dashboard", action: "load", message: "Dashboard data is taking too long to load. Please wait a moment and try again.", source: "portal_dashboard", meta: { timedOut: true } });
           setError("Dashboard data is taking too long to load. Please wait a moment and try again.");
         } else {
+          reportPortalActionFailure({ area: "dashboard", action: "load", message: "Unable to load dashboard", source: "portal_dashboard" });
           setError("Unable to load dashboard");
         }
       } finally {
@@ -630,6 +663,7 @@ export function PortalDashboardClient() {
       if (!mounted) return;
 
       if (!statusRes?.ok) {
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales_status", message: "Unable to load sales status", status: statusRes?.status, source: "portal_dashboard" });
         setSalesError("Unable to load sales status");
         return;
       }
@@ -640,6 +674,7 @@ export function PortalDashboardClient() {
       if (!statusBody?.ok) {
         setSalesStatus(null);
         setSalesReport(null);
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales_status", message: statusBody?.error ?? "Unable to load sales status", source: "portal_dashboard" });
         setSalesError(statusBody?.error ?? "Unable to load sales status");
         return;
       }
@@ -660,6 +695,7 @@ export function PortalDashboardClient() {
       if (!salesRes?.ok) {
         const errBody = (await salesRes?.json().catch(() => ({}))) as { error?: string };
         setSalesReport(null);
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales", message: errBody?.error ?? "Unable to load sales", status: salesRes?.status, source: "portal_dashboard" });
         setSalesError(errBody?.error ?? "Unable to load sales");
         return;
       }
@@ -669,6 +705,7 @@ export function PortalDashboardClient() {
 
       if (!salesBody?.ok) {
         setSalesReport(null);
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales", message: salesBody?.error ?? "Unable to load sales", source: "portal_dashboard" });
         setSalesError(salesBody?.error ?? "Unable to load sales");
         return;
       }
@@ -694,7 +731,9 @@ export function PortalDashboardClient() {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      setError(body?.error ?? "Unable to open billing portal");
+      const message = body?.error ?? "Unable to open billing portal";
+      reportPortalActionFailure({ area: "dashboard", action: "open_billing_portal", status: res.status, message, source: "portal_dashboard" });
+      setError(message);
       return;
     }
     const json = (await res.json()) as { url: string };
@@ -714,7 +753,9 @@ export function PortalDashboardClient() {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      setError(body?.error ?? "Unable to start checkout");
+      const message = body?.error ?? "Unable to start checkout";
+      reportPortalActionFailure({ area: "dashboard", action: `upgrade_${module}`, status: res.status, message, source: "portal_dashboard", meta: { module } });
+      setError(message);
       return;
     }
     const json = (await res.json()) as { url: string };
@@ -756,6 +797,12 @@ export function PortalDashboardClient() {
 
     const successes = (reporting.kpis.aiCompleted ?? 0) + (reporting.kpis.textsSent ?? 0);
     const failures = (reporting.kpis.aiFailed ?? 0) + (reporting.kpis.textsFailed ?? 0);
+    const appFailures =
+      (reporting.diagnostics?.actionFailures ?? 0) +
+      (reporting.diagnostics?.runtimeErrors ?? 0) +
+      (reporting.diagnostics?.unhandledRejections ?? 0) +
+      (reporting.diagnostics?.resourceErrors ?? 0) +
+      (reporting.diagnostics?.manualBugReports ?? 0);
     const overall = successes + failures > 0 ? successes / (successes + failures) : null;
 
     const aiDen = (reporting.kpis.aiCompleted ?? 0) + (reporting.kpis.aiFailed ?? 0);
@@ -774,7 +821,9 @@ export function PortalDashboardClient() {
 
     return {
       overallSuccessRate: overall,
-      totalFailures: failures,
+      totalFailures: failures + appFailures,
+      automationFailures: failures,
+      appFailures,
       aiSuccessRate: aiRate,
       textSuccessRate: txtRate,
       missedCaptureRate: missedRate,
@@ -792,6 +841,15 @@ export function PortalDashboardClient() {
       items.push({
         label: "Failures to review",
         value: `${derived.totalFailures.toLocaleString()} flagged`,
+        href: `${portalBase}/app/services/reporting`,
+        tone: "danger",
+      });
+    }
+
+    if ((reporting?.diagnostics?.actionFailures ?? 0) > 0) {
+      items.unshift({
+        label: "Portal action failures",
+        value: `${compactNum(reporting?.diagnostics?.actionFailures ?? 0)} recorded`,
         href: `${portalBase}/app/services/reporting`,
         tone: "danger",
       });
@@ -1624,22 +1682,39 @@ export function PortalDashboardClient() {
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                <div className="text-xs font-semibold text-zinc-600">AI success rate</div>
-                <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.aiSuccessRate)}</div>
+                <div className="text-xs font-semibold text-zinc-600">Action failures</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{compactNum(reporting?.diagnostics?.actionFailures ?? 0)}</div>
               </div>
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                <div className="text-xs font-semibold text-zinc-600">Text success rate</div>
-                <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.textSuccessRate)}</div>
+                <div className="text-xs font-semibold text-zinc-600">Runtime errors</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{compactNum(reporting?.diagnostics?.runtimeErrors ?? 0)}</div>
               </div>
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                <div className="text-xs font-semibold text-zinc-600">Missed call capture</div>
-                <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.missedCaptureRate)}</div>
+                <div className="text-xs font-semibold text-zinc-600">Promise failures</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{compactNum(reporting?.diagnostics?.unhandledRejections ?? 0)}</div>
               </div>
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                <div className="text-xs font-semibold text-zinc-600">Failures</div>
-                <div className="mt-1 text-sm font-bold text-brand-ink">{derived.totalFailures.toLocaleString()}</div>
+                <div className="text-xs font-semibold text-zinc-600">Resource failures</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{compactNum(reporting?.diagnostics?.resourceErrors ?? 0)}</div>
               </div>
             </div>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">Manual bug reports</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{compactNum(reporting?.diagnostics?.manualBugReports ?? 0)}</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">Automation failures</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{compactNum(derived.automationFailures ?? 0)}</div>
+              </div>
+            </div>
+            {reporting?.diagnostics?.topPaths?.[0] ? (
+              <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3 text-xs text-zinc-600">
+                <div className="font-semibold text-zinc-800">Top failing path</div>
+                <div className="mt-1 font-mono text-[11px] text-zinc-500">{reporting.diagnostics.topPaths[0].path}</div>
+                <div className="mt-1">{compactNum(reporting.diagnostics.topPaths[0].count)} recorded failures in this range.</div>
+              </div>
+            ) : null}
           </AccentCard>
         );
 

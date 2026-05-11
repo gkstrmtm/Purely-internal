@@ -192,6 +192,26 @@ export async function proxy(req: NextRequest) {
   const fromCredit = refererIsCredit(req);
   const headerVariant = normalizePortalVariantHeader(req.headers.get(PORTAL_VARIANT_HEADER));
 
+  const brokenNestedFunnelPageActionMatch = path.match(
+    /^\/api\/portal\/funnel-builder\/funnels\/([^/]+)\/pages\/([^/]+)\/(chat|foundation|generate-html|publish|export-custom-html)$/,
+  );
+  if (brokenNestedFunnelPageActionMatch) {
+    const [, funnelId, pageId, action] = brokenNestedFunnelPageActionMatch;
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.set(PORTAL_VARIANT_HEADER, headerVariant ?? (fromCredit ? "credit" : "portal"));
+
+    const actionSegment =
+      action === "export-custom-html"
+        ? "page-export-custom-html"
+        : action === "generate-html"
+          ? "page-generate-html"
+          : `page-${action}`;
+
+    const url = req.nextUrl.clone();
+    url.pathname = `/api/portal/funnel-builder/funnels/${funnelId}/${actionSegment}/${pageId}`;
+    return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
+  }
+
   // Portal/credit API calls should carry a portal variant hint so auth can read the correct session cookie.
   // This is critical when both portal cookies coexist in the same browser.
   if (path.startsWith("/api/portal/") || path === "/api/auth/client-signup" || path === "/api/customer/me") {

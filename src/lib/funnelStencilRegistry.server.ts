@@ -437,6 +437,11 @@ function buildCustomSeed(input: {
     fallbackTitle: input.funnelName || "Home",
   });
   const title = firstPageNaming.title || input.funnelName || "Home";
+  const primaryCta = input.primaryCta.trim() || "Start the next step";
+  const starterGoal = input.pageGoal.trim()
+    ? `${input.pageGoal.trim()} Use this opening pass to tighten the promise, stage proof close to the ask, and make the next step feel obvious.`
+    : "Use this opening pass to name the audience, clarify the offer, stage concrete proof, and make the next step feel obvious.";
+
   return {
     slug: "home",
     title,
@@ -445,27 +450,152 @@ function buildCustomSeed(input: {
     contentMarkdown: "",
     customHtml: "",
     blocksJson: [
-      {
-        id: "section_home_start",
-        type: "section",
-        props: {
-          anchorId: "start",
-          layout: "one",
-          style: { align: "left" },
-          children: [
+      buildSectionFrame(
+        "start",
+        [
+          {
+            id: "heading_home_start",
+            type: "heading",
+            props: { level: 1, text: title, style: { align: "left" } },
+          },
+          {
+            id: "paragraph_home_start",
+            type: "paragraph",
+            props: { text: starterGoal, style: { align: "left", maxWidthPx: 760 } },
+          },
+          buildColumnsBlock("columns_home_start", [
             {
-              id: "heading_home_start",
-              type: "heading",
-              props: { level: 1, text: title, style: { align: "left" } },
+              title: "Lead with the offer",
+              body: "Name the audience, the offer, and the core outcome before the visitor scrolls past the hero.",
             },
             {
-              id: "paragraph_home_start",
-              type: "paragraph",
-              props: { text: input.pageGoal || "This page is ready for structured refinement.", style: { align: "left" } },
+              title: "Stage trust fast",
+              body: "Put reviews, results, or a case study proof module beside the main ask so the page feels earned instead of generic.",
             },
-          ],
-        },
-      } as CreditFunnelBlock,
+            {
+              title: "Define the next step",
+              body: "Use one primary CTA and one short line on confirmation, response time, or what happens next after they click.",
+            },
+          ]),
+          {
+            id: "button_home_start_primary",
+            type: "button",
+            props: { text: primaryCta, href: "#next-step", variant: "primary", style: { maxWidthPx: 320 } },
+          },
+          {
+            id: "button_home_start_secondary",
+            type: "button",
+            props: { text: "Review the starter flow", href: "#proof", variant: "secondary", style: { maxWidthPx: 320 } },
+          },
+        ],
+        { backgroundColor: "#f8fafc", paddingPx: 40, borderRadiusPx: 28 },
+      ),
+      buildSectionFrame(
+        "proof",
+        [
+          {
+            id: "heading_home_proof",
+            type: "heading",
+            props: { level: 2, text: "Put proof next to the decision" },
+          },
+          {
+            id: "paragraph_home_proof",
+            type: "paragraph",
+            props: {
+              text: "Strong first pages reduce blank-canvas fear by giving you a believable proof rhythm: reviews, operator outcomes, and one concrete result before the main ask.",
+              style: { maxWidthPx: 760 },
+            },
+          },
+          {
+            id: "testimonial_grid_home_proof",
+            type: "testimonialGrid",
+            props: {
+              eyebrow: "Proof starter",
+              heading: "Replace these with real reviews or case-study outcomes",
+              intro: "Keep the proof concrete so the page earns trust quickly.",
+              columns: 3,
+              items: [
+                {
+                  quote: "Add a client review, case study result, or founder outcome here so the page earns trust with something concrete.",
+                  name: "Best-fit client",
+                  role: "Proof placeholder",
+                  outcome: "Results snapshot",
+                },
+                {
+                  quote: "Use this card for a second proof point tied to time saved, revenue increased, reduced friction, or another believable outcome.",
+                  name: "Recent customer",
+                  role: "Review placeholder",
+                  outcome: "Operational outcome",
+                },
+                {
+                  quote: "Show the third proof signal that makes the next step feel safe: reviews, outcomes, or a short case study moment.",
+                  name: "Qualified operator",
+                  role: "Case study placeholder",
+                  outcome: "Trust signal",
+                },
+              ],
+            },
+          },
+        ],
+        { backgroundColor: "#ffffff", paddingPx: 36, borderRadiusPx: 28 },
+      ),
+      buildSectionFrame(
+        "offer",
+        [
+          {
+            id: "heading_home_offer",
+            type: "heading",
+            props: { level: 2, text: "Map the conversion path before you decorate it" },
+          },
+          {
+            id: "paragraph_home_offer",
+            type: "paragraph",
+            props: {
+              text: "Market-leading builders start with a guided structure: what the visitor gets, why they can trust it, and what happens next. Fill those three beats before you widen the page.",
+              style: { maxWidthPx: 760 },
+            },
+          },
+          buildColumnsBlock("columns_home_offer", [
+            {
+              title: "What they get",
+              body: "State the offer, the mechanism, and the promised outcome in plain language.",
+            },
+            {
+              title: "Why they believe it",
+              body: "Connect the offer to proof, reviews, results, or a case study that supports the claim.",
+            },
+            {
+              title: "What happens next",
+              body: "Explain the CTA handoff, the confirmation, and the next step after a call, form, application, or checkout.",
+            },
+          ]),
+        ],
+        { backgroundColor: "#f8fafc", paddingPx: 36, borderRadiusPx: 28 },
+      ),
+      buildSectionFrame(
+        "next-step",
+        [
+          {
+            id: "heading_home_next_step",
+            type: "heading",
+            props: { level: 2, text: "Make the handoff feel safe and specific" },
+          },
+          {
+            id: "paragraph_home_next_step",
+            type: "paragraph",
+            props: {
+              text: "Use this last section to point at one next step only. That can be a booking call, a form, an application, or checkout, but the visitor should understand the confirmation and follow-up before they click.",
+              style: { maxWidthPx: 760 },
+            },
+          },
+          {
+            id: "button_home_next_step",
+            type: "button",
+            props: { text: primaryCta, href: "#next-step", variant: "primary", style: { maxWidthPx: 320 } },
+          },
+        ],
+        { backgroundColor: "#ffffff", paddingPx: 36, borderRadiusPx: 28 },
+      ),
     ],
     briefSeed: {
       pageType: input.pageType,

@@ -22,6 +22,41 @@ type OpenAIAudioTranscriptionVerboseResponse = {
   segments?: Array<{ start?: number; end?: number; text?: string }>;
 };
 
+type OpenAISpeechFormat = "mp3" | "wav" | "opus" | "aac" | "flac" | "pcm";
+
+function readAiTimeoutMs(envKey: string, fallbackMs: number) {
+  const raw = process.env[envKey];
+  const parsed = raw ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed < 1000) return fallbackMs;
+  return Math.floor(parsed);
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && (error.name === "AbortError" || /aborted|timeout/i.test(error.message));
+}
+
+async function fetchWithAiTimeout(
+  input: string,
+  init: RequestInit,
+  opts: { timeoutMs: number; timeoutLabel: string },
+) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), opts.timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error(`${opts.timeoutLabel} timed out after ${opts.timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 function userExplicitlyRequestsEmojis(context: string): boolean {
   const t = String(context || "").toLowerCase();
   if (!t.trim()) return false;
@@ -74,6 +109,7 @@ export async function generateText({
   const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
   const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
   const resolvedModel = model ?? process.env.AI_MODEL ?? "gpt-5.4";
+  const timeoutMs = readAiTimeoutMs("AI_REQUEST_TIMEOUT_MS", 20000);
 
   if (!baseUrl || !apiKey) {
     throw new Error("AI provider not configured. Set AI_BASE_URL and AI_API_KEY");
@@ -84,7 +120,7 @@ export async function generateText({
   if (history?.length) messages.push(...history.map((m) => ({ role: m.role, content: m.content })));
   messages.push({ role: "user", content: user });
 
-  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+  const res = await fetchWithAiTimeout(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -96,7 +132,7 @@ export async function generateText({
       temperature: Math.min(2, Math.max(0, typeof temperature === "number" && Number.isFinite(temperature) ? temperature : 0.6)),
       ...(responseFormat === "json" ? { response_format: { type: "json_object" } } : {}),
     }),
-  });
+  }, { timeoutMs, timeoutLabel: "AI request" });
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -132,6 +168,7 @@ export async function generateTextWithImages({
   const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
   const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
   const resolvedModel = model ?? process.env.AI_VISION_MODEL ?? process.env.AI_MODEL ?? "gpt-5.4";
+  const timeoutMs = readAiTimeoutMs("AI_REQUEST_TIMEOUT_MS", 25000);
 
   if (!baseUrl || !apiKey) {
     throw new Error("AI provider not configured. Set AI_BASE_URL and AI_API_KEY");
@@ -150,7 +187,7 @@ export async function generateTextWithImages({
   if (history?.length) messages.push(...history.map((m) => ({ role: m.role, content: m.content })));
   messages.push({ role: "user", content: userParts });
 
-  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+  const res = await fetchWithAiTimeout(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -162,7 +199,7 @@ export async function generateTextWithImages({
       temperature: Math.min(2, Math.max(0, typeof temperature === "number" && Number.isFinite(temperature) ? temperature : 0.6)),
       ...(responseFormat === "json" ? { response_format: { type: "json_object" } } : {}),
     }),
-  });
+  }, { timeoutMs, timeoutLabel: "AI vision request" });
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -192,6 +229,7 @@ export async function transcribeAudio({
   const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
   const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
   const resolvedModel = model ?? process.env.AI_TRANSCRIBE_MODEL ?? "whisper-1";
+  const timeoutMs = readAiTimeoutMs("AI_AUDIO_TIMEOUT_MS", 30000);
 
   if (!baseUrl || !apiKey) {
     throw new Error("AI not configured. Set AI_BASE_URL and AI_API_KEY");
@@ -209,13 +247,13 @@ export async function transcribeAudio({
   form.set("response_format", "json");
   form.set("file", new Blob([ab], { type }), name);
 
-  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/audio/transcriptions`, {
+  const res = await fetchWithAiTimeout(`${baseUrl.replace(/\/$/, "")}/audio/transcriptions`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${apiKey}`,
     },
     body: form,
-  });
+  }, { timeoutMs, timeoutLabel: "AI transcription request" });
 
   const text = await res.text().catch(() => "");
   if (!res.ok) throw new Error(`AI transcription failed: ${res.status} ${text}`);
@@ -250,6 +288,7 @@ export async function transcribeAudioVerbose({
   const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
   const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
   const resolvedModel = model ?? process.env.AI_TRANSCRIBE_MODEL ?? "whisper-1";
+  const timeoutMs = readAiTimeoutMs("AI_AUDIO_TIMEOUT_MS", 30000);
 
   if (!baseUrl || !apiKey) {
     throw new Error("AI not configured. Set AI_BASE_URL and AI_API_KEY");
@@ -267,13 +306,13 @@ export async function transcribeAudioVerbose({
   form.set("response_format", "verbose_json");
   form.set("file", new Blob([ab], { type }), name);
 
-  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/audio/transcriptions`, {
+  const res = await fetchWithAiTimeout(`${baseUrl.replace(/\/$/, "")}/audio/transcriptions`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${apiKey}`,
     },
     body: form,
-  });
+  }, { timeoutMs, timeoutLabel: "AI verbose transcription request" });
 
   const text = await res.text().catch(() => "");
   if (!res.ok) throw new Error(`AI transcription failed: ${res.status} ${text}`);
@@ -299,4 +338,73 @@ export async function transcribeAudioVerbose({
     // Some providers return plain text even when asked for verbose_json.
     return { text: trimmed, segments: [] };
   }
+}
+
+export async function synthesizeSpeech({
+  text,
+  model,
+  voice,
+  format,
+  instructions,
+  baseUrlOverride,
+  apiKeyOverride,
+}: {
+  text: string;
+  model?: string;
+  voice?: string;
+  format?: OpenAISpeechFormat;
+  instructions?: string;
+  baseUrlOverride?: string;
+  apiKeyOverride?: string;
+}): Promise<{ bytes: ArrayBuffer; mimeType: string }> {
+  const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
+  const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
+  const resolvedModel = model ?? process.env.AI_TTS_MODEL ?? "gpt-4o-mini-tts";
+  const resolvedVoice = voice ?? process.env.AI_TTS_VOICE ?? "alloy";
+  const resolvedFormat = format ?? "mp3";
+  const timeoutMs = readAiTimeoutMs("AI_AUDIO_TIMEOUT_MS", 30000);
+  const input = String(text || "").trim();
+
+  if (!baseUrl || !apiKey) {
+    throw new Error("AI not configured. Set AI_BASE_URL and AI_API_KEY");
+  }
+
+  if (!input) {
+    throw new Error("Speech synthesis requires text");
+  }
+
+  const res = await fetchWithAiTimeout(`${baseUrl.replace(/\/$/, "")}/audio/speech`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: resolvedModel,
+      voice: resolvedVoice,
+      response_format: resolvedFormat,
+      input,
+      ...(instructions ? { instructions } : {}),
+    }),
+  }, { timeoutMs, timeoutLabel: "AI speech request" });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`AI speech synthesis failed: ${res.status} ${text}`);
+  }
+
+  const bytes = await res.arrayBuffer();
+  const mimeType = res.headers.get("content-type") || (resolvedFormat === "wav"
+    ? "audio/wav"
+    : resolvedFormat === "opus"
+      ? "audio/ogg"
+      : resolvedFormat === "aac"
+        ? "audio/aac"
+        : resolvedFormat === "flac"
+          ? "audio/flac"
+          : resolvedFormat === "pcm"
+            ? "audio/pcm"
+            : "audio/mpeg");
+
+  return { bytes, mimeType };
 }

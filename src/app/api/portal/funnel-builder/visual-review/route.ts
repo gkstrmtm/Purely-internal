@@ -4,6 +4,12 @@ import { generateTextWithImages } from "@/lib/ai";
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import {
+  consumeFunnelBuilderAiCredits,
+  enforceFunnelBuilderRouteRateLimit,
+  readFunnelBuilderRequestId,
+  recordFunnelBuilderAiFailure,
+} from "@/lib/funnelBuilderGuardrails";
+import {
   readFunnelExhibitArchetypePack,
   selectRelevantFunnelExhibitArchetypes,
 } from "@/lib/funnelExhibitArchetypes";
@@ -17,10 +23,13 @@ import {
 import { assessFunnelSceneQuality, buildFragmentSceneAnatomy } from "@/lib/funnelSceneQuality";
 import { resolveFunnelShellFrame } from "@/lib/funnelShellFrames";
 import { buildFunnelVisualWhyBlock } from "@/lib/funnelVisualWhy";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const MAX_VISUAL_REVIEW_IMAGE_DATA_URL_LENGTH = 2_500_000;
 
 type NormalizedVisualReviewRequest = {
   funnelId: string;
@@ -69,7 +78,7 @@ function normalizeVisualReviewBody(raw: unknown): NormalizedVisualReviewRequest 
     css: typeof record.css === "string" ? record.css : "",
     surface: record.surface === "source" ? "source" : "structure",
     ...(typeof record.previewImageDataUrl === "string" && /^data:image\//i.test(record.previewImageDataUrl.trim())
-      ? { previewImageDataUrl: record.previewImageDataUrl.trim().slice(0, 8_000_000) }
+      ? { previewImageDataUrl: record.previewImageDataUrl.trim().slice(0, MAX_VISUAL_REVIEW_IMAGE_DATA_URL_LENGTH) }
       : null),
     ...(intentProfile ? { intentProfile } : null),
     ...(funnelBrief ? { funnelBrief } : null),
@@ -335,17 +344,27 @@ async function runPreviewImageCritique(input: {
 export async function POST(req: Request) {
   const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
-    const authError = "error" in auth && typeof auth.error === "string" ? auth.error : "Unauthorized";
+    const authError = auth.status === 403 ? "Forbidden" : "Unauthorized";
     return NextResponse.json({ ok: false, error: authError }, { status: auth.status });
   }
 
   const body = normalizeVisualReviewBody(await req.json().catch(() => null));
+  const ownerId = auth.session.user.id;
+  const requestId = readFunnelBuilderRequestId(req);
   if (!body.funnelId || !body.pageId || !body.prompt) {
     return NextResponse.json({ ok: false, error: "Missing required review fields" }, { status: 400 });
   }
+  if (body.previewImageDataUrl && body.previewImageDataUrl.length >= MAX_VISUAL_REVIEW_IMAGE_DATA_URL_LENGTH) {
+    return NextResponse.json({ ok: false, error: "Preview image is too large" }, { status: 413 });
+  }
+
+  const routeGate = await enforceFunnelBuilderRouteRateLimit({ ownerId, routeKey: "visual-review", requestId });
+  if (!routeGate.ok) {
+    return NextResponse.json({ ok: false, error: routeGate.error }, { status: routeGate.status });
+  }
 
   const page = await prisma.creditFunnelPage.findFirst({
-    where: { id: body.pageId, funnelId: body.funnelId, funnel: { ownerId: auth.session.user.id } },
+    where: { id: body.pageId, funnelId: body.funnelId, funnel: { ownerId } },
     select: {
       id: true,
       slug: true,
@@ -358,7 +377,7 @@ export async function POST(req: Request) {
   }
 
   const settings = await prisma.creditFunnelBuilderSettings
-    .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
+    .findUnique({ where: { ownerId }, select: { dataJson: true } })
     .catch(() => null);
 
   const funnelBrief = inferFunnelBriefProfile({
@@ -423,6 +442,17 @@ export async function POST(req: Request) {
   const hasRenderableSurface = Boolean(String(body.html || "").trim());
 
   if (body.previewImageDataUrl && hasRenderableSurface && !isNarrowRepairPrompt(body.prompt)) {
+    const charged = await consumeFunnelBuilderAiCredits({
+      ownerId,
+      routeKey: "visual-review",
+      requestId,
+      amount: PORTAL_CREDIT_COSTS.aiCallStepGenerate,
+      stepLabel: "Screenshot review",
+    });
+    if (!charged.ok) {
+      return NextResponse.json({ ok: false, error: charged.error }, { status: charged.status });
+    }
+
     try {
       const visualCritique = await runPreviewImageCritique({
         prompt: body.prompt,
@@ -446,6 +476,13 @@ export async function POST(req: Request) {
         visualReviewed = false;
       }
     } catch {
+      await recordFunnelBuilderAiFailure({
+        ownerId,
+        routeKey: "visual-review",
+        requestId,
+        stepLabel: "Screenshot review",
+        reason: "visual_review_failed",
+      });
       visualReviewed = false;
     }
   }

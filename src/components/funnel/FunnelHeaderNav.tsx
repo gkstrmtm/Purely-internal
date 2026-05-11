@@ -3,6 +3,8 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { FUNNEL_BUTTON_MOTION_CLASS, FUNNEL_BUTTON_TEXT_MOTION_CLASS } from "@/components/funnel/funnelButtonMotion";
+
 export type FunnelHeaderNavItem = {
   id: string;
   label: string;
@@ -310,7 +312,10 @@ export function FunnelHeaderNav({
                 }}
                 target={newTab ? "_blank" : undefined}
                 rel={newTab ? "noopener noreferrer" : undefined}
-                className="text-sm font-semibold text-[color:var(--fhn-link,#3f3f46)] opacity-80 hover:opacity-100"
+                className={classNames(
+                  "text-sm font-semibold text-[color:var(--fhn-link,#3f3f46)] opacity-80 hover:opacity-100",
+                  FUNNEL_BUTTON_TEXT_MOTION_CLASS,
+                )}
                 data-funnel-editor-interactive="true"
               >
                 {label}
@@ -326,6 +331,7 @@ export function FunnelHeaderNav({
             data-funnel-editor-interactive="true"
             className={classNames(
               "inline-flex items-center justify-center gap-2 rounded-full border border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] px-4 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5",
+              FUNNEL_BUTTON_MOTION_CLASS,
               desktopUsesTrigger ? "" : "sm:hidden",
               disabled ? "opacity-60" : "",
             )}
@@ -345,6 +351,7 @@ export function FunnelHeaderNav({
             data-funnel-editor-interactive="true"
             className={classNames(
               "inline-flex items-center justify-center rounded-xl border border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] text-[color:var(--fhn-text,#27272a)] hover:bg-black/5",
+              FUNNEL_BUTTON_MOTION_CLASS,
               desktopUsesTrigger ? "" : "sm:hidden",
             )}
             style={{ height: iconBtnSizePx, width: iconBtnSizePx }}
@@ -391,7 +398,10 @@ export function FunnelHeaderNav({
                   }}
                   target={newTab ? "_blank" : undefined}
                   rel={newTab ? "noopener noreferrer" : undefined}
-                  className="block rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5"
+                  className={classNames(
+                    "block rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5",
+                    FUNNEL_BUTTON_TEXT_MOTION_CLASS,
+                  )}
                   data-funnel-editor-interactive="true"
                 >
                   {label}
@@ -415,7 +425,10 @@ export function FunnelHeaderNav({
               <button
                 type="button"
                 data-funnel-editor-interactive="true"
-                className="h-10 w-10 rounded-xl border border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] text-[color:var(--fhn-text,#27272a)] hover:bg-black/5"
+                className={classNames(
+                  "h-10 w-10 rounded-xl border border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] text-[color:var(--fhn-text,#27272a)] hover:bg-black/5",
+                  FUNNEL_BUTTON_MOTION_CLASS,
+                )}
                 onClick={() => {
                   if (disabled) return;
                   setOpen(false);
@@ -453,7 +466,10 @@ export function FunnelHeaderNav({
                     }}
                     target={newTab ? "_blank" : undefined}
                     rel={newTab ? "noopener noreferrer" : undefined}
-                    className="block rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5"
+                    className={classNames(
+                      "block rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5",
+                      FUNNEL_BUTTON_TEXT_MOTION_CLASS,
+                    )}
                     data-funnel-editor-interactive="true"
                   >
                     {label}
@@ -496,7 +512,10 @@ export function FunnelHeaderNav({
                   }}
                   target={newTab ? "_blank" : undefined}
                   rel={newTab ? "noopener noreferrer" : undefined}
-                  className="block rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5"
+                  className={classNames(
+                    "block rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5",
+                    FUNNEL_BUTTON_TEXT_MOTION_CLASS,
+                  )}
                   data-funnel-editor-interactive="true"
                 >
                   {label}
@@ -522,7 +541,10 @@ export function FunnelHeaderNav({
               <button
                 type="button"
                 data-funnel-editor-interactive="true"
-                className="h-10 w-10 rounded-xl border border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] text-[color:var(--fhn-text,#27272a)] hover:bg-black/5"
+                className={classNames(
+                  "h-10 w-10 rounded-xl border border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] text-[color:var(--fhn-text,#27272a)] hover:bg-black/5",
+                  FUNNEL_BUTTON_MOTION_CLASS,
+                )}
                 onClick={() => {
                   if (disabled) return;
                   setOpen(false);
@@ -560,7 +582,10 @@ export function FunnelHeaderNav({
                     }}
                     target={newTab ? "_blank" : undefined}
                     rel={newTab ? "noopener noreferrer" : undefined}
-                    className="block rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5"
+                    className={classNames(
+                      "block rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5",
+                      FUNNEL_BUTTON_TEXT_MOTION_CLASS,
+                    )}
                     data-funnel-editor-interactive="true"
                   >
                     {label}
