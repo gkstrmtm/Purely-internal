@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import GlassSurface from "@/components/GlassSurface";
 import { SignOutButton } from "@/components/SignOutButton";
-import { useToast } from "@/components/ToastProvider";
+import { useOptionalToast } from "@/components/ToastProvider";
 import {
   IconChevron,
   IconAiChatGlyph,
@@ -179,7 +179,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const toast = useToast();
+  const toast = useOptionalToast();
   const embeddedFromQuery = searchParams?.get("embed") === "1" || searchParams?.get("pa_embed") === "1";
   const [embeddedSticky, setEmbeddedSticky] = useState(embeddedFromQuery);
 

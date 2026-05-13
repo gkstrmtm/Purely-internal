@@ -97,9 +97,13 @@ export async function getPortalUser(opts?: { variant?: PortalVariant | "auto" })
   return { id: uid, email, role, name, memberId: memberUid && memberUid.trim() ? memberUid : uid, portalVariant: variant };
 }
 
-export async function requirePortalUser() {
-  const user = await getPortalUser();
-  const variant = (await portalVariantFromRequestContext()) || "portal";
+export async function requirePortalUser(opts?: { variant?: PortalVariant | "auto" }) {
+  const requestedVariant = opts?.variant ?? "auto";
+  const user = await getPortalUser({ variant: requestedVariant });
+  const variant =
+    requestedVariant === "portal" || requestedVariant === "credit"
+      ? requestedVariant
+      : (await portalVariantFromRequestContext()) || "portal";
   const base = portalBasePath(variant);
   const loginPath = `${base}/login`;
   if (!user) redirect(loginPath);
