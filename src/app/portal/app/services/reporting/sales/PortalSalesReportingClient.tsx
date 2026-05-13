@@ -66,6 +66,7 @@ export function PortalSalesReportingClient() {
   const pathname = usePathname() || "";
   const searchParams = useSearchParams();
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
+  const isCreditWorkspace = portalBase === "/credit";
   const from = String(searchParams?.get("from") || "").toLowerCase();
   const backHref = from === "dashboard" ? `${portalBase}/app` : `${portalBase}/app/services/reporting`;
   const backLabel = from === "dashboard" ? "Back to Dashboard" : "Back to Reporting";
@@ -140,13 +141,16 @@ export function PortalSalesReportingClient() {
   const currency = canShowData ? (data as any).currency : "usd";
 
   const providerLabel = canShowData ? (data as any).providerLabel : "Sales";
+  const headingLabel = providerLabel === "Sales" ? "Sales" : `${providerLabel} Sales`;
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">{providerLabel} Sales</h1>
-          <p className="mt-2 max-w-2xl text-sm text-zinc-600">Gross, refunds, and net sales pulled directly from your connected payment processor.</p>
+          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">{headingLabel}</h1>
+          <p className="mt-2 max-w-2xl text-sm text-zinc-600">
+            Gross, refunds, and net sales pulled directly from your connected payment processor.
+          </p>
         </div>
         <div className="flex gap-2">
           <Link
@@ -161,6 +165,15 @@ export function PortalSalesReportingClient() {
           >
             Sales settings
           </Link>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+        <div className="font-semibold text-zinc-900">Coverage boundary</div>
+        <div className="mt-1">
+          {isCreditWorkspace
+            ? "This route only covers connected payment transactions. It does not include imported reports, reviewed items, dispute drafts, PDFs, mailed-letter status, or other credit workflow milestones."
+            : "This route only covers connected payment transactions. It does not include bookings, inbox volume, campaign activity, review operations, or the rest of the shared reporting metrics from the main dashboard."}
         </div>
       </div>
 

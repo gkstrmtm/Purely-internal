@@ -565,20 +565,34 @@
 		{
 			"label": "Audit: newsletter targeted current",
 			"type": "shell",
-			"command": "sh",
+			"command": "node",
+			"options": {
+				"env": {
+					"PORTAL_VARIANT": "credit",
+					"PORTAL_LOGIN_EMAIL": "credit-client@purelyautomation.dev",
+					"PORTAL_LOGIN_PASSWORD": "credit1234"
+				}
+			},
 			"args": [
-				"-c",
-				"PURA_SCENARIO_FILTER=03-edit-real-newsletter-draft node tmp/portal-qa/capture_pura_audit.mjs"
+				"tmp/repro_newsletter_edit.mjs",
+				"tmp/newsletter_targeted_current.json"
 			],
 			"isBackground": false
 		},
 		{
 			"label": "Audit: newsletter targeted after patch",
 			"type": "shell",
-			"command": "sh",
+			"command": "node",
+			"options": {
+				"env": {
+					"PORTAL_VARIANT": "credit",
+					"PORTAL_LOGIN_EMAIL": "credit-client@purelyautomation.dev",
+					"PORTAL_LOGIN_PASSWORD": "credit1234"
+				}
+			},
 			"args": [
-				"-c",
-				"PURA_SCENARIO_FILTER=03-edit-real-newsletter-draft node tmp/portal-qa/capture_pura_audit.mjs"
+				"tmp/repro_newsletter_edit.mjs",
+				"tmp/newsletter_targeted_after_patch.json"
 			],
 			"isBackground": false
 		},
@@ -586,11 +600,32 @@
 			"label": "Inspect: repro newsletter edit",
 			"type": "shell",
 			"command": "node",
+			"options": {
+				"env": {
+					"PORTAL_VARIANT": "credit",
+					"PORTAL_LOGIN_EMAIL": "credit-client@purelyautomation.dev",
+					"PORTAL_LOGIN_PASSWORD": "credit1234"
+				}
+			},
 			"args": [
 				"tmp/repro_newsletter_edit.mjs",
 				"tmp/repro_newsletter_edit.json"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "Temp: typecheck touched app changes",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"typecheck"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "test"
 		}
 	]
 }

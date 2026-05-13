@@ -7,7 +7,7 @@ import { IconFunnel } from "@/app/portal/PortalIcons";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
 import { useToast } from "@/components/ToastProvider";
-import { creditScopeLabel, extractCreditInquiryDate, type CreditReportSnapshot, type CreditScope } from "@/lib/creditReports";
+import { creditScopeLabel, extractCreditInquiryDate, extractCreditReportSourceSummary, type CreditReportSnapshot, type CreditScope } from "@/lib/creditReports";
 
 type ContactLite = { id: string; name: string; email: string | null };
 
@@ -17,6 +17,7 @@ type ReportLite = {
   importedAt: string;
   createdAt: string;
   creditScope: CreditScope;
+  rawJson?: unknown;
   contactId: string | null;
   contact: { id: string; name: string; email: string | null } | null;
   creditSnapshot?: CreditReportSnapshot;
@@ -156,7 +157,7 @@ const ICON_BUTTON_CLASS = "inline-flex h-10 w-10 items-center justify-center rou
 
 function reportRoutesFor(pathname: string | null) {
   const current = String(pathname || "");
-  if (current.startsWith("/credit/app/services/credit-reports")) {
+  if (current.startsWith("/credit")) {
     return {
       listHref: "/credit/app/services/credit-reports",
       detailHref: (reportId: string) => `/credit/app/services/credit-reports/${encodeURIComponent(reportId)}`,
@@ -273,7 +274,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const [itemFiltersMenu, setItemFiltersMenu] = useState<FixedMenuStyle | null>(null);
   const [itemQuery, setItemQuery] = useState("");
   const [rawText, setRawText] = useState<string>("{");
-  const showAdvancedImport = false;
+  const providerPullUnavailableMessage = "Live provider pull needs a configured provider API key and connection. Import report JSON for the selected contact until that is set up.";
 
   const loadReports = useCallback(async () => {
     const json = await fetchJson<{ ok: true; reports: ReportLite[] }>("/api/portal/credit/reports", { cache: "no-store" as any });
@@ -303,7 +304,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
       email: c.email ? String(c.email) : null,
     }));
     setContacts(next);
-    setSelectedContactId((prev) => prev || next[0]?.id || "");
+    setSelectedContactId((prev) => (prev && next.some((contact) => contact.id === prev) ? prev : ""));
   }, []);
 
   useEffect(() => {
@@ -486,49 +487,28 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     setBusy(true);
     setError(null);
     try {
+      if (!selectedContactId) {
+        setError("Select a contact before importing a report.");
+        return;
+      }
       const rawJson = JSON.parse(rawText);
-      const json = await fetchJson<{ ok: true; report: ReportLite }>("/api/portal/credit/reports/import", {
+      const json = await fetchJson<{ ok: true; report: ReportLite }>("/api/portal/credit/reports", {
         method: "POST",
         body: JSON.stringify({
-          contactId: selectedContactId || undefined,
+          contactId: selectedContactId,
+          provider,
+          creditScope,
           rawJson,
         }),
       });
       await loadReports();
-      toast.success("Credit report imported.");
+      toast.success("Manual report imported.");
       setNewReportOpen(false);
       setSelectedReportId(json.report.id);
       setRawText("{");
       window.location.href = routeSet.detailHref(json.report.id);
     } catch (e: any) {
       setError(e?.message ? String(e.message) : "Failed to import");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const requestProviderPull = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      if (!selectedContactId) {
-        setError("Select a contact first.");
-        return;
-      }
-      const json = await fetchJson<{ ok: true; report: ReportLite }>("/api/portal/credit/reports/pull", {
-        method: "POST",
-        body: JSON.stringify({
-          contactId: selectedContactId,
-          provider,
-        }),
-      });
-      await loadReports();
-      toast.success("Credit report pulled.");
-      setNewReportOpen(false);
-      setSelectedReportId(json.report.id);
-      window.location.href = routeSet.detailHref(json.report.id);
-    } catch (e: any) {
-      setError(e?.message ? String(e.message) : "Unable to pull report");
     } finally {
       setBusy(false);
     }
@@ -579,13 +559,20 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     openDisputeComposer({ ...item, auditTag: "NEGATIVE", disputeStatus: null });
   }, [openDisputeComposer, updateReportItemDecision]);
 
+  const selectedReportSource = useMemo(
+    () => (selectedReport ? extractCreditReportSourceSummary(selectedReport.rawJson, selectedReport.provider) : null),
+    [selectedReport],
+  );
+
   return (
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Credit reports</h1>
           <p className="mt-1 max-w-2xl text-sm text-zinc-600">
-            {mode === "detail" ? "Review the report, update item tags, and move straight into disputes." : "Pull reports, keep the file queue organized, and open the detail view when you need to work items."}
+            {mode === "detail"
+              ? "Review imported report items, update the internal tags, and draft dispute letters for the entries that need follow-up."
+              : "Import report JSON, review items internally, and open dispute letters when something needs work. Live provider pull still needs a configured provider API key and connection."}
           </p>
         </div>
         {mode === "detail" ? (
@@ -611,7 +598,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               onClick={() => setNewReportOpen(true)}
               className={PRIMARY_BUTTON_CLASS}
             >
-              + New
+              Import report
             </button>
           </div>
         )}
@@ -625,7 +612,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Report queue</div>
-                <div className="mt-1 text-sm text-zinc-600">Search by contact or provider, then open the report to work its items.</div>
+                <div className="mt-1 text-sm text-zinc-600">Search by contact or provider, then open the report to review items and move dispute work into letters.</div>
               </div>
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{loading ? "Loading" : `${filteredReports.length} reports`}</div>
             </div>
@@ -747,20 +734,22 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-6 py-10 text-center">
                           <div className="text-base font-semibold text-zinc-900">No reports in this view</div>
                           <div className="mt-2 max-w-md text-sm text-zinc-600">
-                            {reports.length === 0 ? "Start by pulling the first report for a contact." : "Try a different provider filter or search term."}
+                            {reports.length === 0 ? "Start by selecting a contact and importing report JSON. Live provider pulls still need a configured provider API key and connection." : "Try a different provider filter or search term."}
                           </div>
                           <button
                             type="button"
                             onClick={() => setNewReportOpen(true)}
                             className={PRIMARY_BUTTON_CLASS + " mt-4"}
                           >
-                            + New report
+                            Import report JSON
                           </button>
                         </div>
                       </td>
                     </tr>
                   ) : (
-                    filteredReports.map((report) => (
+                    filteredReports.map((report) => {
+                      const sourceSummary = extractCreditReportSourceSummary(report.rawJson, report.provider);
+                      return (
                       <tr
                         key={report.id}
                         tabIndex={0}
@@ -786,6 +775,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         </td>
                         <td className="px-4 py-3 text-zinc-700">
                           <div>{report.provider}</div>
+                          <div className="mt-1 text-xs text-zinc-500">{sourceSummary.shortLabel}</div>
                           <div className="mt-1 text-xs text-zinc-500">{report._count.items} items</div>
                         </td>
                         <td className="px-4 py-3 text-zinc-600">
@@ -793,7 +783,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                           <div className="mt-1 text-xs text-zinc-400">Open report</div>
                         </td>
                       </tr>
-                    ))
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -805,8 +796,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               <div className="my-auto w-full max-w-3xl rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="New credit report" data-overlay-root="true">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <div className="text-lg font-semibold text-zinc-900">New report</div>
-                    <div className="mt-1 text-sm text-zinc-600">Choose the contact and provider, then pull the latest report into the queue.</div>
+                    <div className="text-lg font-semibold text-zinc-900">Import credit report</div>
+                    <div className="mt-1 text-sm text-zinc-600">Select the contact first, then paste report JSON. Live provider pull still needs a configured provider API key and connection in this workspace.</div>
                   </div>
                   <button type="button" onClick={() => setNewReportOpen(false)} aria-label="Close new report" className={ICON_BUTTON_CLASS}>×</button>
                 </div>
@@ -830,10 +821,11 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       emptyLabel="No contacts found"
                       inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
                     />
+                    <div className="mt-2 text-xs text-zinc-500">Select a contact before importing a report so the queue and dispute workflow stay tied to the right person.</div>
                   </label>
 
                   <label className="block">
-                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Provider</div>
+                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">JSON source</div>
                     <PortalListboxDropdown
                       value={provider}
                       onChange={setProvider}
@@ -845,39 +837,34 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selection</div>
-                    <div className="mt-2 font-semibold text-zinc-900">{selectedContact?.name || "No contact selected"}</div>
-                    <div className="mt-1 text-xs text-zinc-500">{selectedContact?.email || provider}</div>
+                    <div className="mt-2 font-semibold text-zinc-900">{selectedContact?.name || "No contact selected yet"}</div>
+                    <div className="mt-1 text-xs text-zinc-500">{selectedContact?.email || "Choose a contact before importing."}</div>
                   </div>
 
-                  {showAdvancedImport ? (
-                    <details className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                      <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Advanced import</summary>
-                      <label className="mt-3 block">
-                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report JSON</div>
-                        <textarea
-                          value={rawText}
-                          onChange={(e) => setRawText(e.target.value)}
-                          className="min-h-45 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
-                          placeholder="Paste JSON here"
-                        />
-                      </label>
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          type="button"
-                          disabled={busy || rawText.trim().length < 2}
-                          onClick={importReport}
-                          className={SECONDARY_BUTTON_CLASS + " text-zinc-900"}
-                        >
-                          {busy ? "Working..." : "Import report"}
-                        </button>
-                      </div>
-                    </details>
-                  ) : null}
+                  <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4">
+                    <div className="text-sm font-semibold text-zinc-900">Supported now: import report JSON</div>
+                    <div className="mt-1 text-sm text-zinc-700">Paste the provider export JSON below. The report will be stored as a manual import for this contact.</div>
+                    <label className="mt-3 block">
+                      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report JSON</div>
+                      <textarea
+                        value={rawText}
+                        onChange={(e) => setRawText(e.target.value)}
+                        className="min-h-45 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                        placeholder="Paste report JSON here"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4">
+                    <div className="text-sm font-semibold text-zinc-900">Not ready yet: live provider pull</div>
+                    <div className="mt-1 text-sm text-zinc-700">{providerPullUnavailableMessage}</div>
+                    <div className="mt-2 text-xs text-zinc-500">A provider API key and connection are required before live pulls can run.</div>
+                  </div>
                 </div>
 
                 <div className="mt-6 flex justify-end gap-2">
                   <button type="button" onClick={() => setNewReportOpen(false)} className={SECONDARY_BUTTON_CLASS}>Cancel</button>
-                  <button type="button" disabled={busy || !selectedContactId} onClick={requestProviderPull} className={PRIMARY_BUTTON_CLASS}>{busy ? "Working..." : "Pull report"}</button>
+                  <button type="button" disabled={busy || !selectedContactId || rawText.trim().length < 2} onClick={importReport} className={PRIMARY_BUTTON_CLASS}>{busy ? "Working..." : "Import report JSON"}</button>
                 </div>
               </div>
             </div>
@@ -890,8 +877,20 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div>
               <h2 className="text-2xl font-semibold text-zinc-900">{selectedReport.contact?.name || selectedReport.provider}</h2>
-              <div className="mt-2 text-sm text-zinc-600">{creditScopeLabel(selectedReport.creditScope)} • {selectedReport.provider} • Imported {new Date(selectedReport.importedAt).toLocaleString()} • {selectedReport.items.length} items</div>
+              <div className="mt-2 text-sm text-zinc-600">{creditScopeLabel(selectedReport.creditScope)} • {selectedReportSource?.label || selectedReport.provider} • Imported {new Date(selectedReport.importedAt).toLocaleString()} • {selectedReport.items.length} items</div>
             </div>
+
+            {selectedReportSource ? (
+              <div className={classNames(
+                "mt-4 rounded-3xl border px-4 py-3 text-sm",
+                selectedReportSource.mode === "provider-placeholder"
+                  ? "border-amber-200 bg-amber-50 text-zinc-800"
+                  : "border-emerald-200 bg-emerald-50 text-zinc-800",
+              )}>
+                <div className="font-semibold text-zinc-900">{selectedReportSource.label}</div>
+                <div className="mt-1">{selectedReportSource.helperText}</div>
+              </div>
+            ) : null}
 
             <div className="mt-5 flex flex-wrap gap-2">
               {([
@@ -915,6 +914,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               ))}
             </div>
 
+            {selectedReportSource?.mode !== "provider-placeholder" ? (
+            <>
             <div className="mt-5 grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
               <div className="rounded-[28px] border border-zinc-200 bg-zinc-50 p-5">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report health</div>
@@ -969,10 +970,12 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     <div key={entry.bureau} className="rounded-3xl border border-zinc-200 bg-white p-4">
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{entry.bureau}</div>
                       <div className="mt-3 flex items-center gap-3">
-                        <div className="relative h-16 w-16 rounded-full" style={{ backgroundImage: ringTrack([{ value: ringPercent, color: "#2563eb" }, { value: 100 - ringPercent, color: "#e4e4e7" }]) }}>
-                          <div className="absolute inset-2 flex items-center justify-center rounded-full bg-white text-sm font-semibold text-zinc-900">{entry.score}</div>
+                        <div className="flex h-18 w-18 shrink-0 items-center justify-center rounded-3xl bg-zinc-50">
+                          <div className="relative aspect-square h-16 shrink-0 rounded-full" style={{ backgroundImage: ringTrack([{ value: ringPercent, color: "#2563eb" }, { value: 100 - ringPercent, color: "#e4e4e7" }]) }}>
+                            <div className="absolute inset-2 flex items-center justify-center rounded-full bg-white text-sm font-semibold text-zinc-900">{entry.score}</div>
+                          </div>
                         </div>
-                        <div className="text-sm text-zinc-600">Auto-loaded bureau score for this report snapshot.</div>
+                        <div className="min-w-0 text-sm text-zinc-600">Auto-loaded bureau score for this report snapshot.</div>
                       </div>
                     </div>
                   );
@@ -989,11 +992,18 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 </div>
               </div>
             ) : null}
+            </>
+            ) : (
+              <div className="mt-5 rounded-3xl border border-dashed border-amber-300 bg-amber-50 p-5 text-sm text-zinc-700">
+                This placeholder row does not contain a live bureau report. Import report JSON for this contact before using score, utilization, or funding guidance here.
+              </div>
+            )}
             {detailTab === "items" ? (
             <div id="credit-report-items" className="mt-5 border-t border-zinc-200 pt-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Report items</div>
+                <div className="mt-1 text-sm text-zinc-600">Item tags and dispute workflow are internal to Purely until you draft or send a dispute letter.</div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <input
@@ -1107,7 +1117,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                             onClick={() => openDisputeComposer(it)}
                             className={PRIMARY_BUTTON_CLASS}
                           >
-                            Create dispute
+                            Draft dispute letter
                           </button>
                         ) : it.auditTag === "PENDING" ? (
                           <button type="button" onClick={() => setPriorityItemOpen(it)} className={SECONDARY_BUTTON_CLASS}>Review item</button>
@@ -1122,8 +1132,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         <div className="mt-1 text-sm text-zinc-600">{it.auditTag === "PENDING" ? "Review the item details, then either move it to dispute or mark that no dispute is needed." : it.auditReason || "Classification is derived from the account status and dispute signals in the report."}</div>
                       </div>
                       <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute status</div>
-                        <div className="mt-2 text-sm text-zinc-700">{it.disputeStatus || "No dispute started yet"}</div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Internal dispute workflow</div>
+                        <div className="mt-2 text-sm text-zinc-700">{it.disputeStatus || "No dispute letter drafted yet"}</div>
                       </div>
                     </div>
                   </div>
@@ -1185,7 +1195,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   </div>
                   <div>{priorityItemOpen.auditReason || itemSummaryText(priorityItemOpen)}</div>
                   {priorityItemOpen.auditTag === "PENDING" ? (
-                    <div>Review the details below. If it belongs in the next letter, move it to dispute.</div>
+                    <div>Review the details below. If it belongs in the next letter, open a dispute draft from here.</div>
                   ) : null}
                 </div>
 
@@ -1206,7 +1216,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     </div>
                   ) : (
                     <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
-                      This item does not have extra imported detail fields on file yet. Use the details above to decide whether it should move into dispute.
+                      This item does not have extra imported detail fields on file yet. Use the details above to decide whether it needs a dispute draft.
                     </div>
                   )}
                 </div>
@@ -1215,23 +1225,16 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   {priorityItemOpen.auditTag === "NEGATIVE" ? (
                     <button type="button" onClick={() => {
                       openDisputeComposer(priorityItemOpen);
-                    }} className={PRIMARY_BUTTON_CLASS}>Create dispute</button>
+                    }} className={PRIMARY_BUTTON_CLASS}>Draft dispute letter</button>
                   ) : priorityItemOpen.auditTag === "PENDING" ? (
                     <>
-                      <button type="button" onClick={() => { void markItemNoDisputeNeeded(priorityItemOpen); }} className={SECONDARY_BUTTON_CLASS} disabled={itemDecisionBusyId === priorityItemOpen.id}>{itemDecisionBusyId === priorityItemOpen.id ? "Saving..." : "No dispute needed"}</button>
-                      <button type="button" onClick={() => { void moveItemToDispute(priorityItemOpen); }} className={PRIMARY_BUTTON_CLASS} disabled={itemDecisionBusyId === priorityItemOpen.id}>{itemDecisionBusyId === priorityItemOpen.id ? "Saving..." : "Move to dispute"}</button>
+                      <button type="button" onClick={() => { void markItemNoDisputeNeeded(priorityItemOpen); }} className={SECONDARY_BUTTON_CLASS} disabled={itemDecisionBusyId === priorityItemOpen.id}>{itemDecisionBusyId === priorityItemOpen.id ? "Saving..." : "Mark as reviewed"}</button>
+                      <button type="button" onClick={() => { void moveItemToDispute(priorityItemOpen); }} className={PRIMARY_BUTTON_CLASS} disabled={itemDecisionBusyId === priorityItemOpen.id}>{itemDecisionBusyId === priorityItemOpen.id ? "Saving..." : "Draft dispute letter"}</button>
                     </>
                   ) : null}
                 </div>
               </div>
             </div>
-          ) : null}
-
-          {showAdvancedImport ? (
-            <details className="mt-4">
-              <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Raw JSON (dev)</summary>
-              <pre className="scrollbar-none mt-2 max-h-105 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">{JSON.stringify(selectedReport.rawJson, null, 2)}</pre>
-            </details>
           ) : null}
         </div>
       )}

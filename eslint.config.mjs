@@ -46,7 +46,7 @@ const eslintConfig = defineConfig([
 
   // Temporary repro and audit probes under /tmp also use CommonJS.
   {
-    files: ["tmp/**/*.cjs", "tmp*.cjs"],
+    files: ["tmp/**/*.js", "tmp/**/*.cjs", "tmp*.js", "tmp*.cjs"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
     },

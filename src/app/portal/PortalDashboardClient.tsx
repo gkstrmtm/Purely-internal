@@ -1875,7 +1875,7 @@ export function PortalDashboardClient() {
               <StatLine label="Text success" value={formatPct(derived.textSuccessRate)} />
             </div>
             <div className="mt-3">
-              <Link href={`${portalBase}/app/services/missed-call-textback`} className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href={`${portalBase}/app/services/ai-receptionist?tab=missed-call-textback`} className="text-sm font-semibold text-brand-ink hover:underline">
                 Go to Missed-Call Text Back
               </Link>
             </div>

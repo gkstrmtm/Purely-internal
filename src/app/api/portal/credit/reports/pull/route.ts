@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
-import { extractCreditReportSnapshot, normalizeCreditScope } from "@/lib/creditReports";
+import { normalizeCreditScope } from "@/lib/creditReports";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 
 export const runtime = "nodejs";
@@ -40,54 +40,18 @@ export async function POST(req: Request) {
   });
   if (!contact) return NextResponse.json({ ok: false, error: "Contact not found" }, { status: 404 });
 
-  const now = new Date();
-
-  // Integration stub: creates a placeholder report row so the UX flow works.
-  // A real provider integration will replace rawJson + items asynchronously.
-  const created = await prisma.creditReport.create({
-    data: {
-      ownerId,
-      contactId,
-      provider,
-      importedAt: now,
-      createdAt: now,
-      rawJson: {
-        status: "PENDING",
+  return NextResponse.json(
+    {
+      ok: false,
+      error: "Live provider pull needs a configured provider API key and connection. Import report JSON for this contact until that is set up.",
+      boundary: {
         provider,
         creditScope,
-        requestedAt: now.toISOString(),
-        contact: { id: contact.id, name: contact.name, email: contact.email },
-        profile: {
-          currentScore: 642,
-          targetScore: 700,
-          bureauScores: {
-            Experian: 638,
-            Equifax: 646,
-            TransUnion: 642,
-          },
-          goals: [
-            "Remove remaining derogatory accounts",
-            "Bring utilization below 10%",
-            "Get funding-ready for the next application round",
-          ],
-          utilizationPercent: 28,
-          openDisputes: 0,
-          nextMilestone: "Provider sync is pending. Once the report lands, review negatives first and confirm current utilization.",
-        },
-        note: "Provider pull integration not configured yet",
-      } as any,
+        contactId: contact.id,
+        sourceType: "PROVIDER_PULL_UNAVAILABLE",
+        helperText: "A provider API key and connection are required before live pulls can run.",
+      },
     },
-    select: {
-      id: true,
-      provider: true,
-      importedAt: true,
-      createdAt: true,
-      rawJson: true,
-      contactId: true,
-      contact: { select: { id: true, name: true, email: true } },
-      _count: { select: { items: true } },
-    },
-  });
-
-  return NextResponse.json({ ok: true, report: { ...created, creditScope, creditSnapshot: extractCreditReportSnapshot(created.rawJson) } });
+    { status: 409 },
+  );
 }

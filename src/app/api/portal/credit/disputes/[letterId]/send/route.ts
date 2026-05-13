@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const sendSchema = z.object({
+  confirmManualMail: z.literal(true),
   to: z.string().trim().max(160).optional().nullable(),
 });
 
@@ -22,7 +23,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ letterId: stri
 
   const json = await req.json().catch(() => null);
   const parsed = sendSchema.safeParse(json);
-  if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
+  if (!parsed.success) {
+    return NextResponse.json(
+      { ok: false, error: "Confirm the manual mailed status update before continuing." },
+      { status: 400 },
+    );
+  }
 
   const ownerId = session.session.user.id;
 
@@ -41,7 +47,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ letterId: stri
   const text = String(letter.bodyText || "").trim();
   if (!text) return NextResponse.json({ ok: false, error: "Letter is empty" }, { status: 400 });
 
-  const mailedTo = (parsed.data.to || "").trim() || letter.lastSentTo || "Mailed copy";
+  const mailedTo = (parsed.data.to || "").trim() || letter.lastSentTo || "Marked mailed manually";
 
   await prisma.creditDisputeLetter.updateMany({
     where: { id, ownerId },
@@ -53,5 +59,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ letterId: stri
     },
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    helperText: "This only updates the mailed status inside Purely. It does not send the letter or prove external delivery.",
+  });
 }

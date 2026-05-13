@@ -69,6 +69,7 @@ export function PortalStripeSalesClient() {
   const toast = useToast();
   const pathname = usePathname();
   const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
+  const isCreditWorkspace = appBase.startsWith("/credit");
 
   const [status, setStatus] = useState<StripeIntegrationStatus | null>(null);
   const [range, setRange] = useState<RangeKey>("30d");
@@ -161,6 +162,15 @@ export function PortalStripeSalesClient() {
           >
             Stripe settings
           </Link>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+        <div className="font-semibold text-zinc-900">Coverage boundary</div>
+        <div className="mt-1">
+          {isCreditWorkspace
+            ? "This route only covers Stripe charges and refunds. It does not include imported reports, dispute workflow counts, PDFs, mailed-letter status, or other credit workspace milestones."
+            : "This route only covers Stripe charges and refunds. It does not include the broader service activity counts shown on the shared reporting dashboard."}
         </div>
       </div>
 

@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const importSchema = z.object({
-  contactId: z.string().trim().min(1).optional().nullable(),
+  contactId: z.string().trim().min(1),
   provider: z.string().trim().max(40).optional().nullable(),
   creditScope: z.enum(["PERSONAL", "BUSINESS", "BOTH"]).optional().nullable(),
   rawJson: z.unknown(),
@@ -93,24 +93,34 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
 
   const ownerId = session.session.user.id;
-  const provider = (parsed.data.provider || "UPLOAD").trim() || "UPLOAD";
+  const provider = (parsed.data.provider || "Imported JSON").trim() || "Imported JSON";
   const creditScope = normalizeCreditScope(parsed.data.creditScope);
 
-  const contactId = parsed.data.contactId ? String(parsed.data.contactId).trim() : "";
-  if (contactId) {
-    const exists = await prisma.portalContact.findFirst({ where: { id: contactId, ownerId }, select: { id: true } });
-    if (!exists) return NextResponse.json({ ok: false, error: "Contact not found" }, { status: 404 });
+  const contactId = String(parsed.data.contactId || "").trim();
+  const exists = await prisma.portalContact.findFirst({ where: { id: contactId, ownerId }, select: { id: true } });
+  if (!exists) {
+    return NextResponse.json({ ok: false, error: "Select a contact before importing a report." }, { status: 400 });
   }
 
   const rawJson = parsed.data.rawJson;
   const storedRawJson = rawJson && typeof rawJson === "object" && !Array.isArray(rawJson)
-    ? { ...(rawJson as Record<string, unknown>), creditScope }
-    : { creditScope, payload: rawJson };
+    ? {
+        ...(rawJson as Record<string, unknown>),
+        creditScope,
+        sourceType: "MANUAL_IMPORT",
+        importMethod: "JSON_UPLOAD",
+      }
+    : {
+        creditScope,
+        payload: rawJson,
+        sourceType: "MANUAL_IMPORT",
+        importMethod: "JSON_UPLOAD",
+      };
 
   const created = await prisma.creditReport.create({
     data: {
       ownerId,
-      contactId: contactId || null,
+      contactId,
       provider,
       rawJson: storedRawJson as any,
       importedAt: new Date(),

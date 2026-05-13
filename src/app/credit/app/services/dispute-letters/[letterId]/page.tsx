@@ -1,4 +1,4 @@
-import { redirectCreditOnlyService } from "@/app/portal/app/services/creditOnlyLegacyRedirect";
+import DisputeLettersClient from "@/app/credit/app/disputes/DisputeLettersClient";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -9,5 +9,6 @@ export default async function CreditDisputeLettersEditorPage({
   params: Promise<{ letterId: string }>;
 }) {
   const { letterId } = await params;
-  await redirectCreditOnlyService(`/credit/app/services/dispute-letters/${encodeURIComponent(letterId)}`);
+
+  return <DisputeLettersClient mode="editor" initialLetterId={letterId} />;
 }

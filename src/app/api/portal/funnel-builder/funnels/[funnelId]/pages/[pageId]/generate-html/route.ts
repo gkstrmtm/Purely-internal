@@ -618,7 +618,7 @@ function applyBookingSectionRhythmEnhancement(html: string): string {
 }
 
 function applyBookingPrimaryGuardrails(html: string, primaryCta?: string | null): string {
-  let text = String(html || "")
+  const text = String(html || "")
     .replace(/<style id=["']pa-booking-primary-guardrails["']>[\s\S]*?<\/style>/gi, "")
     .replace(/<div class="pa-booking-primary-stack">\s*(<(?:a|button)\b[\s\S]*?data-pa-booking-primary=["'][^"']*["'][\s\S]*?<\/(?:a|button)>)\s*<div class="pa-booking-primary-note">[\s\S]*?<\/div>\s*(?:<div class="pa-booking-proof-cluster" data-pa-booking-proof="true">[\s\S]*?<\/div>)?\s*<\/div>/gi, "$1")
     .replace(/<div class="pa-booking-primary-stack">\s*(<div class="pa-booking-primary-stack">[\s\S]*?<\/div>)\s*<\/div>/gi, "$1")
@@ -2967,12 +2967,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       },
     })
     .catch(() => null);
-  let [settings, businessContext, bookingCalendars, bookingSite] = await Promise.all([
+  const [loadedSettings, businessContext, loadedBookingCalendars, bookingSite] = await Promise.all([
     settingsPromise,
     businessContextPromise,
     bookingCalendarsPromise,
     bookingSitePromise,
   ]);
+  let settings = loadedSettings;
+  let bookingCalendars = loadedBookingCalendars;
   const effectiveFunnelBrief = inferFunnelBriefProfile({
     existing: body?.funnelBrief || readFunnelBrief(settings, normalizedPage.funnel.id),
     funnelName: normalizedPage.funnel.name,

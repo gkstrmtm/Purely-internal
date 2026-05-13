@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 
-import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { getPortalServiceBenefitCopy, getPortalServiceCopy, PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { requirePortalUserForAnyService, requirePortalUserForService } from "@/lib/portalAuth";
 import { getPortalServiceStatusesForOwner } from "@/lib/portalServicesStatus";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
@@ -31,66 +31,6 @@ function serviceKeysForSlug(slug: string): readonly PortalServiceKey[] {
   }
 }
 
-function benefitCopyForService(serviceSlug: string, entitlementKey?: string, variant: "credit" | "portal" = "portal") {
-  const key = (entitlementKey || "").trim();
-  if (serviceSlug === "blogs" || key === "blog") {
-    return {
-      title: "Turn your website into a lead engine",
-      bullets: [
-        "Publish consistent, SEO-ready content without the weekly grind",
-        "Generate on-brand drafts from your topics and goals",
-        "Keep momentum with an automation schedule you control",
-        "Build trust with prospects before they ever talk to you",
-      ],
-    };
-  }
-
-  if (serviceSlug === "booking" || key === "booking") {
-    return {
-      title: "Book more appointments with less back-and-forth",
-      bullets: [
-        "Share a clean booking link that works 24/7",
-        "Capture the details you need up-front",
-        "Reduce no-shows with reminders",
-        "Stay organized with a single source of truth",
-      ],
-    };
-  }
-
-  if (serviceSlug === "reviews" || key === "reviews") {
-    return {
-      title: "Get more reviews (without nagging)",
-      bullets: [
-        "Send requests at the right time",
-        "Follow up automatically",
-        "Track responses in one place",
-        "Build social proof that converts",
-      ],
-    };
-  }
-
-  if (serviceSlug === "ai-receptionist" || key === "aiReceptionist") {
-    return {
-      title: "Answer calls and route requests automatically",
-      bullets: [
-        "Front desk-style answering 24/7",
-        "Collect details before handoff",
-        "Forward calls to your team when needed",
-        "See activity and outcomes in the portal",
-      ],
-    };
-  }
-
-  return {
-    title: "Unlock this service",
-    bullets: [
-      "Add it in Billing and start configuring right away",
-      "Upgrade or remove add-ons any time",
-      variant === "credit" ? "Everything stays in one credit workspace" : "Everything stays under one portal login",
-    ],
-  };
-}
-
 function LockedShell(opts: {
   basePath: "/portal" | "/credit";
   slug: string;
@@ -101,7 +41,7 @@ function LockedShell(opts: {
   state: "locked" | "paused" | "canceled" | "coming_soon";
   label: string;
 }) {
-  const benefit = benefitCopyForService(opts.slug, opts.entitlementKey, opts.basePath === "/credit" ? "credit" : "portal");
+  const benefit = getPortalServiceBenefitCopy(opts.slug, opts.entitlementKey, opts.basePath === "/credit" ? "credit" : "portal");
 
   const statusClass =
     opts.state === "paused"
@@ -216,16 +156,19 @@ function LockedShell(opts: {
 export async function PortalServiceGate({
   slug,
   children,
+  variantOverride,
 }: {
   slug: string;
   children: React.ReactNode;
+  variantOverride?: "portal" | "credit";
 }) {
   const h = await headers();
-  const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) ?? "portal";
+  const variant = variantOverride ?? normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) ?? "portal";
   const basePath = portalBasePath(variant);
 
   const service = PORTAL_SERVICES.find((s) => s.slug === slug) ?? null;
   if (!service) return children;
+  const serviceCopy = getPortalServiceCopy(service, variant);
 
   // Permissions gating only. Ownership gating is represented by the service status below.
   const keys = serviceKeysForSlug(slug);
@@ -245,8 +188,8 @@ export async function PortalServiceGate({
         basePath={basePath}
         slug={slug}
         title={service.title}
-        description={service.description}
-        highlights={service.highlights}
+        description={serviceCopy.description}
+        highlights={serviceCopy.highlights}
         entitlementKey={service.entitlementKey}
         state={state as any}
         label={String(st?.label || "")}

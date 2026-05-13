@@ -7748,7 +7748,7 @@ export function FunnelEditorClient({
 
   // After the first post-boot paint, reveal the editor body. This ensures the
   // grid columns have already snapped to their settled state before the user
-  // sees anything — eliminating the right-side column jump on load.
+  // sees anything - eliminating the right-side column jump on load.
   useEffect(() => {
     if (layoutBootSettled && !layoutFadeIn) setLayoutFadeIn(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -19539,7 +19539,7 @@ export function FunnelEditorClient({
         style={{
           ...(reserveChatRailSpace ? ({ ["--funnel-chat-rail-width" as any]: `${chatRailWidth}px` } as any) : {}),
           transitionProperty: "grid-template-columns, opacity",
-          // While booting: nothing transitions — grid settles silently at opacity 0.
+          // While booting: nothing transitions - grid settles silently at opacity 0.
           // On first reveal (layoutBootSettled && !layoutFadeIn → layoutFadeIn):
           //   grid transition is 0ms (already correct), opacity fades in over 200ms.
           // Normal operation: grid animates at 320ms, opacity stays at 1.

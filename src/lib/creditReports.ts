@@ -17,6 +17,13 @@ export type CreditReportSnapshot = {
   nextMilestone: string | null;
 };
 
+export type CreditReportSourceSummary = {
+  mode: "manual-import" | "provider-placeholder" | "provider-report";
+  shortLabel: string;
+  label: string;
+  helperText: string;
+};
+
 type CreditItemLike = {
   label?: string | null;
   kind?: string | null;
@@ -96,6 +103,57 @@ export function creditScopeLabel(scope: CreditScope) {
   if (scope === "BUSINESS") return "Business credit";
   if (scope === "BOTH") return "Personal + business credit";
   return "Personal credit";
+}
+
+export function extractCreditReportSourceSummary(rawJson: unknown, providerRaw: unknown): CreditReportSourceSummary {
+  const raw = readObject(rawJson) || {};
+  const provider = normalizeText(providerRaw) || "Imported JSON";
+  const sourceType = normalizeText(raw.sourceType).toUpperCase();
+  const importMethod = normalizeText(raw.importMethod).toUpperCase();
+  const status = normalizeText(raw.status).toUpperCase();
+  const note = normalizeText(raw.note);
+  const noteLower = note.toLowerCase();
+
+  const isProviderPlaceholder =
+    sourceType === "PROVIDER_PULL_UNAVAILABLE" ||
+    noteLower.includes("provider pull integration not configured yet") ||
+    noteLower.includes("live provider pull is not connected yet") ||
+    noteLower.includes("configured provider api key and connection") ||
+    noteLower.includes("provider connection required before live pulls can run") ||
+    noteLower.includes("provider api key and connection are required before live pulls can run") ||
+    (status === "PENDING" && noteLower.includes("provider"));
+
+  if (isProviderPlaceholder) {
+    return {
+      mode: "provider-placeholder",
+      shortLabel: "Pull unavailable",
+      label: "Live provider pull unavailable",
+      helperText: "This is not a live bureau report. Provider pull still needs a configured API key and connection, so import report JSON until that setup is finished.",
+    };
+  }
+
+  const isManualImport =
+    sourceType === "MANUAL_IMPORT" ||
+    importMethod === "JSON_UPLOAD" ||
+    provider.toUpperCase() === "UPLOAD" ||
+    provider.toUpperCase() === "IMPORTED JSON" ||
+    !status;
+
+  if (isManualImport) {
+    return {
+      mode: "manual-import",
+      shortLabel: "Manual import",
+      label: `Imported JSON${provider && provider.toUpperCase() !== "UPLOAD" && provider.toUpperCase() !== "IMPORTED JSON" ? ` • ${provider}` : ""}`,
+      helperText: "This report was imported manually from JSON. Review items here, then draft dispute letters when something needs follow-up.",
+    };
+  }
+
+  return {
+    mode: "provider-report",
+    shortLabel: "Provider report",
+    label: `${provider} provider report`,
+    helperText: "This report came from a provider-connected workflow. Keep item review and dispute tracking inside Purely until letters are drafted or sent.",
+  };
 }
 
 export function deriveCreditReportItemAudit(item: CreditItemLike): { auditTag: CreditReportAuditTag; reason: string } {

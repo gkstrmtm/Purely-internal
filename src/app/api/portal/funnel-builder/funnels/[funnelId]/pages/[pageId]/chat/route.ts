@@ -136,17 +136,17 @@ function buildPageHtmlContextBlock(html: string, selectedRegion: { key: string; 
     return `Current page HTML:\n${raw}`;
   }
 
-  // Page is large — send the first 20,000 chars + a structural outline of the full document
+  // Page is large - send the first 20,000 chars + a structural outline of the full document
   const outline = extractHtmlStructureOutline(raw);
   const parts: string[] = [
-    `Current page HTML (first ${FULL_CLAMP.toLocaleString()} chars of ${raw.length.toLocaleString()} total — page is large):`,
-    raw.slice(0, FULL_CLAMP) + "\n[...remaining HTML not shown — use STRUCTURE OUTLINE below for full page anatomy]",
+    `Current page HTML (first ${FULL_CLAMP.toLocaleString()} chars of ${raw.length.toLocaleString()} total - page is large):`,
+    raw.slice(0, FULL_CLAMP) + "\n[...remaining HTML not shown - use STRUCTURE OUTLINE below for full page anatomy]",
   ];
 
   if (outline) {
     parts.push(
       "",
-      "STRUCTURE OUTLINE (full page — element tag, selector, and text preview for every section/heading/anchored element):",
+      "STRUCTURE OUTLINE (full page - element tag, selector, and text preview for every section/heading/anchored element):",
       outline,
     );
   }
@@ -161,7 +161,7 @@ function buildPageHtmlContextBlock(html: string, selectedRegion: { key: string; 
     if (regionMatch) {
       parts.push(
         "",
-        `SELECTED REGION FULL HTML (#${selectedRegion.key} — "${selectedRegion.label}"):`,
+        `SELECTED REGION FULL HTML (#${selectedRegion.key} - "${selectedRegion.label}"):`,
         clampText(regionMatch[1], 12000),
       );
     }
@@ -2132,7 +2132,7 @@ function buildStructuredAssistantReply(input: {
         ? `The main visual gap right now: ${input.visualPolishSummary}.`
         : input.sceneQuality.dominantIssue.detail));
   const moveLines = moves.length
-    ? moves.map((move) => `- ${move.change} — ${move.why}`)
+    ? moves.map((move) => `- ${move.change} - ${move.why}`)
     : [`- ${input.sceneQuality.dominantIssue.detail}`];
   const closing = input.plan?.moves?.length
     ? input.specificitySignal.underSpecified
@@ -2567,19 +2567,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     bookingRuntimeBlock,
     pageContextBlock,
 
-    // JSON output instruction — placed last so the model follows it
+    // JSON output instruction - placed last so the model follows it
     [
-      "OUTPUT FORMAT — your entire response must be a single valid JSON object matching this schema. No text before or after. No code fences.",
+      "OUTPUT FORMAT - your entire response must be a single valid JSON object matching this schema. No text before or after. No code fences.",
       "{",
-      '  "assistantText": "string — plain prose, no markdown bold or headers, no internal field labels. 2-3 short paragraphs or a short paragraph plus a dash-list. Speak in present tense about what the page needs and what Pura will change.",',
+      '  "assistantText": "string - plain prose, no markdown bold or headers, no internal field labels. 2-3 short paragraphs or a short paragraph plus a dash-list. Speak in present tense about what the page needs and what Pura will change.",',
       '  "sourceActionPlan": {',
-      '    "summary": "string — one sentence describing the primary source upgrade",',
+      '    "summary": "string - one sentence describing the primary source upgrade",',
       '    "moves": [',
       '      {',
-      '        "key": "string — kebab-case identifier",',
-      '        "target": "string — section or element name (e.g. hero, proof, cta)",',
-      '        "change": "string — what Pura will change, phrased as an action",',
-      '        "why": "string — short reason this matters for conversion",',
+      '        "key": "string - kebab-case identifier",',
+      '        "target": "string - section or element name (e.g. hero, proof, cta)",',
+      '        "change": "string - what Pura will change, phrased as an action",',
+      '        "why": "string - short reason this matters for conversion",',
       '        "priority": "primary | secondary | optional",',
       '        "executionMode": "bounded-edit | model-led",',
       '        "confidence": "high | medium | low",',
@@ -2587,7 +2587,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       '        "diff": ["optional before -> after surface change description"]',
       '      }',
       '    ],',
-      '    "watchouts": ["optional — short failure modes to avoid, max 3"]',
+      '    "watchouts": ["optional - short failure modes to avoid, max 3"]',
       '  }',
       "}",
       "If enough context exists for a reversible pass, return a real sourceActionPlan and assistantText that sounds operational, not merely advisory.",

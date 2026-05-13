@@ -163,6 +163,14 @@ const TEMPLATES: TemplateConfig[] = [
   },
 ];
 
+const LETTER_REVIEW_CHECKLIST = [
+  "Confirm the consumer name, address, email, and phone details.",
+  "Confirm the recipient name and delivery address before sharing the document.",
+  "Confirm every disputed item, account reference, and requested correction or deletion.",
+  "Confirm the supporting facts, dates, balances, and any attached evidence.",
+  "Generate or regenerate the PDF only after the draft reads correctly.",
+];
+
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
 }
@@ -181,8 +189,8 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 function statusLabel(status: LetterLite["status"]) {
-  if (status === "GENERATED") return "Generated";
-  if (status === "SENT") return "Mailed";
+  if (status === "GENERATED") return "PDF ready";
+  if (status === "SENT") return "Marked mailed";
   return "Draft";
 }
 
@@ -190,6 +198,12 @@ function statusClasses(status: LetterLite["status"]) {
   if (status === "GENERATED") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "SENT") return "border-sky-200 bg-sky-50 text-sky-700";
   return "border-zinc-200 bg-zinc-100 text-zinc-700";
+}
+
+function statusHelperText(status: LetterLite["status"]) {
+  if (status === "GENERATED") return "PDF exported for download or sharing. This still does not file the dispute automatically.";
+  if (status === "SENT") return "Marked mailed manually inside Purely. This is not proof of delivery.";
+  return "AI draft created. Review the content before generating a PDF, emailing it, or mailing it.";
 }
 
 function computeFixedMenuStyle(rect: DOMRect, width = 288, estHeight = 320): FixedMenuStyle {
@@ -208,12 +222,6 @@ function computeFixedMenuStyle(rect: DOMRect, width = 288, estHeight = 320): Fix
 
 function routesFor(pathname: string | null) {
   const current = String(pathname || "");
-  if (current.startsWith("/credit/app/disputes")) {
-    return {
-      listHref: "/credit/app/disputes",
-      editorHref: (letterId: string) => `/credit/app/disputes/${encodeURIComponent(letterId)}`,
-    };
-  }
   if (current.startsWith("/credit")) {
     return {
       listHref: "/credit/app/services/dispute-letters",
@@ -605,7 +613,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       const contactLabel = selectedContact?.name || contacts.find((entry) => entry.id === contactId)?.name || "Unknown";
       const baseRecipient = recipientName.trim() || "Recipient";
       const subjectLine = `Round ${roundNumber} - ${contactLabel} - ${baseRecipient}`.trim();
-      const data = await fetchJson<{ ok: true; letter: LetterFull; pdf?: { downloadUrl?: string | null } }>("/api/portal/credit/disputes", {
+      const data = await fetchJson<{ ok: true; letter: LetterFull }>("/api/portal/credit/disputes", {
         method: "POST",
         body: JSON.stringify({
           contactId,
@@ -637,7 +645,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             `/api/portal/credit/reports/${encodeURIComponent(sourceReportId)}/items/${encodeURIComponent(sourceReportItemId)}`,
             {
               method: "PATCH",
-              body: JSON.stringify({ disputeStatus: "Dispute created (not mailed)" }),
+              body: JSON.stringify({ disputeStatus: "Draft dispute letter created" }),
             },
           );
         } catch {
@@ -671,9 +679,16 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
 
   const markLetterMailed = useCallback(async () => {
     if (!selectedLetterId) return;
+    const confirmed = window.confirm(
+      "Mark this letter as mailed manually?\n\nThis only updates the status inside Purely. It does not email the letter, submit the dispute to a bureau or furnisher, or prove external delivery.",
+    );
+    if (!confirmed) return;
     setWorking("mail");
     try {
-      await fetchJson(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/send`, { method: "POST", body: JSON.stringify({}) });
+      await fetchJson(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/send`, {
+        method: "POST",
+        body: JSON.stringify({ confirmManualMail: true }),
+      });
 
       if (sourceReportId && sourceReportItemId) {
         try {
@@ -681,7 +696,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             `/api/portal/credit/reports/${encodeURIComponent(sourceReportId)}/items/${encodeURIComponent(sourceReportItemId)}`,
             {
               method: "PATCH",
-              body: JSON.stringify({ disputeStatus: "Dispute mailed" }),
+              body: JSON.stringify({ disputeStatus: "Letter marked mailed manually" }),
             },
           );
         } catch {
@@ -712,26 +727,25 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     }
   }, [loadLetter, loadLetters, selectedLetterId]);
 
-  useEffect(() => {
-    if (mode !== "editor") return;
-    if (!selectedLetterId || !selectedLetter || letterLoading || working || pdfDownloadUrl) return;
-    void refreshPdf().catch(() => undefined);
-  }, [letterLoading, mode, pdfDownloadUrl, refreshPdf, selectedLetter, selectedLetterId, working]);
-
   const composer = composerOpen ? (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => working !== "generate" && closeComposer()}>
       <div className="my-auto w-full max-w-4xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="New dispute letter" data-overlay-root="true">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-lg font-semibold text-zinc-900">New dispute letter</div>
-            <div className="mt-1 text-sm text-zinc-600">Pick the contact, choose the recipient, load the report items, and generate a mailed letter draft.</div>
+            <div className="text-lg font-semibold text-zinc-900">New dispute letter draft</div>
+            <div className="mt-1 text-sm text-zinc-600">Pick the contact, choose the recipient, load the disputed items, and generate a draft for human review. This does not submit anything to a bureau or furnisher.</div>
           </div>
           <button type="button" onClick={closeComposer} aria-label="Close dispute letter composer" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 text-lg font-semibold text-zinc-700 hover:bg-zinc-50">×</button>
         </div>
         <div className="mt-6 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
           <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">1 Contact</span>
-          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">2 Letter</span>
+          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">2 Recipient</span>
           <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">3 Issues</span>
+          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">4 Review</span>
+        </div>
+        <div className="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-zinc-800">
+          <div className="font-semibold text-zinc-900">Draft workflow boundary</div>
+          <div className="mt-1">AI generation creates a draft only. Review the letter first, then generate a PDF if you need an exportable document. Emailing, mailing, and bureau or furnisher submission happen outside Purely.</div>
         </div>
         <div className="mt-5 space-y-4">
           <section className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
@@ -886,7 +900,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             )}
           >
             <AiSparkIcon className="h-4 w-4" />
-            <span>{working === "generate" ? "Generating…" : "Generate with AI"}</span>
+            <span>{working === "generate" ? "Drafting…" : "Draft with AI"}</span>
           </button>
         </div>
       </div>
@@ -942,7 +956,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                   {subject.trim() || "Dispute letter"}
                 </button>
               )}
-              <div className="mt-1 text-xs font-semibold text-zinc-500">Click the title to rename. Save draft to persist.</div>
+              <div className="mt-1 text-xs font-semibold text-zinc-500">Click the title to rename. Save draft to preserve the reviewed version.</div>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
               {selectedLetter ? <span className={classNames("rounded-full border px-2.5 py-1 text-xs font-semibold", statusClasses(selectedLetter.status))}>{statusLabel(selectedLetter.status)}</span> : null}
@@ -955,11 +969,12 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                 href={pdfDownloadUrl}
                 target="_blank"
                 rel="noreferrer"
-                className={`${BUTTON_MOTION_CLASS} inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-brand-blue/20`}
+                className={`${SECONDARY_BUTTON_CLASS} inline-flex items-center gap-2`}
                 aria-label="Download PDF"
-                title="Download PDF"
+                title="Download or share PDF"
               >
                 <IconExport size={18} />
+                <span>Download PDF</span>
               </a>
             ) : null}
             <button
@@ -967,19 +982,23 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
               disabled={!selectedLetterId || working !== null}
               onClick={() => void refreshPdf({ force: true })}
               className={SECONDARY_BUTTON_CLASS}
-              title="Regenerate the PDF using the latest layout"
+              title="Create or refresh the exportable PDF document"
             >
-              {working === "pdf" ? "Regenerating..." : "Regenerate PDF"}
+              {working === "pdf" ? (pdfDownloadUrl ? "Regenerating PDF..." : "Generating PDF...") : (pdfDownloadUrl ? "Regenerate PDF" : "Generate PDF")}
             </button>
             <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void saveLetter()} className={SECONDARY_BUTTON_CLASS}>{working === "save" ? "Saving..." : "Save draft"}</button>
-            <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void markLetterMailed()} className={PRIMARY_BUTTON_CLASS}>{working === "mail" ? "Marking..." : "Mark mailed"}</button>
+            <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void markLetterMailed()} className={PRIMARY_BUTTON_CLASS}>{working === "mail" ? "Marking..." : "Mark as mailed manually"}</button>
           </div>
         </div>
         {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+        <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-zinc-800">
+          <div className="font-semibold text-zinc-900">Workflow boundary</div>
+          <div className="mt-1">This letter stays a draft until you review it. Generating a PDF creates an exportable document only. If you need to email or mail the letter, do that outside Purely. Purely does not submit the dispute to a bureau or furnisher for you.</div>
+        </div>
         <div className="mt-6 grid gap-4 xl:grid-cols-[1fr_320px]">
           <section className="rounded-3xl border border-zinc-200 bg-white p-6">
             <label className="block">
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter</div>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Draft letter</div>
               <RichTextMarkdownEditor
                 ref={editorRef}
                 markdown={bodyText}
@@ -988,25 +1007,42 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                 placeholder="Write the dispute letter..."
               />
             </label>
-            <div className="mt-3 text-xs text-zinc-500">Formatting and inserted contact signatures carry into the generated PDF.</div>
+            <div className="mt-3 text-xs text-zinc-500">Formatting and inserted contact signatures carry into the PDF export. Generate the PDF only after this draft is reviewed.</div>
           </section>
           <aside className="space-y-4">
             <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-              <div className="text-sm font-semibold text-zinc-900">Letter status</div>
+              <div className="text-sm font-semibold text-zinc-900">Workflow status</div>
+              <div className="mt-2 text-sm text-zinc-600">Drafting, PDF export, manual mailed tracking, and external submission are separate steps.</div>
               <div className="mt-3 grid gap-3 text-sm text-zinc-700">
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Status</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current status</div>
                   <div className="mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold text-zinc-900">{selectedLetter ? statusLabel(selectedLetter.status) : "Not available"}</div>
+                  <div className="mt-2 text-xs text-zinc-600">{selectedLetter ? statusHelperText(selectedLetter.status) : "No letter loaded."}</div>
                 </div>
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Updated</div>
-                  <div className="mt-2 font-medium text-zinc-900">{selectedLetter ? formatDateTime(selectedLetter.updatedAt) : "Not available"}</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">AI draft created</div>
+                  <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.generatedAt ? formatDateTime(selectedLetter.generatedAt) : "Not available"}</div>
                 </div>
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mailed</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">PDF export</div>
+                  <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.pdfGeneratedAt ? formatDateTime(selectedLetter.pdfGeneratedAt) : "Not generated yet"}</div>
+                  <div className="mt-2 text-xs text-zinc-600">Generate PDF to create a downloadable document. This does not file the dispute.</div>
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Marked mailed manually</div>
                   <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.sentAt ? formatDateTime(selectedLetter.sentAt) : "Not marked yet"}</div>
+                  <div className="mt-2 text-xs text-zinc-600">Manual status only. This is not proof that a bureau, furnisher, or collector received the letter.</div>
                 </div>
               </div>
+            </section>
+            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+              <div className="text-sm font-semibold text-zinc-900">Review before sending</div>
+              <div className="mt-2 text-sm text-zinc-600">Confirm the draft below before you generate a PDF, email it, or mark it as mailed manually.</div>
+              <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+                {LETTER_REVIEW_CHECKLIST.map((item) => (
+                  <li key={item} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">{item}</li>
+                ))}
+              </ul>
             </section>
             <section className="rounded-3xl border border-zinc-200 bg-white p-5">
               <div className="text-sm font-semibold text-zinc-900">Contact</div>
@@ -1058,11 +1094,15 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Dispute letters</h1>
-          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Draft, review, download, and mark mailed dispute letters without leaving the credit workflow.</p>
+          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Create AI draft dispute letters, review them, export PDFs, and manually track when you email or mail them. Purely does not submit disputes to bureaus or furnishers.</p>
         </div>
-        <button type="button" onClick={handleOpenComposer} className={PRIMARY_BUTTON_CLASS}>+ New</button>
+        <button type="button" onClick={handleOpenComposer} className={PRIMARY_BUTTON_CLASS}>+ New draft</button>
       </div>
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+      <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-zinc-800">
+        <div className="font-semibold text-zinc-900">Workflow boundary</div>
+        <div className="mt-1">Generating a letter creates a draft for human review. Generating a PDF creates an exportable document. Emailing or mailing happens outside Purely, and marking mailed is only a manual status update.</div>
+      </div>
       <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex w-full max-w-4xl flex-col gap-3 sm:flex-row sm:items-center">
@@ -1083,8 +1123,8 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                       {([
                         ["ALL", `All ${letters.length}`],
                         ["DRAFT", `Draft ${letterCounts.draft}`],
-                        ["GENERATED", `Generated ${letterCounts.generated}`],
-                        ["SENT", `Mailed ${letterCounts.sent}`],
+                        ["GENERATED", `PDF ready ${letterCounts.generated}`],
+                        ["SENT", `Marked mailed ${letterCounts.sent}`],
                       ] as const).map(([value, label]) => (
                         <button
                           key={value}
@@ -1144,11 +1184,11 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             <div className="mt-2 text-xl font-bold text-zinc-900">{letterCounts.draft}</div>
           </div>
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Generated</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">PDF ready</div>
             <div className="mt-2 text-xl font-bold text-zinc-900">{letterCounts.generated}</div>
           </div>
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mailed</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Marked mailed</div>
             <div className="mt-2 text-xl font-bold text-zinc-900">{letterCounts.sent}</div>
           </div>
         </div>
@@ -1165,7 +1205,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             <tbody>
               {filteredLetters.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-zinc-600">{lettersLoading ? "Loading letters…" : "No letters yet."}</td>
+                  <td colSpan={4} className="px-4 py-10 text-center text-zinc-600">{lettersLoading ? "Loading letters…" : "No dispute letter drafts yet. Start by drafting a letter, then review it before generating a PDF or sending it outside Purely."}</td>
                 </tr>
               ) : (
                 filteredLetters.map((letter) => (

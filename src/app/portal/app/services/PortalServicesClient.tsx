@@ -5,9 +5,10 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { IconBillingGlyph, IconLock, IconServiceGlyph } from "@/app/portal/PortalIcons";
-import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { getPortalServiceCopy, PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { groupPortalServices } from "@/app/portal/services/categories";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type PortalMe =
   | {
@@ -21,9 +22,23 @@ type PortalMe =
 
 type StatusState = "active" | "needs_setup" | "locked" | "coming_soon" | "paused" | "canceled";
 
+type AccessState = "included" | "enabled" | "locked" | "coming_soon" | "paused" | "canceled";
+type ReadinessState = "ready" | "needs_setup" | "needs_connection" | "empty" | "blocked";
+
 type ServiceStatus = {
   state: StatusState;
   label: string;
+  access: {
+    state: AccessState;
+    label: string;
+  };
+  readiness: {
+    state: ReadinessState;
+    label: string;
+    helper: string;
+    ctaLabel: string;
+    href: string | null;
+  };
 };
 
 type StatusResponse =
@@ -54,6 +69,38 @@ function badgeClasses(state: StatusState) {
   }
 }
 
+function accessBadgeClasses(state: AccessState) {
+  switch (state) {
+    case "included":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "enabled":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "paused":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "canceled":
+      return "border-red-200 bg-red-50 text-red-700";
+    case "locked":
+      return "border-zinc-200 bg-zinc-50 text-zinc-600";
+    case "coming_soon":
+      return "border-zinc-200 bg-white text-zinc-500";
+  }
+}
+
+function readinessBadgeClasses(state: ReadinessState) {
+  switch (state) {
+    case "ready":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "needs_connection":
+      return "border-orange-200 bg-orange-50 text-orange-700";
+    case "needs_setup":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "empty":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "blocked":
+      return "border-zinc-200 bg-zinc-50 text-zinc-600";
+  }
+}
+
 function canViewFromPermissions(portalMe: PortalMe | null, key: PortalServiceKey) {
   if (!portalMe || portalMe.ok !== true) return true;
   const p = (portalMe.permissions as any)?.[key];
@@ -73,7 +120,10 @@ export function PortalServicesClient() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/portal/me", { cache: "no-store" });
+      const res = await fetch("/api/portal/me", {
+        cache: "no-store",
+        headers: { [PORTAL_VARIANT_HEADER]: variant },
+      });
       if (!mounted) return;
       const json = (await res.json().catch(() => null)) as PortalMe | null;
       setPortalMe(json);
@@ -81,12 +131,15 @@ export function PortalServicesClient() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [variant]);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const res = await fetch("/api/portal/services/status", { cache: "no-store" });
+      const res = await fetch("/api/portal/services/status", {
+        cache: "no-store",
+        headers: { [PORTAL_VARIANT_HEADER]: variant },
+      });
       if (!mounted) return;
       if (!res.ok) {
         setStatusRes({ ok: false, error: res.status === 401 ? "Unauthorized" : "Forbidden" });
@@ -98,7 +151,7 @@ export function PortalServicesClient() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [variant]);
 
   const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
 
@@ -165,19 +218,20 @@ export function PortalServicesClient() {
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
             <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {group.services.map((s) => {
+                const serviceCopy = getPortalServiceCopy(s, variant);
                 const status = statuses?.[s.slug] ?? null;
-                const badgeText = (() => {
-                  if (!status) return "…";
-                  if (status.state === "locked" || status.state === "coming_soon") return status.label;
-                  if (status.state === "paused" || status.state === "canceled") return status.label;
-                  const access = s.included ? "Included" : "Enabled";
-                  return `${access} · ${status.label}`;
+                const access = status?.access ?? null;
+                const readiness = status?.readiness ?? null;
+                const cardHref = (() => {
+                  if (readiness?.href) return readiness.href;
+                  return `${basePath}/app/services/${s.slug}`;
                 })();
+                const cardBadgeClass = status ? badgeClasses(status.state) : "border-zinc-200 bg-zinc-50 text-zinc-500";
 
                 return (
                   <Link
                     key={s.slug}
-                    href={`${basePath}/app/services/${s.slug}`}
+                    href={cardHref}
                     className="group rounded-3xl border border-zinc-200 bg-white p-6 hover:bg-zinc-50"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -195,21 +249,27 @@ export function PortalServicesClient() {
                         </span>
                       </div>
 
-                      <span
-                        className={classNames(
-                          "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold",
-                          status ? badgeClasses(status.state) : "border-zinc-200 bg-zinc-50 text-zinc-500",
-                        )}
-                      >
-                        {status && (status.state === "locked" || status.state === "paused" || status.state === "canceled") ? (
-                          <IconLock />
-                        ) : null}
-                        {badgeText}
+                      <span className={classNames("inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold", cardBadgeClass)}>
+                        {status && (status.state === "locked" || status.state === "paused" || status.state === "canceled") ? <IconLock /> : null}
+                        {status ? status.label : "…"}
                       </span>
                     </div>
 
                     <div className="text-base font-semibold text-brand-ink group-hover:text-zinc-900">{s.title}</div>
-                    <div className="mt-2 text-sm text-zinc-600">{s.description}</div>
+                    <div className="mt-2 text-sm text-zinc-600">{serviceCopy.description}</div>
+
+                    <div className="mt-4 space-y-3 border-t border-zinc-200 pt-4">
+                      <div className="flex flex-wrap gap-2">
+                        <span className={classNames("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold", access ? accessBadgeClasses(access.state) : "border-zinc-200 bg-zinc-50 text-zinc-500")}>
+                          {access?.label || "Access"}
+                        </span>
+                        <span className={classNames("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold", readiness ? readinessBadgeClasses(readiness.state) : "border-zinc-200 bg-zinc-50 text-zinc-500")}>
+                          {readiness?.label || "Checking readiness"}
+                        </span>
+                      </div>
+                      <div className="text-sm text-zinc-600">{readiness?.helper || "Checking what this workspace needs next."}</div>
+                      <div className="text-sm font-semibold text-brand-ink">{readiness?.ctaLabel || "Open service"}</div>
+                    </div>
                   </Link>
                 );
               })}

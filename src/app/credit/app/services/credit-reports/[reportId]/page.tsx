@@ -1,4 +1,4 @@
-import { redirectCreditOnlyService } from "@/app/portal/app/services/creditOnlyLegacyRedirect";
+import CreditReportsClient from "@/app/portal/app/services/credit-reports/CreditReportsClient";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,5 +10,6 @@ export default async function CreditReportsDetailPage({
   params: Promise<{ reportId: string }>;
 }) {
   const { reportId } = await params;
-  await redirectCreditOnlyService(`/credit/app/services/credit-reports/${encodeURIComponent(reportId)}`);
+
+  return <CreditReportsClient mode="detail" initialReportId={reportId} />;
 }

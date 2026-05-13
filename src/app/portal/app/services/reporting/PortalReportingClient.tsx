@@ -129,6 +129,21 @@ type ServiceKey =
 
 type ServiceInfo = { key: ServiceKey; name: string; href: string | null };
 
+type ReportingWorkspaceVariant = "portal" | "credit";
+
+type ReportingCoverageItem = {
+  label: string;
+  detail: string;
+};
+
+type ReportingCoverage = {
+  summary: string;
+  includedIntro: string;
+  included: ReportingCoverageItem[];
+  notIncludedIntro: string;
+  notIncluded: ReportingCoverageItem[];
+};
+
 function currentPortalBase(pathname: string | null | undefined): "/portal" | "/credit" {
   return String(pathname || "").startsWith("/credit") ? "/credit" : "/portal";
 }
@@ -146,7 +161,7 @@ const SERVICE_INFOS: ServiceInfo[] = [
   { key: "mediaLibrary", name: "Media Library", href: "/portal/app/services/media-library" },
   { key: "aiReceptionist", name: "AI Receptionist", href: "/portal/app/services/ai-receptionist" },
   { key: "aiOutboundCalls", name: "AI outbound", href: "/portal/app/services/ai-outbound-calls/calls" },
-  { key: "missedCallTextBack", name: "Missed-Call Text Back", href: "/portal/app/services/missed-call-textback" },
+  { key: "missedCallTextBack", name: "Missed-Call Text Back", href: "/portal/app/services/ai-receptionist?tab=missed-call-textback" },
   { key: "booking", name: "Booking Automation", href: "/portal/app/services/booking" },
   { key: "blogs", name: "Automated Blogs", href: "/portal/app/services/blogs" },
   { key: "newsletter", name: "Newsletter", href: "/portal/app/services/newsletter/external" },
@@ -156,6 +171,96 @@ const SERVICE_INFOS: ServiceInfo[] = [
   { key: "reviews", name: "Reviews", href: "/portal/app/services/reviews" },
   { key: "leadScraping", name: "Lead Scraping", href: "/portal/app/services/lead-scraping" },
 ];
+
+function getReportingWorkspaceVariant(pathname: string | null | undefined): ReportingWorkspaceVariant {
+  return currentPortalBase(pathname) === "/credit" ? "credit" : "portal";
+}
+
+function getReportingCoverage(variant: ReportingWorkspaceVariant): ReportingCoverage {
+  if (variant === "credit") {
+    return {
+      summary:
+        "This page shows the activity Purely currently records inside the credit workspace. It does not imply every credit workflow milestone is tracked yet.",
+      includedIntro:
+        "Included now: shared workspace activity and the credit-adjacent counts Purely already records today.",
+      included: [
+        {
+          label: "Bookings and consultations",
+          detail: "Bookings created are counted here when a consultation or appointment is created through the booking system.",
+        },
+        {
+          label: "Tracked lead and contact records",
+          detail: "This dashboard shows tracked lead records and contacts created in Purely, plus lead-scraping run counts where that service is active.",
+        },
+        {
+          label: "Conversation and follow-up activity",
+          detail: "Inbox message volume, AI receptionist calls, missed-call text-back activity, newsletter sends, nurture enrollments, and task counts are included when those services record events.",
+        },
+        {
+          label: "Connected payment reporting",
+          detail: "Sales and Stripe routes only show payment-processor totals when those integrations are connected. They do not represent dispute or bureau workflow activity.",
+        },
+      ],
+      notIncludedIntro:
+        "Not included yet: credit workflow milestones that are not part of the current reporting summary contract.",
+      notIncluded: [
+        {
+          label: "Imported reports and reviewed report items",
+          detail: "The reporting dashboard does not yet count imported credit reports, item review decisions, or bureau-by-bureau review throughput.",
+        },
+        {
+          label: "Dispute draft workflow",
+          detail: "Dispute drafts created, PDFs generated, and letters marked mailed manually are not summarized on this reporting page yet.",
+        },
+        {
+          label: "All funnel and nurture attribution",
+          detail: "Funnel leads, page-by-page conversion attribution, and other source attribution are not guaranteed here unless they become standard tracked lead records elsewhere in Purely.",
+        },
+      ],
+    };
+  }
+
+  return {
+    summary:
+      "This page shows the service activity Purely currently records across the main portal. Connected sales data is separate and only appears where integrations exist.",
+    includedIntro:
+      "Included now: cross-service activity that the shared reporting APIs already measure.",
+    included: [
+      {
+        label: "Service activity and outcomes",
+        detail: "Automations, AI receptionist calls, missed-call text-back events, bookings, reviews, inbox volume, newsletter sends, nurture enrollments, tasks, and blog generation activity are counted here when those services record events.",
+      },
+      {
+        label: "Tracked leads, contacts, and credits",
+        detail: "Tracked lead records, contacts created, credits remaining, credits used, and estimated credit runway are included in this dashboard.",
+      },
+      {
+        label: "Lead-scraping and operational volume",
+        detail: "Lead-scraping runs, charged or refunded credits, and related activity totals are included when that service is active.",
+      },
+      {
+        label: "Connected sales routes",
+        detail: "Sales and Stripe pages show payment-processor transaction totals only. They do not backfill every operational metric from the rest of the portal.",
+      },
+    ],
+    notIncludedIntro:
+      "Not included yet: metrics the shared reporting summary does not currently collect or attribute.",
+    notIncluded: [
+      {
+        label: "Full attribution and source analysis",
+        detail: "This page does not yet provide end-to-end attribution by funnel, campaign source, or page-level conversion path.",
+      },
+      {
+        label: "Every workflow-specific milestone",
+        detail: "Service-specific internal milestones beyond the counts listed here are not guaranteed unless a service already records them into the reporting summary.",
+      },
+      {
+        label: "Audited labor tracking",
+        detail: "Estimated runway and automation summaries are operational estimates, not audited hours-saved accounting or payroll-grade productivity reporting.",
+      },
+    ],
+  };
+}
 
 function matchTokens(query: string, terms: string[]) {
   const q = (query ?? "").toLowerCase().trim();
@@ -590,6 +695,8 @@ function MenuButton({
 
 export function PortalReportingClient() {
   const pathname = usePathname() || "";
+  const workspaceVariant = getReportingWorkspaceVariant(pathname);
+  const coverage = useMemo(() => getReportingCoverage(workspaceVariant), [workspaceVariant]);
   const toast = useToast();
   const [range, setRange] = useState<RangeKey>("30d");
   const [data, setData] = useState<ReportingPayload | null>(null);
@@ -854,7 +961,7 @@ export function PortalReportingClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Reporting</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            A dashboard view of activity, outcomes, and credit usage across your services.
+            {coverage.summary}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -871,6 +978,34 @@ export function PortalReportingClient() {
             All services
           </Link>
         </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+        <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="text-sm font-semibold text-zinc-900">Currently included</div>
+          <div className="mt-2 text-sm text-zinc-600">{coverage.includedIntro}</div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {coverage.included.map((item) => (
+              <div key={item.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{item.label}</div>
+                <div className="mt-2 text-sm text-zinc-700">{item.detail}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6">
+          <div className="text-sm font-semibold text-zinc-900">Not included yet</div>
+          <div className="mt-2 text-sm text-zinc-700">{coverage.notIncludedIntro}</div>
+          <ul className="mt-4 space-y-3 text-sm text-zinc-800">
+            {coverage.notIncluded.map((item) => (
+              <li key={item.label} className="rounded-2xl border border-amber-200 bg-white/70 px-4 py-3">
+                <div className="font-semibold text-zinc-900">{item.label}</div>
+                <div className="mt-1 text-zinc-700">{item.detail}</div>
+              </li>
+            ))}
+          </ul>
+        </section>
       </div>
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
@@ -1469,7 +1604,7 @@ export function PortalReportingClient() {
                     />
                   </div>
                   <MiniCard
-                    label="Credits runway"
+                    label="Estimated credit runway"
                     value={
                       typeof derived.creditRunwayDays === "number" && Number.isFinite(derived.creditRunwayDays)
                         ? `~${Math.max(0, Math.round(derived.creditRunwayDays))} days`
@@ -1496,7 +1631,15 @@ export function PortalReportingClient() {
                       goToLabel={serviceForWidget("leadsCaptured").name}
                     />
                   </div>
-                  <MiniCard label="Leads captured" value={data.kpis.leadsCreated.toLocaleString()} sub={`${data.kpis.contactsCreated.toLocaleString()} contacts created`} />
+                  <MiniCard
+                    label={workspaceVariant === "credit" ? "Tracked lead records" : "Tracked leads"}
+                    value={data.kpis.leadsCreated.toLocaleString()}
+                    sub={
+                      workspaceVariant === "credit"
+                        ? `${data.kpis.contactsCreated.toLocaleString()} contacts created in tracked records`
+                        : `${data.kpis.contactsCreated.toLocaleString()} contacts created`
+                    }
+                  />
                 </div>
               </div>
             );
@@ -1725,7 +1868,7 @@ export function PortalReportingClient() {
                   <ServicePerfCard
                     title="Missed-Call Text Back"
                     tone="pink"
-                    href={toCurrentPortalHref("/portal/app/services/missed-call-textback", pathname) || "/portal/app/services/missed-call-textback"}
+                    href={toCurrentPortalHref("/portal/app/services/ai-receptionist?tab=missed-call-textback", pathname) || "/portal/app/services/ai-receptionist?tab=missed-call-textback"}
                     menu={
                       <MenuButton
                         id="perfMissedCallTextBack"

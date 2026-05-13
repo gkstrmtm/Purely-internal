@@ -24,6 +24,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
     where: { id, ownerId },
     select: {
       id: true,
+      status: true,
       subject: true,
       bodyText: true,
       promptText: true,
@@ -41,6 +42,15 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
 
   // If already generated, return existing URLs unless forced.
   if (!force && letter.pdfMediaItem?.id && letter.pdfMediaItem.publicToken) {
+    if (letter.status !== "SENT") {
+      await prisma.creditDisputeLetter.updateMany({
+        where: { id, ownerId },
+        data: {
+          status: "GENERATED",
+          updatedAt: new Date(),
+        },
+      });
+    }
     const openUrl = `/api/public/media/item/${letter.pdfMediaItem.id}/${letter.pdfMediaItem.publicToken}`;
     return NextResponse.json({
       ok: true,
@@ -87,6 +97,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
   await prisma.creditDisputeLetter.updateMany({
     where: { id, ownerId },
     data: {
+      ...(letter.status === "SENT" ? {} : { status: "GENERATED" }),
       pdfMediaItemId: media.id,
       pdfGeneratedAt: new Date(),
       updatedAt: new Date(),

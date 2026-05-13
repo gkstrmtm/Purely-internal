@@ -1890,7 +1890,7 @@ export function renderCreditFunnelBlocks({
     const hovered = editor?.hoveredBlockId === id;
     if (!selected && !hovered) return null;
 
-    // Move arrows — only on select, only when reordering is enabled
+    // Move arrows - only on select, only when reordering is enabled
     if (!selected || !editor?.onMove) {
       return null;
     }

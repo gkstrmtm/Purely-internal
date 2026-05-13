@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { getPortalServiceBenefitCopy, getPortalServiceCopy, PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 type PortalPricing = {
   ok: true;
@@ -55,66 +56,6 @@ function statusBadgeClass(state: string) {
   }
 }
 
-function benefitCopyForService(serviceSlug: string, entitlementKey?: string, variant: "credit" | "portal" = "portal") {
-  const key = (entitlementKey || "").trim();
-  if (serviceSlug === "blogs" || key === "blog") {
-    return {
-      title: "Turn your website into a lead engine",
-      bullets: [
-        "Publish consistent, SEO-ready content without the weekly grind",
-        "Generate on-brand drafts from your topics and goals",
-        "Keep momentum with an automation schedule you control",
-        "Build trust with prospects before they ever talk to you",
-      ],
-    };
-  }
-
-  if (serviceSlug === "booking" || key === "booking") {
-    return {
-      title: "Book more appointments with less back-and-forth",
-      bullets: [
-        "Share a clean booking link that works 24/7",
-        "Capture the details you need up-front",
-        "Reduce no-shows with reminders",
-        "Stay organized with a single source of truth",
-      ],
-    };
-  }
-
-  if (serviceSlug === "follow-up" || key === "crm") {
-    return {
-      title: "Follow up faster (and never drop leads)",
-      bullets: [
-        "Automate follow-ups so every lead gets touched",
-        "Standardize messaging while staying personal",
-        "See what’s working and iterate",
-        "Spend time closing, not chasing",
-      ],
-    };
-  }
-
-  if (serviceSlug === "ai-outbound-calls" || key === "leadOutbound") {
-    return {
-      title: "Scale outbound without hiring a call team",
-      bullets: [
-        "Qualify leads consistently and route the best ones",
-        "Increase speed-to-lead with 24/7 coverage",
-        "Keep your team focused on warm conversations",
-        "Turn outbound into a predictable channel",
-      ],
-    };
-  }
-
-  return {
-    title: "Unlock this service",
-    bullets: [
-      "Add it in Billing and start configuring right away",
-      variant === "credit" ? "Keep everything in one credit workspace" : "Keep everything under one portal login",
-      "Upgrade or remove add-ons any time",
-    ],
-  };
-}
-
 export function PortalServicePageClient({ slug }: { slug: string }) {
   const pathname = usePathname();
   const variant = pathname === "/credit" || pathname.startsWith("/credit/") ? "credit" : "portal";
@@ -139,8 +80,14 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
     let mounted = true;
     (async () => {
       const [pricingRes, statusRes] = await Promise.all([
-        fetch("/api/portal/pricing", { cache: "no-store" }).catch(() => null as any),
-        fetch("/api/portal/services/status", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/pricing", {
+          cache: "no-store",
+          headers: { [PORTAL_VARIANT_HEADER]: variant },
+        }).catch(() => null as any),
+        fetch("/api/portal/services/status", {
+          cache: "no-store",
+          headers: { [PORTAL_VARIANT_HEADER]: variant },
+        }).catch(() => null as any),
       ]);
       if (!mounted) return;
       if (pricingRes && pricingRes.ok) {
@@ -162,7 +109,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [variant]);
 
   const serviceStatus = statusRes && statusRes.ok === true ? statusRes.statuses?.[slug] ?? null : null;
   const state = String(serviceStatus?.state || "").toLowerCase();
@@ -183,7 +130,8 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
       : null;
 
   const entitlementKey = service?.entitlementKey;
-  const benefit = benefitCopyForService(slug, entitlementKey, variant);
+  const benefit = getPortalServiceBenefitCopy(slug, entitlementKey, variant);
+  const serviceCopy = service ? getPortalServiceCopy(service, variant) : null;
 
   const billingUnlockHref =
     isPaused || isCanceled
@@ -250,11 +198,11 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               </ul>
             </div>
 
-            {service.highlights?.length ? (
+            {serviceCopy?.highlights.length ? (
               <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-sm font-semibold text-zinc-900">What you get</div>
                 <ul className="mt-3 space-y-2 text-sm text-zinc-700">
-                  {service.highlights.slice(0, 4).map((h) => (
+                  {serviceCopy?.highlights.slice(0, 4).map((h) => (
                     <li key={h} className="flex items-start gap-2">
                       <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-500" />
                       <span>{h}</span>
@@ -321,7 +269,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">{service.title}</h1>
-          <p className="mt-1 max-w-2xl text-sm text-zinc-600">{service.description}</p>
+          <p className="mt-1 max-w-2xl text-sm text-zinc-600">{serviceCopy?.description}</p>
         </div>
         <Link
           href={`${appBase}/services`}
@@ -337,7 +285,9 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
           {slug === "blogs" ? (
             <div className="mt-3">
               <div className="text-sm text-zinc-600">
-                Manage drafts, export Markdown, and connect an optional custom domain.
+                {variant === "credit"
+                  ? "Manage credit education drafts, review publish queues, and keep authority content moving."
+                  : "Manage drafts, export Markdown, and connect an optional custom domain."}
               </div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
@@ -357,7 +307,9 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
           ) : slug === "booking" ? (
             <div className="mt-3">
               <div className="text-sm text-zinc-600">
-                Publish a booking link, set availability, and capture appointments.
+                {variant === "credit"
+                  ? "Publish consultation booking links, set availability, and capture intake details before the call."
+                  : "Publish a booking link, set availability, and capture appointments."}
               </div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
@@ -377,7 +329,9 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
           ) : slug === "lead-scraping" ? (
             <div className="mt-3">
               <div className="text-sm text-zinc-600">
-                Pull fresh leads from business directories with exclusions, de-dupe, and scheduling.
+                {variant === "credit"
+                  ? "Pull targeted credit-offer leads, exclude duplicates, and route new contacts into consultation follow-up."
+                  : "Pull fresh leads from business directories with exclusions, de-dupe, and scheduling."}
               </div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
@@ -397,7 +351,9 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
           ) : slug === "reporting" ? (
             <div className="mt-3">
               <div className="text-sm text-zinc-600">
-                See a dashboard-style view of activity, outcomes, and credit usage.
+                {variant === "credit"
+                  ? "See lead flow, consultations, imported reports, dispute work, and conversion signals in one view."
+                  : "See a dashboard-style view of activity, outcomes, and credit usage."}
               </div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
@@ -417,7 +373,9 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
           ) : slug === "inbox" ? (
             <div className="mt-3">
               <div className="text-sm text-zinc-600">
-                View email and SMS threads, and send messages from one inbox.
+                {variant === "credit"
+                  ? "Keep client messages, document requests, and dispute follow-up together across SMS and email."
+                  : "View email and SMS threads, and send messages from one inbox."}
               </div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
@@ -437,7 +395,9 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
           ) : (
             <div className="mt-3">
               <div className="text-sm text-zinc-600">
-                This service uses the same billing, credits, and setup flow as the rest of your Purely services.
+                {variant === "credit"
+                  ? "This service plugs into the same credit workspace, billing, credits, and follow-up flow as the rest of your client operations."
+                  : "This service uses the same billing, credits, and setup flow as the rest of your Purely services."}
               </div>
 
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">

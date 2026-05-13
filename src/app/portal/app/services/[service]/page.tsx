@@ -1,8 +1,8 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { headers } from "next/headers";
 
 import { requirePortalUser, requirePortalUserForAnyService, requirePortalUserForService } from "@/lib/portalAuth";
-import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { getPortalHiddenServiceHref, PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PortalServicePageClient } from "@/app/portal/services/[service]/PortalServicePageClient";
 import { PORTAL_SERVICE_KEYS } from "@/lib/portalPermissions.shared";
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
@@ -41,6 +41,11 @@ export default async function PortalAppServicePage({
   const serviceRec = PORTAL_SERVICES.find((s) => s.slug === service) ?? null;
   if (!serviceRec) notFound();
   if (serviceRec.variants && !serviceRec.variants.includes(variant)) notFound();
+
+  const hiddenHref = getPortalHiddenServiceHref(serviceRec, variant);
+  if (serviceRec.hidden && hiddenHref) {
+    redirect(hiddenHref);
+  }
 
   const keys = serviceKeysForSlug(service);
   if (!keys) {

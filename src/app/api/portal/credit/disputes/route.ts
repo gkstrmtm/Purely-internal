@@ -5,8 +5,6 @@ import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 import { generateText } from "@/lib/ai";
 import { normalizeDisputeLetterText, readContactAddress, readContactSignature, readContactSignatureImage } from "@/lib/creditDisputeLetters";
-import { renderDisputeLetterPdfBytes } from "@/lib/disputeLetterPdf";
-import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -105,6 +103,7 @@ export async function POST(req: Request) {
 
   const system =
     "You draft consumer credit dispute letters. Output ONLY a plain-text mailed letter. " +
+    "The output is a draft for human review before it is exported, emailed, or mailed. " +
     "Do not invent facts. If a needed detail is missing, leave a simple blank line instead of writing placeholder text. " +
     "Never write bracket or template placeholders like [Date] or {{date}} - always output the real date provided. " +
     "Do not write the phrase 'signature on file' anywhere in the letter body. Leave a normal signature space instead. " +
@@ -166,7 +165,7 @@ export async function POST(req: Request) {
       ownerId,
       contactId,
       creditPullId: creditPull?.id || null,
-      status: "GENERATED",
+      status: "DRAFT",
       subject,
       bodyText: bodyText || "(empty)",
       promptText: user,
@@ -191,35 +190,5 @@ export async function POST(req: Request) {
     },
   });
 
-  // Auto-export PDF into Media Library.
-  let pdf: null | { mediaItemId: string; openUrl: string; downloadUrl: string; shareUrl: string } = null;
-  try {
-    const pdfBytes = await renderDisputeLetterPdfBytes({
-      text: created.bodyText || "(empty)",
-      meta: {
-        dateIso: isoDate,
-        senderName: contact.name,
-        senderAddress: address,
-        recipientName: recipientName,
-        recipientAddress: recipientAddress,
-      },
-      signatureDataUrl: signatureImage || null,
-      signatureText: signature || null,
-      printedName: contact.name,
-    });
-    const safeContact = (created.contact?.name || "contact").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
-    const fileName = `dispute-letter-${safeContact || "contact"}-${created.id.slice(0, 8)}.pdf`;
-    const media = await mirrorUploadToMediaLibrary({ ownerId, fileName, mimeType: "application/pdf", bytes: pdfBytes });
-    if (media) {
-      await prisma.creditDisputeLetter.updateMany({
-        where: { id: created.id, ownerId },
-        data: { pdfMediaItemId: media.id, pdfGeneratedAt: new Date(), updatedAt: new Date() },
-      });
-      pdf = { mediaItemId: media.id, openUrl: media.openUrl, downloadUrl: media.downloadUrl, shareUrl: media.shareUrl };
-    }
-  } catch {
-    // Best-effort: PDF export should not block letter generation.
-  }
-
-  return NextResponse.json({ ok: true, letter: created, pdf });
+  return NextResponse.json({ ok: true, letter: created });
 }
