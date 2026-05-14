@@ -38,6 +38,7 @@ export default function PortalLoginClient() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
 
   const [failedOnce, setFailedOnce] = useState(false);
   const [resetRequested, setResetRequested] = useState(false);
@@ -45,36 +46,46 @@ export default function PortalLoginClient() {
   const [resetCode, setResetCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const alternateLoginHref = portalVariant === "credit" ? "/portal/login" : "/credit/login";
+  const alternateLoginLabel = portalVariant === "credit" ? "Purely Portal Login" : "Purely Credit Login";
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setAuthError("");
     setLoading(true);
 
-    const res = await fetch(`${apiBase}/api/login`, {
-      method: "POST",
-      headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
-      credentials: "include",
-      body: JSON.stringify({ email, password }),
-    });
+    try {
+      const res = await fetch(`${apiBase}/api/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
+        credentials: "include",
+        body: JSON.stringify({ email, password }),
+      });
 
-    setLoading(false);
+      setLoading(false);
 
-    const json = (await res.json().catch(() => null)) as { ok?: boolean; defaultFrom?: string | null; error?: string } | null;
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; defaultFrom?: string | null; error?: string } | null;
 
-    if (!res.ok) {
-      if (res.status === 401) {
-        toast.error("Incorrect email or password");
-        setFailedOnce(true);
-      } else {
-        toast.error(json?.error || "Unable to sign in right now.");
+      if (!res.ok) {
+        const message = res.status === 401 ? "Incorrect email or password." : (json?.error || "Unable to sign in right now.");
+        setAuthError(message);
+        toast.error(message);
+        if (res.status === 401) {
+          setFailedOnce(true);
+        }
+        return;
       }
-      return;
+
+      const preferredFrom = safeInternalPath(json?.defaultFrom, defaultFrom);
+
+      // Hard navigation ensures the new session cookie is applied for the next request.
+      window.location.assign(fromRaw ? from : preferredFrom);
+    } catch {
+      setLoading(false);
+      const message = "Unable to reach the login service right now. Please try again.";
+      setAuthError(message);
+      toast.error(message);
     }
-
-    const preferredFrom = safeInternalPath(json?.defaultFrom, defaultFrom);
-
-    // Hard navigation ensures the new session cookie is applied for the next request.
-    window.location.assign(fromRaw ? from : preferredFrom);
   }
 
   return (
@@ -102,7 +113,10 @@ export default function PortalLoginClient() {
                 className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (authError) setAuthError("");
+                }}
                 autoComplete="email"
                 required
               />
@@ -114,11 +128,24 @@ export default function PortalLoginClient() {
                 className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 focus:border-zinc-400"
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (authError) setAuthError("");
+                }}
                 autoComplete="current-password"
                 required
               />
             </div>
+
+            {authError ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900" role="alert">
+                <div className="font-semibold">Sign-in failed</div>
+                <div className="mt-1">{authError}</div>
+                <div className="mt-2 text-rose-800">
+                  If this is the wrong login, try <Link className="font-semibold underline underline-offset-4" href={alternateLoginHref}>{alternateLoginLabel}</Link> or <Link className="font-semibold underline underline-offset-4" href="/employeelogin">Employee Login</Link>.
+                </div>
+              </div>
+            ) : null}
 
             <button
               className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-base font-semibold text-white hover:opacity-95 disabled:opacity-60"
@@ -169,6 +196,7 @@ export default function PortalLoginClient() {
                   type="button"
                   className="rounded-2xl border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                   onClick={() => {
+                    setAuthError("");
                     setResetRequested(false);
                     setResetCode("");
                     setNewPassword("");

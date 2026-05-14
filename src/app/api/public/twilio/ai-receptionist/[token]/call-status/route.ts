@@ -9,6 +9,7 @@ import {
 import { autoProcessAiReceptionistCall } from "@/lib/aiReceptionistAutoProcess";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
+import { validateTwilioWebhookForOwner } from "@/lib/twilioWebhookSecurity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -121,6 +122,11 @@ async function handle(req: Request, token: string) {
   }
 
   const ownerId = lookup.ownerId;
+
+  const signatureOk = await validateTwilioWebhookForOwner({ req: req.clone(), ownerId });
+  if (!signatureOk) {
+    return xmlResponse("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Hangup/></Response>");
+  }
 
   const form = await req.formData().catch(() => null);
   const callSidRaw = form?.get("CallSid");

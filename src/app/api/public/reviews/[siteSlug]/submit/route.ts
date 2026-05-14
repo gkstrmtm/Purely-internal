@@ -9,6 +9,7 @@ import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { normalizePhoneStrict } from "@/lib/phone";
+import { buildPublicIntakeFingerprint } from "@/lib/publicIntakeSecurity";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -215,6 +216,53 @@ export async function POST(req: Request, { params }: { params: Promise<{ siteSlu
     hasPublicColumn("PortalReview", "contactId"),
     hasPublicColumn("PortalReview", "answersJson"),
   ]);
+
+  const reviewIdentityWhere = email ? { email } : phone ? { phone } : { name };
+  const reviewFingerprint = buildPublicIntakeFingerprint({
+    rating,
+    name,
+    body,
+    email: email || null,
+    phone: phone || null,
+    answers: sanitized.answers,
+  });
+  const minuteWindowStart = new Date(Date.now() - 60_000);
+  const recentReviewCount = await (prisma as any).portalReview.count({
+    where: { ownerId, createdAt: { gte: minuteWindowStart }, ...reviewIdentityWhere },
+  });
+  if (recentReviewCount >= 3) {
+    return NextResponse.json({ ok: false, error: "Too many review attempts. Please wait a minute and try again." }, { status: 429 });
+  }
+
+  const recentWindowStart = new Date(Date.now() - 10 * 60_000);
+  const recentReviews = await (prisma as any).portalReview.findMany({
+    where: { ownerId, createdAt: { gte: recentWindowStart }, ...reviewIdentityWhere },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    select: {
+      id: true,
+      rating: true,
+      name: true,
+      body: true,
+      email: true,
+      phone: true,
+      ...(canUseReviewAnswersJson ? { answersJson: true } : {}),
+    },
+  });
+  const duplicateReview = recentReviews.find((entry: any) => {
+    const existingFingerprint = buildPublicIntakeFingerprint({
+      rating: entry.rating,
+      name: entry.name,
+      body: entry.body,
+      email: entry.email,
+      phone: entry.phone,
+      answers: canUseReviewAnswersJson ? entry.answersJson ?? {} : {},
+    });
+    return existingFingerprint === reviewFingerprint;
+  });
+  if (duplicateReview?.id) {
+    return NextResponse.json({ ok: true, duplicate: true, id: String(duplicateReview.id) }, { status: 202 });
+  }
 
   const contactId =
     canUseContactsTable && canUseReviewContactId

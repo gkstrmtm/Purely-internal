@@ -5,6 +5,7 @@ import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCreditsOnce } from "@/lib/credits";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { validateTwilioWebhookForOwner } from "@/lib/twilioWebhookSecurity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +38,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   }
 
   const ownerId = lookup.ownerId;
+
+  const signatureOk = await validateTwilioWebhookForOwner({ req: req.clone(), ownerId });
+  if (!signatureOk) {
+    return xmlResponse("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Hangup/></Response>");
+  }
 
   const form = await req.formData().catch(() => null);
   const callSidRaw = form?.get("CallSid");

@@ -16,6 +16,12 @@ const TOKEN_ENV_CANDIDATES = [
   "BLOB_TOKEN",
 ] as const;
 
+const DEFAULT_MAXIMUM_SIZE_IN_BYTES = 10 * 1024 * 1024;
+
+function isProduction() {
+  return String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
+}
+
 function getTokenDiagnostics() {
   const present: Record<string, boolean> = {};
   for (const key of TOKEN_ENV_CANDIDATES) {
@@ -82,13 +88,13 @@ function resolveAllowedContentTypes(schemaJson: unknown, fieldName?: string | nu
 }
 
 function resolveMaximumSizeInBytes(schemaJson: unknown, fieldName?: string | null): number | null {
-  if (!fieldName) return null;
+  if (!fieldName) return DEFAULT_MAXIMUM_SIZE_IN_BYTES;
   const fields = parseCreditFormFields(schemaJson, { defaultIfEmpty: false, maxFields: 200 });
   const selected = fields.find((f) => f.type === "file_upload" && f.name === fieldName);
   const maxSizeMb = selected && typeof selected.maxSizeMb === "number" && Number.isFinite(selected.maxSizeMb) ? selected.maxSizeMb : null;
-  if (maxSizeMb === null) return null;
+  if (maxSizeMb === null) return DEFAULT_MAXIMUM_SIZE_IN_BYTES;
   const bytes = Math.floor(maxSizeMb * 1024 * 1024);
-  return bytes > 0 ? bytes : null;
+  return bytes > 0 ? bytes : DEFAULT_MAXIMUM_SIZE_IN_BYTES;
 }
 
 export async function POST(request: Request, ctx: { params: Promise<{ slug: string }> }): Promise<NextResponse> {
@@ -112,12 +118,18 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
 
   const resolved = resolveBlobReadWriteToken();
   if (!resolved) {
+    const payload = isProduction()
+      ? {
+          error: "Uploads are temporarily unavailable.",
+          hint: "Please try again later or contact support if this persists.",
+        }
+      : {
+          error: "Uploads require an external storage provider (Vercel Blob).",
+          hint: "Enable Vercel Blob for this deployment (sets BLOB_READ_WRITE_TOKEN / VERCEL_BLOB_READ_WRITE_TOKEN).",
+          diagnostics: getTokenDiagnostics(),
+        };
     return NextResponse.json(
-      {
-        error: "Uploads require an external storage provider (Vercel Blob).",
-        hint: "Enable Vercel Blob for this deployment (sets BLOB_READ_WRITE_TOKEN / VERCEL_BLOB_READ_WRITE_TOKEN).",
-        diagnostics: getTokenDiagnostics(),
-      },
+      payload,
       { status: 400 },
     );
   }
@@ -147,14 +159,20 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
     return NextResponse.json(jsonResponse);
   } catch (error) {
     const message = (error as any)?.message ? String((error as any).message) : "Blob upload token failed";
+    const payload = isProduction()
+      ? {
+          error: "Upload failed.",
+          hint: "Please retry the upload. Contact support if the problem continues.",
+        }
+      : {
+          error: message,
+          hint:
+            "If the token is set but uploads still fail, the token may be invalid/expired or set on a different Vercel project/environment.",
+          tokenSource: resolved.source,
+          diagnostics: getTokenDiagnostics(),
+        };
     return NextResponse.json(
-      {
-        error: message,
-        hint:
-          "If the token is set but uploads still fail, the token may be invalid/expired or set on a different Vercel project/environment.",
-        tokenSource: resolved.source,
-        diagnostics: getTokenDiagnostics(),
-      },
+      payload,
       { status: 400 },
     );
   }

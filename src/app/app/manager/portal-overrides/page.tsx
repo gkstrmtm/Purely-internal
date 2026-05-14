@@ -12,8 +12,8 @@ export default async function ManagerPortalOverridesPage() {
   if (role !== "MANAGER" && role !== "ADMIN") redirect("/app");
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
-      <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
+    <div className="mx-auto max-w-350 px-4 py-8 sm:px-6 sm:py-10">
+      <div className="overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-8">
         <h1 className="text-2xl font-semibold tracking-tight">Portal overrides</h1>
         <p className="mt-2 text-sm text-zinc-600">
           Grant portal services for free. Overrides behave like paid entitlements.

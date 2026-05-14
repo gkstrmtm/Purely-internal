@@ -15,6 +15,7 @@ import { runOwnerAutomationsForInboundSms } from "@/lib/portalAutomationsRunner"
 import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { queueAiOutboundMessageRepliesForInboundMessage } from "@/lib/portalAiOutboundMessages";
 import { generateText } from "@/lib/ai";
+import { validateTwilioWebhookForOwner } from "@/lib/twilioWebhookSecurity";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -112,6 +113,9 @@ export async function POST(req: Request) {
     (accountSid ? await findOwnerIdByTwilioAccountSid(accountSid) : null);
   if (!ownerId) return twimlEmpty();
 
+  const signatureOk = await validateTwilioWebhookForOwner({ req: req.clone(), ownerId });
+  if (!signatureOk) return twimlEmpty();
+
   const peer = normalizeSmsPeerKey(from);
   if (!peer.peer || !peer.peerKey) return twimlEmpty();
 
@@ -121,6 +125,16 @@ export async function POST(req: Request) {
 
   // Avoid runtime failures if schema patches haven't been applied yet.
   await ensurePortalInboxSchema();
+
+  if (messageSid) {
+    const existingInbound = await (prisma as any).portalInboxMessage
+      .findFirst({
+        where: { ownerId, provider: "TWILIO", providerMessageId: messageSid },
+        select: { id: true },
+      })
+      .catch(() => null);
+    if (existingInbound?.id) return twimlEmpty();
+  }
 
   const { threadId, messageId } = await upsertPortalInboxMessage({
     ownerId,

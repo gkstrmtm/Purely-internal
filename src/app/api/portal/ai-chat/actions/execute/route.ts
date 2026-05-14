@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -11,6 +13,7 @@ import {
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
 import { executePortalAgentActionForThread } from "@/lib/portalAgentActionExecutor";
+import { getConfirmSpecForPortalAgentAction } from "@/lib/portalAgentActionMeta";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,8 +24,48 @@ const postSchema = z
     threadId: z.string().trim().min(1).max(120),
     action: PortalAgentActionKeySchema,
     args: z.object({}).catchall(z.unknown()).optional(),
+    confirmToken: z.string().trim().min(1).max(200).optional(),
   })
   .strict();
+
+const ACTION_CONFIRM_TTL_MS = 15 * 60 * 1000;
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((item) => stableJson(item)).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+function normalizeThreadContext(contextJson: unknown): Record<string, unknown> {
+  return contextJson && typeof contextJson === "object" && !Array.isArray(contextJson)
+    ? ({ ...(contextJson as Record<string, unknown>) } as Record<string, unknown>)
+    : {};
+}
+
+function pendingConfirmMatches(opts: {
+  pendingConfirm: unknown;
+  confirmToken: string;
+  action: PortalAgentActionKey;
+  args: Record<string, unknown>;
+}): boolean {
+  const pendingConfirm = opts.pendingConfirm && typeof opts.pendingConfirm === "object" && !Array.isArray(opts.pendingConfirm)
+    ? (opts.pendingConfirm as Record<string, unknown>)
+    : null;
+  if (!pendingConfirm) return false;
+  if (String(pendingConfirm.token || "") !== opts.confirmToken) return false;
+
+  const createdAtMs = Date.parse(String(pendingConfirm.createdAt || ""));
+  if (!Number.isFinite(createdAtMs) || Date.now() - createdAtMs > ACTION_CONFIRM_TTL_MS) return false;
+
+  const steps = Array.isArray(pendingConfirm.steps) ? pendingConfirm.steps : [];
+  const targetStep = steps.find((step) => String((step as any)?.key || "") === String(opts.action));
+  if (!targetStep) return false;
+
+  return stableJson((targetStep as any)?.args ?? {}) === stableJson(opts.args);
+}
 
 function buildFollowUpSuggestions(opts: { action: string; linkUrl?: string | null; ok: boolean }) {
   if (!opts.ok) return [] as string[];
@@ -72,6 +115,44 @@ export async function POST(req: Request) {
 
   const action = parsed.data.action;
   const argsRaw = parsed.data.args ?? {};
+  const confirmToken = typeof parsed.data.confirmToken === "string" ? parsed.data.confirmToken.trim().slice(0, 200) : "";
+  const confirmSpec = getConfirmSpecForPortalAgentAction(action as PortalAgentActionKey);
+  const prevCtx = normalizeThreadContext(thread.contextJson);
+
+  if (confirmSpec) {
+    const pendingConfirm = prevCtx.pendingConfirm;
+    const confirmed = confirmToken
+      ? pendingConfirmMatches({
+          pendingConfirm,
+          confirmToken,
+          action: action as PortalAgentActionKey,
+          args: argsRaw,
+        })
+      : false;
+
+    if (!confirmed) {
+      const token = randomUUID();
+      const nextCtx = {
+        ...prevCtx,
+        pendingConfirm: {
+          token,
+          createdAt: new Date().toISOString(),
+          workTitle: String(action).slice(0, 160),
+          steps: [{ key: action, title: String(action).slice(0, 160), args: argsRaw }],
+          confirm: confirmSpec,
+        },
+      };
+      await (prisma as any).portalAiChatThread
+        .update({ where: { id: threadId }, data: { contextJson: nextCtx, lastMessageAt: new Date() } })
+        .catch(() => null);
+
+      return NextResponse.json({
+        ok: true,
+        needsConfirm: { ...(confirmSpec as any), token },
+        clientUiActions: [],
+      });
+    }
+  }
 
   const exec = await executePortalAgentActionForThread({
     ownerId,
@@ -102,10 +183,10 @@ export async function POST(req: Request) {
     canvasUrl: typeof (exec as any)?.linkUrl === "string" ? String((exec as any).linkUrl).trim().slice(0, 1200) : null,
   };
 
-  const prevCtx = thread.contextJson && typeof thread.contextJson === "object" && !Array.isArray(thread.contextJson) ? (thread.contextJson as any) : {};
   const prevRuns = Array.isArray(prevCtx.runs) ? (prevCtx.runs as unknown[]) : [];
   const nextCtx = {
     ...prevCtx,
+    pendingConfirm: confirmSpec ? null : prevCtx.pendingConfirm,
     lastWorkTitle: runTrace.workTitle,
     lastCanvasUrl: runTrace.canvasUrl,
     runs: [...prevRuns.slice(-19), runTrace],

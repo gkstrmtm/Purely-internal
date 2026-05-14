@@ -7,6 +7,7 @@ import {
 } from "@/lib/aiReceptionist";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { webhookUrlFromRequest } from "@/lib/webhookBase";
+import { validateTwilioWebhookForOwner } from "@/lib/twilioWebhookSecurity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -231,6 +232,9 @@ async function handle(req: Request, token: string) {
   if (!lookup) return json({ ok: false, error: "Invalid token" }, 404);
 
   const ownerId = lookup.ownerId;
+  const signatureOk = await validateTwilioWebhookForOwner({ req: req.clone(), ownerId });
+  if (!signatureOk) return json({ ok: false }, 200);
+
   const params = await getTwilioParams(req);
 
   const callSid = safeOneLine(params.CallSid, 80);

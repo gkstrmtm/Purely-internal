@@ -284,6 +284,38 @@ function ColorSwatch({ hex }: { hex: string | null | undefined }) {
   return <span className="inline-flex h-3 w-3 rounded-full border border-zinc-200" style={{ backgroundColor: css }} />;
 }
 
+function UserRowSkeleton() {
+  return (
+    <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="animate-pulse space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="h-4 w-40 rounded bg-zinc-200" />
+            <div className="h-3 w-64 rounded bg-zinc-100" />
+          </div>
+          <div className="flex gap-2">
+            <div className="h-10 w-24 rounded-2xl bg-zinc-100" />
+            <div className="h-10 w-24 rounded-2xl bg-zinc-100" />
+          </div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="h-16 rounded-2xl bg-zinc-100" />
+          ))}
+        </div>
+        <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="h-28 rounded-2xl bg-zinc-100" />
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={index} className="h-16 rounded-2xl bg-zinc-100" />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 async function setOverride(opts: { ownerId: string; module: ModuleKey; enabled: boolean }) {
   const res = await fetch("/api/manager/portal/overrides", {
     method: opts.enabled ? "POST" : "DELETE",
@@ -555,7 +587,7 @@ export default function PortalOverridesClient() {
 
   return (
     <div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 rounded-3xl border border-zinc-200 bg-zinc-50/80 p-4 sm:flex-row sm:items-end sm:justify-between sm:p-5">
         <div className="flex-1">
           <label className="text-sm font-semibold text-zinc-700">Search portal users</label>
           <input
@@ -565,33 +597,37 @@ export default function PortalOverridesClient() {
             placeholder="Email or name…"
           />
         </div>
-        <div className="text-sm text-zinc-600 sm:self-end">
-          {loading ? "Loading…" : `${users.length} user${users.length === 1 ? "" : "s"}`}
+        <div className="flex items-center justify-between gap-3 sm:block sm:text-right">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Visible accounts</div>
+          <div className="mt-1 text-lg font-semibold text-zinc-900">{loading && users.length === 0 ? "Loading…" : users.length}</div>
+          <div className="text-xs text-zinc-500">{loading && users.length > 0 ? "Refreshing results" : `${users.length === 1 ? "user" : "users"} shown`}</div>
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+      <div className="mt-4 flex flex-col gap-3 rounded-3xl border border-zinc-200 bg-white p-4 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:p-5">
         <div className="text-zinc-700">
           Credits-only billing override (affects <span className="font-mono">/portal</span>):
         </div>
-        <button
-          type="button"
-          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-          onClick={() => void bulkSetCreditsOnly(true)}
-          disabled={savingKey === "billingModel:bulk:on" || loading || users.length === 0}
-        >
-          {savingKey === "billingModel:bulk:on" ? "Enabling…" : "Enable for all shown"}
-        </button>
-        <button
-          type="button"
-          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-          onClick={() => void bulkSetCreditsOnly(false)}
-          disabled={savingKey === "billingModel:bulk:off" || loading || users.length === 0}
-        >
-          {savingKey === "billingModel:bulk:off" ? "Clearing…" : "Clear for all shown"}
-        </button>
-        <div className="text-xs text-zinc-500">
-          When cleared, the portal uses env defaults.
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+            onClick={() => void bulkSetCreditsOnly(true)}
+            disabled={savingKey === "billingModel:bulk:on" || loading || users.length === 0}
+          >
+            {savingKey === "billingModel:bulk:on" ? "Enabling…" : "Enable for all shown"}
+          </button>
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+            onClick={() => void bulkSetCreditsOnly(false)}
+            disabled={savingKey === "billingModel:bulk:off" || loading || users.length === 0}
+          >
+            {savingKey === "billingModel:bulk:off" ? "Clearing…" : "Clear for all shown"}
+          </button>
+          <div className="text-xs text-zinc-500">
+            When cleared, the portal uses env defaults.
+          </div>
         </div>
       </div>
 
@@ -601,133 +637,130 @@ export default function PortalOverridesClient() {
         </div>
       ) : null}
 
-      <div className="mt-6 overflow-x-auto rounded-3xl border border-zinc-200">
-        <table className="min-w-225 w-full border-separate border-spacing-0 bg-white">
-          <thead>
-            <tr className="text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              <th className="sticky left-0 z-10 bg-white px-4 py-3">User</th>
-              <th className="px-4 py-3">Credits</th>
-              <th className="px-4 py-3">Credits-only</th>
-              {moduleList.map((m) => (
-                <th key={m} className="px-4 py-3">
-                  {MODULE_LABELS[m]}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr
-                key={u.id}
-                className="border-t border-zinc-100 hover:bg-zinc-50 cursor-pointer"
-                onClick={() => setDetailsOwnerId(u.id)}
-              >
-                <td className="sticky left-0 z-10 bg-white px-4 py-4">
-                  <div className="text-sm font-semibold text-brand-ink">{u.email}</div>
-                  <div className="mt-1 text-xs text-zinc-500">
-                    {u.name}{" "}
-                    {u.deletedAt ? (
-                      <span className="font-semibold text-red-700">• deleted</span>
-                    ) : u.active ? (
-                      ""
-                    ) : (
-                      "• inactive"
-                    )}
-                    {u.deletedAt ? <span className="text-zinc-500"> · {formatIso(u.deletedAt)}</span> : null}
-                  </div>
-                  <div className="mt-2 space-y-1 text-xs text-zinc-600">
-                    {u.businessName ? (
-                      <div>
-                        Business: <span className="font-semibold text-zinc-800">{u.businessName}</span>
-                      </div>
-                    ) : null}
-                    {u.businessEmail ? (
-                      <div>
-                        Mailbox: <span className="font-mono text-zinc-800">{u.businessEmail}</span>
-                      </div>
-                    ) : null}
-                    {u.phone ? (
-                      <div>
-                        Phone: <span className="font-mono text-zinc-800">{u.phone}</span>
-                      </div>
-                    ) : null}
-                    <div>
-                      Invites: <span className="font-semibold text-zinc-800">{Math.max(0, u.invitesSentCount ?? 0)}</span>
-                      <span className="text-zinc-500">
-                        {" "}· verified {Math.max(0, u.invitesVerifiedCount ?? 0)} · awarded {Math.max(0, u.inviteCreditsAwardedCount ?? 0)}
-                      </span>
+      <div className="mt-6 space-y-4">
+        {loading && users.length === 0 ? (
+          <>
+            <UserRowSkeleton />
+            <UserRowSkeleton />
+            <UserRowSkeleton />
+          </>
+        ) : null}
+
+        {users.map((u) => (
+          <div key={u.id} className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-base font-semibold text-brand-ink break-all">{u.businessName || u.name || u.email}</div>
+                      {u.deletedAt ? (
+                        <span className="inline-flex rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">Deleted</span>
+                      ) : u.active ? (
+                        <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Active</span>
+                      ) : (
+                        <span className="inline-flex rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">Inactive</span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={
-                          u.twilio?.configured
-                            ? "inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700"
-                            : "inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-600"
-                        }
-                      >
-                        Twilio: {u.twilio?.configured ? "On" : "Off"}
-                      </span>
-                      {u.twilio?.configured && u.twilio.fromNumberE164 ? (
-                        <span className="font-mono text-zinc-700">{u.twilio.fromNumberE164}</span>
-                      ) : null}
-                    </div>
+                    <div className="mt-1 break-all text-sm text-zinc-600">{u.email}</div>
+                    {u.deletedAt ? <div className="mt-1 text-xs text-zinc-500">Removed {formatIso(u.deletedAt)}</div> : null}
                   </div>
 
-                  <div className="mt-3">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setTestingOwnerId(u.id);
-                      }}
+                      className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setDetailsOwnerId(u.id)}
+                    >
+                      Open details
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setTestingOwnerId(u.id)}
                     >
                       Testing
                     </button>
                   </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="text-sm font-semibold text-zinc-900">{Math.max(0, Math.floor(u.creditsBalance ?? 0))}</div>
-                  <div
-                    className="mt-2 flex items-center gap-2"
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onTouchStart={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <input
-                      className="w-28 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                      placeholder="Amount"
-                      inputMode="numeric"
-                      value={giftAmountByOwner[u.id] ?? ""}
-                      onChange={(e) => setGiftAmountByOwner((prev) => ({ ...prev, [u.id]: e.target.value }))}
-                      disabled={giftingOwnerId === u.id}
-                    />
-                    <button
-                      type="button"
-                      className="rounded-xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void onGift(u.id);
-                      }}
-                      disabled={giftingOwnerId === u.id}
-                    >
-                      {giftingOwnerId === u.id ? "Gifting…" : "Gift"}
-                    </button>
-                  </div>
-                </td>
+                </div>
 
-                <td className="px-4 py-4">
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Mailbox</div>
+                    <div className="mt-2 break-all text-sm font-medium text-zinc-900">{u.businessEmail || "Not set"}</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Phone</div>
+                    <div className="mt-2 break-all text-sm font-medium text-zinc-900">{u.phone || "Not set"}</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Invites</div>
+                    <div className="mt-2 text-sm font-medium text-zinc-900">
+                      {Math.max(0, u.invitesSentCount ?? 0)} sent
+                      <span className="text-zinc-500"> · {Math.max(0, u.invitesVerifiedCount ?? 0)} verified · {Math.max(0, u.inviteCreditsAwardedCount ?? 0)} awarded</span>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Twilio</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-900">
+                      <span
+                        className={
+                          u.twilio?.configured
+                            ? "inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700"
+                            : "inline-flex rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600"
+                        }
+                      >
+                        {u.twilio?.configured ? "Configured" : "Not configured"}
+                      </span>
+                      {u.twilio?.configured && u.twilio.fromNumberE164 ? <span className="font-mono break-all text-xs text-zinc-700">{u.twilio.fromNumberE164}</span> : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Credits balance</div>
+                    <div className="mt-2 text-3xl font-semibold tracking-tight text-zinc-900">{Math.max(0, Math.floor(u.creditsBalance ?? 0))}</div>
+                  </div>
+                  <div className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-zinc-600 ring-1 ring-zinc-200">
+                    {u.creditsOnlyOverride ? "Credits-only on" : "Env default"}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] xl:grid-cols-1">
+                  <input
+                    className="min-h-11 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                    placeholder="Gift amount"
+                    inputMode="numeric"
+                    value={giftAmountByOwner[u.id] ?? ""}
+                    onChange={(e) => setGiftAmountByOwner((prev) => ({ ...prev, [u.id]: e.target.value }))}
+                    disabled={giftingOwnerId === u.id}
+                  />
+                  <button
+                    type="button"
+                    className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    onClick={() => void onGift(u.id)}
+                    disabled={giftingOwnerId === u.id}
+                  >
+                    {giftingOwnerId === u.id ? "Gifting…" : "Gift credits"}
+                  </button>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-3">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Credits-only billing</div>
+                    <div className="text-xs text-zinc-500">Off uses env defaults.</div>
+                  </div>
                   {(() => {
                     const enabled = Boolean(u.creditsOnlyOverride);
                     const key = `billingModel:${u.id}`;
                     const busy = savingKey === key;
                     return (
-                      <div
-                        className="inline-flex items-center gap-2 text-sm text-zinc-700"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onTouchStart={(e) => e.stopPropagation()}
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <div className="inline-flex items-center gap-2 text-sm text-zinc-700">
                         <ToggleSwitch
                           checked={enabled}
                           disabled={busy}
@@ -735,52 +768,54 @@ export default function PortalOverridesClient() {
                           ariaLabel="Credits-only billing override"
                           onChange={(checked) => void toggleCreditsOnly(u.id, checked)}
                         />
-                        <span className={enabled ? "font-semibold text-emerald-700" : "text-zinc-500"}>
-                          {busy ? "Saving…" : enabled ? "On" : "Off"}
-                        </span>
+                        <span className={enabled ? "font-semibold text-emerald-700" : "text-zinc-500"}>{busy ? "Saving…" : enabled ? "On" : "Off"}</span>
                       </div>
                     );
                   })()}
-                  <div className="mt-1 text-[11px] text-zinc-500">Off = env default</div>
-                </td>
+                </div>
+              </div>
 
-                {moduleList.map((m) => {
-                  const enabled = u.overrides.includes(m);
-                  const key = `${u.id}:${m}`;
-                  const busy = savingKey === key;
-                  return (
-                    <td key={m} className="px-4 py-4">
-                      <div
-                        className="inline-flex items-center gap-2 text-sm text-zinc-700"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onTouchStart={(e) => e.stopPropagation()}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <ToggleSwitch
-                          checked={enabled}
-                          disabled={busy}
-                          ariaLabel={`Toggle ${MODULE_LABELS[m]}`}
-                          onChange={(checked) => toggle(u.id, m, checked)}
-                        />
-                        <span className={enabled ? "font-semibold text-emerald-700" : "text-zinc-500"}>
-                          {busy ? "Saving…" : enabled ? "On" : "Off"}
-                        </span>
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Service overrides</div>
+                    <div className="text-xs text-zinc-500">Grant or remove access without horizontal scrolling.</div>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                  {moduleList.map((m) => {
+                    const enabled = u.overrides.includes(m);
+                    const key = `${u.id}:${m}`;
+                    const busy = savingKey === key;
+                    return (
+                      <div key={m} className="flex min-h-16 items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-zinc-900">{MODULE_LABELS[m]}</div>
+                          <div className="text-xs text-zinc-500">{busy ? "Saving change…" : enabled ? "Override enabled" : "Override off"}</div>
+                        </div>
+                        <div className="inline-flex shrink-0 items-center gap-2 text-sm text-zinc-700">
+                          <ToggleSwitch
+                            checked={enabled}
+                            disabled={busy}
+                            ariaLabel={`Toggle ${MODULE_LABELS[m]}`}
+                            onChange={(checked) => toggle(u.id, m, checked)}
+                          />
+                          <span className={enabled ? "font-semibold text-emerald-700" : "text-zinc-500"}>{enabled ? "On" : "Off"}</span>
+                        </div>
                       </div>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
 
-            {!loading && users.length === 0 ? (
-              <tr>
-                <td className="px-4 py-10 text-sm text-zinc-600" colSpan={3 + moduleList.length}>
-                  No portal users found.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+        {!loading && users.length === 0 ? (
+          <div className="rounded-3xl border border-zinc-200 bg-white px-4 py-10 text-sm text-zinc-600 shadow-sm">
+            No portal users found.
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-4 text-xs text-zinc-500">

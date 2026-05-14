@@ -13,6 +13,7 @@ import { parseCreditFunnelTrackingContext, trackCreditFunnelEvent } from "@/lib/
 import { tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
+import { buildPublicIntakeFingerprint, getPublicIntakeIp } from "@/lib/publicIntakeSecurity";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,13 +22,6 @@ function safeJson(obj: unknown, maxBytes: number): any {
   const str = JSON.stringify(obj ?? {});
   if (Buffer.byteLength(str, "utf8") <= maxBytes) return obj;
   return { _truncated: true };
-}
-
-function getClientIp(req: Request): string | null {
-  const xfwd = req.headers.get("x-forwarded-for");
-  if (xfwd) return xfwd.split(",")[0]?.trim() || null;
-  const realIp = req.headers.get("x-real-ip");
-  return realIp?.trim() || null;
 }
 
 async function readRequestBodyBestEffort(req: Request): Promise<any> {
@@ -125,7 +119,44 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   };
 
   const userAgent = req.headers.get("user-agent") || null;
-  const ip = getClientIp(req);
+  const ip = getPublicIntakeIp(req);
+  const payloadObj = payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {};
+  const contactEmail = firstString((payloadObj as any).email);
+  const contactPhone = firstString((payloadObj as any).phone);
+  const contactName = firstString((payloadObj as any).fullName) || firstString((payloadObj as any).name);
+  const submissionFingerprint = buildPublicIntakeFingerprint({
+    email: contactEmail,
+    phone: contactPhone,
+    name: contactName,
+    payload: payloadObj,
+  });
+
+  const minuteWindowStart = new Date(Date.now() - 60_000);
+  if (ip) {
+    const recentFromIp = await prisma.creditFormSubmission.count({
+      where: { formId: form.id, ip, createdAt: { gte: minuteWindowStart } },
+    });
+    if (recentFromIp >= 6) {
+      return NextResponse.json({ ok: false, error: "Too many submissions. Please wait a minute and try again." }, { status: 429 });
+    }
+  }
+
+  const recentWindowStart = new Date(Date.now() - 10 * 60_000);
+  const recentSubmissions = await prisma.creditFormSubmission.findMany({
+    where: { formId: form.id, createdAt: { gte: recentWindowStart } },
+    orderBy: { createdAt: "desc" },
+    take: 25,
+    select: { id: true, dataJson: true },
+  });
+  const duplicateSubmission = recentSubmissions.find((entry) => {
+    const existingPayload = entry.dataJson && typeof entry.dataJson === "object" && !Array.isArray(entry.dataJson)
+      ? (entry.dataJson as Record<string, unknown>)
+      : {};
+    return buildPublicIntakeFingerprint(existingPayload) === submissionFingerprint;
+  });
+  if (duplicateSubmission) {
+    return NextResponse.json({ ok: true, duplicate: true, id: duplicateSubmission.id }, { status: 202 });
+  }
 
   const submission = await prisma.creditFormSubmission.create({
     data: {
@@ -138,11 +169,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   });
 
   // Best-effort automation trigger.
-  const payloadObj = payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {};
-  const contactEmail = firstString((payloadObj as any).email);
-  const contactPhone = firstString((payloadObj as any).phone);
-  const contactName = firstString((payloadObj as any).fullName) || firstString((payloadObj as any).name);
-
   const signatureDataUrl = (() => {
     const raw = (payloadObj as any)?.signature;
     if (typeof raw !== "string") return null;

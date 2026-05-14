@@ -4215,13 +4215,39 @@ export function PortalAiChatClient({
   const executeAgentAction = useCallback(
     async (action: string, args: Record<string, unknown>) => {
       if (!activeThreadId) throw new Error("No active chat");
-      const res = await fetch("/api/portal/ai-chat/actions/execute", {
-        method: "POST",
-        headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
-        body: JSON.stringify({ threadId: activeThreadId, action, args }),
-      });
-      const json = await res.json().catch(() => null);
+      const invoke = async (confirmToken?: string) => {
+        const res = await fetch("/api/portal/ai-chat/actions/execute", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
+          body: JSON.stringify({ threadId: activeThreadId, action, args, ...(confirmToken ? { confirmToken } : {}) }),
+        });
+        return await res.json().catch(() => null);
+      };
+
+      const json = await invoke();
       if (!json?.ok) throw new Error(json?.error || "Action failed");
+
+      if (json?.needsConfirm?.token) {
+        const token = String(json.needsConfirm.token || "").trim();
+        const title = String(json.needsConfirm.title || "Confirm").trim() || "Confirm";
+        const message = String(json.needsConfirm.message || "").trim() || "Continue?";
+        const ok = await askConfirm({ title, message, confirmLabel: "Confirm", cancelLabel: "Cancel" });
+        if (!ok) return null;
+
+        const confirmedJson = await invoke(token);
+        if (!confirmedJson?.ok) throw new Error(confirmedJson?.error || "Action failed");
+        return confirmedJson as {
+          assistantMessage?: Message;
+          assistantChoices?: AssistantChoice[];
+          ambiguousContacts?: AmbiguousContact[];
+          linkUrl?: string | null;
+          runTrace?: RunTrace | null;
+          followUpSuggestions?: string[];
+          clientUiActions?: unknown[];
+          openScheduledTasks?: boolean;
+        };
+      }
+
       return json as {
         assistantMessage?: Message;
         assistantChoices?: AssistantChoice[];
@@ -4231,9 +4257,9 @@ export function PortalAiChatClient({
         followUpSuggestions?: string[];
         clientUiActions?: unknown[];
         openScheduledTasks?: boolean;
-      };
+      } | null;
     },
-    [activeThreadId, clientTimeZoneHeaders],
+    [activeThreadId, askConfirm, clientTimeZoneHeaders],
   );
 
   const interruptActiveRun = useCallback(async () => {
@@ -4292,6 +4318,7 @@ export function PortalAiChatClient({
       const threadIdForAction = activeThreadId;
       try {
         const json = await executeAgentAction(a.key, a.args || {});
+        if (!json) return;
 
         if (threadIdForAction) {
           setThreadUiState(threadIdForAction, (prev) => ({

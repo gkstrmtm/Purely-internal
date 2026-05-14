@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { getMissedCallTextBackServiceData } from "@/lib/missedCallTextBack";
 import { findOwnerIdByTwilioToNumber } from "@/lib/twilioRouting";
+import { validateTwilioWebhookForOwner } from "@/lib/twilioWebhookSecurity";
 
 import { POST as aiReceptionistVoicePOST } from "@/app/api/public/twilio/ai-receptionist/[token]/voice/route";
 import { POST as missedCallVoicePOST } from "@/app/api/public/twilio/missed-call-textback/[token]/voice/route";
@@ -36,6 +37,9 @@ export async function POST(req: Request) {
 
   const ownerId = await findOwnerIdByTwilioToNumber(to);
   if (!ownerId) return rejectXml();
+
+  const signatureOk = await validateTwilioWebhookForOwner({ req: req.clone(), ownerId });
+  if (!signatureOk) return rejectXml();
 
   const [ai, missed] = await Promise.all([
     getAiReceptionistServiceData(ownerId).catch(() => null),

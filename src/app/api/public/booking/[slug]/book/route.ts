@@ -16,6 +16,7 @@ import { sendEmail as sendOutboundEmail } from "@/lib/leadOutbound";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { BookingMeetingIntegrationError, createNativeBookingMeeting } from "@/lib/bookingMeetingIntegrations.server";
 import { createConnectRoom } from "@/lib/connectRoomCreate";
+import { buildPublicIntakeFingerprint } from "@/lib/publicIntakeSecurity";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -220,6 +221,52 @@ export async function POST(
 
   const durationMinutes = site.durationMinutes;
   const endAt = new Date(startAt.getTime() + durationMinutes * 60_000);
+  const bookingFingerprint = buildPublicIntakeFingerprint({
+    startAt: startAt.toISOString(),
+    name: parsed.data.contactName,
+    email: parsed.data.contactEmail,
+    phone: phone || null,
+    notes: combinedNotes,
+  });
+  const bookingIdentityWhere = phone
+    ? { OR: [{ contactEmail: parsed.data.contactEmail }, { contactPhone: phone }] }
+    : { contactEmail: parsed.data.contactEmail };
+
+  const minuteWindowStart = new Date(Date.now() - 60_000);
+  const recentBookingCount = await (prisma as any).portalBooking.count({
+    where: { siteId: site.id, createdAt: { gte: minuteWindowStart }, ...bookingIdentityWhere },
+  });
+  if (recentBookingCount >= 3) {
+    return NextResponse.json({ error: "Too many booking attempts. Please wait a minute and try again." }, { status: 429 });
+  }
+
+  const recentWindowStart = new Date(Date.now() - 10 * 60_000);
+  const recentBookings = await (prisma as any).portalBooking.findMany({
+    where: { siteId: site.id, createdAt: { gte: recentWindowStart }, ...bookingIdentityWhere },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    select: {
+      id: true,
+      startAt: true,
+      contactName: true,
+      contactEmail: true,
+      contactPhone: true,
+      notes: true,
+    },
+  });
+  const duplicateBooking = recentBookings.find((entry: any) => {
+    const existingFingerprint = buildPublicIntakeFingerprint({
+      startAt: entry.startAt instanceof Date ? entry.startAt.toISOString() : String(entry.startAt || ""),
+      name: entry.contactName,
+      email: entry.contactEmail,
+      phone: entry.contactPhone,
+      notes: entry.notes,
+    });
+    return existingFingerprint === bookingFingerprint;
+  });
+  if (duplicateBooking?.id) {
+    return NextResponse.json({ ok: true, duplicate: true, id: String(duplicateBooking.id) }, { status: 202 });
+  }
 
   // Ensure host has coverage at this slot.
   const coverage = await findAvailabilityCoverage({ userId: site.ownerId, startAt, endAt });

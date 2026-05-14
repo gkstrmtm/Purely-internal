@@ -4,6 +4,7 @@ import { findOwnerIdByTwilioAccountSid, findOwnerIdByTwilioToNumber } from "@/li
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
 import { makeSmsThreadKey, normalizeSmsPeerKey, upsertPortalInboxMessage } from "@/lib/portalInbox";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
+import { validateTwilioWebhookForOwner } from "@/lib/twilioWebhookSecurity";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -90,6 +91,9 @@ export async function POST(req: Request) {
     (to ? await findOwnerIdByTwilioToNumber(to) : null) ??
     (accountSid ? await findOwnerIdByTwilioAccountSid(accountSid) : null);
   if (!ownerId || !messageSid) return twimlEmpty();
+
+  const signatureOk = await validateTwilioWebhookForOwner({ req: req.clone(), ownerId });
+  if (!signatureOk) return twimlEmpty();
 
   const cfg = await getOwnerTwilioSmsConfig(ownerId);
   if (!cfg) return twimlEmpty();

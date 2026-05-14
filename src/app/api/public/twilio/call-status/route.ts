@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { findOwnerIdByTwilioToNumber } from "@/lib/twilioRouting";
+import { validateTwilioWebhookForOwner } from "@/lib/twilioWebhookSecurity";
 
 import { POST as aiReceptionistCallStatusPOST } from "@/app/api/public/twilio/ai-receptionist/[token]/call-status/route";
 
@@ -39,6 +40,9 @@ export async function POST(req: Request) {
 
   const ownerId = await findOwnerIdByTwilioToNumber(to);
   if (!ownerId) return hangupXml();
+
+  const signatureOk = await validateTwilioWebhookForOwner({ req: req.clone(), ownerId });
+  if (!signatureOk) return hangupXml();
 
   const ai = await getAiReceptionistServiceData(ownerId).catch(() => null);
   if (ai?.settings?.enabled && ai.settings.webhookToken) {

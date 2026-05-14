@@ -1,6 +1,8 @@
 import crypto from "crypto";
 
+import { buildPasswordChangedEmail, buildPasswordResetCodeEmail } from "@/lib/authEmailTemplates";
 import { prisma } from "@/lib/db";
+import { tryNotifyPortalUserIds, getAppBaseUrl } from "@/lib/portalNotifications";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { hashPassword } from "@/lib/password";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
@@ -9,6 +11,7 @@ import { ensurePortalPasswordResetSchema } from "@/lib/portalPasswordResetSchema
 import type { PortalVariant } from "@/lib/portalVariant";
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+type PasswordResetAudience = "portal" | "credit" | "employee";
 
 function mustSecret() {
   const secret = (process.env.NEXTAUTH_SECRET || "").trim();
@@ -58,19 +61,29 @@ export async function createAndSendPortalPasswordResetCode(opts: {
   email: string;
   variant?: PortalVariant;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
+  return createAndSendPasswordResetCode({
+    email: opts.email,
+    audience: opts.variant === "credit" ? "credit" : "portal",
+  });
+}
+
+export async function createAndSendEmployeePasswordResetCode(opts: {
+  email: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  return createAndSendPasswordResetCode({ email: opts.email, audience: "employee" });
+}
+
+async function createAndSendPasswordResetCode(opts: {
+  email: string;
+  audience: PasswordResetAudience;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
   const email = safeOneLine(opts.email).toLowerCase();
   if (!email || !email.includes("@")) return { ok: true };
-
-  const expectedVariant = opts.variant || "portal";
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.active) return { ok: true };
 
-  const uv = (user as any).clientPortalVariant ? String((user as any).clientPortalVariant) : "PORTAL";
-  if (uv !== (expectedVariant === "credit" ? "CREDIT" : "PORTAL")) return { ok: true };
-
-  // Only portal-capable accounts
-  if (user.role !== "CLIENT" && user.role !== "ADMIN") return { ok: true };
+  if (!isEligibleForAudience(user, opts.audience)) return { ok: true };
 
   await ensurePortalPasswordResetSchema();
 
@@ -111,32 +124,29 @@ export async function createAndSendPortalPasswordResetCode(opts: {
     expiresAt,
   );
 
-  const subject = "Your Purely Automation password reset code";
-  const body = [
-    `Hi ${user.name || "there"},`,
-    "",
-    "Use this one-time code to reset your password:",
-    "",
+  const emailMessage = buildPasswordResetCodeEmail({
+    name: user.name,
     code,
-    "",
-    "This code expires in 15 minutes.",
-    "",
-    "If you didn’t request this, you can ignore this message.",
-  ].join("\n");
+    expiresMinutes: 15,
+    audienceLabel: audienceLabel(opts.audience),
+  });
 
   // Best-effort email
   await trySendTransactionalEmail({
     to: user.email,
-    subject,
-    text: body,
+    subject: emailMessage.subject,
+    text: emailMessage.text,
+    html: emailMessage.html,
     fromName: "Purely Automation",
   }).catch(() => null);
 
-  // Best-effort SMS (only if phone configured)
-  const phone = await getPortalUserPhoneE164(user.id).catch(() => null);
-  if (phone) {
-    const smsBody = `Purely Automation code: ${code} (expires in 15 min)`;
-    await sendTwilioEnvSms({ to: phone, body: smsBody, fromNumberEnvKeys: ["TWILIO_FROM_NUMBER"] }).catch(() => null);
+  if (opts.audience !== "employee") {
+    // Best-effort SMS (only if phone configured)
+    const phone = await getPortalUserPhoneE164(user.id).catch(() => null);
+    if (phone) {
+      const smsBody = `Purely Automation code: ${code} (expires in 15 min)`;
+      await sendTwilioEnvSms({ to: phone, body: smsBody, fromNumberEnvKeys: ["TWILIO_FROM_NUMBER"] }).catch(() => null);
+    }
   }
 
   return { ok: true };
@@ -148,11 +158,31 @@ export async function resetPortalPasswordWithCode(opts: {
   newPassword: string;
   variant?: PortalVariant;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
+  return resetPasswordWithCode({
+    email: opts.email,
+    code: opts.code,
+    newPassword: opts.newPassword,
+    audience: opts.variant === "credit" ? "credit" : "portal",
+  });
+}
+
+export async function resetEmployeePasswordWithCode(opts: {
+  email: string;
+  code: string;
+  newPassword: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  return resetPasswordWithCode({ ...opts, audience: "employee" });
+}
+
+async function resetPasswordWithCode(opts: {
+  email: string;
+  code: string;
+  newPassword: string;
+  audience: PasswordResetAudience;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
   const email = safeOneLine(opts.email).toLowerCase();
   const code = safeOneLine(opts.code);
   const newPassword = String(opts.newPassword || "");
-
-  const expectedVariant = opts.variant || "portal";
 
   if (!email || !email.includes("@")) return { ok: false, reason: "Invalid request" };
   if (!code || code.length < 4 || code.length > 12) return { ok: false, reason: "Invalid code" };
@@ -161,9 +191,7 @@ export async function resetPortalPasswordWithCode(opts: {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.active) return { ok: false, reason: "Invalid code" };
 
-  const uv = (user as any).clientPortalVariant ? String((user as any).clientPortalVariant) : "PORTAL";
-  if (uv !== (expectedVariant === "credit" ? "CREDIT" : "PORTAL")) return { ok: false, reason: "Invalid code" };
-  if (user.role !== "CLIENT" && user.role !== "ADMIN") return { ok: false, reason: "Invalid code" };
+  if (!isEligibleForAudience(user, opts.audience)) return { ok: false, reason: "Invalid code" };
 
   await ensurePortalPasswordResetSchema();
 
@@ -213,5 +241,52 @@ LIMIT 1
     prisma.$executeRawUnsafe(`UPDATE "PortalPasswordResetCode" SET "usedAt" = CURRENT_TIMESTAMP WHERE "id" = $1`, String(row.id)) as any,
   ]);
 
+  const baseUrl = getAppBaseUrl();
+  const nextUrl =
+    opts.audience === "employee"
+      ? `${baseUrl}/employeelogin`
+      : opts.audience === "credit"
+        ? `${baseUrl}/credit/login`
+        : `${baseUrl}/portal/login`;
+  const changed = buildPasswordChangedEmail({
+    name: user.name,
+    audienceLabel: audienceLabel(opts.audience),
+    manageUrl: nextUrl,
+  });
+
+  if (opts.audience === "employee") {
+    await trySendTransactionalEmail({
+      to: user.email,
+      subject: changed.subject,
+      text: changed.text,
+      html: changed.html,
+      fromName: "Purely Automation",
+    }).catch(() => null);
+  } else {
+    await tryNotifyPortalUserIds({
+      userIds: [user.id],
+      subject: changed.subject,
+      text: changed.text,
+      html: changed.html,
+      smsMirror: false,
+    }).catch(() => null);
+  }
+
   return { ok: true };
+}
+
+function isEligibleForAudience(user: { role: string; active?: boolean } & Record<string, unknown>, audience: PasswordResetAudience) {
+  if (audience === "employee") {
+    return user.role !== "CLIENT";
+  }
+
+  const uv = (user as any).clientPortalVariant ? String((user as any).clientPortalVariant) : "PORTAL";
+  if (uv !== (audience === "credit" ? "CREDIT" : "PORTAL")) return false;
+  return user.role === "CLIENT" || user.role === "ADMIN";
+}
+
+function audienceLabel(audience: PasswordResetAudience) {
+  if (audience === "employee") return "employee dashboard";
+  if (audience === "credit") return "credit portal";
+  return "portal";
 }
