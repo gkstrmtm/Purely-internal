@@ -4,7 +4,6 @@ import { buildDashboardLayout, dashboardLayoutPresetForWidget, type DashboardLay
 const SERVICE_SLUG = "dashboard";
 
 export type DashboardScope = "default" | "embedded";
-
 export type { DashboardLayoutItem, DashboardWidgetId } from "@/lib/portalDashboardLayout";
 export { buildDashboardLayout } from "@/lib/portalDashboardLayout";
 
@@ -204,19 +203,18 @@ function parseDashboardJson(raw: unknown): PortalDashboardData {
   const normalizedWidgetIds = ALL_WIDGET_IDS.filter((id) => widgetIds.has(id));
   const normalizedWidgets = normalizedWidgetIds.map((id) => ({ id }));
 
-  const nextLayout =
-    normalizedWidgetIds.length <= 3
-      ? buildDashboardLayout(normalizedWidgetIds)
-      : (() => {
-          const layoutIds = new Set(layout.map((l) => l.i));
-          const pending = layout.slice();
-          for (const w of normalizedWidgets) {
-            if (!layoutIds.has(w.id)) {
-              pending.push({ i: w.id, x: 0, y: 9999, ...dashboardLayoutPresetForWidget(w.id) });
-            }
+  const nextLayout = normalizedWidgetIds.length <= 3
+    ? buildDashboardLayout(normalizedWidgetIds)
+    : (() => {
+        const layoutIds = new Set(layout.map((l) => l.i));
+        const pending = layout.slice();
+        for (const w of normalizedWidgets) {
+          if (!layoutIds.has(w.id)) {
+            pending.push({ i: w.id, x: 0, y: 9999, ...dashboardLayoutPresetForWidget(w.id) });
           }
-          return pending;
-        })();
+        }
+        return pending;
+      })();
 
   return {
     version: 1,

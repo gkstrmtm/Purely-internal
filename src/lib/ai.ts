@@ -22,6 +22,8 @@ type OpenAIAudioTranscriptionVerboseResponse = {
   segments?: Array<{ start?: number; end?: number; text?: string }>;
 };
 
+type OpenAISpeechFormat = "mp3" | "opus" | "aac" | "flac" | "wav" | "pcm";
+
 function userExplicitlyRequestsEmojis(context: string): boolean {
   const t = String(context || "").toLowerCase();
   if (!t.trim()) return false;
@@ -305,4 +307,74 @@ export async function transcribeAudioVerbose({
     // Some providers return plain text even when asked for verbose_json.
     return { text: trimmed, segments: [] };
   }
+}
+
+export async function synthesizeSpeech({
+  text,
+  model,
+  voice,
+  format,
+  instructions,
+  baseUrlOverride,
+  apiKeyOverride,
+}: {
+  text: string;
+  model?: string;
+  voice?: string;
+  format?: OpenAISpeechFormat;
+  instructions?: string;
+  baseUrlOverride?: string;
+  apiKeyOverride?: string;
+}): Promise<{ bytes: ArrayBuffer; mimeType: string }> {
+  const baseUrl = baseUrlOverride ?? process.env.AI_BASE_URL;
+  const apiKey = apiKeyOverride ?? process.env.AI_API_KEY;
+  const resolvedModel = model ?? process.env.AI_TTS_MODEL ?? "gpt-4o-mini-tts";
+  const resolvedVoice = voice ?? process.env.AI_TTS_VOICE ?? "alloy";
+  const resolvedFormat = format ?? "mp3";
+  const input = String(text || "").trim();
+
+  if (!baseUrl || !apiKey) {
+    throw new Error("AI not configured. Set AI_BASE_URL and AI_API_KEY");
+  }
+
+  if (!input) {
+    throw new Error("Speech synthesis requires text");
+  }
+
+  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/audio/speech`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: resolvedModel,
+      voice: resolvedVoice,
+      response_format: resolvedFormat,
+      input,
+      ...(instructions ? { instructions } : {}),
+    }),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "");
+    throw new Error(`AI speech synthesis failed: ${res.status} ${errorText}`);
+  }
+
+  const bytes = await res.arrayBuffer();
+  const mimeType =
+    res.headers.get("content-type") ||
+    (resolvedFormat === "wav"
+      ? "audio/wav"
+      : resolvedFormat === "opus"
+        ? "audio/ogg"
+        : resolvedFormat === "aac"
+          ? "audio/aac"
+          : resolvedFormat === "flac"
+            ? "audio/flac"
+            : resolvedFormat === "pcm"
+              ? "audio/pcm"
+              : "audio/mpeg");
+
+  return { bytes, mimeType };
 }

@@ -30,8 +30,64 @@ const portalVariantToCookieName: Record<PortalVariant, string> = {
   credit: CREDIT_PORTAL_SESSION_COOKIE_NAME,
 };
 
-const LOGIN_DB_TIMEOUT_MS = 8_000;
-const LOGIN_DB_ATTEMPTS = 1;
+const LOGIN_DB_TIMEOUT_MS = 15_000;
+const LOGIN_DB_ATTEMPTS = 3;
+const DEMO_LOGIN_CACHE_TTL_MS = 15 * 60 * 1000;
+
+type PortalDemoLoginCacheEntry = {
+  token: string;
+  defaultFrom: string | null;
+  expiresAt: number;
+};
+
+declare global {
+  var __paPortalDemoLoginCache: Map<string, PortalDemoLoginCacheEntry> | undefined;
+}
+
+function getPortalDemoLoginCache() {
+  if (!globalThis.__paPortalDemoLoginCache) {
+    globalThis.__paPortalDemoLoginCache = new Map<string, PortalDemoLoginCacheEntry>();
+  }
+  return globalThis.__paPortalDemoLoginCache;
+}
+
+function getPortalDemoLoginCacheKey(variant: PortalVariant, email: string, password: string) {
+  return `${variant}:${String(email || "").trim().toLowerCase()}:${String(password || "")}`;
+}
+
+function readPortalDemoLoginCache(variant: PortalVariant, email: string, password: string): PortalDemoLoginCacheEntry | null {
+  const cache = getPortalDemoLoginCache();
+  const key = getPortalDemoLoginCacheKey(variant, email, password);
+  const entry = cache.get(key) || null;
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function writePortalDemoLoginCache(variant: PortalVariant, email: string, password: string, value: { token: string; defaultFrom: string | null }) {
+  getPortalDemoLoginCache().set(getPortalDemoLoginCacheKey(variant, email, password), {
+    token: value.token,
+    defaultFrom: value.defaultFrom,
+    expiresAt: Date.now() + DEMO_LOGIN_CACHE_TTL_MS,
+  });
+}
+
+function buildPortalLoginSuccessResponse(req: Request, variant: PortalVariant, token: string, defaultFrom: string | null, wantsToken: boolean) {
+  const res = NextResponse.json(wantsToken ? { ok: true, token, defaultFrom } : { ok: true, defaultFrom });
+  res.cookies.set({
+    name: portalVariantToCookieName[variant],
+    value: token,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isSecureRequest(req),
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+  });
+  return res;
+}
 
 class PortalLoginDbTimeoutError extends Error {
   constructor(message = "Login database request timed out") {
@@ -138,8 +194,14 @@ function isSecureRequest(req: Request): boolean {
 }
 
 export async function POST(req: Request) {
+  let fallbackVariant: PortalVariant = "portal";
+  let fallbackEmail = "";
+  let fallbackPassword = "";
+  let fallbackIsPortalDemoLogin = false;
+  let fallbackWantsToken = false;
   try {
     const variant = (normalizePortalVariant(req.headers.get(PORTAL_VARIANT_HEADER)) || "portal") satisfies PortalVariant;
+    fallbackVariant = variant;
 
     const wantsToken = (() => {
       const v = (req.headers.get("x-pa-return-token") ?? "").trim();
@@ -147,6 +209,7 @@ export async function POST(req: Request) {
       const client = (req.headers.get("x-pa-client") ?? "").trim().toLowerCase();
       return client === "native" || client === "mobile";
     })();
+    fallbackWantsToken = wantsToken;
 
     const secret = process.env.NEXTAUTH_SECRET;
     if (!secret) {
@@ -160,6 +223,8 @@ export async function POST(req: Request) {
     }
 
     const email = parsed.data.email.toLowerCase();
+  fallbackEmail = email;
+  fallbackPassword = parsed.data.password;
 
     const demoEmailAllowlist = new Set(
       [
@@ -170,6 +235,12 @@ export async function POST(req: Request) {
       ].filter(Boolean),
     );
     const isPortalDemoLogin = variant === "portal" && demoEmailAllowlist.has(email);
+    fallbackIsPortalDemoLogin = isPortalDemoLogin;
+
+    const cachedDemoLogin = isPortalDemoLogin ? readPortalDemoLoginCache(variant, email, parsed.data.password) : null;
+    if (cachedDemoLogin) {
+      return buildPortalLoginSuccessResponse(req, variant, cachedDemoLogin.token, cachedDemoLogin.defaultFrom, wantsToken);
+    }
 
     const initialLookup = await withDbRetry(() => findPortalLoginUserByEmail(email));
     const hasVariantColumn = initialLookup.hasVariantColumn;
@@ -262,18 +333,18 @@ export async function POST(req: Request) {
       maxAge: 60 * 60 * 24 * 30,
     });
 
-    const res = NextResponse.json(wantsToken ? { ok: true, token, defaultFrom } : { ok: true, defaultFrom });
-    res.cookies.set({
-      name: portalVariantToCookieName[variant],
-      value: token,
-      httpOnly: true,
-      sameSite: "lax",
-      secure: isSecureRequest(req),
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30,
-    });
-    return res;
+    if (isPortalDemoLogin) {
+      writePortalDemoLoginCache(variant, email, parsed.data.password, { token, defaultFrom });
+    }
+
+    return buildPortalLoginSuccessResponse(req, variant, token, defaultFrom, wantsToken);
   } catch (error) {
+    if (isPrismaPoolTimeoutError(error) && fallbackIsPortalDemoLogin && fallbackEmail) {
+      const cached = readPortalDemoLoginCache(fallbackVariant, fallbackEmail, fallbackPassword);
+      if (cached) {
+        return buildPortalLoginSuccessResponse(req, fallbackVariant, cached.token, cached.defaultFrom, fallbackWantsToken);
+      }
+    }
     if (isPrismaPoolTimeoutError(error)) {
       return NextResponse.json({ error: "Login is temporarily unavailable. Please try again." }, { status: 503 });
     }

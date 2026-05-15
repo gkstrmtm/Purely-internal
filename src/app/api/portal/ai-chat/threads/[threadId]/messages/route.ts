@@ -62,17 +62,7 @@ import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/po
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const PORTAL_AI_CHAT_DB_TIMEOUT_MS = 8_000;
-
-class PortalAiChatDbTimeoutError extends Error {
-  constructor(message = "Portal AI chat database request timed out") {
-    super(message);
-    this.name = "PortalAiChatDbTimeoutError";
-  }
-}
-
 function isTransientPortalAiChatDbError(error: unknown): boolean {
-  if (error instanceof PortalAiChatDbTimeoutError) return true;
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P1017" || error.code === "P2024") return true;
   }
@@ -90,31 +80,14 @@ function isTransientPortalAiChatDbError(error: unknown): boolean {
   );
 }
 
-async function withPortalAiChatDbTimeout<T>(work: Promise<T>, label?: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new PortalAiChatDbTimeoutError(label || "Portal AI chat database request timed out")),
-          PORTAL_AI_CHAT_DB_TIMEOUT_MS,
-        );
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
 async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempts?: number; delayMs?: number }): Promise<T> {
-  const attempts = Math.max(1, Math.min(4, Math.floor(opts?.attempts ?? 3)));
-  const delayMs = Math.max(50, Math.min(2_000, Math.floor(opts?.delayMs ?? 200)));
+  const attempts = Math.max(1, Math.min(5, Math.floor(opts?.attempts ?? 4)));
+  const delayMs = Math.max(50, Math.min(2_000, Math.floor(opts?.delayMs ?? 300)));
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await withPortalAiChatDbTimeout(fn(), `Portal AI chat database request timed out on attempt ${attempt}`);
+      return await fn();
     } catch (error) {
       lastError = error;
       if (!isTransientPortalAiChatDbError(error) || attempt >= attempts) throw error;
@@ -123,6 +96,22 @@ async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempt
   }
 
   throw lastError;
+}
+
+function isMissingPortalAiChatSchemaError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2021" || error.code === "P2022") return true;
+  }
+
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const normalized = String(message || "").toLowerCase();
+  if (!normalized) return false;
+
+  return (
+    (normalized.includes("does not exist") && normalized.includes("column")) ||
+    (normalized.includes("does not exist") && normalized.includes("relation")) ||
+    normalized.includes("no such table")
+  );
 }
 
 function looksLikeStrictDiscussReadOnlyRequest(textRaw: string): boolean {
@@ -149,6 +138,11 @@ async function buildDiscussModeReadOnlyFallback(params: { promptText: string; pl
             "Do not propose making portal changes.",
             "Answer directly from the request and any attachment context provided.",
             "If the attachment context is partial, be explicit about the limits and still give the best critique you can.",
+            "Use concrete claims, examples, phrases, and weaknesses from the provided context instead of broad product-strategy filler.",
+            "Do not write generic language like seamless user experience, streamline communication, cohesive experience, operational use, or fully realized unless the attachment context explicitly supports those exact ideas.",
+            "If the user asks for weak spots, trust gaps, stale assumptions, or owner-facing issues, lead with the strongest grounded critique first.",
+            "If the user asks for a count like top 3 or biggest gaps, return a short numbered list with one specific point per item.",
+            "Do not invent motivations, implementation gaps, or business consequences that are not supported by the provided context.",
             "Keep the reply concise and specific.",
           ].join("\n"),
           user: `User request:\n${promptText || "<empty>"}\n\nAttachment or planner context:\n${planningText || "<none>"}`,
@@ -753,7 +747,19 @@ async function generateAiExecutionSummary(opts: {
       const contacts = Array.isArray(payload.contacts)
         ? payload.contacts.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
         : [];
-      if (!contacts.length) return "I couldn’t find a matching contact.";
+      const q = typeof payload.q === "string" ? String(payload.q).trim() : "";
+      if (!contacts.length) return q ? "I couldn’t find a matching contact." : "There are no contacts in the current sample.";
+      if (!q) {
+        const withEmail = contacts.filter((contact) => typeof contact.email === "string" && String(contact.email).trim()).length;
+        const withPhone = contacts.filter((contact) => typeof contact.phone === "string" && String(contact.phone).trim()).length;
+        const withName = contacts.filter((contact) => typeof contact.name === "string" && String(contact.name).trim()).length;
+        const parts = [`The current contact sample has ${contacts.length} contact${contacts.length === 1 ? "" : "s"}.`];
+        if (withName > 0) parts.push(`${withName} ${withName === 1 ? "entry has" : "entries have"} a real name attached.`);
+        if (withEmail > 0 || withPhone > 0) {
+          parts.push(`${withEmail} ${withEmail === 1 ? "contact has" : "contacts have"} email and ${withPhone} ${withPhone === 1 ? "has" : "have"} phone.`);
+        }
+        return parts.join(" ");
+      }
       const first = contacts[0] || null;
       if (!first) return null;
       const name = typeof first.name === "string" ? String(first.name).trim() : "";
@@ -1079,11 +1085,12 @@ async function generateAiExecutionSummary(opts: {
       const endTimeLocal = typeof payload.endTimeLocal === "string" ? String(payload.endTimeLocal).trim() : "";
       const createdCount = Number(payload.createdCount);
       const timeZone = typeof payload.timeZone === "string" ? String(payload.timeZone).trim() : "";
-      const isoWeekdays = Array.isArray(payload.isoWeekdays) ? payload.isoWeekdays.map((value) => Number(value)).filter((value) => Number.isFinite(value)) : [];
+      const isoWeekdays = Array.isArray(payload.isoWeekdays)
+        ? payload.isoWeekdays.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+        : [];
       const weekdayNames = isoWeekdays
         .map((value) => ({ 1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 6: "Saturday", 7: "Sunday" }[value] || ""))
         .filter(Boolean);
-      const rangeParts = [startDateLocal, endDateLocal].filter(Boolean);
       const formattedStart = formatClockTime(startTimeLocal);
       const formattedEnd = formatClockTime(endTimeLocal);
       const timeWindow = formattedStart && formattedEnd ? `${formattedStart} to ${formattedEnd}` : "";
@@ -1182,8 +1189,252 @@ async function generateAiExecutionSummary(opts: {
       const normalized = detail.toLowerCase().replace(/\s+/g, " ").trim();
       return normalized && array.findIndex((candidate) => candidate.toLowerCase().replace(/\s+/g, " ").trim() === normalized) === index;
     });
-  const userWantsBluntAudit = /\b(blunt|weak|weakest|underused|confusing|fake|least active|least set up|top 3|owner update|wake this account up|skeptical owner|thin|stale|trust|healthy|reputation|situation|half-set-up|fix first|priority|usable enough|feel empty|real business|dressed-up demo)\b/.test(userPromptLower);
+  const scoreAuditFinding = (detail: string) => {
+    const text = String(detail || "").toLowerCase();
+    let score = 0;
+    if (/\b(no|none|zero|without|missing|disabled|inactive|paused|draft|failed|failure|timeout|timed out|error|warning|blocked|stuck|thin|weak|underused|confusing|fake|bottleneck|needs? reply|still need|issue|issues|risk|risks)\b/.test(text)) score += 8;
+    if (/\b(0 bookings|no bookings|0 reviews|no reviews|0 ai calls|no ai calls|absence of any ai calls completed|lack of bookings|lack of reviews|lack of detail|small sample size)\b/.test(text)) score += 8;
+    if (/\b(priority|priorities|first|fix|focus|weakest|top issue|top warning|biggest bottleneck)\b/.test(text)) score += 5;
+    if (/\b(lead|leads|booking|bookings|review|reviews|task|tasks|inbox|thread|threads|ai receptionist|service|services|automation|automations|calls?)\b/.test(text)) score += 2;
+    if (/\b(active|enabled|ready|visible|recent|average rating|revenue)\b/.test(text)) score -= 1;
+    if (/\b(mostly look active|looks active|operational|accessible|organized|running smoothly|user-friendly|cohesive|fully realized)\b/.test(text)) score -= 4;
+    return score;
+  };
+  const findSummaryResult = (...actionKeys: string[]) => summaryResults.find((result) => {
+    const key = String(result.action || "").trim().toLowerCase();
+    return actionKeys.some((candidate) => key === String(candidate || "").trim().toLowerCase());
+  }) || null;
+  const buildAuditLink = (label: string, ...actionKeys: string[]) => {
+    const match = findSummaryResult(...actionKeys);
+    const normalizedUrl = normalizeAssistantLinkUrl(match?.linkUrl ?? null);
+    return normalizedUrl ? formatAssistantMarkdownLink(label, normalizedUrl) : label;
+  };
+  const splitNaturalList = (value: string) =>
+    String(value || "")
+      .split(/,|\band\b/gi)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  const normalizeAuditReason = (detail: string) => {
+    const text = String(detail || "").trim();
+    if (!text) return "the evidence is still thin.";
+    if (/\bai receptionist\b/i.test(text) && /\b(disabled|no recent ai receptionist calls|no ai calls|0 ai calls|failed|warning|issue)\b/i.test(text)) {
+      return "it is not reliably handling calls right now.";
+    }
+    if (/\bno bookings|0 bookings|lack of bookings|without bookings\b/i.test(text)) {
+      return "leads are coming in without turning into bookings.";
+    }
+    if (/\bno reviews|0 reviews|small sample size|average rating\b/i.test(text)) {
+      return "trust still rests on too little recent review evidence.";
+    }
+    if (/\bneeds? reply|waiting on a reply\b/i.test(text)) {
+      return "conversations are still sitting without replies.";
+    }
+    if (/\bthin contact|limited with only|not seem robust enough|usable enough\b/i.test(text)) {
+      return "the contact base still looks thin for real follow-up.";
+    }
+    if (/\btimeout|timed out|failed|warning|issue|risk|blocked|stuck\b/i.test(text)) {
+      const normalized = text.replace(/^the /i, "").replace(/[.]+$/g, "");
+      return `${normalized.charAt(0).toLowerCase()}${normalized.slice(1)}.`;
+    }
+    const normalized = text.replace(/^the /i, "").replace(/[.]+$/g, "");
+    return `${normalized.charAt(0).toLowerCase()}${normalized.slice(1)}.`;
+  };
+  const buildDeterministicPriorityItems = (details: string[]) => {
+    const items: string[] = [];
+    const seen = new Set<string>();
+    const push = (value: string) => {
+      const trimmed = String(value || "").trim().replace(/\s+/g, " ");
+      const key = trimmed.toLowerCase();
+      if (!trimmed || seen.has(key)) return;
+      seen.add(key);
+      items.push(trimmed);
+    };
+
+    for (const detail of details) {
+      const weakServicesMatch = detail.match(/weakest-looking services right now are (.+?)\.?$/i);
+      if (weakServicesMatch?.[1]) {
+        const serviceNames = splitNaturalList(weakServicesMatch[1])
+          .map((item) => item.replace(/\s*\(([^)]+)\)\s*/g, " ($1)").trim())
+          .slice(0, 3);
+        serviceNames.forEach((service) => {
+          push(`Fix ${service} first because it is already showing up as one of the weakest areas.`);
+        });
+      }
+
+      if (/\bai receptionist\b/i.test(detail) && /\b(disabled|no recent ai receptionist calls|no ai calls|0 ai calls|warning|issue|failed)\b/i.test(detail)) {
+        push(`Fix AI Receptionist first because ${normalizeAuditReason(detail)}`);
+      }
+      if (/\bno bookings|0 bookings|lack of bookings|without bookings\b/i.test(detail)) {
+        push(`Fix booking conversion next because ${normalizeAuditReason(detail)}`);
+      }
+      if (/\bno reviews|0 reviews|small sample size|average rating\b/i.test(detail)) {
+        push(`Strengthen reviews next because ${normalizeAuditReason(detail)}`);
+      }
+      if (/\bneeds? reply|waiting on a reply\b/i.test(detail)) {
+        push(`Work the inbox next because ${normalizeAuditReason(detail)}`);
+      }
+      if (/\bthin|limited with only|not seem robust enough|usable enough\b/i.test(detail) && /\bcontact\b/i.test(detail)) {
+        push(`Improve contact quality next because ${normalizeAuditReason(detail)}`);
+      }
+      if (/\btimeout|timed out|failed|warning|issue|risk|blocked|stuck\b/i.test(detail) && /\bautomation|automations|calls?|nurture|service|services\b/i.test(detail)) {
+        push(`Stabilize the failing automation flow because ${normalizeAuditReason(detail)}`);
+      }
+    }
+
+    for (const detail of details) {
+      if (items.length >= 3) break;
+      const cleaned = String(detail || "").trim().replace(/[.]+$/g, "");
+      if (!cleaned) continue;
+      push(`Focus here because ${cleaned.charAt(0).toLowerCase()}${cleaned.slice(1)}.`);
+    }
+
+    return items.slice(0, 3);
+  };
+  const buildDeterministicClickPlan = (details: string[]) => {
+    const items: string[] = [];
+    const seen = new Set<string>();
+    const push = (value: string) => {
+      const trimmed = String(value || "").trim().replace(/\s+/g, " ");
+      const key = trimmed.toLowerCase();
+      if (!trimmed || seen.has(key)) return;
+      seen.add(key);
+      items.push(trimmed);
+    };
+
+    for (const detail of details) {
+      if (/\bai receptionist\b/i.test(detail) && /\b(disabled|no recent ai receptionist calls|no ai calls|0 ai calls|warning|issue|failed)\b/i.test(detail)) {
+        push(`Start in ${buildAuditLink("AI Receptionist", "ai_receptionist.highlights.get", "ai_receptionist.settings.get", "services.status.get")} because ${normalizeAuditReason(detail)}`);
+      }
+      if (/\bweakest-looking services right now are\b/i.test(detail)) {
+        push(`Open ${buildAuditLink("Service Status", "services.status.get")} first because ${normalizeAuditReason(detail)}`);
+      }
+      if (/\bno bookings|0 bookings|lack of bookings|without turning into bookings|without bookings\b/i.test(detail) || /\bleads?\b/i.test(detail) && /\bbookings?\b/i.test(detail)) {
+        push(`Open ${buildAuditLink("Reporting", "reporting.summary.get")} next because ${normalizeAuditReason(detail)}`);
+      }
+      if (/\bneeds? reply|waiting on a reply\b/i.test(detail)) {
+        push(`Open ${buildAuditLink("Inbox", "inbox.threads.list")} next because ${normalizeAuditReason(detail)}`);
+      }
+      if (/\bthin|limited with only|not seem robust enough|usable enough\b/i.test(detail) && /\bcontact\b/i.test(detail)) {
+        push(`Open ${buildAuditLink("Contacts", "contacts.list")} next because ${normalizeAuditReason(detail)}`);
+      }
+      if (/\bno reviews|0 reviews|small sample size|average rating\b/i.test(detail)) {
+        push(`Open ${buildAuditLink("Reviews", "reviews.inbox.list")} next because ${normalizeAuditReason(detail)}`);
+      }
+      if (/\btimeout|timed out|failed|warning|issue|risk|blocked|stuck\b/i.test(detail) && /\bautomation|automations|calls?|nurture|service|services\b/i.test(detail)) {
+        push(`Check ${buildAuditLink("Service Status", "services.status.get")} because ${normalizeAuditReason(detail)}`);
+      }
+      if (items.length >= 3) break;
+    }
+
+    if (items.length < 3) {
+      const reportingDetail = findSummaryResult("reporting.summary.get")?.details || "";
+      if (reportingDetail && /\bleads?\b/i.test(reportingDetail)) {
+        push(`Open ${buildAuditLink("Reporting", "reporting.summary.get")} to verify whether leads are turning into actual bookings.`);
+      }
+    }
+    if (items.length < 3) {
+      const taskDetail = findSummaryResult("tasks.list")?.details || "";
+      if (taskDetail) {
+        push(`Open ${buildAuditLink("Tasks", "tasks.list")} to clear the most immediate operational work still sitting open.`);
+      }
+    }
+    if (items.length < 3) {
+      const inboxDetail = findSummaryResult("inbox.threads.list")?.details || "";
+      if (inboxDetail) {
+        push(`Open ${buildAuditLink("Inbox", "inbox.threads.list")} to confirm the latest conversations are actually being worked.`);
+      }
+    }
+
+    return items.slice(0, 3);
+  };
+  const buildDeterministicAuditOverview = (details: string[]) => {
+    const joined = details.join(" ");
+    const points: string[] = [];
+    const positivePoints: string[] = [];
+
+    if (/\bno ai calls|0 ai calls|absence of any ai calls completed|no recent ai receptionist calls\b/i.test(joined)) {
+      points.push("AI activity is still not turning into completed calls.");
+    }
+    if (/\bno bookings|0 bookings|lack of bookings|without turning into bookings|without bookings\b/i.test(joined)) {
+      points.push("Leads are coming in without turning into bookings.");
+    }
+    if (/\btimeout|timed out\b/i.test(joined)) {
+      points.push("Timeouts are still showing up in the workflow.");
+    }
+    if (/\bneeds? reply|waiting on a reply\b/i.test(joined)) {
+      points.push("Some inbox conversations are still waiting on replies.");
+    }
+    if (/\bsmall sample size|no reviews|0 reviews|lack of reviews\b/i.test(joined)) {
+      points.push("Trust proof is still thinner than it should be.");
+    }
+    if (/\baverage rating of ([0-9.]+\/5)\b/i.test(joined)) {
+      const rating = joined.match(/\baverage rating of ([0-9.]+\/5)\b/i)?.[1] || "";
+      if (rating) positivePoints.push(`Recent reviews are positive at ${rating}.`);
+    }
+    if (/none of the latest conversations look stuck waiting on a reply/i.test(joined)) {
+      positivePoints.push("The latest inbox sample does not look stalled waiting on replies.");
+    }
+
+    const opener = /\binbox\b.*\b(real business|feel empty)|\bfeel empty\b|\breal business\b/i.test(userPromptLower)
+      ? "It still feels thinner than a real operating business."
+      : "Quick owner update: the account is active, but the operating signals still look thin where they matter.";
+
+    const negatives = points.slice(0, 3);
+    const positives = positivePoints.slice(0, 1);
+    const fallback = details
+      .slice(0, 2)
+      .map((detail) => String(detail || "").trim().replace(/[.]+$/g, ""))
+      .filter(Boolean)
+      .map((detail) => `${detail.charAt(0).toUpperCase()}${detail.slice(1)}.`);
+
+    return [opener, ...negatives, ...positives, ...(!negatives.length ? fallback : [])].join(" ").trim();
+  };
+  const buildDeterministicBluntAudit = (details: string[]) => {
+    const joined = details.join(" ");
+    const points: string[] = [];
+    const positives: string[] = [];
+
+    if (/\bweakest-looking services right now are\b/i.test(joined)) {
+      const match = joined.match(/weakest-looking services right now are ([^.]+)\./i)?.[1] || "";
+      if (match) points.push(`Several services still look half-set-up: ${match}.`);
+    }
+    if (/\bno ai calls|0 ai calls|absence of any ai calls completed|no recent ai receptionist calls\b/i.test(joined)) {
+      points.push("AI activity still is not proving itself with completed calls.");
+    }
+    if (/\bno bookings|0 bookings|lack of bookings|without turning into bookings|without bookings\b/i.test(joined)) {
+      points.push("Lead flow is not proving conversion yet because bookings are still missing.");
+    }
+    if (/\bsmall sample size|no reviews|0 reviews|lack of reviews\b/i.test(joined)) {
+      points.push("Trust proof still looks thin because the review sample is too small.");
+    }
+    if (/\bthin|limited with only|not seem robust enough|usable enough\b/i.test(joined) && /\bcontact\b/i.test(joined)) {
+      points.push("The contact list still looks thin for serious follow-up.");
+    }
+    if (/\bneeds? reply|waiting on a reply\b/i.test(joined)) {
+      points.push("Some inbox conversations are still waiting on replies.");
+    }
+    if (/none of the latest conversations look stuck waiting on a reply/i.test(joined)) {
+      positives.push("The latest inbox sample at least does not look stalled.");
+    }
+    if (/\baverage rating of ([0-9.]+\/5)\b/i.test(joined)) {
+      const rating = joined.match(/\baverage rating of ([0-9.]+\/5)\b/i)?.[1] || "";
+      if (rating) positives.push(`Recent reviews are positive at ${rating}, but that sample is still thin.`);
+    }
+
+    const opener = /\b(fake|dressed-up demo|half-set-up)\b/i.test(String(opts.userPrompt || ""))
+      ? "It still feels half-set-up rather than fully proven."
+      : "The account has activity, but the proof points are still thin.";
+    const fallback = details
+      .slice(0, 3)
+      .map((detail) => String(detail || "").trim().replace(/[.]+$/g, ""))
+      .filter(Boolean)
+      .map((detail) => `${detail.charAt(0).toUpperCase()}${detail.slice(1)}.`);
+
+    return [opener, ...points.slice(0, 3), ...positives.slice(0, 1), ...(!points.length ? fallback : [])].join(" ").trim();
+  };
+  const userWantsBluntAudit = /\b(blunt|assessment|weak|weakest|underused|confusing|fake|least active|least set up|top 3|owner update|wake this account up|skeptical owner|thin|stale|trust|healthy|reputation|situation|half-set-up|fix first|priority|usable enough|feel empty|real business|dressed-up demo)\b/.test(userPromptLower);
   const userWantsPriorityCall = /\b(fix first|priority|focus first|top 3|30 minutes)\b/.test(userPromptLower);
+  const userWantsExplicitSteps = /\b(top\s*3|three\s+(?:concrete\s+)?next\s+moves|next\s+moves|one sentence per step|exactly where i should click first|each step|step by step)\b/.test(userPromptLower);
   const userWantsContactDetails = /\b(contact|details|important details|what do we know)\b/.test(userPromptLower);
   const userWantsTaskLookup = /\b(which task|task is about|matching task|open tasks)\b/.test(userPromptLower);
 
@@ -1310,18 +1561,57 @@ async function generateAiExecutionSummary(opts: {
     if (contactDetails) return normalizeSummaryOutput(contactDetails);
   }
 
+  if (/\bcontacts?\b/.test(userPromptLower) && /\b(usable enough|look thin|still look thin|real follow-up|follow up)\b/.test(userPromptLower)) {
+    const contactListDetail = summaryResults.find((result) => String(result.action || "") === "contacts.list" && typeof result.details === "string" && result.details.trim())?.details || null;
+    const inboxDetail = summaryResults.find((result) => String(result.action || "") === "inbox.threads.list" && typeof result.details === "string" && result.details.trim())?.details || null;
+    if (contactListDetail) {
+      const combined = [
+        `The contacts still look thin for real follow-up. ${String(contactListDetail).trim()}`,
+        inboxDetail ? `On top of that, ${String(inboxDetail).trim().replace(/^The inbox /i, "the inbox ")}` : "",
+      ].filter(Boolean).join(" ");
+      return normalizeSummaryOutput(combined);
+    }
+  }
+
   if (userWantsTaskLookup) {
     const taskDetails = summaryResults.find((result) => String(result.action || "") === "tasks.list" && typeof result.details === "string" && result.details.trim())?.details || null;
     if (taskDetails) return normalizeSummaryOutput(taskDetails);
   }
 
   if (userWantsBluntAudit && groundedReadDetails.length) {
-    const selected = groundedReadDetails.slice(0, 4);
+    const selected = groundedReadDetails
+      .slice()
+      .sort((a, b) => scoreAuditFinding(b) - scoreAuditFinding(a))
+      .slice(0, userWantsPriorityCall || userWantsExplicitSteps ? 6 : 4);
+    if (userWantsExplicitSteps) {
+      const clickPlan = buildDeterministicClickPlan(selected);
+      if (clickPlan.length) {
+        return normalizeSummaryOutput(clickPlan.map((item, index) => `${index + 1}. ${item}`).join("\n"));
+      }
+    }
+    if (userWantsPriorityCall) {
+      const priorityItems = buildDeterministicPriorityItems(selected);
+      if (priorityItems.length) {
+        return normalizeSummaryOutput(priorityItems.map((item, index) => `${index + 1}. ${item}`).join("\n"));
+      }
+    }
+    if (/\bowner update\b|\bquick owner update\b|\breal business\b|\bfeel empty\b|\binbox activity\b/i.test(userPromptLower)) {
+      const overview = buildDeterministicAuditOverview(selected);
+      if (overview) return normalizeSummaryOutput(overview);
+    }
+    if (/\bblunt\b|\bassessment\b|\bunderused\b|\bconfusing\b|\bfake\b|\bdressed-up demo\b|\bhalf-set-up\b/i.test(userPromptLower)) {
+      const diagnosis = buildDeterministicBluntAudit(selected);
+      if (diagnosis) return normalizeSummaryOutput(diagnosis);
+    }
     const auditPrompt = [
       "You are Pura writing a blunt audit reply for a business owner.",
       "Use only the findings provided.",
       "Be direct, specific, and slightly skeptical without being rude.",
       "Call out weak spots or what is missing instead of saying things look good if the evidence is thin.",
+      "Use exact metrics, states, counts, and service names from the findings whenever they are available.",
+      "Do not invent causes, strategy themes, or product philosophy that the findings do not support.",
+      "Do not write generic strategy filler like seamless user experience, cohesive portal experience, streamline communication, enhance engagement, operational, accessible, organized, healthy, solid, or running smoothly unless the findings explicitly prove that.",
+      "Do not recommend a service first just because it sounds important. The ordering must come from the evidence in the findings.",
       "Do not mention tools, steps, or internal actions.",
       "Do not ask the user to clarify anything if the findings already support an answer.",
       ...(userWantsPriorityCall
@@ -1329,9 +1619,17 @@ async function generateAiExecutionSummary(opts: {
             "The user wants prioritization.",
             "Name the first thing to fix or focus on using exact nouns from the findings.",
             "Say why that item comes first before mentioning any secondary issues.",
+            "If the user asked for top 3, next moves, or one sentence per step, return exactly 3 numbered items.",
+            "Each numbered item must be one short sentence naming the concrete portal area plus the evidence-backed reason it belongs in that slot.",
+            "If the findings are too thin to justify a confident ordering, say that plainly inside the list item instead of bluffing.",
           ]
         : []),
-      "Keep it to 3 short paragraphs max.",
+      ...(!userWantsPriorityCall && userWantsExplicitSteps
+        ? [
+            "Return exactly 3 numbered items.",
+            "Each item must be one short sentence with a concrete next move grounded in the findings.",
+          ]
+        : ["Keep it to 3 short paragraphs max."]),
     ].join("\n");
     const auditUser = `User request:\n${String(opts.userPrompt || "").trim().slice(0, 2000)}\n\nGrounded findings:\n${selected.join("\n\n")}`;
     const groundedFallback = normalizeSummaryOutput(selected.join(" "));
@@ -4676,29 +4974,36 @@ export async function GET(req: Request, ctx: { params: Promise<{ threadId: strin
   }> = [];
 
   try {
-    await withPortalAiChatDbRetry(() => ensurePortalAiChatSchema());
-    thread = await withPortalAiChatDbRetry(() =>
+    const loadThread = () =>
       (prisma as any).portalAiChatThread.findFirst({
         where: { id: threadId, ownerId },
         select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
-      }),
-    );
-    messages = await withPortalAiChatDbRetry(() =>
-      (prisma as any).portalAiChatMessage.findMany({
-        where: { ownerId, threadId },
-        orderBy: { createdAt: "asc" },
-        take: 1000,
-        select: {
-          id: true,
-          role: true,
-          text: true,
-          attachmentsJson: true,
-          createdAt: true,
-          sendAt: true,
-          sentAt: true,
-          createdByUserId: true,
-        },
-      }),
+      });
+    try {
+      thread = await withPortalAiChatDbRetry(loadThread, { attempts: 4, delayMs: 300 });
+    } catch (error) {
+      if (!isMissingPortalAiChatSchemaError(error)) throw error;
+      await withPortalAiChatDbRetry(() => ensurePortalAiChatSchema(), { attempts: 1, delayMs: 100 });
+      thread = await withPortalAiChatDbRetry(loadThread, { attempts: 2, delayMs: 150 });
+    }
+    messages = await withPortalAiChatDbRetry(
+      () =>
+        (prisma as any).portalAiChatMessage.findMany({
+          where: { ownerId, threadId },
+          orderBy: { createdAt: "asc" },
+          take: 1000,
+          select: {
+            id: true,
+            role: true,
+            text: true,
+            attachmentsJson: true,
+            createdAt: true,
+            sendAt: true,
+            sentAt: true,
+            createdByUserId: true,
+          },
+        }),
+      { attempts: 4, delayMs: 300 },
     );
   } catch (error) {
     if (isTransientPortalAiChatDbError(error)) return portalAiChatDbUnavailableResponse();
@@ -4795,8 +5100,6 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     );
   }
 
-  await ensurePortalAiChatSchema();
-
   const ownerId = auth.session.user.id;
   const createdByUserId = auth.session.user.memberId || ownerId;
   const memberId = createdByUserId;
@@ -4808,10 +5111,19 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
   }
 
-  const thread = await (prisma as any).portalAiChatThread.findFirst({
-    where: { id: threadId, ownerId },
-    select: { id: true, title: true, contextJson: true, ownerId: true, createdByUserId: true },
-  });
+  const loadThread = () =>
+    (prisma as any).portalAiChatThread.findFirst({
+      where: { id: threadId, ownerId },
+      select: { id: true, title: true, contextJson: true, ownerId: true, createdByUserId: true },
+    });
+  let thread;
+  try {
+    thread = await withPortalAiChatDbRetry(loadThread, { attempts: 4, delayMs: 300 });
+  } catch (error) {
+    if (!isMissingPortalAiChatSchemaError(error)) throw error;
+    await withPortalAiChatDbRetry(() => ensurePortalAiChatSchema(), { attempts: 1, delayMs: 100 });
+    thread = await withPortalAiChatDbRetry(loadThread, { attempts: 2, delayMs: 150 });
+  }
   if (!thread || !canAccessPortalAiChatThread({ thread, memberId })) {
     return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   }
@@ -4941,20 +5253,41 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     };
   };
 
-  const loadLatestInterruptibleRunControlContext = async () => {
-    const fresh = await (prisma as any).portalAiChatThread.findFirst({
-      where: { id: threadId, ownerId },
-      select: { contextJson: true },
-    }).catch(() => null);
-    const freshCtx = fresh?.contextJson && typeof fresh.contextJson === "object" && !Array.isArray(fresh.contextJson)
-      ? (fresh.contextJson as Record<string, unknown>)
+  const readRunControlState = (threadContextValue: unknown) => {
+    const ctxValue = threadContextValue && typeof threadContextValue === "object" && !Array.isArray(threadContextValue)
+      ? (threadContextValue as Record<string, unknown>)
       : null;
-    if (!freshCtx) return null;
     return {
-      currentRunId: typeof freshCtx.currentRunId === "string" ? String(freshCtx.currentRunId).trim().slice(0, 120) : null,
+      currentRunId:
+        typeof ctxValue?.currentRunId === "string" && String(ctxValue.currentRunId).trim()
+          ? String(ctxValue.currentRunId).trim().slice(0, 120)
+          : null,
       interruptRequestedRunId:
-        typeof freshCtx.interruptRequestedRunId === "string" ? String(freshCtx.interruptRequestedRunId).trim().slice(0, 120) : null,
+        typeof ctxValue?.interruptRequestedRunId === "string" && String(ctxValue.interruptRequestedRunId).trim()
+          ? String(ctxValue.interruptRequestedRunId).trim().slice(0, 120)
+          : null,
     };
+  };
+
+  let cachedRunControlState = readRunControlState(persistedThreadContext);
+  let cachedRunControlRefreshedAt = Date.now();
+
+  const loadLatestInterruptibleRunControlContext = async (opts?: { force?: boolean }) => {
+    if (!opts?.force && Date.now() - cachedRunControlRefreshedAt < 2_000) {
+      return cachedRunControlState;
+    }
+    const fresh = (await withPortalAiChatDbRetry(
+      () =>
+        (prisma as any).portalAiChatThread.findFirst({
+          where: { id: threadId, ownerId },
+          select: { contextJson: true },
+        }),
+      { attempts: 2, delayMs: 150 },
+    ).catch(() => null)) as { contextJson?: unknown } | null;
+    cachedRunControlRefreshedAt = Date.now();
+    if (!fresh?.contextJson) return cachedRunControlState;
+    cachedRunControlState = readRunControlState(fresh.contextJson);
+    return cachedRunControlState;
   };
 
   const persistThreadContext = async (threadContextValue: unknown, opts?: { touchLastMessageAt?: boolean; preserveRunControl?: boolean }) => {
@@ -4970,8 +5303,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         where: { id: threadId },
         data: opts?.touchLastMessageAt ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx },
       });
-    });
+    }, { attempts: 4, delayMs: 300 });
     persistedThreadContext = nextCtx;
+    cachedRunControlState = readRunControlState(nextCtx);
+    cachedRunControlRefreshedAt = Date.now();
     return nextCtx;
   };
 
@@ -5162,6 +5497,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       select: { contextJson: true },
     }).catch(() => null);
     const freshCtx = fresh?.contextJson && typeof fresh.contextJson === "object" && !Array.isArray(fresh.contextJson) ? (fresh.contextJson as any) : {};
+    cachedRunControlState = readRunControlState(freshCtx);
+    cachedRunControlRefreshedAt = Date.now();
     const interruptRunId = typeof freshCtx.interruptRequestedRunId === "string" ? String(freshCtx.interruptRequestedRunId).trim() : "";
     return Boolean(interruptRunId && interruptRunId === activeRunId);
   };
@@ -5655,6 +5992,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
     }
   }
+
+  let localCtx: any =
+    persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext)
+      ? { ...(persistedThreadContext as any) }
+      : {};
 
   if (isConfirmOnly) {
     let threadContext = persistedThreadContext;
@@ -7059,6 +7401,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           ].filter(Boolean);
           return `Here’s the review from ${name}:\n\n${lines.join("\n")}${cta ? `\n\n${cta}` : ""}`;
         };
+
+        localCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? { ...(threadContext as any) } : {};
 
         const finalizePreflightResponse = async (opts: {
           exec: any;
@@ -8927,7 +9271,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const allResults: Array<{ ok: boolean; status: number; action: PortalAgentActionKey; args: Record<string, unknown>; result: any; linkUrl?: string | null; clientUiAction?: any | null; error?: string | null }> = [];
       const allClientUiActions: any[] = [];
 
-      let localCtx: any = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? { ...(threadContext as any) } : {};
+      localCtx = localCtx && typeof localCtx === "object" && !Array.isArray(localCtx)
+        ? { ...(localCtx as any) }
+        : threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
+          ? { ...(threadContext as any) }
+          : {};
       const seenPlanKeys = new Set<string>();
       let finalDirectMessage: string | null = null;
 
@@ -11156,7 +11504,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const localResults: any[] = [];
       const localClientUiActions: any[] = [];
       const bulkResolvedTaskSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown> }> = [];
-      let localCtx = fallbackThreadContext && typeof fallbackThreadContext === "object" && !Array.isArray(fallbackThreadContext)
+      localCtx = fallbackThreadContext && typeof fallbackThreadContext === "object" && !Array.isArray(fallbackThreadContext)
         ? ({ ...(fallbackThreadContext as any) } as any)
         : ({} as any);
 
@@ -11639,13 +11987,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     const body = await cloned.json().catch(() => null);
     const requestedResponseProfileRaw = typeof body?.responseProfile === "string" ? String(body.responseProfile).trim() : "";
     const requestedResponseProfile = requestedResponseProfileRaw ? normalizePuraAiProfile(requestedResponseProfileRaw) : null;
-    const { threadId } = await ctx.params;
-    const thread = await (prisma as any).portalAiChatThread.findFirst({
-      where: { id: threadId },
-      select: { contextJson: true },
-    }).catch(() => null);
-    const storedResponseProfile = normalizePuraAiProfile((thread as any)?.contextJson?.responseProfile);
-    const activeResponseProfile = requestedResponseProfile || storedResponseProfile;
+    const activeResponseProfile = requestedResponseProfile;
     return await runWithPuraAiProfile(activeResponseProfile, async () => await handlePostMessage(req, ctx));
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal server error";

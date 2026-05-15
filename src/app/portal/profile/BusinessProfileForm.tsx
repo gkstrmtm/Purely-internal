@@ -665,7 +665,7 @@ export function BusinessProfileForm({
             <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Smallest next steps</div>
             <div className="mt-2 flex flex-wrap gap-2">
               {contextHealth.nextSteps.map((step) => (
-                <span key={step} className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-700">{step}</span>
+                <span key={step.label} className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-700">{step.label}</span>
               ))}
             </div>
           </div>

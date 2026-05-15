@@ -20,7 +20,7 @@ function shouldPreferDirectUrlInDev(databaseUrl: string, directUrl: string): boo
 		const connectionLimit = connectionLimitRaw ? Number(connectionLimitRaw) : Number.NaN;
 		const looksPooled =
 			parsed.searchParams.get("pgbouncer") === "true" || parsed.hostname.toLowerCase().includes("pooler.");
-		if (looksPooled && Number.isFinite(connectionLimit) && connectionLimit <= 1) {
+		if (looksPooled && (!Number.isFinite(connectionLimit) || connectionLimit <= 5)) {
 			return true;
 		}
 	} catch {
@@ -44,7 +44,7 @@ function normalizeDevPooledDatabaseUrl(databaseUrl: string): string {
 		const connectionLimit = connectionLimitRaw ? Number(connectionLimitRaw) : Number.NaN;
 		if (Number.isFinite(connectionLimit) && connectionLimit > 1) return raw;
 
-		parsed.searchParams.set("connection_limit", process.env.PRISMA_DEV_CONNECTION_LIMIT || "5");
+		parsed.searchParams.set("connection_limit", process.env.PRISMA_DEV_CONNECTION_LIMIT || "10");
 		return parsed.toString();
 	} catch {
 		return raw;
@@ -56,7 +56,9 @@ function resolveDatasourceUrl() {
 	const databaseUrl = String(process.env.DATABASE_URL || "").trim();
 	const directUrl = String(process.env.DIRECT_URL || "").trim();
 	const preferDirectUrl = envFlagEnabled(process.env.PRISMA_USE_DIRECT_URL);
+	const allowAutomaticDirectUrl = !envFlagEnabled(process.env.PRISMA_PREFER_POOLED_URL);
 	if (preferDirectUrl && directUrl) return directUrl;
+	if (allowAutomaticDirectUrl && shouldPreferDirectUrlInDev(databaseUrl, directUrl)) return directUrl;
 	return normalizeDevPooledDatabaseUrl(databaseUrl) || directUrl || undefined;
 }
 

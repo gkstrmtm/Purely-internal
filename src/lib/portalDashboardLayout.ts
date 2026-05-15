@@ -71,6 +71,7 @@ function distributeRow(layout: DashboardLayoutItem[], cols: number): DashboardLa
     const sorted = rowItems.slice().sort((a, b) => a.x - b.x);
     const totalWidth = sorted.reduce((sum, item) => sum + item.w, 0);
     const canStretch = sorted.length > 0 && totalWidth < cols && !sorted.some((item) => item.w >= cols);
+
     if (!canStretch) {
       for (const item of sorted) next.set(item.i, item);
       continue;
@@ -78,6 +79,7 @@ function distributeRow(layout: DashboardLayoutItem[], cols: number): DashboardLa
 
     const minWidths = sorted.map((item) => Math.min(item.minW ?? 1, cols));
     const minWidthSum = minWidths.reduce((sum, value) => sum + value, 0);
+
     if (minWidthSum > cols) {
       for (const item of sorted) next.set(item.i, item);
       continue;
@@ -114,12 +116,12 @@ function distributeRow(layout: DashboardLayoutItem[], cols: number): DashboardLa
 export function dashboardLayoutPresetForWidget(widgetId: DashboardWidgetId): DashboardLayoutPreset {
   switch (widgetId) {
     case "services":
-      return { w: 12, h: 20, minW: 6, minH: 16 };
+      return { w: 12, h: 18, minW: 6, minH: 14 };
     case "dailyActivity":
-      return { w: 12, h: 22, minW: 6, minH: 18 };
+      return { w: 12, h: 20, minW: 6, minH: 16 };
     case "puraAttention":
     case "activityPulse":
-      return { w: 6, h: 14, minW: 4, minH: 12 };
+      return { w: 6, h: 12, minW: 4, minH: 10 };
     case "stripeSales":
     case "creditsRunway":
     case "successRate":
@@ -130,9 +132,9 @@ export function dashboardLayoutPresetForWidget(widgetId: DashboardWidgetId): Das
     case "perfMissedCallTextBack":
     case "perfLeadScraping":
     case "perfReviews":
-      return { w: 6, h: 12, minW: 4, minH: 10 };
+      return { w: 6, h: 10, minW: 4, minH: 8 };
     default:
-      return { w: 4, h: 9, minW: 4, minH: 7 };
+      return { w: 4, h: 8, minW: 4, minH: 6 };
   }
 }
 

@@ -11,17 +11,7 @@ import { PURA_AI_PROFILE_VALUES, normalizePuraAiProfile } from "@/lib/puraAiProf
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const PORTAL_AI_CHAT_DB_TIMEOUT_MS = 8_000;
-
-class PortalAiChatDbTimeoutError extends Error {
-  constructor(message = "Portal AI chat database request timed out") {
-    super(message);
-    this.name = "PortalAiChatDbTimeoutError";
-  }
-}
-
 function isTransientPortalAiChatDbError(error: unknown): boolean {
-  if (error instanceof PortalAiChatDbTimeoutError) return true;
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P1017" || error.code === "P2024") return true;
   }
@@ -39,23 +29,6 @@ function isTransientPortalAiChatDbError(error: unknown): boolean {
   );
 }
 
-async function withPortalAiChatDbTimeout<T>(work: Promise<T>, label?: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new PortalAiChatDbTimeoutError(label || "Portal AI chat database request timed out")),
-          PORTAL_AI_CHAT_DB_TIMEOUT_MS,
-        );
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
 async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempts?: number; delayMs?: number }): Promise<T> {
   const attempts = Math.max(1, Math.min(4, Math.floor(opts?.attempts ?? 3)));
   const delayMs = Math.max(50, Math.min(2_000, Math.floor(opts?.delayMs ?? 200)));
@@ -63,7 +36,7 @@ async function withPortalAiChatDbRetry<T>(fn: () => Promise<T>, opts?: { attempt
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await withPortalAiChatDbTimeout(fn(), `Portal AI chat database request timed out on attempt ${attempt}`);
+      return await fn();
     } catch (error) {
       lastError = error;
       if (!isTransientPortalAiChatDbError(error) || attempt >= attempts) throw error;
@@ -78,6 +51,22 @@ function portalAiChatDbUnavailableResponse() {
   return NextResponse.json(
     { ok: false, error: "Chat is temporarily unavailable. Please try again." },
     { status: 503 },
+  );
+}
+
+function isMissingPortalAiChatThreadSchemaError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2021" || error.code === "P2022") return true;
+  }
+
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const normalized = String(message || "").toLowerCase();
+  if (!normalized) return false;
+
+  return (
+    (normalized.includes("does not exist") && normalized.includes("column")) ||
+    (normalized.includes("does not exist") && normalized.includes("relation")) ||
+    normalized.includes("no such table")
   );
 }
 
@@ -328,13 +317,6 @@ export async function POST(req: Request) {
 }
 
 async function handleCreateThread(req: Request, ownerId: string, createdByUserId: string) {
-  try {
-    await withPortalAiChatDbRetry(() => ensurePortalAiChatSchema());
-  } catch (error) {
-    if (isTransientPortalAiChatDbError(error)) return portalAiChatDbUnavailableResponse();
-    throw error;
-  }
-
   const body = await req.json().catch(() => null);
   const parsed = CreateThreadSchema.safeParse(body ?? {});
   if (!parsed.success) {
@@ -346,33 +328,52 @@ async function handleCreateThread(req: Request, ownerId: string, createdByUserId
   const responseProfile = normalizePuraAiProfile(parsed.data.responseProfile);
   const bootstrapContext = parsed.data.bootstrapContext ?? null;
 
+  const createThreadRecord = () =>
+    (prisma as any).portalAiChatThread.create({
+      data: {
+        ownerId,
+        title,
+        createdByUserId,
+        lastMessageAt: null,
+        isPinned: false,
+        pinnedAt: null,
+        contextJson: { chatMode, responseProfile, ...(bootstrapContext ? { bootstrapContext } : {}) },
+      },
+      select: {
+        id: true,
+        title: true,
+        lastMessageAt: true,
+        isPinned: true,
+        pinnedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
   let thread;
   try {
-    thread = await withPortalAiChatDbRetry(() =>
-      (prisma as any).portalAiChatThread.create({
-        data: {
-          ownerId,
-          title,
-          createdByUserId,
-          lastMessageAt: null,
-          isPinned: false,
-          pinnedAt: null,
-          contextJson: { chatMode, responseProfile, ...(bootstrapContext ? { bootstrapContext } : {}) },
-        },
-        select: {
-          id: true,
-          title: true,
-          lastMessageAt: true,
-          isPinned: true,
-          pinnedAt: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      }),
+    thread = await withPortalAiChatDbRetry(
+      createThreadRecord,
+      { attempts: 2, delayMs: 150 },
     );
   } catch (error) {
-    if (isTransientPortalAiChatDbError(error)) return portalAiChatDbUnavailableResponse();
-    throw error;
+    if (isMissingPortalAiChatThreadSchemaError(error)) {
+      try {
+        await withPortalAiChatDbRetry(() => ensurePortalAiChatSchema(), { attempts: 1, delayMs: 100 });
+        thread = await withPortalAiChatDbRetry(createThreadRecord, { attempts: 2, delayMs: 150 });
+      } catch (retryError) {
+        if (isTransientPortalAiChatDbError(retryError)) {
+          console.error("[portal-ai-chat-thread-create] transient retry failure", retryError);
+          return portalAiChatDbUnavailableResponse();
+        }
+        throw retryError;
+      }
+    } else if (isTransientPortalAiChatDbError(error)) {
+      console.error("[portal-ai-chat-thread-create] transient failure", error);
+      return portalAiChatDbUnavailableResponse();
+    } else {
+      throw error;
+    }
   }
 
   return NextResponse.json({ ok: true, thread: { ...(thread as any), chatMode, responseProfile } });

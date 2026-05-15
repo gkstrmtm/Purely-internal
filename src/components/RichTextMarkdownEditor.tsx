@@ -5,6 +5,7 @@ import { LinkUrlModal } from "@/components/LinkUrlModal";
 
 const CONTACT_SIGNATURE_MARKDOWN = "![Contact signature](pa-signature://contact)";
 const CONTACT_SIGNATURE_PREVIEW_SRC = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='120' viewBox='0 0 520 120'%3E%3Crect width='520' height='120' rx='18' fill='%23f8fafc' stroke='%23cbd5e1' stroke-width='2' stroke-dasharray='8 8'/%3E%3Cpath d='M88 74c18-19 33-30 47-30 12 0 16 7 16 16 0 18-15 30-15 30s15-6 28-23c6-9 13-20 26-20 10 0 17 6 17 16 0 22-27 31-27 31s21-6 38-24c9-9 18-18 31-18 9 0 16 5 16 14 0 15-18 27-18 27h160' fill='none' stroke='%231e293b' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ctext x='260' y='102' text-anchor='middle' font-family='Arial, sans-serif' font-size='17' font-weight='700' fill='%23475569'%3EContact signature placeholder%3C/text%3E%3C/svg%3E";
+const TRAILING_SIGNATURE_CARET_ATTR = "data-pa-trailing-caret";
 
 function escapeHtml(text: string) {
   return text
@@ -60,7 +61,7 @@ function markdownToHtmlBasic(markdown: string): string {
       const safeAlt = String(alt || "");
       const safeUrl = String(url || "");
       if (safeUrl === "pa-signature://contact") {
-        return `<span data-pa-signature-wrap="contact" contenteditable="false"><img src="${CONTACT_SIGNATURE_PREVIEW_SRC}" alt="${escapeHtml(safeAlt || "Contact signature")}" data-pa-signature="contact" draggable="false" /></span>`;
+        return `<span data-pa-signature-wrap="contact" contenteditable="false" draggable="true"><img src="${CONTACT_SIGNATURE_PREVIEW_SRC}" alt="${escapeHtml(safeAlt || "Contact signature")}" data-pa-signature="contact" draggable="false" /></span>`;
       }
       return `<img src=\"${escapeHtml(safeUrl)}\" alt=\"${escapeHtml(safeAlt)}\" />`;
     });
@@ -346,6 +347,63 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const linkRangeRef = useRef<Range | null>(null);
 
+  const findContactSignatureNode = (root: ParentNode | null) => {
+    if (!root) return null;
+    const wrapped = root.querySelector('[data-pa-signature-wrap="contact"]');
+    if (wrapped instanceof HTMLElement) return wrapped;
+    const image = root.querySelector('img[data-pa-signature="contact"]');
+    return image instanceof HTMLElement ? image : null;
+  };
+
+  const createContactSignatureNode = () => {
+    const wrap = document.createElement("span");
+    wrap.setAttribute("data-pa-signature-wrap", "contact");
+    wrap.setAttribute("contenteditable", "false");
+    wrap.setAttribute("draggable", "true");
+
+    const image = document.createElement("img");
+    image.setAttribute("src", CONTACT_SIGNATURE_PREVIEW_SRC);
+    image.setAttribute("alt", "Contact signature");
+    image.setAttribute("data-pa-signature", "contact");
+    image.setAttribute("draggable", "false");
+
+    wrap.append(image);
+    return wrap;
+  };
+
+  const findTopLevelBlock = (root: HTMLElement, node: Node | null) => {
+    let current: Node | null = node;
+    while (current && current !== root) {
+      if (current.parentNode === root && current instanceof HTMLElement) {
+        return current;
+      }
+      current = current.parentNode;
+    }
+    return null;
+  };
+
+  const detachContactSignatureNode = () => {
+    const el = editorRef.current;
+    if (!el) return null;
+
+    const signatureNode = findContactSignatureNode(el);
+    if (!(signatureNode instanceof HTMLElement)) return null;
+
+    const currentParent = signatureNode.parentElement;
+    signatureNode.remove();
+
+    if (
+      currentParent instanceof HTMLElement &&
+      ["p", "div"].includes(currentParent.tagName.toLowerCase()) &&
+      !findContactSignatureNode(currentParent) &&
+      currentParent.innerText.trim().length === 0
+    ) {
+      currentParent.remove();
+    }
+
+    return signatureNode;
+  };
+
   const saveSelectionRange = () => {
     try {
       const sel = window.getSelection();
@@ -374,8 +432,14 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
   };
 
   const syncFromDom = () => {
-    const html = editorRef.current?.innerHTML ?? "";
-    const nextMd = htmlToMarkdownBasic(html);
+    const el = editorRef.current;
+    const html = el?.innerHTML ?? "";
+    let nextMd = htmlToMarkdownBasic(html);
+    const hasSignatureInDom = Boolean(findContactSignatureNode(el));
+    if (hasSignatureInDom && !nextMd.includes(CONTACT_SIGNATURE_MARKDOWN)) {
+      const trimmed = nextMd.trim();
+      nextMd = trimmed ? `${trimmed}\n\n${CONTACT_SIGNATURE_MARKDOWN}\n` : `${CONTACT_SIGNATURE_MARKDOWN}\n`;
+    }
     lastMarkdownRef.current = nextMd;
     onChange(nextMd);
   };
@@ -462,22 +526,51 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
     }
   };
 
+  const resolveCaretRangeFromPoint = (x: number, y: number) => {
+    try {
+      const doc = document as Document & {
+        caretRangeFromPoint?: (x: number, y: number) => Range | null;
+        caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+      };
+      if (typeof doc.caretRangeFromPoint === "function") {
+        return doc.caretRangeFromPoint(x, y);
+      }
+      if (typeof doc.caretPositionFromPoint === "function") {
+        const pos = doc.caretPositionFromPoint(x, y);
+        if (pos?.offsetNode) {
+          const range = document.createRange();
+          range.setStart(pos.offsetNode, pos.offset);
+          range.collapse(true);
+          return range;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  };
+
   const ensureTrailingEditableParagraph = (root: HTMLElement) => {
     const blocks = Array.from(root.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
+    for (const block of blocks) {
+      if (block.getAttribute(TRAILING_SIGNATURE_CARET_ATTR) === "true" && hasMeaningfulContent(block)) {
+        block.removeAttribute(TRAILING_SIGNATURE_CARET_ATTR);
+      }
+    }
+
     const lastMeaningfulBlock = [...blocks].reverse().find((block) => hasMeaningfulContent(block)) || null;
     if (!lastMeaningfulBlock || !blockContainsContactSignature(lastMeaningfulBlock)) return;
 
-    const trailingBlock = root.lastElementChild;
-    if (
-      trailingBlock instanceof HTMLElement &&
-      trailingBlock !== lastMeaningfulBlock &&
-      !blockContainsContactSignature(trailingBlock) &&
-      trailingBlock.innerText.trim().length === 0
-    ) {
+    const trailingBlocks = blocks.slice(blocks.indexOf(lastMeaningfulBlock) + 1).filter((block) => !blockContainsContactSignature(block) && block.innerText.trim().length === 0);
+    if (trailingBlocks.length) {
+      const [keeper, ...extras] = trailingBlocks;
+      keeper.setAttribute(TRAILING_SIGNATURE_CARET_ATTR, "true");
+      extras.forEach((block) => block.remove());
       return;
     }
 
     const paragraph = document.createElement("p");
+    paragraph.setAttribute(TRAILING_SIGNATURE_CARET_ATTR, "true");
     paragraph.append(document.createElement("br"));
     root.append(paragraph);
   };
@@ -494,10 +587,66 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
     }
   };
 
+  const removeTrailingEmptyBlocks = (root: HTMLElement) => {
+    const trailingBlocks = Array.from(root.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
+    for (let index = trailingBlocks.length - 1; index >= 0; index -= 1) {
+      const block = trailingBlocks[index];
+      if (blockContainsContactSignature(block) || hasMeaningfulContent(block)) break;
+      block.remove();
+    }
+  };
+
+  const normalizeTrailingSignatureCaret = () => {
+    const el = editorRef.current;
+    if (!el) return;
+    ensureTrailingEditableParagraph(el);
+  };
+
+  const insertContactSignatureBlock = (signatureNode: HTMLElement, options?: { point?: { x: number; y: number }; atEnd?: boolean }) => {
+    const el = editorRef.current;
+    if (!el || disabled) return;
+
+    const paragraph = document.createElement("p");
+    paragraph.append(signatureNode);
+
+    if (options?.atEnd) {
+      removeTrailingEmptyBlocks(el);
+      el.append(paragraph);
+    } else if (options?.point) {
+      const range = resolveCaretRangeFromPoint(options.point.x, options.point.y);
+      const anchorBlock = findTopLevelBlock(el, range?.startContainer || null);
+      if (!anchorBlock) {
+        el.append(paragraph);
+      } else {
+        const rect = anchorBlock.getBoundingClientRect();
+        const insertAfter = options.point.y > rect.top + rect.height / 2;
+        anchorBlock.insertAdjacentElement(insertAfter ? "afterend" : "beforebegin", paragraph);
+      }
+    } else {
+      const selection = window.getSelection();
+      const anchorBlock = findTopLevelBlock(el, selection?.anchorNode || null);
+      if (!anchorBlock) {
+        el.append(paragraph);
+      } else {
+        anchorBlock.insertAdjacentElement("afterend", paragraph);
+      }
+    }
+
+    removeEmptyBlocks(el);
+    ensureTrailingEditableParagraph(el);
+    syncFromDom();
+    refreshFormats();
+  };
+
   const insertMarkdownSnippet = (snippet: string, options?: { point?: { x: number; y: number }; atEnd?: boolean }) => {
     if (disabled) return;
     const nextSnippet = String(snippet || "");
     if (!nextSnippet.trim()) return;
+    if (nextSnippet.includes(CONTACT_SIGNATURE_MARKDOWN)) {
+      const signatureNode = detachContactSignatureNode() || createContactSignatureNode();
+      insertContactSignatureBlock(signatureNode, options);
+      return;
+    }
     editorRef.current?.focus();
     if (options?.point) moveSelectionToPoint(options.point.x, options.point.y);
     if (options?.atEnd) moveSelectionToEnd();
@@ -521,29 +670,10 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
     const el = editorRef.current;
     if (!el || disabled) return;
 
-    const signatureNode = el.querySelector('[data-pa-signature-wrap="contact"]') || el.querySelector('img[data-pa-signature="contact"]');
+    const signatureNode = detachContactSignatureNode();
     if (!(signatureNode instanceof HTMLElement)) return;
-
-    const currentParent = signatureNode.parentElement;
-    signatureNode.remove();
-
-    if (
-      currentParent instanceof HTMLElement &&
-      ["p", "div"].includes(currentParent.tagName.toLowerCase()) &&
-      !currentParent.querySelector('img[data-pa-signature="contact"]') &&
-      currentParent.innerText.trim().length === 0
-    ) {
-      currentParent.remove();
-    }
-
-    const paragraph = document.createElement("p");
-    paragraph.append(signatureNode);
-    el.append(paragraph);
-    removeEmptyBlocks(el);
-    ensureTrailingEditableParagraph(el);
+    insertContactSignatureBlock(signatureNode, { atEnd: true });
     moveSelectionToEnd();
-    syncFromDom();
-    refreshFormats();
   };
 
   useImperativeHandle(ref, () => ({
@@ -764,11 +894,32 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
         onFocus={() => {
           setFocused(true);
           refreshFormats();
+          queueMicrotask(() => normalizeTrailingSignatureCaret());
         }}
         onBlur={() => {
           setFocused(false);
           // Final sync on blur.
           syncFromDom();
+        }}
+        onDragStart={(event) => {
+          if (disabled) {
+            event.preventDefault();
+            return;
+          }
+          const target = event.target instanceof HTMLElement ? event.target : null;
+          const signatureWrap = target?.closest('[data-pa-signature-wrap="contact"]');
+          if (!(signatureWrap instanceof HTMLElement)) return;
+          event.dataTransfer?.setData("application/x-pa-dispute-signature", CONTACT_SIGNATURE_MARKDOWN);
+          event.dataTransfer?.setData("text/plain", CONTACT_SIGNATURE_MARKDOWN);
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+        }}
+        onDragOver={(event) => {
+          if (disabled) return;
+          const types = Array.from(event.dataTransfer?.types || []);
+          if (types.includes("application/x-pa-dispute-signature")) {
+            event.preventDefault();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+          }
         }}
         onDrop={(event) => {
           if (disabled) return;
@@ -780,9 +931,13 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
         onInput={() => {
           syncFromDom();
           refreshFormats();
+          normalizeTrailingSignatureCaret();
         }}
         onKeyUp={() => refreshFormats()}
-        onMouseUp={() => refreshFormats()}
+        onMouseUp={() => {
+          refreshFormats();
+          queueMicrotask(() => normalizeTrailingSignatureCaret());
+        }}
         className="min-h-80 px-4 py-3 text-sm leading-6 outline-none"
         data-placeholder={placeholder || "Write…"}
         style={{
@@ -821,15 +976,30 @@ export const RichTextMarkdownEditor = forwardRef<RichTextMarkdownEditorHandle, R
         [contenteditable='true'] h3 {
           font-weight: 700;
           margin: 0.6em 0 0.3em;
+        [contenteditable='true'] [${TRAILING_SIGNATURE_CARET_ATTR}='true'] {
+          margin: 0;
+          min-height: 1.1em;
+          line-height: 1.1;
+        }
         }
         [contenteditable='true'] p {
           margin: 0.4em 0;
+        }
+        [contenteditable='true'] p[data-pa-trailing-caret='true'] {
+          margin-top: 0.1em;
+          margin-bottom: 0;
+          line-height: 0.65;
+          min-height: 0.4em;
         }
         [contenteditable='true'] [data-pa-signature-wrap='contact'] {
           display: inline-block;
           max-width: 100%;
           vertical-align: top;
           user-select: all;
+          cursor: grab;
+        }
+        [contenteditable='true'] [data-pa-signature-wrap='contact']:active {
+          cursor: grabbing;
         }
         [contenteditable='true'] [data-pa-signature-wrap='contact'] img {
           display: block;

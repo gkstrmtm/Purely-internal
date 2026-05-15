@@ -4,7 +4,12 @@ import { mutateCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSett
 import { prisma } from "@/lib/db";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
-import { dbHasCreditFunnelEventTable, getCreditFunnelPageMetrics, readCreditFunnelTrackingSettings } from "@/lib/funnelEventTracking";
+import {
+  createEmptyCreditFunnelEventMetrics,
+  dbHasCreditFunnelEventTable,
+  getCreditFunnelPageMetrics,
+  readCreditFunnelTrackingSettings,
+} from "@/lib/funnelEventTracking";
 import {
   buildSuggestedPageNaming,
   inferFunnelPageIntentProfile,
@@ -19,8 +24,9 @@ import {
   normalizeDraftHtmlList,
   withDraftHtmlSelect,
 } from "@/lib/funnelPageDbCompat";
-import { consumeCredits } from "@/lib/credits";
+import { consumeCredits, consumeCreditsOnce } from "@/lib/credits";
 import { addCredits } from "@/lib/credits";
+import { enforceFunnelBuilderRouteRateLimit, readFunnelBuilderRequestId } from "@/lib/funnelBuilderGuardrails";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
 const GLOBAL_HEADER_KEY = "__global_header__";
@@ -144,15 +150,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
     trackingSettings: (() => readCreditFunnelTrackingSettings(settings?.dataJson ?? null, funnelId, p.id))(),
     executionSummary: (() => {
       const tracking = readCreditFunnelTrackingSettings(settings?.dataJson ?? null, funnelId, p.id);
-      const metrics =
-        pageMetrics.get(p.id) || {
-          page_view: 0,
-          cta_click: 0,
-          form_submitted: 0,
-          booking_created: 0,
-          checkout_started: 0,
-          add_to_cart: 0,
-        };
+      const metrics = pageMetrics.get(p.id) || createEmptyCreditFunnelEventMetrics();
       return {
         trackingReady: eventTableReady,
         metaPixelReady: Boolean(tracking.resolvedPixelId),
@@ -193,6 +191,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const globalHeaderBlock = getGlobalHeaderBlockFromPages(pagesForHeader);
 
   const body = (await req.json().catch(() => null)) as any;
+  const clientRequestId = typeof body?.requestId === "string" ? body.requestId.trim().slice(0, 120) : "";
+  const requestId = readFunnelBuilderRequestId(req, clientRequestId);
   const explicitSlugRaw = typeof body?.slug === "string" ? body.slug : "";
   const explicitSlug = explicitSlugRaw.trim() ? normalizePageSlug(explicitSlugRaw) : "";
   const explicitTitle = typeof body?.title === "string" ? body.title.trim().slice(0, 200) : "";
@@ -236,9 +236,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     return NextResponse.json({ ok: false, error: "Unable to derive a valid page path" }, { status: 400 });
   }
 
-  const charged = await consumeCredits(auth.session.user.id, PORTAL_CREDIT_COSTS.funnelPageCreate);
+  const routeGate = await enforceFunnelBuilderRouteRateLimit({
+    ownerId: auth.session.user.id,
+    routeKey: "funnel-page-create",
+    requestId,
+  });
+  if (!routeGate.ok) {
+    return NextResponse.json({ ok: false, error: routeGate.error }, { status: routeGate.status });
+  }
+
+  const charged = clientRequestId
+    ? await consumeCreditsOnce(
+        auth.session.user.id,
+        PORTAL_CREDIT_COSTS.funnelPageCreate,
+        `page-create:${auth.session.user.id}:${funnelId}:${normalizedSlug}:${clientRequestId}`,
+      )
+    : await consumeCredits(auth.session.user.id, PORTAL_CREDIT_COSTS.funnelPageCreate);
   if (!charged.ok) {
-    return NextResponse.json({ ok: false, error: "Insufficient credits" }, { status: 402 });
+    return NextResponse.json({ ok: false, error: "You need more credits to create another page." }, { status: 402 });
   }
 
   try {
@@ -313,7 +328,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
     return NextResponse.json({ ok: true, page: { ...normalizeDraftHtml(page), brief: seededBrief.value } });
   } catch (e) {
-    await addCredits(auth.session.user.id, PORTAL_CREDIT_COSTS.funnelPageCreate).catch(() => null);
+    if (!("alreadyConsumed" in charged) || charged.alreadyConsumed !== true) {
+      await addCredits(auth.session.user.id, PORTAL_CREDIT_COSTS.funnelPageCreate).catch(() => null);
+    }
     const message = String((e as any)?.message || "");
     if (message.includes("unique") || message.includes("CreditFunnelPage_funnelId_slug_key")) {
       return NextResponse.json(

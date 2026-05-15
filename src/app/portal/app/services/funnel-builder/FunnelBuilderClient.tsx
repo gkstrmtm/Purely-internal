@@ -23,6 +23,11 @@ import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { useToast } from "@/components/ToastProvider";
 import { IconCopy, IconEdit } from "@/app/portal/PortalIcons";
+import {
+  FUNNEL_BUTTON_MOTION_CLASS,
+  FUNNEL_BUTTON_RAISE_CLASS,
+  FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+} from "@/components/funnel/funnelButtonMotion";
 import { hostedFunnelPath, hostedFormPath } from "@/lib/publicHostedKeys";
 import { toPurelyHostedUrl, toRuntimeHostedUrl } from "@/lib/publicHostedOrigin";
 import { CreditFormTemplatePreview } from "@/components/CreditFormTemplatePreview";
@@ -33,7 +38,9 @@ import { CREDIT_FUNNEL_TEMPLATES, coerceCreditFunnelTemplateKey, getCreditFunnel
 import { CREDIT_FUNNEL_THEMES, coerceCreditFunnelThemeKey, getCreditFunnelTheme, type CreditFunnelThemeKey } from "@/lib/creditFunnelThemes";
 
 import { buildSuggestedFunnelNaming, inferFunnelPageIntentProfile, type FunnelPageIntentType, type FunnelPageMediaMode } from "@/lib/funnelPageIntent";
+import { resolveBusinessProfileRuntimeSnapshot } from "@/lib/businessProfileRuntimeSnapshot";
 import { decideFunnelInitialization } from "@/lib/funnelStencilPlanner";
+import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 
 type CreditFunnel = {
   id: string;
@@ -81,8 +88,11 @@ type StripeIntegrationStatus = {
   connectedAtIso: string | null;
 };
 
+type CreateFunnelInterviewStage = "business" | "audience" | "conversion";
+
 type FunnelBuilderSettings = {
   metaPixelId: string | null;
+  createFunnelDraft: FunnelCreateDraft | null;
 };
 
 type FormSettingsDialog = {
@@ -92,8 +102,161 @@ type FormSettingsDialog = {
   status: CreditForm["status"];
 } | null;
 
+type FunnelCreateBusinessProfileSummary = {
+  businessName: string;
+  industry: string;
+  businessModel: string;
+  targetCustomer: string;
+  brandVoice: string;
+  businessContext: string;
+  primaryGoals: string[];
+  brandPrimaryHex?: string;
+  brandSecondaryHex?: string;
+  brandAccentHex?: string;
+  brandTextHex?: string;
+};
+
+type CreateSpeechRecognitionAlternativeLike = {
+  transcript: string;
+};
+
+type CreateSpeechRecognitionResultLike = {
+  length: number;
+  isFinal: boolean;
+  [index: number]: CreateSpeechRecognitionAlternativeLike;
+};
+
+type CreateSpeechRecognitionEventLike = {
+  resultIndex: number;
+  results: ArrayLike<CreateSpeechRecognitionResultLike>;
+};
+
+type CreateSpeechRecognitionErrorEventLike = {
+  error?: string;
+  message?: string;
+};
+
+type CreateSpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: CreateSpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: CreateSpeechRecognitionErrorEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+type CreateSpeechRecognitionCtor = new () => CreateSpeechRecognitionLike;
+
+type FunnelCreateDraft = {
+  v: 1;
+  updatedAt: string;
+  stage: CreateFunnelInterviewStage;
+  slug: string;
+  name: string;
+  pageType: FunnelPageIntentType;
+  primaryCta: string;
+  heroAssetMode: FunnelPageMediaMode;
+  audience: string;
+  offer: string;
+  goal: string;
+  shellFrameId: string;
+  companyContext: string;
+  qualificationFields: string;
+  preferCustomMode: boolean;
+};
+
+const FUNNEL_CREATE_CONTEXT_PROMPTS = [
+  "What problem do we solve, and why does it matter right now?",
+  "What makes this offer easier to say yes to than the obvious alternatives?",
+  "What should a qualified buyer believe before they click the CTA?",
+  "What should happen internally after someone converts?",
+];
+const FUNNEL_CREATE_STAGE_ORDER: CreateFunnelInterviewStage[] = ["business", "audience", "conversion"];
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function normalizeBusinessProfileGoals(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
+function buildFunnelCreateBusinessContextSeed(summary: FunnelCreateBusinessProfileSummary | null): string {
+  if (!summary) return "";
+  const lines = [
+    summary.businessName ? `Business: ${summary.businessName}` : "",
+    summary.industry ? `Industry: ${summary.industry}` : "",
+    summary.businessModel ? `Model: ${summary.businessModel}` : "",
+    summary.targetCustomer ? `Audience: ${summary.targetCustomer}` : "",
+    summary.brandVoice ? `Voice: ${summary.brandVoice}` : "",
+    summary.businessContext ? `Context: ${summary.businessContext}` : "",
+    summary.primaryGoals.length ? `Goals: ${summary.primaryGoals.join("; ")}` : "",
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
+function getCreateSpeechRecognitionCtor(source: Window & typeof globalThis): CreateSpeechRecognitionCtor | null {
+  const scoped = source as Window & typeof globalThis & {
+    SpeechRecognition?: CreateSpeechRecognitionCtor;
+    webkitSpeechRecognition?: CreateSpeechRecognitionCtor;
+  };
+
+  return scoped.SpeechRecognition ?? scoped.webkitSpeechRecognition ?? null;
+}
+
+function friendlyCreateSpeechError(event: CreateSpeechRecognitionErrorEventLike) {
+  const code = String(event.error || "").trim().toLowerCase();
+  if (code === "not-allowed" || code === "service-not-allowed") return "Microphone permission was denied.";
+  if (code === "no-speech") return "No speech was detected. Try again and speak a little closer to the mic.";
+  if (code === "audio-capture") return "This browser could not access a working microphone.";
+  if (code === "network") return "Speech recognition hit a network issue. Try again.";
+  return "Speech recognition stopped unexpectedly.";
+}
+
+function parseFunnelCreateDraft(raw: unknown): FunnelCreateDraft | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const parsed = raw as Partial<FunnelCreateDraft>;
+  const stage = typeof parsed.stage === "string" && FUNNEL_CREATE_STAGE_ORDER.includes(parsed.stage as CreateFunnelInterviewStage)
+    ? (parsed.stage as CreateFunnelInterviewStage)
+    : "business";
+  return {
+    v: 1,
+    updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
+    stage,
+    slug: typeof parsed.slug === "string" ? parsed.slug : "",
+    name: typeof parsed.name === "string" ? parsed.name : "",
+    pageType: typeof parsed.pageType === "string" ? (parsed.pageType as FunnelPageIntentType) : "lead-capture",
+    primaryCta: typeof parsed.primaryCta === "string" ? parsed.primaryCta : "",
+    heroAssetMode: typeof parsed.heroAssetMode === "string" ? (parsed.heroAssetMode as FunnelPageMediaMode) : "auto",
+    audience: typeof parsed.audience === "string" ? parsed.audience : "",
+    offer: typeof parsed.offer === "string" ? parsed.offer : "",
+    goal: typeof parsed.goal === "string" ? parsed.goal : "",
+    shellFrameId: typeof parsed.shellFrameId === "string" ? parsed.shellFrameId : "",
+    companyContext: typeof parsed.companyContext === "string" ? parsed.companyContext : "",
+    qualificationFields: typeof parsed.qualificationFields === "string" ? parsed.qualificationFields : "",
+    preferCustomMode: parsed.preferCustomMode === true,
+  };
+}
+
+function formatRelativeAutosaveLabel(value: string | null) {
+  if (!value) return "Draft sync is ready for this workspace.";
+  const stamp = Date.parse(value);
+  if (!Number.isFinite(stamp)) return "Draft sync is ready for this workspace.";
+  const deltaMs = Date.now() - stamp;
+  if (deltaMs < 60_000) return "Synced just now to your workspace.";
+  const minutes = Math.round(deltaMs / 60_000);
+  if (minutes < 60) return `Synced ${minutes}m ago to your workspace.`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `Synced ${hours}h ago to your workspace.`;
+  const days = Math.round(hours / 24);
+  return `Synced ${days}d ago to your workspace.`;
 }
 
 function funnelStatusLabel(
@@ -131,6 +294,61 @@ function normalizeSlug(raw: string) {
     .replace(/^-/, "")
     .replace(/-$/, "");
   return cleaned;
+}
+
+function normalizeFunnelBuilderError(action: string, error: unknown, status?: number) {
+  const raw = typeof error === "string"
+    ? error
+    : error instanceof Error
+      ? error.message
+      : "";
+  const message = raw.trim();
+  const normalized = message.toLowerCase();
+
+  if (status === 401) return "Your session ended. Sign in again and try once more.";
+  if (status === 403) return "You do not have access to do that from this builder session.";
+  if (status === 404) {
+    if (action.includes("form")) return "That form could not be found. It may have been deleted or you may no longer have access.";
+    if (action.includes("domain")) return "That domain record could not be found anymore.";
+    return "That funnel item could not be found. It may have been deleted or you may no longer have access.";
+  }
+  if (status === 409 || normalized.includes("already exists")) {
+    if (normalized.includes("slug") || action.includes("create") || action.includes("domain")) {
+      return "That path is already in use. Choose a different one and try again.";
+    }
+  }
+  if (status === 402 || normalized.includes("more credits")) {
+    return "You need more credits before this builder action can continue.";
+  }
+  if (status === 429 || normalized.includes("too many") || normalized.includes("rate limit")) {
+    return "That happened too quickly. Wait a moment, then try again.";
+  }
+  if (normalized.includes("invalid slug")) return "Use letters, numbers, and dashes for the path.";
+  if (normalized.includes("invalid name")) return "Enter a clearer name and try again.";
+  if (normalized.includes("invalid domain")) return "Enter a valid domain before saving.";
+  if (normalized.includes("verification failed")) return "We could not verify that domain yet. Check the DNS records and try again.";
+  if (normalized.includes("stripe is not connected")) return "Connect Stripe before using product-linked funnel actions.";
+  if (normalized.includes("failed to load")) return `We couldn't ${action} right now. Refresh and try again.`;
+  if (normalized.includes("failed to save") || normalized.includes("failed to update") || normalized.includes("failed to delete")) {
+    return `We couldn't ${action} right now. Please try again.`;
+  }
+  if (normalized.includes("create failed") || normalized.includes("failed to create")) {
+    return `We couldn't ${action} right now. Please try again.`;
+  }
+  if (normalized.includes("enter a valid slug")) return "Use letters, numbers, and dashes for the path.";
+  if (normalized.includes("enter the service, offer, or funnel concept first")) {
+    return "Describe the offer or service first so the builder can create the funnel.";
+  }
+  if (!message) return `We couldn't ${action} right now. Please try again.`;
+  return message;
+}
+
+async function readFunnelBuilderJson<T>(res: Response, action: string): Promise<T> {
+  const json = (await res.json().catch(() => null)) as any;
+  if (!res.ok || !json || json.ok !== true) {
+    throw new Error(normalizeFunnelBuilderError(action, json?.error || "", res.status));
+  }
+  return json as T;
 }
 
 function buildPrimaryCtaSuggestions(pageType: FunnelPageIntentType, current: string) {
@@ -264,6 +482,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const basePath = pathname === "/credit" || pathname.startsWith("/credit/") ? "/credit" : "/portal";
+  const portalVariant: PortalVariant = basePath === "/credit" ? "credit" : "portal";
 
   const toast = useToast();
 
@@ -340,7 +559,21 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [createFunnelOffer, setCreateFunnelOffer] = useState("");
   const [createFunnelGoal, setCreateFunnelGoal] = useState(defaultFunnelGoalForCreate("lead-capture"));
   const [createFunnelShellFrameId, setCreateFunnelShellFrameId] = useState("");
+  const [createFunnelCompanyContext, setCreateFunnelCompanyContext] = useState("");
+  const [createFunnelQualificationFields, setCreateFunnelQualificationFields] = useState("");
+  const [createFunnelStage, setCreateFunnelStage] = useState<CreateFunnelInterviewStage>("business");
+  const [createBusinessProfileSummary, setCreateBusinessProfileSummary] = useState<FunnelCreateBusinessProfileSummary | null>(null);
+  const [createFunnelDraftSavedAt, setCreateFunnelDraftSavedAt] = useState<string | null>(null);
+  const [createFunnelDraftHydrated, setCreateFunnelDraftHydrated] = useState(false);
+  const [createIntakeDictationSupported, setCreateIntakeDictationSupported] = useState(false);
+  const [createIntakeDictationError, setCreateIntakeDictationError] = useState<string | null>(null);
+  const [createIntakeDictatingFieldKey, setCreateIntakeDictatingFieldKey] = useState<"companyContext" | "qualificationFields" | null>(null);
   const [busy, setBusy] = useState(false);
+  const createRequestIdRef = useRef<string>("");
+  const createIntakeRecognitionRef = useRef<CreateSpeechRecognitionLike | null>(null);
+  const createIntakeDictationBaseRef = useRef("");
+  const createIntakeDictationFieldKeyRef = useRef<"companyContext" | "qualificationFields" | null>(null);
+  const createFunnelDraftSerializedRef = useRef<string>("null");
 
   const [funnelDeleteBusy, setFunnelDeleteBusy] = useState<Record<string, boolean>>({});
   const [formDeleteBusy, setFormDeleteBusy] = useState<Record<string, boolean>>({});
@@ -382,6 +615,11 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [builderSettingsBusy, setBuilderSettingsBusy] = useState(false);
   const [builderSettingsSaveBusy, setBuilderSettingsSaveBusy] = useState(false);
   const [metaPixelIdInput, setMetaPixelIdInput] = useState("");
+  const builderSettingsRef = useRef<FunnelBuilderSettings | null>(null);
+
+  useEffect(() => {
+    builderSettingsRef.current = builderSettings;
+  }, [builderSettings]);
 
   const funnelCreateNamingPreview = useMemo(() => {
     if (creatingKind !== "funnel") return null;
@@ -401,13 +639,161 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       pageType: createFunnelPageType,
       funnelGoal: createFunnelGoal,
       offer: createFunnelOffer,
-      audience: createFunnelAudience,
+      audience: createFunnelAudience || createBusinessProfileSummary?.targetCustomer || "",
       primaryCta: createFunnelPrimaryCta,
       name: createName,
       slug: createSlug,
       preferCustomMode: createFunnelPreferCustomMode,
     });
-  }, [createFunnelAudience, createFunnelGoal, createFunnelPageType, createFunnelPreferCustomMode, createFunnelPrimaryCta, createName, createFunnelOffer, createSlug, creatingKind]);
+  }, [createBusinessProfileSummary?.targetCustomer, createFunnelAudience, createFunnelGoal, createFunnelPageType, createFunnelPreferCustomMode, createFunnelPrimaryCta, createName, createFunnelOffer, createSlug, creatingKind]);
+
+  const funnelCreateInterviewSignals = useMemo(
+    () => [
+      { label: "Business context loaded", done: Boolean(createBusinessProfileSummary || createFunnelCompanyContext.trim()) },
+      { label: "Offer defined", done: Boolean(createFunnelOffer.trim()) },
+      { label: "Audience defined", done: Boolean(createFunnelAudience.trim() || createBusinessProfileSummary?.targetCustomer) },
+      { label: "Conversion path defined", done: Boolean(createFunnelGoal.trim() && createFunnelPrimaryCta.trim()) },
+    ],
+    [createBusinessProfileSummary, createFunnelAudience, createFunnelCompanyContext, createFunnelGoal, createFunnelOffer, createFunnelPrimaryCta],
+  );
+
+  const funnelCreateStageItems = useMemo(
+    () => [
+      {
+        key: "business" as const,
+        label: "Business snapshot",
+        hint: "Business context, offer, and structural posture",
+        done: Boolean((createBusinessProfileSummary || createFunnelCompanyContext.trim()) && createFunnelOffer.trim()),
+      },
+      {
+        key: "audience" as const,
+        label: "Fit and routing",
+        hint: "Audience, intake detail, and qualification logic",
+        done: Boolean(createFunnelAudience.trim() || createBusinessProfileSummary?.targetCustomer || createFunnelQualificationFields.trim()),
+      },
+      {
+        key: "conversion" as const,
+        label: "Conversion path",
+        hint: "Goal, CTA, and first-draft recommendation",
+        done: Boolean(createFunnelGoal.trim() && createFunnelPrimaryCta.trim()),
+      },
+    ],
+    [createBusinessProfileSummary, createFunnelAudience, createFunnelCompanyContext, createFunnelGoal, createFunnelOffer, createFunnelPrimaryCta, createFunnelQualificationFields],
+  );
+
+  const activeCreateFunnelStageIndex = useMemo(
+    () => Math.max(0, FUNNEL_CREATE_STAGE_ORDER.indexOf(createFunnelStage)),
+    [createFunnelStage],
+  );
+
+  const activeCreateFunnelStageComplete = funnelCreateStageItems[activeCreateFunnelStageIndex]?.done ?? false;
+
+  const goToPreviousCreateFunnelStage = useCallback(() => {
+    setCreateFunnelStage((prev) => FUNNEL_CREATE_STAGE_ORDER[Math.max(0, FUNNEL_CREATE_STAGE_ORDER.indexOf(prev) - 1)] || "business");
+  }, []);
+
+  const goToNextCreateFunnelStage = useCallback(() => {
+    setCreateFunnelStage((prev) => FUNNEL_CREATE_STAGE_ORDER[Math.min(FUNNEL_CREATE_STAGE_ORDER.length - 1, FUNNEL_CREATE_STAGE_ORDER.indexOf(prev) + 1)] || "conversion");
+  }, []);
+
+  const funnelCreateBusinessContextSeed = useMemo(
+    () => buildFunnelCreateBusinessContextSeed(createBusinessProfileSummary),
+    [createBusinessProfileSummary],
+  );
+
+  const appendCreateContextPrompt = useCallback((prompt: string) => {
+    setCreateFunnelCompanyContext((prev) => {
+      const nextPrompt = prompt.trim();
+      if (!nextPrompt) return prev;
+      if (prev.includes(nextPrompt)) return prev;
+      return prev.trim() ? `${prev.trim()}\n${nextPrompt}` : `${nextPrompt}\n`;
+    });
+  }, []);
+
+  const updateCreateIntakeFieldValue = useCallback((fieldKey: "companyContext" | "qualificationFields", value: string) => {
+    if (fieldKey === "companyContext") {
+      setCreateFunnelCompanyContext(value);
+      return;
+    }
+    setCreateFunnelQualificationFields(value);
+  }, []);
+
+  const stopCreateIntakeDictation = useCallback(() => {
+    try {
+      createIntakeRecognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const startCreateIntakeDictation = useCallback((fieldKey: "companyContext" | "qualificationFields", currentValue: string) => {
+    if (createIntakeDictatingFieldKey === fieldKey) {
+      stopCreateIntakeDictation();
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      setCreateIntakeDictationError("Speech-to-text is only available in the browser.");
+      return;
+    }
+
+    const Recognition = getCreateSpeechRecognitionCtor(window);
+    if (!Recognition) {
+      setCreateIntakeDictationError("This browser does not support built-in speech-to-text.");
+      return;
+    }
+
+    setCreateIntakeDictationError(null);
+
+    try {
+      createIntakeRecognitionRef.current?.abort();
+    } catch {
+      // ignore
+    }
+
+    const recognition = new Recognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    createIntakeDictationFieldKeyRef.current = fieldKey;
+    createIntakeDictationBaseRef.current = currentValue.trim() ? `${currentValue.trimEnd()}\n\n` : "";
+    recognition.onresult = (event) => {
+      const segments: string[] = [];
+      for (let index = 0; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const alternative = result?.[0];
+        if (!alternative?.transcript) continue;
+        segments.push(alternative.transcript);
+      }
+
+      const transcript = segments.join(" ").replace(/\s+/g, " ").trim();
+      const nextValue = transcript ? `${createIntakeDictationBaseRef.current}${transcript}` : createIntakeDictationBaseRef.current.trimEnd();
+      updateCreateIntakeFieldValue(fieldKey, nextValue.trimEnd());
+    };
+    recognition.onerror = (event) => {
+      setCreateIntakeDictationError(friendlyCreateSpeechError(event));
+      setCreateIntakeDictatingFieldKey(null);
+      createIntakeDictationFieldKeyRef.current = null;
+      createIntakeRecognitionRef.current = null;
+    };
+    recognition.onend = () => {
+      setCreateIntakeDictatingFieldKey(null);
+      createIntakeDictationFieldKeyRef.current = null;
+      createIntakeRecognitionRef.current = null;
+    };
+
+    createIntakeRecognitionRef.current = recognition;
+    setCreateIntakeDictatingFieldKey(fieldKey);
+
+    try {
+      recognition.start();
+    } catch {
+      createIntakeRecognitionRef.current = null;
+      setCreateIntakeDictatingFieldKey(null);
+      createIntakeDictationFieldKeyRef.current = null;
+      setCreateIntakeDictationError("Speech-to-text could not start in this browser session.");
+    }
+  }, [createIntakeDictatingFieldKey, stopCreateIntakeDictation, updateCreateIntakeFieldValue]);
 
   const funnelCreateNeedsDirectionChoice = Boolean(
     creatingKind === "funnel" &&
@@ -532,25 +918,26 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     }
   }, []);
 
-  const loadBuilderSettings = useCallback(async () => {
+  const loadBuilderSettings = useCallback(async (options?: { silent?: boolean }) => {
     setBuilderSettingsBusy(true);
     try {
       const res = await fetch("/api/portal/funnel-builder/settings", { cache: "no-store" });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true || !json.settings) {
-        throw new Error(json?.error || "Failed to load builder settings");
-      }
+      const json = await readFunnelBuilderJson<any>(res, "load builder settings");
+      if (!json.settings) throw new Error("We couldn't load builder settings right now. Refresh and try again.");
 
       const nextSettings: FunnelBuilderSettings = {
         metaPixelId: typeof json.settings.metaPixelId === "string" && json.settings.metaPixelId.trim()
           ? String(json.settings.metaPixelId).trim()
           : null,
+        createFunnelDraft: parseFunnelCreateDraft(json.settings.createFunnelDraft),
       };
 
       setBuilderSettings(nextSettings);
       setMetaPixelIdInput(nextSettings.metaPixelId || "");
+      return nextSettings;
     } catch (e) {
-      toast.error((e as any)?.message ? String((e as any).message) : "Failed to load builder settings");
+      if (!options?.silent) toast.error(normalizeFunnelBuilderError("load builder settings", e));
+      return null;
     } finally {
       setBuilderSettingsBusy(false);
     }
@@ -571,26 +958,52 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ metaPixelId: metaPixelIdInput }),
       });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true || !json.settings) {
-        throw new Error(json?.error || "Failed to save builder settings");
-      }
+      const json = await readFunnelBuilderJson<any>(res, "save builder settings");
+      if (!json.settings) throw new Error("We couldn't save builder settings right now. Please try again.");
 
       const nextSettings: FunnelBuilderSettings = {
         metaPixelId: typeof json.settings.metaPixelId === "string" && json.settings.metaPixelId.trim()
           ? String(json.settings.metaPixelId).trim()
           : null,
+        createFunnelDraft: parseFunnelCreateDraft(json.settings.createFunnelDraft),
       };
 
       setBuilderSettings(nextSettings);
       setMetaPixelIdInput(nextSettings.metaPixelId || "");
       toast.success(nextSettings.metaPixelId ? "Meta pixel saved." : "Meta pixel cleared.");
     } catch (e) {
-      toast.error((e as any)?.message ? String((e as any).message) : "Failed to save builder settings");
+      toast.error(normalizeFunnelBuilderError("save builder settings", e));
     } finally {
       setBuilderSettingsSaveBusy(false);
     }
   }, [builderSettingsSaveBusy, metaPixelIdInput, toast]);
+
+  const saveCreateFunnelDraft = useCallback(async (draft: FunnelCreateDraft | null) => {
+    try {
+      const res = await fetch("/api/portal/funnel-builder/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ createFunnelDraft: draft }),
+      });
+      const json = await readFunnelBuilderJson<any>(res, "save funnel draft");
+      if (!json.settings) throw new Error("We couldn't save the funnel draft right now.");
+
+      const nextSettings: FunnelBuilderSettings = {
+        metaPixelId: typeof json.settings.metaPixelId === "string" && json.settings.metaPixelId.trim()
+          ? String(json.settings.metaPixelId).trim()
+          : null,
+        createFunnelDraft: parseFunnelCreateDraft(json.settings.createFunnelDraft),
+      };
+
+      setBuilderSettings(nextSettings);
+      setMetaPixelIdInput(nextSettings.metaPixelId || "");
+      setCreateFunnelDraftSavedAt(nextSettings.createFunnelDraft?.updatedAt || null);
+      createFunnelDraftSerializedRef.current = JSON.stringify(nextSettings.createFunnelDraft);
+      return nextSettings.createFunnelDraft;
+    } catch {
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!openFunnelMenuId) return;
@@ -717,7 +1130,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     [isLocalPreview, runtimeHostedOrigin],
   );
 
-  const getFormLiveHref = useCallback((slug: string, formId: string) => {
+  const getFormPreviewHref = useCallback((slug: string, formId: string) => {
     const cleanSlug = String(slug || "").trim();
     const cleanId = String(formId || "").trim();
     if (!cleanSlug || !cleanId) return null;
@@ -725,24 +1138,27 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     return hostedPath ? toPurelyHostedUrl(hostedPath) : null;
   }, []);
 
+  const getFormLiveHref = useCallback((slug: string) => {
+    const cleanSlug = String(slug || "").trim();
+    if (!cleanSlug) return null;
+    return toPurelyHostedUrl(`/forms/${encodeURIComponent(cleanSlug)}`);
+  }, []);
+
   const loadFunnels = useCallback(async () => {
     const res = await fetch("/api/portal/funnel-builder/funnels", { cache: "no-store" });
-    const json = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load funnels");
+    const json = await readFunnelBuilderJson<any>(res, "load funnels");
     setFunnels(Array.isArray(json.funnels) ? json.funnels : []);
   }, []);
 
   const loadForms = useCallback(async () => {
     const res = await fetch("/api/portal/funnel-builder/forms", { cache: "no-store" });
-    const json = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load forms");
+    const json = await readFunnelBuilderJson<any>(res, "load forms");
     setForms(Array.isArray(json.forms) ? json.forms : []);
   }, []);
 
   const loadDomains = useCallback(async () => {
     const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" });
-    const json = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load domains");
+    const json = await readFunnelBuilderJson<any>(res, "load domains");
     setDomains(Array.isArray(json.domains) ? json.domains : []);
   }, []);
 
@@ -754,8 +1170,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(f.id)}`, {
           method: "DELETE",
         });
-        const json = (await res.json().catch(() => ({}))) as any;
-        if (!res.ok || json?.ok !== true) throw new Error(json?.error || "Failed to delete funnel");
+        await readFunnelBuilderJson<any>(res, "delete this funnel");
         setFunnels((prev) => (prev ? prev.filter((row) => row.id !== f.id) : prev));
         toast.success("Funnel deleted.");
         try {
@@ -764,7 +1179,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           // ignore
         }
       } catch (e) {
-        toast.error((e as any)?.message ? String((e as any).message) : "Failed to delete funnel");
+        toast.error(normalizeFunnelBuilderError("delete this funnel", e));
       } finally {
         setFunnelDeleteBusy((m) => ({ ...m, [f.id]: false }));
       }
@@ -780,12 +1195,11 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(f.id)}`, {
           method: "DELETE",
         });
-        const json = (await res.json().catch(() => ({}))) as any;
-        if (!res.ok || json?.ok !== true) throw new Error(json?.error || "Failed to delete form");
+        await readFunnelBuilderJson<any>(res, "delete this form");
         setForms((prev) => (prev ? prev.filter((row) => row.id !== f.id) : prev));
         toast.success("Form deleted.");
       } catch (e) {
-        toast.error((e as any)?.message ? String((e as any).message) : "Failed to delete form");
+        toast.error(normalizeFunnelBuilderError("delete this form", e));
       } finally {
         setFormDeleteBusy((m) => ({ ...m, [f.id]: false }));
       }
@@ -803,8 +1217,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(data),
         });
-        const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update form");
+        const json = await readFunnelBuilderJson<any>(res, "update this form");
 
         setForms((prev) => {
           if (!prev) return prev;
@@ -812,7 +1225,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         });
         return true;
       } catch (e) {
-        toast.error((e as any)?.message ? String((e as any).message) : "Failed to update form");
+        toast.error(normalizeFunnelBuilderError("update this form", e));
         try {
           await loadForms();
         } catch {
@@ -843,8 +1256,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           method: "POST",
           cache: "no-store",
         });
-        const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Verification failed");
+        const json = await readFunnelBuilderJson<any>(res, "verify this domain");
 
         const vercelRecords = extractVercelVerificationRecords(json?.debug?.vercel?.verification);
         const vercelVerified = json?.debug?.vercel?.ok === true && json?.debug?.vercel?.verified === true;
@@ -902,7 +1314,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           `${base}${hint}${hostingHint}${isActionable ? "" : " Double-check the records below and try again in a few minutes."}`,
         );
       } catch (e) {
-        toast.error((e as any)?.message ? String((e as any).message) : "Verification failed");
+        toast.error(normalizeFunnelBuilderError("verify this domain", e));
       } finally {
         setDomainVerifyBusy((m) => ({ ...m, [domain.id]: false }));
       }
@@ -926,8 +1338,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ domain: domain.domain, rootMode: next.rootMode, rootFunnelSlug: next.rootFunnelSlug }),
         });
-        const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update domain settings");
+        const json = await readFunnelBuilderJson<any>(res, "update this domain");
 
         setDomains((prev) => {
           if (!prev) return prev;
@@ -939,7 +1350,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         });
         toast.success("Domain settings updated.");
       } catch (e) {
-        toast.error((e as any)?.message ? String((e as any).message) : "Failed to update domain settings");
+        toast.error(normalizeFunnelBuilderError("update this domain", e));
         // Re-sync from server in case optimistic state diverged.
         try {
           await loadDomains();
@@ -972,8 +1383,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ domain: nextDomain }),
         });
-        const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update funnel domain");
+        const json = await readFunnelBuilderJson<any>(res, "update this funnel domain");
         const assigned = (json?.funnel?.assignedDomain ?? null) as string | null;
         const status = (json?.funnel?.status ?? null) as CreditFunnel["status"] | null;
 
@@ -991,7 +1401,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         });
         toast.success("Funnel domain updated.");
       } catch (e) {
-        toast.error((e as any)?.message ? String((e as any).message) : "Failed to update funnel domain");
+        toast.error(normalizeFunnelBuilderError("update this funnel domain", e));
         try {
           await loadFunnels();
         } catch {
@@ -1023,8 +1433,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ status: nextStatus }),
         });
-        const json = (await res.json().catch(() => null)) as any;
-        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update funnel status");
+        const json = await readFunnelBuilderJson<any>(res, "update this funnel status");
 
         const status = (json?.funnel?.status ?? null) as CreditFunnel["status"] | null;
         if (status && (status === "DRAFT" || status === "ACTIVE" || status === "ARCHIVED")) {
@@ -1037,7 +1446,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         toast.success("Funnel status updated.");
         return true;
       } catch (e) {
-        toast.error((e as any)?.message ? String((e as any).message) : "Failed to update funnel status");
+        toast.error(normalizeFunnelBuilderError("update this funnel status", e));
         try {
           await loadFunnels();
         } catch {
@@ -1061,7 +1470,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         await loadDomains();
       } catch (e) {
         if (!mounted) return;
-        toast.error((e as any)?.message ? String((e as any).message) : "Failed to load funnel builder data");
+        toast.error(normalizeFunnelBuilderError("load funnel builder data", e));
       }
     })();
     return () => {
@@ -1070,7 +1479,83 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   }, [loadDomains, loadForms, loadFunnels, toast]);
 
   useEffect(() => {
-    if (!creatingKind) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/portal/business-profile", {
+          cache: "no-store",
+          headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        const profile = resolveBusinessProfileRuntimeSnapshot({
+          profile: json?.profile,
+          draftProfile: json?.draftProfile,
+          guidedIntake: json?.guidedIntake,
+        });
+        const nextSummary = {
+          businessName: profile.businessName,
+          industry: profile.industry,
+          businessModel: profile.businessModel,
+          targetCustomer: profile.targetCustomer,
+          brandVoice: profile.brandVoice,
+          businessContext: profile.businessContext,
+          primaryGoals: normalizeBusinessProfileGoals(profile.primaryGoals),
+          brandPrimaryHex: profile.brandPrimaryHex,
+          brandSecondaryHex: profile.brandSecondaryHex,
+          brandAccentHex: profile.brandAccentHex,
+          brandTextHex: profile.brandTextHex,
+        };
+
+        if (cancelled) return;
+        setCreateBusinessProfileSummary(
+          nextSummary.businessName ||
+            nextSummary.industry ||
+            nextSummary.businessModel ||
+            nextSummary.targetCustomer ||
+            nextSummary.brandVoice ||
+            nextSummary.businessContext ||
+            nextSummary.primaryGoals.length ||
+            nextSummary.brandPrimaryHex ||
+            nextSummary.brandSecondaryHex ||
+            nextSummary.brandAccentHex ||
+            nextSummary.brandTextHex
+            ? nextSummary
+            : null,
+        );
+      } catch {
+        if (!cancelled) setCreateBusinessProfileSummary(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [portalVariant]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setCreateIntakeDictationSupported(Boolean(getCreateSpeechRecognitionCtor(window)));
+    return () => {
+      try {
+        createIntakeRecognitionRef.current?.abort();
+      } catch {
+        // ignore
+      }
+      createIntakeRecognitionRef.current = null;
+      createIntakeDictationFieldKeyRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!creatingKind) {
+      setCreateFunnelDraftHydrated(false);
+      setCreateFunnelDraftSavedAt(null);
+      setCreateIntakeDictationError(null);
+      setCreateIntakeDictatingFieldKey(null);
+      setCreateFunnelStage("business");
+      return;
+    }
     const seededIntent = inferFunnelPageIntentProfile({ existing: { pageType: "lead-capture" } });
     setCreateSlug("");
     setCreateName("");
@@ -1088,13 +1573,141 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     setCreateFunnelOffer("");
     setCreateFunnelGoal(defaultFunnelGoalForCreate(seededIntent.pageType));
     setCreateFunnelShellFrameId(seededIntent.shellFrameId);
-  }, [creatingKind]);
+    setCreateFunnelCompanyContext("");
+    setCreateFunnelQualificationFields("");
+    setCreateFunnelStage("business");
+    setCreateIntakeDictationError(null);
+    setCreateIntakeDictatingFieldKey(null);
+
+    let cancelled = false;
+
+    const applyDraft = (draft: FunnelCreateDraft | null) => {
+      if (cancelled) return;
+      if (draft) {
+        setCreateSlug(draft.slug);
+        setCreateName(draft.name);
+        setCreateFunnelPreferCustomMode(draft.preferCustomMode);
+        setCreateFunnelPageType(draft.pageType);
+        setCreateFunnelPrimaryCta(draft.primaryCta || buildPrimaryCtaSuggestions(draft.pageType, "")[0] || "Get started");
+        setCreateFunnelHeroAssetMode(draft.heroAssetMode);
+        setCreateFunnelAudience(draft.audience);
+        setCreateFunnelOffer(draft.offer);
+        setCreateFunnelGoal(draft.goal || defaultFunnelGoalForCreate(draft.pageType));
+        setCreateFunnelShellFrameId(draft.shellFrameId);
+        setCreateFunnelCompanyContext(draft.companyContext);
+        setCreateFunnelQualificationFields(draft.qualificationFields);
+        setCreateFunnelStage(draft.stage || "business");
+        setCreateFunnelDraftSavedAt(draft.updatedAt || null);
+      } else {
+        setCreateFunnelDraftSavedAt(null);
+      }
+      createFunnelDraftSerializedRef.current = JSON.stringify(draft);
+      setCreateFunnelDraftHydrated(true);
+    };
+
+    if (creatingKind === "funnel") {
+      void (async () => {
+        const nextSettings = builderSettingsRef.current || await loadBuilderSettings({ silent: true });
+        applyDraft(nextSettings?.createFunnelDraft ?? null);
+      })();
+    } else {
+      setCreateFunnelDraftHydrated(false);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [creatingKind, loadBuilderSettings]);
+
+  useEffect(() => {
+    if (creatingKind !== "funnel" || !createFunnelDraftHydrated) return;
+
+    const draft: FunnelCreateDraft = {
+      v: 1,
+      updatedAt: createFunnelDraftSavedAt || "",
+      stage: createFunnelStage,
+      slug: createSlug,
+      name: createName,
+      pageType: createFunnelPageType,
+      primaryCta: createFunnelPrimaryCta,
+      heroAssetMode: createFunnelHeroAssetMode,
+      audience: createFunnelAudience,
+      offer: createFunnelOffer,
+      goal: createFunnelGoal,
+      shellFrameId: createFunnelShellFrameId,
+      companyContext: createFunnelCompanyContext,
+      qualificationFields: createFunnelQualificationFields,
+      preferCustomMode: createFunnelPreferCustomMode,
+    };
+
+    const meaningfulDraft =
+      Boolean(createSlug.trim() || createName.trim() || createFunnelOffer.trim() || createFunnelAudience.trim() || createFunnelCompanyContext.trim() || createFunnelQualificationFields.trim())
+      || createFunnelPageType !== "lead-capture"
+      || createFunnelPrimaryCta.trim() !== (buildPrimaryCtaSuggestions("lead-capture", "")[0] || "Get started")
+      || createFunnelGoal.trim() !== defaultFunnelGoalForCreate("lead-capture")
+      || createFunnelPreferCustomMode
+      || createFunnelStage !== "business";
+
+    const payload = meaningfulDraft ? draft : null;
+    const serialized = JSON.stringify(payload);
+    if (serialized === createFunnelDraftSerializedRef.current) return;
+
+    const timeoutId = window.setTimeout(() => {
+      void saveCreateFunnelDraft(payload);
+    }, 700);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    createFunnelAudience,
+    createFunnelCompanyContext,
+    createFunnelDraftHydrated,
+    createFunnelGoal,
+    createFunnelHeroAssetMode,
+    createFunnelOffer,
+    createFunnelPageType,
+    createFunnelPreferCustomMode,
+    createFunnelPrimaryCta,
+    createFunnelQualificationFields,
+    createFunnelShellFrameId,
+    createFunnelStage,
+    createName,
+    createSlug,
+    saveCreateFunnelDraft,
+    creatingKind,
+  ]);
+
+  const clearCreateFunnelDraft = useCallback(() => {
+    const seededIntent = inferFunnelPageIntentProfile({ existing: { pageType: "lead-capture" } });
+    setCreateSlug("");
+    setCreateName("");
+    setCreateFunnelUseTemplate(false);
+    setCreateFunnelPreferCustomMode(false);
+    setCreateFunnelPageType(seededIntent.pageType);
+    setCreateFunnelPrimaryCta(buildPrimaryCtaSuggestions(seededIntent.pageType, seededIntent.primaryCta)[0] || seededIntent.primaryCta);
+    setCreateFunnelHeroAssetMode(seededIntent.mediaPlan.heroAssetMode);
+    setCreateFunnelAudience("");
+    setCreateFunnelOffer("");
+    setCreateFunnelGoal(defaultFunnelGoalForCreate(seededIntent.pageType));
+    setCreateFunnelShellFrameId(seededIntent.shellFrameId);
+    setCreateFunnelCompanyContext("");
+    setCreateFunnelQualificationFields("");
+    setCreateFunnelStage("business");
+    setCreateFunnelDraftSavedAt(null);
+    setCreateIntakeDictationError(null);
+    createFunnelDraftSerializedRef.current = "null";
+    void saveCreateFunnelDraft(null);
+  }, [saveCreateFunnelDraft]);
 
   const openCreate = (kind: "funnel" | "form") => {
+    createRequestIdRef.current = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     setCreatingKind(kind);
   };
 
   const closeCreate = () => {
+    createRequestIdRef.current = "";
+    stopCreateIntakeDictation();
     setCreatingKind(null);
     setCreateFunnelPreviewOpen(false);
     setBusy(false);
@@ -1123,6 +1736,10 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       const trimmedFunnelAudience = createFunnelAudience.trim();
       const trimmedFunnelOffer = createFunnelOffer.trim();
       const trimmedPrimaryCta = createFunnelPrimaryCta.trim();
+      const trimmedCompanyContext = createFunnelCompanyContext.trim();
+      const trimmedQualificationFields = createFunnelQualificationFields.trim();
+      const resolvedCompanyContext = [funnelCreateBusinessContextSeed, trimmedCompanyContext].filter(Boolean).join("\n\n");
+      const resolvedFunnelAudience = trimmedFunnelAudience || createBusinessProfileSummary?.targetCustomer || "";
       if (creatingKind === "funnel" && !trimmedFunnelOffer) {
         throw new Error("Enter the service, offer, or funnel concept first");
       }
@@ -1130,6 +1747,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          requestId: createRequestIdRef.current || undefined,
           slug,
           name: trimmedName || undefined,
           ...(creatingKind === "form"
@@ -1147,9 +1765,11 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                     : {
                         pageType: createFunnelPageType,
                         ...(trimmedFunnelGoal ? { funnelGoal: trimmedFunnelGoal } : null),
-                        ...(trimmedFunnelAudience ? { audience: trimmedFunnelAudience, audienceSummary: trimmedFunnelAudience } : null),
+                        ...(resolvedFunnelAudience ? { audience: resolvedFunnelAudience, audienceSummary: resolvedFunnelAudience } : null),
                         ...(trimmedFunnelOffer ? { offer: trimmedFunnelOffer, offerSummary: trimmedFunnelOffer } : null),
                         ...(trimmedPrimaryCta ? { primaryCta: trimmedPrimaryCta } : null),
+                        ...(resolvedCompanyContext ? { companyContext: resolvedCompanyContext } : null),
+                        ...(trimmedQualificationFields ? { qualificationFields: trimmedQualificationFields } : null),
                         heroAssetMode: createFunnelHeroAssetMode,
                         ...(createFunnelPreferCustomMode ? { preferCustomMode: true } : null),
                         ...(createFunnelShellFrameId ? { shellFrameId: createFunnelShellFrameId } : null),
@@ -1158,10 +1778,10 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               : {}),
         }),
       });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Create failed");
+      const json = await readFunnelBuilderJson<any>(res, creatingKind === "funnel" ? "create this funnel" : "create this form");
 
       if (creatingKind === "funnel") {
+        clearCreateFunnelDraft();
         await loadFunnels();
         closeCreate();
         toast.success(
@@ -1180,7 +1800,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         toast.success("Form created.");
       }
     } catch (e) {
-      toast.error((e as any)?.message ? String((e as any).message) : "Create failed");
+      toast.error(normalizeFunnelBuilderError(creatingKind === "funnel" ? "create this funnel" : "create this form", e));
       setBusy(false);
     }
   };
@@ -1194,8 +1814,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ domain: sig }),
       });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save domain");
+      const json = await readFunnelBuilderJson<any>(res, "save this domain");
 
       const domainId = typeof json?.domain?.id === "string" ? json.domain.id : "";
       const vercelRecords = extractVercelVerificationRecords(json?.provisioning?.verification);
@@ -1207,7 +1826,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       await loadDomains();
       toast.success("Domain saved.");
     } catch (e) {
-      toast.error((e as any)?.message ? String((e as any).message) : "Failed to save domain");
+      toast.error(normalizeFunnelBuilderError("save this domain", e));
     } finally {
       setDomainBusy(false);
     }
@@ -1269,7 +1888,11 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-colors duration-150 hover:border-zinc-300 hover:bg-zinc-50"
+              className={classNames(
+                "rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50",
+                FUNNEL_BUTTON_MOTION_CLASS,
+                FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+              )}
               onClick={() => {
                 setFormSettingsDialog(null);
                 setFormSettingsError(null);
@@ -1279,7 +1902,11 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             </button>
             <button
               type="button"
-              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-blue-700"
+              className={classNames(
+                "rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
+                FUNNEL_BUTTON_MOTION_CLASS,
+                FUNNEL_BUTTON_RAISE_CLASS,
+              )}
               onClick={() => {
                 const current = formSettingsDialog;
                 if (!current) return;
@@ -1341,7 +1968,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 { value: "ARCHIVED", label: "Archived" },
               ]}
               className="mt-1 w-full"
-              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition-colors duration-150 hover:border-zinc-300 hover:bg-zinc-50"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 hover:border-zinc-300 hover:bg-zinc-50"
             />
           </label>
 
@@ -1375,6 +2002,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               const assignedDomainClean = String(f.assignedDomain || "").trim().toLowerCase();
               const assignedDomainStatus = getAssignedDomainStatus(assignedDomainClean);
               const hasVerifiedCustomDomain = assignedDomainClean && assignedDomainStatus === "VERIFIED";
+              const builderHref = `${basePath}/app/services/funnel-builder/funnels/${encodeURIComponent(f.id)}/edit`;
+              const previewHref = toRuntimeHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin);
               const liveHrefRaw = hasVerifiedCustomDomain
                 ? getFunnelLiveHref(f.assignedDomain, f.slug, f.id)
                 : assignedDomainClean
@@ -1382,50 +2011,117 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                   : getFunnelLiveHref(null, f.slug, f.id);
               const liveHref = f.status === "ACTIVE" ? liveHrefRaw : null;
               const liveUrlLabel = assignedDomainClean ? "Custom domain URL" : "Hosted URL";
+              const liveUrlDisplay = assignedDomainClean
+                ? isLocalPreview
+                  ? `${platformTargetHost || ""}/domain-router/${assignedDomainClean}/${f.slug}`
+                  : `https://${assignedDomainClean}/${f.slug}`
+                : previewHref;
 
               return (
-                <div key={f.id} className="rounded-3xl border border-zinc-200 bg-white p-6">
+                <div
+                  key={f.id}
+                  className="group rounded-3xl border border-zinc-200 bg-white p-6 transition-[transform,border-color,box-shadow] duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+                >
                   <div className="text-base font-semibold text-brand-ink">{f.name}</div>
                   <div className="mt-1 text-sm text-zinc-600">/{f.slug}</div>
 
-                <div className="mt-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Domain</div>
-                  <div className="mt-1 flex flex-col gap-2">
-                    <PortalListboxDropdown
-                      value={String(f.assignedDomain || "")}
-                      disabled={!!funnelDomainBusy[f.id] || !domains}
-                      options={funnelDomainOptions}
-                      onChange={(v) => patchFunnelDomain(f, v ? v : null)}
-                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
-                      placeholder="Default (not assigned)"
-                    />
-
-                    <div className="min-w-0 text-xs text-zinc-600">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{liveUrlLabel}</div>
-                      <div
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <Link
+                      href={builderHref}
+                      className={classNames(
+                        "inline-flex items-center gap-2 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95",
+                        FUNNEL_BUTTON_MOTION_CLASS,
+                        FUNNEL_BUTTON_RAISE_CLASS,
+                      )}
+                    >
+                      <IconEdit size={16} />
+                      Open builder
+                    </Link>
+                    <Link
+                      href={previewHref}
+                      target="_blank"
+                      className={classNames(
+                        "inline-flex items-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50",
+                        FUNNEL_BUTTON_MOTION_CLASS,
+                        FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+                      )}
+                    >
+                      Preview
+                    </Link>
+                    {liveHref ? (
+                      <Link
+                        href={liveHref}
+                        target="_blank"
                         className={classNames(
-                          "mt-1 min-w-0 break-all font-mono leading-5",
-                          assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? "text-zinc-400" : "text-zinc-700",
+                          "inline-flex items-center rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-900 hover:bg-blue-100",
+                          FUNNEL_BUTTON_MOTION_CLASS,
+                          FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
                         )}
                       >
-                        {assignedDomainClean
-                          ? isLocalPreview
-                            ? `${platformTargetHost || ""}/domain-router/${assignedDomainClean}/${f.slug}`
-                            : `https://${assignedDomainClean}/${f.slug}`
-                          : toRuntimeHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin)}
-                      </div>
-                      {assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? (
-                        <div
-                          className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700"
-                          title="This domain isn’t verified yet (DNS not pointing here or still propagating)."
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
-                          Pending DNS
+                        Open live
+                      </Link>
+                    ) : (
+                      <span
+                        className="inline-flex items-center rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-500"
+                        title={
+                          f.status !== "ACTIVE"
+                            ? "Set this funnel to Live to enable the public link."
+                            : assignedDomainClean
+                              ? "This domain is pending DNS verification. Verify DNS to enable the live link."
+                              : "Live link is currently unavailable."
+                        }
+                      >
+                        Live unavailable
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Delivery</div>
+                    <div className="mt-3 flex flex-col gap-3">
+                      <PortalListboxDropdown
+                        value={String(f.assignedDomain || "")}
+                        disabled={!!funnelDomainBusy[f.id] || !domains}
+                        options={funnelDomainOptions}
+                        onChange={(v) => patchFunnelDomain(f, v ? v : null)}
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
+                        placeholder="Default (not assigned)"
+                      />
+
+                      <div className="min-w-0 text-xs text-zinc-600">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{liveUrlLabel}</div>
+                        <div className="mt-1 flex min-w-0 items-start gap-2">
+                          <div
+                            className={classNames(
+                              "min-w-0 flex-1 truncate rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono leading-5",
+                              assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? "text-zinc-400" : "text-zinc-700",
+                            )}
+                            title={liveUrlDisplay}
+                          >
+                            {liveUrlDisplay}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => copyText(liveUrlDisplay)}
+                            className="rounded-xl border border-zinc-200 bg-white p-2 text-zinc-600 transition-colors duration-150 hover:bg-zinc-50 hover:text-zinc-900"
+                            aria-label="Copy funnel URL"
+                            title="Copy URL"
+                          >
+                            <IconCopy size={16} />
+                          </button>
                         </div>
-                      ) : null}
+                        {assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? (
+                          <div
+                            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700"
+                            title="This domain isn’t verified yet (DNS not pointing here or still propagating)."
+                          >
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+                            Pending DNS
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
-                </div>
 
                   <div className="mt-4 flex items-center justify-between gap-3">
                     {(() => {
@@ -1478,7 +2174,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
                             <div className="px-2 pb-2">
                               <Link
-                                href={`${basePath}/app/services/funnel-builder/funnels/${encodeURIComponent(f.id)}/edit`}
+                                href={builderHref}
                                 target="_blank"
                                 className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-colors duration-100 hover:bg-zinc-50"
                                 onClick={() => setOpenFunnelMenuId(null)}
@@ -1492,7 +2188,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               </Link>
 
                               <Link
-                                href={toRuntimeHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin)}
+                                href={previewHref}
                                 target="_blank"
                                 className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-100 hover:bg-zinc-50"
                                 onClick={() => setOpenFunnelMenuId(null)}
@@ -1672,13 +2368,31 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               Responses
                             </Link>
                             <Link
-                                href={getFormLiveHref(f.slug, f.id) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
+                              href={getFormPreviewHref(f.slug, f.id) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
                               target="_blank"
                               className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-zinc-50"
                               onClick={() => setOpenFormMenuId(null)}
                             >
                               Preview
                             </Link>
+
+                            {f.status === "ACTIVE" ? (
+                              <Link
+                                href={getFormLiveHref(f.slug) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
+                                target="_blank"
+                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-zinc-50"
+                                onClick={() => setOpenFormMenuId(null)}
+                              >
+                                Live
+                              </Link>
+                            ) : (
+                              <div
+                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400"
+                                title={f.status === "ARCHIVED" ? "Archived forms do not expose a public live route." : "Set this form to Live to enable the public slug link."}
+                              >
+                                Live
+                              </div>
+                            )}
 
                             <div className="my-2 h-px bg-zinc-100" />
 
@@ -1695,7 +2409,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 formSaveBusy[f.id] ? "opacity-60" : "",
                               )}
                             >
-                              Slug & status
+                              Route & status
                             </button>
 
                             <button
@@ -2233,7 +2947,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 <div className="text-lg font-bold text-brand-ink">{creatingKind === "funnel" ? "Create funnel" : "Create form"}</div>
                 <p className="mt-1 text-sm text-zinc-600">
                   {creatingKind === "funnel"
-                    ? "Set the offer, audience, and CTA, then choose whether the first draft should start from a guided scaffold or a custom draft."
+                    ? "Shape a quick working brief now, close it if you need to, and only lock it in when you hit Create."
                     : "Choose a URL slug. You can rename it later."}
                 </p>
               </div>
@@ -2261,8 +2975,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
                     />
                     <div className="mt-1 text-xs text-zinc-500">
-                      URL: {formPreviewBase}/<span className="font-semibold">{normalizeSlug(createSlug) || "…"}</span>
+                      Live URL: {formPreviewBase}/<span className="font-semibold">{normalizeSlug(createSlug) || "…"}</span>
                     </div>
+                    <div className="mt-1 text-xs text-zinc-500">The keyed preview link is available after creation.</div>
                   </div>
 
                   <div>
@@ -2304,114 +3019,335 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What should this funnel do?</div>
-                      <PortalListboxDropdown<FunnelPageIntentType>
-                        value={createFunnelPageType}
-                        onChange={(value) => applyFunnelCreatePageType(value)}
-                        options={FUNNEL_PAGE_TYPE_OPTIONS.map((option) => ({ value: option.value, label: option.label, hint: option.hint }))}
-                        buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50"
-                      />
-                    </div>
-
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">First draft path</div>
-                      <div className="mt-1 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
-                        <button
-                          type="button"
-                          onClick={() => setCreateFunnelPreferCustomMode(false)}
-                          className={classNames(
-                            "rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
-                            !createFunnelPreferCustomMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:bg-white/70",
-                          )}
-                        >
-                          Guided scaffold
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCreateFunnelPreferCustomMode(true)}
-                          className={classNames(
-                            "rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
-                            createFunnelPreferCustomMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:bg-white/70",
-                          )}
-                        >
-                          Custom draft
-                        </button>
+                  <div className="rounded-[28px] border border-zinc-200 bg-[linear-gradient(180deg,#ffffff_0%,#fafaf9_100%)] p-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)]">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Business intake</div>
+                        <div className="mt-1 text-base font-semibold text-zinc-950">Turn rough business context into a usable first brief.</div>
+                        <div className="mt-1 text-sm leading-6 text-zinc-600">
+                          {createBusinessProfileSummary
+                            ? "Saved company context is already loaded. Add only what is specific to this funnel, offer, or audience shift."
+                            : "If there is no formal brief yet, answer this like a strategist is interviewing the owner. The builder can work from plain-language answers, and you can pick this back up later."}
+                        </div>
                       </div>
-                      <div className="mt-1 text-xs text-zinc-500">
-                        {createFunnelPreferCustomMode
-                          ? "Start with a simple draft page and shape the structure yourself from chat or source."
-                          : "Let the builder seed the first draft with the strongest scaffold it can infer from the offer."}
+                      <div className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700">
+                        {funnelCreateInterviewSignals.filter((item) => item.done).length}/{funnelCreateInterviewSignals.length} signals loaded
                       </div>
                     </div>
-                  </div>
 
-                  <label className="block">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      Service or offer <span className="text-red-500">*</span>
-                    </div>
-                    <input
-                      autoFocus
-                      value={createFunnelOffer}
-                      onChange={(e) => setCreateFunnelOffer(e.target.value)}
-                      placeholder="e.g. Free strategy call, credit audit, marketing consultation"
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Audience (optional)</div>
-                    <input
-                      value={createFunnelAudience}
-                      onChange={(e) => setCreateFunnelAudience(e.target.value)}
-                      placeholder="e.g. local business owners, warm leads, people who already know the offer"
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Funnel goal</div>
-                    <textarea
-                      value={createFunnelGoal}
-                      onChange={(e) => setCreateFunnelGoal(e.target.value)}
-                      rows={3}
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Primary CTA</div>
-                    <input
-                      value={createFunnelPrimaryCta}
-                      onChange={(e) => setCreateFunnelPrimaryCta(e.target.value)}
-                      placeholder="e.g. Book a call, Get the guide, Reserve your seat"
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </label>
-
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">CTA suggestions</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {buildPrimaryCtaSuggestions(createFunnelPageType, createFunnelPrimaryCta).slice(0, 3).map((suggestion) => (
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white/80 px-4 py-3 text-sm text-zinc-600">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-zinc-900">This is a working intake, not a locked survey.</div>
+                        <div className="mt-1 leading-6">Your notes sync to this workspace while you work. Nothing becomes effective until you submit the funnel creation.</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-700">
+                          {formatRelativeAutosaveLabel(createFunnelDraftSavedAt)}
+                        </div>
                         <button
-                          key={suggestion}
                           type="button"
-                          onClick={() => setCreateFunnelPrimaryCta(suggestion)}
+                          onClick={clearCreateFunnelDraft}
+                          className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
+                        >
+                          Clear saved draft
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-4">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Soft checkpoints</div>
+                      <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                        {funnelCreateStageItems.map((stage, index) => {
+                          const active = createFunnelStage === stage.key;
+                          return (
+                            <button
+                              key={stage.key}
+                              type="button"
+                              onClick={() => setCreateFunnelStage(stage.key)}
+                              className={classNames(
+                                "rounded-2xl border px-4 py-3 text-left transition-colors",
+                                active
+                                  ? "border-blue-200 bg-blue-50 text-blue-950"
+                                  : stage.done
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                                    : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50",
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">Step {index + 1}</span>
+                                <span className="text-[11px] font-semibold">{stage.done ? "Ready" : active ? "In progress" : "Open"}</span>
+                              </div>
+                              <div className="mt-2 text-sm font-semibold">{stage.label}</div>
+                              <div className="mt-1 text-xs leading-5 opacity-80">{stage.hint}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {funnelCreateInterviewSignals.map((item) => (
+                        <div
+                          key={item.label}
                           className={classNames(
-                            "rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors",
-                            createFunnelPrimaryCta.trim() === suggestion
-                              ? "border-blue-200 bg-blue-50 text-blue-900"
-                              : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300",
+                            "rounded-full border px-3 py-1.5 text-xs font-semibold",
+                            item.done ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-zinc-200 bg-white text-zinc-500",
                           )}
                         >
-                          {suggestion}
-                        </button>
+                          {item.done ? "Ready" : "Need signal"} · {item.label}
+                        </div>
                       ))}
                     </div>
+
+                    {createBusinessProfileSummary ? (
+                      <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-blue-950">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-700">Using saved business profile</div>
+                        <div className="mt-1 font-semibold">{createBusinessProfileSummary.businessName || "Business context loaded"}</div>
+                        <div className="mt-1 leading-6 text-blue-900/80">
+                          {[
+                            createBusinessProfileSummary.industry,
+                            createBusinessProfileSummary.businessModel,
+                            createBusinessProfileSummary.targetCustomer,
+                            createBusinessProfileSummary.brandVoice,
+                          ].filter(Boolean).join(" · ") || "The builder will inherit the stored company context from your business profile."}
+                        </div>
+                        {createBusinessProfileSummary.primaryGoals.length ? (
+                          <div className="mt-2 text-xs leading-5 text-blue-900/75">Goals: {createBusinessProfileSummary.primaryGoals.join("; ")}</div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-950">
+                        No saved company brief was found. Use the questions below to give the builder the raw material it needs.
+                      </div>
+                    )}
+                    {createFunnelStage === "business" ? (
+                      <>
+                        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What should this funnel do?</div>
+                            <PortalListboxDropdown<FunnelPageIntentType>
+                              value={createFunnelPageType}
+                              onChange={(value) => applyFunnelCreatePageType(value)}
+                              options={FUNNEL_PAGE_TYPE_OPTIONS.map((option) => ({ value: option.value, label: option.label, hint: option.hint }))}
+                              buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50"
+                            />
+                          </div>
+
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">First draft path</div>
+                            <div className="mt-1 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
+                              <button
+                                type="button"
+                                onClick={() => setCreateFunnelPreferCustomMode(false)}
+                                className={classNames(
+                                  "rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
+                                  !createFunnelPreferCustomMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:bg-white/70",
+                                )}
+                              >
+                                Guided scaffold
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCreateFunnelPreferCustomMode(true)}
+                                className={classNames(
+                                  "rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
+                                  createFunnelPreferCustomMode ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600 hover:bg-white/70",
+                                )}
+                              >
+                                Custom draft
+                              </button>
+                            </div>
+                            <div className="mt-1 text-xs text-zinc-500">
+                              {createFunnelPreferCustomMode
+                                ? "Start with a simple draft page and shape the structure yourself from chat or source."
+                                : "Let the builder seed the first draft with the strongest scaffold it can infer from the offer."}
+                            </div>
+                          </div>
+                        </div>
+
+                        <label className="mt-4 block">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What should the builder understand about this business before it chooses structure?</div>
+                            <button
+                              type="button"
+                              onClick={() => startCreateIntakeDictation("companyContext", createFunnelCompanyContext)}
+                              disabled={!createIntakeDictationSupported && createIntakeDictatingFieldKey !== "companyContext"}
+                              className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"
+                              title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "companyContext" ? "Stop dictation" : "Use the mic for business context") : "Speech-to-text is not available in this browser"}
+                            >
+                              {createIntakeDictatingFieldKey === "companyContext" ? "Stop mic" : "Use mic"}
+                            </button>
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-500">Use the mic when typing would flatten detail. Speaking usually gives clearer nuance about delivery, objections, proof, and why buyers move.</div>
+                          <textarea
+                            value={createFunnelCompanyContext}
+                            onChange={(e) => {
+                              setCreateFunnelCompanyContext(e.target.value);
+                              if (createIntakeDictationError) setCreateIntakeDictationError(null);
+                            }}
+                            rows={5}
+                            placeholder="Describe the business in plain language: what you sell, who it works best for, what makes it credible, where leads usually get stuck, and anything this funnel should respect."
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </label>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {FUNNEL_CREATE_CONTEXT_PROMPTS.map((prompt) => (
+                            <button
+                              key={prompt}
+                              type="button"
+                              onClick={() => appendCreateContextPrompt(prompt)}
+                              className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
+                            >
+                              {prompt}
+                            </button>
+                          ))}
+                        </div>
+
+                        <label className="mt-4 block">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                            What are you offering? <span className="text-red-500">*</span>
+                          </div>
+                          <input
+                            autoFocus
+                            value={createFunnelOffer}
+                            onChange={(e) => setCreateFunnelOffer(e.target.value)}
+                            placeholder="e.g. Free strategy call, credit audit, marketing consultation"
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </label>
+                      </>
+                    ) : null}
+
+                    {createFunnelStage === "audience" ? (
+                      <>
+                        <label className="mt-4 block">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Who is this for?</div>
+                          <input
+                            value={createFunnelAudience}
+                            onChange={(e) => setCreateFunnelAudience(e.target.value)}
+                            placeholder="e.g. local business owners, warm leads, people who already know the offer"
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                          <div className="mt-1 text-xs text-zinc-500">
+                            {createBusinessProfileSummary?.targetCustomer
+                              ? `Saved audience signal: ${createBusinessProfileSummary.targetCustomer}`
+                              : "Use this to tell the builder who should feel seen by the first screen."}
+                          </div>
+                        </label>
+
+                        <label className="mt-4 block">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What should this funnel qualify, collect, or decide before someone moves forward?</div>
+                            <button
+                              type="button"
+                              onClick={() => startCreateIntakeDictation("qualificationFields", createFunnelQualificationFields)}
+                              disabled={!createIntakeDictationSupported && createIntakeDictatingFieldKey !== "qualificationFields"}
+                              className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"
+                              title={createIntakeDictationSupported ? (createIntakeDictatingFieldKey === "qualificationFields" ? "Stop dictation" : "Use the mic for qualification notes") : "Speech-to-text is not available in this browser"}
+                            >
+                              {createIntakeDictatingFieldKey === "qualificationFields" ? "Stop mic" : "Use mic"}
+                            </button>
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-500">Use the mic here if routing or qualification logic is easier to explain out loud than to structure as a list.</div>
+                          <textarea
+                            value={createFunnelQualificationFields}
+                            onChange={(e) => {
+                              setCreateFunnelQualificationFields(e.target.value);
+                              if (createIntakeDictationError) setCreateIntakeDictationError(null);
+                            }}
+                            rows={4}
+                            placeholder="Examples: budget range, readiness, service type, location, timeline, team size, booking handoff, tags to apply, or any routing logic."
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </label>
+                      </>
+                    ) : null}
+
+                    {createFunnelStage === "conversion" ? (
+                      <>
+                        <label className="mt-4 block">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What outcome should this funnel win?</div>
+                          <textarea
+                            value={createFunnelGoal}
+                            onChange={(e) => setCreateFunnelGoal(e.target.value)}
+                            rows={3}
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </label>
+
+                        <label className="mt-4 block">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">What should the visitor do next?</div>
+                          <input
+                            value={createFunnelPrimaryCta}
+                            onChange={(e) => setCreateFunnelPrimaryCta(e.target.value)}
+                            placeholder="e.g. Book a call, Get the guide, Reserve your seat"
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </label>
+
+                        <div className="mt-4">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Suggested next-step language</div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {buildPrimaryCtaSuggestions(createFunnelPageType, createFunnelPrimaryCta).slice(0, 3).map((suggestion) => (
+                              <button
+                                key={suggestion}
+                                type="button"
+                                onClick={() => setCreateFunnelPrimaryCta(suggestion)}
+                                className={classNames(
+                                  "rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors",
+                                  createFunnelPrimaryCta.trim() === suggestion
+                                    ? "border-blue-200 bg-blue-50 text-blue-900"
+                                    : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300",
+                                )}
+                              >
+                                {suggestion}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
+
+                    <div className="mt-4 flex flex-col gap-1 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+                      <div>{createIntakeDictatingFieldKey ? "Listening now. Speak naturally and the notes will be appended into the active field." : "Keep this quick. Save the precise logic that changes how the funnel should be built."}</div>
+                      <div>
+                        {createIntakeDictationSupported
+                          ? "Mic input is best when you need richer detail, not longer copy."
+                          : "Speech-to-text depends on browser support and microphone permission."}
+                      </div>
+                    </div>
+
+                    {createIntakeDictationError ? (
+                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{createIntakeDictationError}</div>
+                    ) : null}
+
+                    <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={goToPreviousCreateFunnelStage}
+                        disabled={activeCreateFunnelStageIndex === 0}
+                        className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-40"
+                      >
+                        Back
+                      </button>
+                      {activeCreateFunnelStageIndex < FUNNEL_CREATE_STAGE_ORDER.length - 1 ? (
+                        <button
+                          type="button"
+                          onClick={goToNextCreateFunnelStage}
+                          className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100"
+                        >
+                          {activeCreateFunnelStageComplete ? "Continue" : "Keep this rough and continue"}
+                        </button>
+                      ) : (
+                        <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-700">
+                          Final checkpoint before create
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  {funnelInitializationDecision ? (
+                  {createFunnelStage === "conversion" && funnelInitializationDecision ? (
                     <div
                       className={classNames(
                         "rounded-2xl border px-4 py-3",
@@ -2435,6 +3371,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               ? `When you click Create, the builder will open with a ${(funnelInitializationDecision.label || "guided").toLowerCase()} first draft already seeded.`
                               : "When you click Create, the builder will open with one simple page and leave the structure decisions to you."}
                           </div>
+                          <div className="mt-1 text-sm text-zinc-600">Until then, this stays a resumable workspace draft you can return to.</div>
                           <div className="mt-1 text-sm text-zinc-600">{funnelInitializationDecision.reason}</div>
                           {funnelInitializationDecision.question ? (
                             <div className="mt-2 text-sm font-medium text-amber-900">Before we lock that in: {funnelInitializationDecision.question}</div>

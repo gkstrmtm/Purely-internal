@@ -6,6 +6,11 @@ import { SafeClientBoundary } from "@/components/SafeClientBoundary";
 import { AddToCartButton } from "@/components/funnel/AddToCartButton";
 import { CartButton } from "@/components/funnel/CartButton";
 import {
+  FUNNEL_BUTTON_MOTION_CLASS,
+  FUNNEL_BUTTON_RAISE_CLASS,
+  FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
+} from "@/components/funnel/funnelButtonMotion";
+import {
   FunnelHeaderNav,
   type FunnelHeaderDesktopMode,
   type FunnelHeaderMobileTrigger,
@@ -41,7 +46,22 @@ export type BlockStyle = {
   borderColor?: string;
   borderWidthPx?: number;
   maxWidthPx?: number;
+  bookingBgHex?: string;
+  bookingSurfaceHex?: string;
+  bookingSoftHex?: string;
+  bookingBorderHex?: string;
+  bookingTextHex?: string;
+  bookingMutedTextHex?: string;
+  bookingPrimaryHex?: string;
+  bookingLinkHex?: string;
 };
+
+export type HostedRuntimeBlockType =
+  | "hostedBookingApp"
+  | "hostedReviewsApp"
+  | "hostedNewsletterArchive"
+  | "hostedBlogsArchive"
+  | "hostedBlogPostBody";
 
 export type ColumnsColumn = {
   markdown: string;
@@ -71,6 +91,15 @@ export type PricingGridItem = {
   featured?: boolean;
 };
 
+export type CreditFunnelEditorTextTarget = {
+  key: string;
+  kind: string;
+  blockId: string;
+  blockType: string;
+  itemIndex?: number;
+  featureIndex?: number;
+};
+
 export type SyncedReviewsBlockProps = {
   eyebrow?: string;
   heading?: string;
@@ -82,13 +111,6 @@ export type SyncedReviewsBlockProps = {
   includePhotos?: boolean;
   style?: BlockStyle;
 };
-
-export type HostedRuntimeBlockType =
-  | "hostedBookingApp"
-  | "hostedNewsletterArchive"
-  | "hostedReviewsApp"
-  | "hostedBlogsArchive"
-  | "hostedBlogPostBody";
 
 export type CreditFunnelBlock =
   | {
@@ -272,7 +294,27 @@ export type CreditFunnelBlock =
     }
   | {
       id: string;
-      type: HostedRuntimeBlockType;
+      type: "hostedBookingApp";
+      props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedReviewsApp";
+      props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedNewsletterArchive";
+      props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedBlogsArchive";
+      props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "hostedBlogPostBody";
       props: { style?: BlockStyle };
     }
   | {
@@ -841,6 +883,14 @@ function coerceStyle(raw: unknown): BlockStyle | undefined {
     borderColor: coerceCssColor(r.borderColor),
     borderWidthPx: clampNum(r.borderWidthPx, 0, 24),
     maxWidthPx: clampNum(r.maxWidthPx, 0, 1600),
+    bookingBgHex: coerceCssColor(r.bookingBgHex),
+    bookingSurfaceHex: coerceCssColor(r.bookingSurfaceHex),
+    bookingSoftHex: coerceCssColor(r.bookingSoftHex),
+    bookingBorderHex: coerceCssColor(r.bookingBorderHex),
+    bookingTextHex: coerceCssColor(r.bookingTextHex),
+    bookingMutedTextHex: coerceCssColor(r.bookingMutedTextHex),
+    bookingPrimaryHex: coerceCssColor(r.bookingPrimaryHex),
+    bookingLinkHex: coerceCssColor(r.bookingLinkHex),
   };
 
   const hasAny = Object.values(style).some((v) => v !== undefined && v !== "");
@@ -1234,13 +1284,13 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
 
     if (
       type === "hostedBookingApp" ||
-      type === "hostedNewsletterArchive" ||
       type === "hostedReviewsApp" ||
+      type === "hostedNewsletterArchive" ||
       type === "hostedBlogsArchive" ||
       type === "hostedBlogPostBody"
     ) {
       const style = coerceStyle(props?.style);
-      out.push({ id, type, props: { style } });
+      out.push({ id, type, props: { style } } as CreditFunnelBlock);
       continue;
     }
 
@@ -1349,6 +1399,8 @@ function buttonClass(variant: "primary" | "secondary") {
       "border border-zinc-200 bg-white",
       "px-5 py-3 text-sm font-semibold",
       "hover:bg-zinc-50",
+      FUNNEL_BUTTON_MOTION_CLASS,
+      FUNNEL_BUTTON_SUBTLE_RAISE_CLASS,
     ].join(" ");
   }
 
@@ -1357,6 +1409,8 @@ function buttonClass(variant: "primary" | "secondary") {
     "bg-[color:var(--color-brand-blue)]",
     "px-5 py-3 text-sm font-semibold text-white",
     "hover:bg-blue-700",
+    FUNNEL_BUTTON_MOTION_CLASS,
+    FUNNEL_BUTTON_RAISE_CLASS,
   ].join(" ");
 }
 
@@ -1495,19 +1549,23 @@ export function renderCreditFunnelBlocks({
     previewDevice?: "desktop" | "mobile";
     previewEmbedMode?: "live" | "placeholder";
     showBookingState?: boolean;
-    hostedRuntimeBlocks?: Partial<Record<"bookingApp" | "newsletterArchive" | "reviewsApp" | "blogsArchive" | "blogPostBody", React.ReactNode>>;
   };
   editor?: {
     enabled?: boolean;
     selectedBlockId?: string | null;
+    selectedTextTargetKey?: string | null;
+    selectedTextTargetBlockId?: string | null;
     hoveredBlockId?: string | null;
     selectedPricingGridItemIndex?: number | null;
     aiFocusedBlockId?: string | null;
     aiFocusedPhase?: "pending" | "settled" | null;
     onSelectBlockId?: (id: string) => void;
+    onSelectTextTarget?: (target: CreditFunnelEditorTextTarget | null) => void;
     onSelectPricingGridItem?: (blockId: string, itemIndex: number) => void;
+    onOpenPricingEditor?: (blockId: string, itemIndex: number) => void;
     onHoverBlockId?: (id: string | null) => void;
     onUpsertBlock?: (next: CreditFunnelBlock) => void;
+    onClearSelection?: () => void;
     onReorder?: (dragId: string, dropId: string) => void;
     onMove?: (id: string, dir: "up" | "down") => void;
     onRequestBookingRouting?: (id: string) => void;
@@ -1518,6 +1576,72 @@ export function renderCreditFunnelBlocks({
   const first = blocks[0];
   const pageStyleBlock = first && first.type === "page" ? first : null;
   const renderBlocks = pageStyleBlock ? blocks.slice(1) : blocks;
+  const bookingBlockCountByCalendarId = (() => {
+    const counts: Record<string, number> = {};
+    const walk = (input: CreditFunnelBlock[]) => {
+      for (const block of input) {
+        if (!block || typeof block !== "object") continue;
+
+        if (block.type === "calendarEmbed") {
+          const blockCalendarId = String((block.props as any)?.calendarId || "").trim();
+          const inheritedCalendarId = String(context?.defaultBookingCalendarId || "").trim();
+          const routeCalendarId = String(blockCalendarId || inheritedCalendarId || "").trim();
+          if (routeCalendarId) {
+            counts[routeCalendarId] = (counts[routeCalendarId] || 0) + 1;
+          }
+        }
+
+        if (block.type === "section") {
+          const props = (block.props || {}) as Record<string, unknown>;
+          for (const key of ["children", "leftChildren", "rightChildren"] as const) {
+            const nested = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : [];
+            walk(nested);
+          }
+        }
+
+        if (block.type === "columns") {
+          const columns = Array.isArray((block.props as any)?.columns) ? ((block.props as any).columns as any[]) : [];
+          for (const column of columns) {
+            const nested = Array.isArray(column?.children) ? (column.children as CreditFunnelBlock[]) : [];
+            walk(nested);
+          }
+        }
+      }
+    };
+
+    walk(renderBlocks);
+    return counts;
+  })();
+  const blockTypeById = (() => {
+    const map: Record<string, string> = {};
+    const walk = (input: CreditFunnelBlock[]) => {
+      for (const block of input) {
+        if (!block || typeof block !== "object") continue;
+        if (typeof block.id === "string" && block.id) {
+          map[block.id] = block.type;
+        }
+
+        if (block.type === "section") {
+          const props = (block.props || {}) as Record<string, unknown>;
+          for (const key of ["children", "leftChildren", "rightChildren"] as const) {
+            const nested = Array.isArray(props[key]) ? (props[key] as CreditFunnelBlock[]) : [];
+            walk(nested);
+          }
+        }
+
+        if (block.type === "columns") {
+          const columns = Array.isArray((block.props as any)?.columns) ? ((block.props as any).columns as any[]) : [];
+          for (const column of columns) {
+            const nested = Array.isArray(column?.children) ? (column.children as CreditFunnelBlock[]) : [];
+            walk(nested);
+          }
+        }
+      }
+    };
+
+    walk(renderBlocks);
+    return map;
+  })();
   const funnelOffers = Array.isArray(context?.offers) ? context.offers : [];
   const resolveOfferBinding = (offerIdRaw: unknown, fallbackPriceIdRaw: unknown) => {
     const offer = resolveFunnelOffer(funnelOffers, offerIdRaw);
@@ -1591,6 +1715,7 @@ export function renderCreditFunnelBlocks({
     key: string;
     style?: BlockStyle;
     blockId: string;
+    blockType?: string;
     title: string;
     subtitle: string;
     detail?: string;
@@ -1601,10 +1726,10 @@ export function renderCreditFunnelBlocks({
       "div",
       {
         key: opts.key,
-        style: { ...wrapperStyle(opts.style), ...(blockWrapStyle(opts.blockId) || {}) },
-        ...wrapProps(opts.blockId),
+        style: { ...wrapperStyle(opts.style), ...(blockWrapStyle(opts.blockId, opts.blockType) || {}) },
+        ...wrapProps(opts.blockId, opts.blockType),
       },
-      renderMoveControls(opts.blockId),
+      renderMoveControls(opts.blockId, opts.blockType),
       opts.preface,
       React.createElement(
         "div",
@@ -1776,11 +1901,59 @@ export function renderCreditFunnelBlocks({
     "@keyframes funnel-editor-ai-settle{0%{transform:translateY(-1px) scale(1.006)}100%{transform:translateY(0) scale(1)}}",
   ].join("\n");
 
-  const renderMoveControls = (id: string): React.ReactNode => {
+  const BLOCK_TYPE_LABELS: Partial<Record<string, string>> = {
+    heading: "Heading",
+    paragraph: "Text",
+    button: "Button",
+    formLink: "Form link",
+    calendarEmbed: "Booking",
+    image: "Image",
+    video: "Video",
+    spacer: "Spacer",
+    syncedReviews: "Reviews",
+    testimonialGrid: "Testimonials",
+    pricingGrid: "Pricing",
+    section: "Section",
+    columns: "Columns",
+    salesCheckoutButton: "Checkout",
+    addToCartButton: "Cart",
+    headerNav: "Navigation",
+    customCode: "Code block",
+    anchor: "Anchor",
+    chatbot: "Chat widget",
+  };
+
+  const CONTAINER_BLOCK_TYPES = new Set(["section", "columns"]);
+  const DIRECT_TEXT_CHROME_BLOCK_TYPES = new Set(["heading", "paragraph", "button", "formLink", "pricingGrid"]);
+  const CANVAS_CHROME_BLOCK_TYPES = new Set([
+    "heading",
+    "paragraph",
+    "button",
+    "formLink",
+    "salesCheckoutButton",
+    "addToCartButton",
+    "pricingGrid",
+    "testimonialGrid",
+    "syncedReviews",
+  ]);
+  const resolveEditorBlockType = (id: string, blockType?: string): string => {
+    if (typeof blockType === "string" && blockType.trim()) return blockType;
+    return blockTypeById[id] || "";
+  };
+
+  const renderMoveControls = (id: string, blockType?: string): React.ReactNode => {
     if (!isEditor) return null;
-    if (!editor?.onMove) return null;
+    const resolvedBlockType = resolveEditorBlockType(id, blockType);
+    if (!CANVAS_CHROME_BLOCK_TYPES.has(resolvedBlockType)) return null;
+    if (editor?.selectedTextTargetBlockId === id) return null;
     const selected = editor?.selectedBlockId === id;
-    if (!selected) return null;
+    const hovered = editor?.hoveredBlockId === id;
+    if (!selected && !hovered) return null;
+
+    // Move arrows - only on select, only when reordering is enabled
+    if (!selected || !editor?.onMove) {
+      return null;
+    }
 
     const canUp = editor?.canMove ? editor.canMove(id, "up") : true;
     const canDown = editor?.canMove ? editor.canMove(id, "down") : true;
@@ -1789,81 +1962,117 @@ export function renderCreditFunnelBlocks({
       "div",
       {
         key: `${id}_move_controls`,
-        className: "absolute right-3 top-3 z-[45] flex flex-col gap-1",
+        className: "absolute right-2 top-2 z-[45] flex flex-col gap-0.5",
       },
-      React.createElement(
-        "button",
-        {
-          type: "button",
-          disabled: !canUp,
-          onMouseDown: (e: any) => {
-            e.preventDefault?.();
-            e.stopPropagation?.();
+        React.createElement(
+          "button",
+          {
+            type: "button",
+            disabled: !canUp,
+            onMouseDown: (e: any) => {
+              e.preventDefault?.();
+              e.stopPropagation?.();
+            },
+            onClick: (e: any) => {
+              e.preventDefault?.();
+              e.stopPropagation?.();
+              editor.onMove?.(id, "up");
+            },
+            className:
+              "flex h-6 w-6 items-center justify-center rounded-md border border-zinc-200 bg-white/95 text-zinc-500 shadow-sm hover:bg-zinc-50 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-30",
+            title: "Move up",
+            "aria-label": "Move up",
           },
-          onClick: (e: any) => {
-            e.preventDefault?.();
-            e.stopPropagation?.();
-            editor.onMove?.(id, "up");
+          React.createElement(
+            "svg",
+            { viewBox: "0 0 16 16", className: "h-3 w-3", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" },
+            React.createElement("path", { d: "M8 12V4M4 7l4-4 4 4" }),
+          ),
+        ),
+        React.createElement(
+          "button",
+          {
+            type: "button",
+            disabled: !canDown,
+            onMouseDown: (e: any) => {
+              e.preventDefault?.();
+              e.stopPropagation?.();
+            },
+            onClick: (e: any) => {
+              e.preventDefault?.();
+              e.stopPropagation?.();
+              editor.onMove?.(id, "down");
+            },
+            className:
+              "flex h-6 w-6 items-center justify-center rounded-md border border-zinc-200 bg-white/95 text-zinc-500 shadow-sm hover:bg-zinc-50 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-30",
+            title: "Move down",
+            "aria-label": "Move down",
           },
-          className:
-            "h-6 w-6 rounded-md border border-zinc-200 bg-white/95 text-[10px] font-bold text-zinc-600 shadow-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40",
-          title: "Move up",
-          "aria-label": "Move up",
-        },
-        "↑",
-      ),
-      React.createElement(
-        "button",
-        {
-          type: "button",
-          disabled: !canDown,
-          onMouseDown: (e: any) => {
-            e.preventDefault?.();
-            e.stopPropagation?.();
-          },
-          onClick: (e: any) => {
-            e.preventDefault?.();
-            e.stopPropagation?.();
-            editor.onMove?.(id, "down");
-          },
-          className:
-            "h-6 w-6 rounded-md border border-zinc-200 bg-white/95 text-[10px] font-bold text-zinc-600 shadow-sm hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40",
-          title: "Move down",
-          "aria-label": "Move down",
-        },
-        "↓",
-      ),
+          React.createElement(
+            "svg",
+            { viewBox: "0 0 16 16", className: "h-3 w-3", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" },
+            React.createElement("path", { d: "M8 4v8M4 9l4 4 4-4" }),
+          ),
+        ),
     );
   };
 
-  const blockWrapStyle = (id: string): React.CSSProperties | undefined => {
+  const blockWrapStyle = (id: string, blockType?: string): React.CSSProperties | undefined => {
     if (!isEditor) return undefined;
     const selected = editor?.selectedBlockId === id;
     const hovered = editor?.hoveredBlockId === id;
+    const textTargetSelectedForBlock = editor?.selectedTextTargetBlockId === id;
     const aiFocused = editor?.aiFocusedBlockId === id;
     const aiPhase = editor?.aiFocusedPhase || null;
-    if (!selected && !hovered && !aiFocused) return undefined;
-    const color = selected
-      ? "rgba(15, 23, 42, 0.26)"
-      : aiFocused
-        ? "rgba(24, 24, 27, 0.28)"
-        : "rgba(15, 23, 42, 0.12)";
+    const resolvedBlockType = resolveEditorBlockType(id, blockType);
+    const chromeRadiusPx = 16;
+    const chromeInsetPx = 4;
+
+    // AI focus
+    if (aiFocused) {
+      return {
+        boxShadow: `inset 0 0 0 2px ${aiPhase === "pending" ? "rgba(24, 24, 27, 0.3)" : "rgba(24, 24, 27, 0.4)"}`,
+        borderRadius: chromeRadiusPx,
+        transition: "box-shadow 150ms ease",
+        animation:
+          aiPhase === "pending"
+            ? "funnel-editor-ai-pulse 1.15s ease-in-out infinite"
+            : aiPhase === "settled"
+              ? "funnel-editor-ai-settle 700ms cubic-bezier(0.22, 1, 0.36, 1) 1"
+              : undefined,
+      };
+    }
+
+    if (!CANVAS_CHROME_BLOCK_TYPES.has(resolvedBlockType)) {
+      return undefined;
+    }
+
+    if (textTargetSelectedForBlock) {
+      return undefined;
+    }
+
+    if (!selected && !hovered) {
+      return undefined;
+    }
     return {
-      boxShadow: selected || aiFocused ? `0 0 0 1.5px ${color}` : `0 0 0 1px ${color}`,
-      borderRadius: 14,
-      transition: "box-shadow 180ms ease",
-      animation: aiFocused
-        ? aiPhase === "pending"
-          ? "funnel-editor-ai-pulse 1.15s ease-in-out infinite"
-          : aiPhase === "settled"
-            ? "funnel-editor-ai-settle 700ms cubic-bezier(0.22, 1, 0.36, 1) 1"
-            : undefined
-        : undefined,
+      borderRadius: chromeRadiusPx,
+      transition: "filter 220ms ease, transform 180ms ease",
+      ["--funnel-editor-chrome-radius" as any]: `${chromeRadiusPx}px`,
+      ["--funnel-editor-chrome-inset" as any]: `${chromeInsetPx}px`,
+      ["--funnel-editor-chrome-dash-color" as any]: "rgba(113, 113, 122, 0.82)",
+      ["--funnel-editor-chrome-stroke-shadow" as any]: "0 0 0 1px rgba(255,255,255,0.9), 0 10px 26px rgba(15,23,42,0.055)",
+      ["--funnel-editor-chrome-glow-opacity" as any]: selected || hovered ? "0.42" : "0",
     };
   };
 
-  const wrapProps = (id: string): Record<string, any> => {
+  const wrapProps = (id: string, blockType?: string): Record<string, any> => {
     if (!isEditor) return {};
+    const resolvedBlockType = resolveEditorBlockType(id, blockType);
+    const supportsCanvasChrome = CANVAS_CHROME_BLOCK_TYPES.has(resolvedBlockType);
+    const supportsDirectTextChrome = DIRECT_TEXT_CHROME_BLOCK_TYPES.has(resolvedBlockType);
+    const isStructuralContainer = CONTAINER_BLOCK_TYPES.has(resolvedBlockType);
+    const selected = editor?.selectedBlockId === id;
+    const hovered = editor?.hoveredBlockId === id;
     const isInteractiveTarget = (evtTarget: any): boolean => {
       try {
         const el: any = evtTarget && evtTarget.nodeType === 1 ? evtTarget : evtTarget?.parentElement;
@@ -1872,9 +2081,26 @@ export function renderCreditFunnelBlocks({
         return false;
       }
     };
+    if (isStructuralContainer) {
+      return {
+        className: "relative",
+        "data-funnel-editor-structural": "true",
+        onMouseDown: (e: any) => {
+          if (typeof e?.button === "number" && e.button !== 0) return;
+          if (isInteractiveTarget(e?.target)) return;
+          e.preventDefault?.();
+          e.stopPropagation?.();
+          editor?.onClearSelection?.();
+        },
+      };
+    }
     return {
       "data-block-id": id,
-      className: "relative",
+      "data-canvas-selected": selected ? "true" : undefined,
+      "data-canvas-hovered": hovered ? "true" : undefined,
+      className: supportsCanvasChrome
+        ? `relative funnel-editor-canvas-chrome${supportsDirectTextChrome ? " funnel-editor-direct-text-chrome" : ""}`
+        : "relative",
       onMouseDownCapture: (e: any) => {
         // Let marked interactive controls handle their own first click without a parent
         // selection rerender racing ahead of their click handlers.
@@ -1888,11 +2114,11 @@ export function renderCreditFunnelBlocks({
         e.stopPropagation?.();
         editor?.onSelectBlockId?.(id);
       },
-      onMouseEnter: () => editor?.onHoverBlockId?.(id),
-      onMouseLeave: () => editor?.onHoverBlockId?.(null),
-      draggable: Boolean(editor?.onReorder),
+      onMouseEnter: supportsCanvasChrome ? () => editor?.onHoverBlockId?.(id) : undefined,
+      onMouseLeave: supportsCanvasChrome ? () => editor?.onHoverBlockId?.(null) : undefined,
+      draggable: Boolean(editor?.onReorder && supportsCanvasChrome),
       onDragStart: (e: any) => {
-        if (!editor?.onReorder) return;
+        if (!editor?.onReorder || !supportsCanvasChrome) return;
         if (isInteractiveTarget(e?.target)) {
           e.preventDefault?.();
           return;
@@ -1901,15 +2127,88 @@ export function renderCreditFunnelBlocks({
         e.dataTransfer.effectAllowed = "move";
       },
       onDragOver: (e: any) => {
-        if (!editor?.onReorder) return;
+        if (!editor?.onReorder || !supportsCanvasChrome) return;
         e.preventDefault?.();
         e.dataTransfer.dropEffect = "move";
       },
       onDrop: (e: any) => {
-        if (!editor?.onReorder) return;
+        if (!editor?.onReorder || !supportsCanvasChrome) return;
         e.preventDefault?.();
         const dragId = e.dataTransfer.getData("text/x-block-id");
         if (dragId) editor.onReorder(dragId, id);
+      },
+    };
+  };
+
+  const buildEditorTextTarget = (opts: {
+    block: CreditFunnelBlock;
+    kind: string;
+    itemIndex?: number;
+    featureIndex?: number;
+  }): CreditFunnelEditorTextTarget => {
+    const key = [
+      opts.block.id,
+      opts.block.type,
+      opts.kind,
+      typeof opts.itemIndex === "number" ? `item-${opts.itemIndex}` : "",
+      typeof opts.featureIndex === "number" ? `feature-${opts.featureIndex}` : "",
+    ]
+      .filter(Boolean)
+      .join(":");
+
+    return {
+      key,
+      kind: opts.kind,
+      blockId: opts.block.id,
+      blockType: opts.block.type,
+      ...(typeof opts.itemIndex === "number" ? { itemIndex: opts.itemIndex } : {}),
+      ...(typeof opts.featureIndex === "number" ? { featureIndex: opts.featureIndex } : {}),
+    };
+  };
+
+  const buildEditableTextSurfaceProps = (opts: {
+    block: CreditFunnelBlock;
+    kind: string;
+    itemIndex?: number;
+    featureIndex?: number;
+    shrink?: boolean;
+  }) => {
+    const textTarget = buildEditorTextTarget(opts);
+    const selectTextTarget = () => {
+      editor?.onSelectTextTarget?.(textTarget);
+    };
+
+    return {
+      "data-funnel-editor-interactive": "true",
+      "data-funnel-editor-text-target": "true",
+      "data-editable-text": "true",
+      "data-editable-kind": opts.kind,
+      "data-text-target-selected": editor?.selectedTextTargetKey === textTarget.key ? "true" : undefined,
+      "data-text-target-shrink": opts.shrink === false ? undefined : "true",
+      style: opts.shrink === false
+        ? {
+            display: "block",
+            width: "100%",
+            maxWidth: "100%",
+          }
+        : undefined,
+      onFocus: () => {
+        editor?.onSelectBlockId?.(opts.block.id);
+        if (typeof opts.itemIndex === "number") {
+          editor?.onSelectPricingGridItem?.(opts.block.id, opts.itemIndex);
+        }
+        selectTextTarget();
+      },
+      onMouseDown: (e: any) => {
+        e.stopPropagation?.();
+        editor?.onSelectBlockId?.(opts.block.id);
+        if (typeof opts.itemIndex === "number") {
+          editor?.onSelectPricingGridItem?.(opts.block.id, opts.itemIndex);
+        }
+        selectTextTarget();
+      },
+      onClick: (e: any) => {
+        e.stopPropagation?.();
       },
     };
   };
@@ -1923,17 +2222,21 @@ export function renderCreditFunnelBlocks({
     if (!upsert) return {};
     const nextTextFromEl = (el: any) => (typeof el?.textContent === "string" ? el.textContent : "");
     const nextHtmlFromEl = (el: any) => (typeof el?.innerHTML === "string" ? el.innerHTML : "");
+    const textSurfaceProps = buildEditableTextSurfaceProps({
+      block,
+      kind:
+        block.type === "heading"
+          ? "heading"
+          : block.type === "paragraph"
+            ? "paragraph"
+            : "cta",
+      shrink: block.type !== "button" && block.type !== "formLink",
+    });
     return {
       contentEditable: true,
       suppressContentEditableWarning: true,
       spellCheck: true,
-      onFocus: () => {
-        editor?.onSelectBlockId?.(block.id);
-      },
-      onMouseDown: (e: any) => {
-        e.stopPropagation?.();
-        editor?.onSelectBlockId?.(block.id);
-      },
+      ...textSurfaceProps,
       onKeyDown: (e: any) => {
         if (e.key === "Enter") {
           e.preventDefault?.();
@@ -1942,6 +2245,7 @@ export function renderCreditFunnelBlocks({
         if (e.key === "Escape") {
           e.preventDefault?.();
           e.currentTarget?.blur?.();
+          editor?.onClearSelection?.();
         }
       },
       onBlur: (e: any) => {
@@ -1973,6 +2277,137 @@ export function renderCreditFunnelBlocks({
         }
       },
     };
+  };
+
+  const editableFieldProps = (opts: {
+    block: CreditFunnelBlock;
+    currentText: string;
+    onCommit: (nextText: string) => void;
+    itemIndex?: number;
+    featureIndex?: number;
+    multiline?: boolean;
+    textTarget?: {
+      kind: string;
+      shrink?: boolean;
+    };
+  }): Record<string, any> => {
+    if (!isEditor) return {};
+
+    const normalize = (value: string) => {
+      const raw = String(value || "").replace(/\u00a0/g, " ");
+      return opts.multiline ? raw.trim() : raw.replace(/\s+/g, " ").trim();
+    };
+
+    const textSurfaceProps = buildEditableTextSurfaceProps({
+      block: opts.block,
+      kind: opts.textTarget?.kind || "text",
+      itemIndex: opts.itemIndex,
+      featureIndex: opts.featureIndex,
+      shrink: opts.textTarget?.shrink ?? true,
+    });
+
+    return {
+      contentEditable: true,
+      suppressContentEditableWarning: true,
+      spellCheck: true,
+      ...textSurfaceProps,
+      onKeyDown: (e: any) => {
+        e.stopPropagation?.();
+        if (!opts.multiline && e.key === "Enter") {
+          e.preventDefault?.();
+          e.currentTarget?.blur?.();
+        }
+        if (e.key === "Escape") {
+          e.preventDefault?.();
+          e.currentTarget?.blur?.();
+          editor?.onClearSelection?.();
+        }
+      },
+      onBlur: (e: any) => {
+        const nextText = normalize(typeof e?.currentTarget?.textContent === "string" ? e.currentTarget.textContent : "");
+        const currentText = normalize(opts.currentText);
+        if (nextText === currentText) return;
+        opts.onCommit(nextText);
+      },
+    };
+  };
+
+  const renderInlineMarkdownEditor = (opts: {
+    block: CreditFunnelBlock;
+    value: string;
+    placeholder: string;
+    minHeight?: number;
+    onChange: (nextValue: string) => void;
+  }): React.ReactNode => {
+    if (!isEditor) return renderMarkdown(opts.value);
+
+    const selected = editor?.selectedBlockId === opts.block.id;
+    if (!selected) {
+      return React.createElement(
+        "div",
+        {
+          className: "funnel-editor-inline-copy-window relative rounded-2xl",
+          "data-funnel-editor-interactive": "true",
+          "data-block-id": opts.block.id,
+          "data-canvas-selected": undefined,
+          "data-canvas-hovered": undefined,
+          onMouseDown: (e: any) => {
+            e.stopPropagation?.();
+            editor?.onSelectBlockId?.(opts.block.id);
+          },
+          onClick: (e: any) => {
+            e.stopPropagation?.();
+          },
+        },
+        renderMarkdown(opts.value),
+      );
+    }
+
+    return React.createElement(
+      "div",
+      {
+        className: "funnel-editor-inline-copy-window rounded-2xl border border-zinc-300 bg-white/96 p-3 shadow-[0_10px_28px_rgba(15,23,42,0.06)]",
+        "data-funnel-editor-interactive": "true",
+        "data-block-id": opts.block.id,
+        "data-canvas-selected": "true",
+        onMouseDown: (e: any) => {
+          e.stopPropagation?.();
+          editor?.onSelectBlockId?.(opts.block.id);
+        },
+        onClick: (e: any) => {
+          e.stopPropagation?.();
+        },
+      },
+      React.createElement(
+        "div",
+        { className: "mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500" },
+        "Inline copy editor",
+      ),
+      React.createElement("textarea", {
+        value: opts.value,
+        placeholder: opts.placeholder,
+        className:
+          "min-h-[160px] w-full resize-y rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3 font-mono text-[13px] leading-6 text-zinc-900 outline-none focus:border-zinc-300 focus:bg-white",
+        style: opts.minHeight ? ({ minHeight: opts.minHeight } as React.CSSProperties) : undefined,
+        spellCheck: true,
+        "data-funnel-editor-interactive": "true",
+        onFocus: () => {
+          editor?.onSelectBlockId?.(opts.block.id);
+        },
+        onMouseDown: (e: any) => {
+          e.stopPropagation?.();
+        },
+        onClick: (e: any) => {
+          e.stopPropagation?.();
+        },
+        onKeyDown: (e: any) => {
+          e.stopPropagation?.();
+        },
+        onChange: (e: any) => {
+          opts.onChange(String(e?.target?.value || ""));
+        },
+      }),
+    );
   };
 
   const renderBlocksInner: (inner: CreditFunnelBlock[]) => React.ReactNode[] = (inner) =>
@@ -2025,7 +2460,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           React.createElement(
             SafeClientBoundary,
             { name: "Sales checkout button" },
@@ -2109,7 +2544,7 @@ export function renderCreditFunnelBlocks({
               };
             })(),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           React.createElement(
             SafeClientBoundary,
             { name: "Header nav" },
@@ -2159,7 +2594,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           React.createElement("div", { style: { height: 1 } }),
         );
       }
@@ -2210,7 +2645,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           React.createElement(
             SafeClientBoundary,
             { name: "Add to cart button" },
@@ -2269,7 +2704,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           React.createElement(
             SafeClientBoundary,
             { name: "Cart button" },
@@ -2299,7 +2734,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), position: "relative" },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           !html.trim() && isEditor
             ? React.createElement(
                 "div",
@@ -2362,7 +2797,7 @@ export function renderCreditFunnelBlocks({
               style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), position: "relative" },
               ...wrapProps(b.id),
             },
-            renderMoveControls(b.id),
+            renderMoveControls(b.id, b.type),
             React.createElement(
               "div",
               {
@@ -2432,7 +2867,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           React.createElement(
             Tag,
             {
@@ -2440,12 +2875,17 @@ export function renderCreditFunnelBlocks({
               style: {
                 ...textStyle(b.props.style),
               },
-              ...editableTextProps(b, b.props.text),
-              ...(b.props.html
-                ? { dangerouslySetInnerHTML: { __html: b.props.html } }
-                : null),
             },
-            b.props.html ? undefined : b.props.text,
+            React.createElement(
+              "span",
+              {
+                ...editableTextProps(b, b.props.text),
+                ...(b.props.html
+                  ? { dangerouslySetInnerHTML: { __html: b.props.html } }
+                  : null),
+              },
+              b.props.html ? undefined : b.props.text,
+            ),
           ),
         );
       }
@@ -2459,7 +2899,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           React.createElement(
             "p",
             {
@@ -2467,12 +2907,17 @@ export function renderCreditFunnelBlocks({
               style: {
                 ...textStyle(b.props.style),
               },
-              ...editableTextProps(b, b.props.text),
-              ...(b.props.html
-                ? { dangerouslySetInnerHTML: { __html: b.props.html } }
-                : null),
             },
-            b.props.html ? undefined : b.props.text,
+            React.createElement(
+              "span",
+              {
+                ...editableTextProps(b, b.props.text),
+                ...(b.props.html
+                  ? { dangerouslySetInnerHTML: { __html: b.props.html } }
+                  : null),
+              },
+              b.props.html ? undefined : b.props.text,
+            ),
           ),
         );
       }
@@ -2496,26 +2941,73 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           b.props.eyebrow
             ? React.createElement(
                 "div",
-                { className: "text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500" },
-                b.props.eyebrow,
+                {
+                  className: "text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500",
+                },
+                React.createElement(
+                  "span",
+                  {
+                    ...editableFieldProps({
+                      block: b,
+                      currentText: b.props.eyebrow,
+                      textTarget: { kind: "eyebrow" },
+                      onCommit: (nextText) => {
+                        editor?.onUpsertBlock?.({ ...b, props: { ...b.props, eyebrow: nextText } });
+                      },
+                    }),
+                  },
+                  b.props.eyebrow,
+                ),
               )
             : null,
           b.props.heading
             ? React.createElement(
                 "h2",
-                { className: "mt-2 text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl" },
-                b.props.heading,
+                {
+                  className: "mt-2 text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl",
+                },
+                React.createElement(
+                  "span",
+                  {
+                    ...editableFieldProps({
+                      block: b,
+                      currentText: b.props.heading,
+                      textTarget: { kind: "heading" },
+                      onCommit: (nextText) => {
+                        editor?.onUpsertBlock?.({ ...b, props: { ...b.props, heading: nextText } });
+                      },
+                    }),
+                  },
+                  b.props.heading,
+                ),
               )
             : null,
           b.props.intro
             ? React.createElement(
                 "p",
-                { className: "mt-3 max-w-3xl text-sm leading-7 text-zinc-600 sm:text-base" },
-                b.props.intro,
+                {
+                  className: "mt-3 max-w-3xl text-sm leading-7 text-zinc-600 sm:text-base",
+                },
+                React.createElement(
+                  "span",
+                  {
+                    className: "block",
+                    ...editableFieldProps({
+                      block: b,
+                      currentText: b.props.intro,
+                      multiline: true,
+                      textTarget: { kind: "intro", shrink: false },
+                      onCommit: (nextText) => {
+                        editor?.onUpsertBlock?.({ ...b, props: { ...b.props, intro: nextText } });
+                      },
+                    }),
+                  },
+                  b.props.intro,
+                ),
               )
             : null,
           React.createElement(
@@ -2531,21 +3023,90 @@ export function renderCreditFunnelBlocks({
                 item.outcome
                   ? React.createElement(
                       "div",
-                      { className: "mb-4 inline-flex w-fit rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700" },
+                      {
+                        className: "mb-4 inline-flex w-fit rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700",
+                        ...editableFieldProps({
+                          block: b,
+                          currentText: item.outcome,
+                          onCommit: (nextText) => {
+                            editor?.onUpsertBlock?.({
+                              ...b,
+                              props: {
+                                ...b.props,
+                                items: items.map((entry, entryIndex) => entryIndex === index ? { ...entry, outcome: nextText } : entry),
+                              },
+                            });
+                          },
+                        }),
+                      },
                       item.outcome,
                     )
                   : null,
                 React.createElement(
                   "blockquote",
-                  { className: "text-base leading-7 text-zinc-700" },
-                  `\u201c${item.quote}\u201d`,
+                  {
+                    className: "text-base leading-7 text-zinc-700",
+                    ...editableFieldProps({
+                      block: b,
+                      currentText: item.quote,
+                      multiline: true,
+                      onCommit: (nextText) => {
+                        editor?.onUpsertBlock?.({
+                          ...b,
+                          props: {
+                            ...b.props,
+                            items: items.map((entry, entryIndex) => entryIndex === index ? { ...entry, quote: nextText } : entry),
+                          },
+                        });
+                      },
+                    }),
+                  },
+                  isEditor ? item.quote : `\u201c${item.quote}\u201d`,
                 ),
                 React.createElement(
                   "figcaption",
                   { className: "mt-5 border-t border-zinc-100 pt-4" },
-                  React.createElement("div", { className: "text-sm font-semibold text-zinc-950" }, item.name),
+                  React.createElement(
+                    "div",
+                    {
+                      className: "text-sm font-semibold text-zinc-950",
+                      ...editableFieldProps({
+                        block: b,
+                        currentText: item.name,
+                        onCommit: (nextText) => {
+                          editor?.onUpsertBlock?.({
+                            ...b,
+                            props: {
+                              ...b.props,
+                              items: items.map((entry, entryIndex) => entryIndex === index ? { ...entry, name: nextText } : entry),
+                            },
+                          });
+                        },
+                      }),
+                    },
+                    item.name,
+                  ),
                   item.role
-                    ? React.createElement("div", { className: "mt-1 text-sm text-zinc-500" }, item.role)
+                    ? React.createElement(
+                        "div",
+                        {
+                          className: "mt-1 text-sm text-zinc-500",
+                          ...editableFieldProps({
+                            block: b,
+                            currentText: item.role,
+                            onCommit: (nextText) => {
+                              editor?.onUpsertBlock?.({
+                                ...b,
+                                props: {
+                                  ...b.props,
+                                  items: items.map((entry, entryIndex) => entryIndex === index ? { ...entry, role: nextText } : entry),
+                                },
+                              });
+                            },
+                          }),
+                        },
+                        item.role,
+                      )
                     : null,
                 ),
               ),
@@ -2573,26 +3134,72 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           b.props.eyebrow
             ? React.createElement(
                 "div",
-                { className: "text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500" },
-                b.props.eyebrow,
+                {
+                  className: "text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500",
+                },
+                React.createElement(
+                  "span",
+                  {
+                    ...editableFieldProps({
+                      block: b,
+                      currentText: b.props.eyebrow,
+                      textTarget: { kind: "eyebrow" },
+                      onCommit: (nextText) => {
+                        editor?.onUpsertBlock?.({ ...b, props: { ...b.props, eyebrow: nextText } });
+                      },
+                    }),
+                  },
+                  b.props.eyebrow,
+                ),
               )
             : null,
           b.props.heading
             ? React.createElement(
                 "h2",
-                { className: "mt-2 text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl" },
-                b.props.heading,
+                {
+                  className: "mt-2 text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl",
+                },
+                React.createElement(
+                  "span",
+                  {
+                    ...editableFieldProps({
+                      block: b,
+                      currentText: b.props.heading,
+                      textTarget: { kind: "heading" },
+                      onCommit: (nextText) => {
+                        editor?.onUpsertBlock?.({ ...b, props: { ...b.props, heading: nextText } });
+                      },
+                    }),
+                  },
+                  b.props.heading,
+                ),
               )
             : null,
           b.props.intro
             ? React.createElement(
                 "p",
-                { className: "mt-3 max-w-3xl text-sm leading-7 text-zinc-600 sm:text-base" },
-                b.props.intro,
+                {
+                  className: "mt-3 max-w-3xl text-sm leading-7 text-zinc-600 sm:text-base",
+                },
+                React.createElement(
+                  "span",
+                  {
+                    ...editableFieldProps({
+                      block: b,
+                      currentText: b.props.intro,
+                      multiline: true,
+                      textTarget: { kind: "intro", shrink: false },
+                      onCommit: (nextText) => {
+                        editor?.onUpsertBlock?.({ ...b, props: { ...b.props, intro: nextText } });
+                      },
+                    }),
+                  },
+                  b.props.intro,
+                ),
               )
             : null,
           React.createElement(
@@ -2609,7 +3216,7 @@ export function renderCreditFunnelBlocks({
                   key: `${b.id}-pricing-${index}`,
                   "data-funnel-editor-interactive": isEditor ? "true" : undefined,
                   className: [
-                    "group/pricing relative flex h-full flex-col rounded-[30px] border p-6 transition-shadow duration-150",
+                    "group/pricing relative flex h-full cursor-pointer flex-col rounded-[30px] border p-6 transition-shadow duration-150",
                     pricingCardSelected ? "ring-2 ring-zinc-900/10 ring-offset-2 ring-offset-white" : isEditor ? "hover:shadow-[0_0_0_1px_rgba(15,23,42,0.12)]" : "",
                     item.featured
                       ? "border-zinc-900/15 bg-[linear-gradient(180deg,#fcfcfd_0%,#f8fafc_100%)] text-zinc-950 shadow-[0_10px_26px_rgba(15,23,42,0.06)]"
@@ -2624,6 +3231,31 @@ export function renderCreditFunnelBlocks({
                       }
                     : undefined,
                 },
+                isEditor
+                  ? React.createElement(
+                      "button",
+                      {
+                        type: "button",
+                        className: [
+                          "absolute right-4 top-4 rounded-full border border-zinc-200 bg-white/92 px-2.5 py-1 text-[10px] font-semibold text-zinc-600 shadow-sm transition-all duration-150 hover:border-zinc-300 hover:bg-white",
+                          pricingCardSelected
+                            ? "translate-y-0 opacity-100"
+                            : "translate-y-1 opacity-0 group-hover/pricing:translate-y-0 group-hover/pricing:opacity-100",
+                        ].join(" "),
+                        onMouseDown: (e: any) => {
+                          e.stopPropagation?.();
+                        },
+                        onClick: (e: any) => {
+                          e.preventDefault?.();
+                          e.stopPropagation?.();
+                          editor?.onSelectBlockId?.(b.id);
+                          editor?.onSelectPricingGridItem?.(b.id, index);
+                          editor?.onOpenPricingEditor?.(b.id, index);
+                        },
+                      },
+                      pricingCardSelected ? "Open package editor" : "Edit package",
+                    )
+                  : null,
                 item.badge
                   ? React.createElement(
                       "div",
@@ -2635,20 +3267,146 @@ export function renderCreditFunnelBlocks({
                             : "border-zinc-200 bg-zinc-50 text-zinc-600",
                         ].join(" "),
                       },
-                      item.badge,
+                      React.createElement(
+                        "span",
+                        {
+                          ...editableFieldProps({
+                            block: b,
+                            currentText: item.badge,
+                            itemIndex: index,
+                            textTarget: { kind: "badge" },
+                            onCommit: (nextText) => {
+                              editor?.onUpsertBlock?.({
+                                ...b,
+                                props: {
+                                  ...b.props,
+                                  items: items.map((entry, entryIndex) => entryIndex === index ? { ...entry, badge: nextText } : entry),
+                                },
+                              });
+                            },
+                          }),
+                        },
+                        item.badge,
+                      ),
                     )
                   : null,
-                React.createElement("div", { className: item.featured ? "text-sm font-semibold text-zinc-700" : "text-sm font-semibold text-zinc-600" }, item.name),
+                React.createElement(
+                  "div",
+                  {
+                    className: item.featured ? "text-sm font-semibold text-zinc-700" : "text-sm font-semibold text-zinc-600",
+                  },
+                  React.createElement(
+                    "span",
+                    {
+                      ...editableFieldProps({
+                        block: b,
+                        currentText: item.name,
+                        itemIndex: index,
+                        textTarget: { kind: "package-title" },
+                        onCommit: (nextText) => {
+                          editor?.onUpsertBlock?.({
+                            ...b,
+                            props: {
+                              ...b.props,
+                              items: items.map((entry, entryIndex) => entryIndex === index ? { ...entry, name: nextText } : entry),
+                            },
+                          });
+                        },
+                      }),
+                    },
+                    item.name,
+                  ),
+                ),
                 React.createElement(
                   "div",
                   { className: "mt-3 flex items-end gap-2" },
-                  React.createElement("div", { className: "text-4xl font-semibold tracking-tight" }, item.price || offer?.displayPrice || ""),
+                  React.createElement(
+                    "div",
+                    {
+                      className: "text-4xl font-semibold tracking-tight",
+                    },
+                    React.createElement(
+                      "span",
+                      {
+                        ...editableFieldProps({
+                          block: b,
+                          currentText: item.price || offer?.displayPrice || "",
+                          itemIndex: index,
+                          textTarget: { kind: "price" },
+                          onCommit: (nextText) => {
+                            editor?.onUpsertBlock?.({
+                              ...b,
+                              props: {
+                                ...b.props,
+                                items: items.map((entry, entryIndex) => entryIndex === index ? { ...entry, price: nextText } : entry),
+                              },
+                            });
+                          },
+                        }),
+                      },
+                      item.price || offer?.displayPrice || "",
+                    ),
+                  ),
                   (item.billingPeriod || offer?.billingPeriod)
-                    ? React.createElement("div", { className: item.featured ? "pb-1 text-sm text-zinc-500" : "pb-1 text-sm text-zinc-500" }, item.billingPeriod || offer?.billingPeriod)
+                    ? React.createElement(
+                        "div",
+                        {
+                          className: item.featured ? "pb-1 text-sm text-zinc-500" : "pb-1 text-sm text-zinc-500",
+                        },
+                        React.createElement(
+                          "span",
+                          {
+                            ...editableFieldProps({
+                              block: b,
+                              currentText: item.billingPeriod || offer?.billingPeriod || "",
+                              itemIndex: index,
+                              textTarget: { kind: "billing-period" },
+                              onCommit: (nextText) => {
+                                editor?.onUpsertBlock?.({
+                                  ...b,
+                                  props: {
+                                    ...b.props,
+                                    items: items.map((entry, entryIndex) => entryIndex === index ? { ...entry, billingPeriod: nextText } : entry),
+                                  },
+                                });
+                              },
+                            }),
+                          },
+                          item.billingPeriod || offer?.billingPeriod,
+                        ),
+                      )
                     : null,
                 ),
                 (item.description || offer?.productDescription)
-                  ? React.createElement("p", { className: item.featured ? "mt-3 text-sm leading-7 text-zinc-600" : "mt-3 text-sm leading-7 text-zinc-600" }, item.description || offer?.productDescription)
+                  ? React.createElement(
+                      "p",
+                      {
+                        className: item.featured ? "mt-3 text-sm leading-7 text-zinc-600" : "mt-3 text-sm leading-7 text-zinc-600",
+                      },
+                      React.createElement(
+                        "span",
+                        {
+                          className: "block",
+                          ...editableFieldProps({
+                            block: b,
+                            currentText: item.description || offer?.productDescription || "",
+                            itemIndex: index,
+                            multiline: true,
+                            textTarget: { kind: "package-description", shrink: false },
+                            onCommit: (nextText) => {
+                              editor?.onUpsertBlock?.({
+                                ...b,
+                                props: {
+                                  ...b.props,
+                                  items: items.map((entry, entryIndex) => entryIndex === index ? { ...entry, description: nextText } : entry),
+                                },
+                              });
+                            },
+                          }),
+                        },
+                        item.description || offer?.productDescription,
+                      ),
+                    )
                   : null,
                 item.features?.length
                   ? React.createElement(
@@ -2667,7 +3425,35 @@ export function renderCreditFunnelBlocks({
                               ].join(" "),
                             },
                           ),
-                          React.createElement("span", null, feature),
+                          React.createElement(
+                            "span",
+                            {
+                              ...editableFieldProps({
+                                block: b,
+                                currentText: feature,
+                                itemIndex: index,
+                                featureIndex,
+                                textTarget: { kind: "feature" },
+                                onCommit: (nextText) => {
+                                  editor?.onUpsertBlock?.({
+                                    ...b,
+                                    props: {
+                                      ...b.props,
+                                      items: items.map((entry, entryIndex) => (
+                                        entryIndex === index
+                                          ? {
+                                              ...entry,
+                                              features: (entry.features || []).map((entryFeature, featureIdx) => featureIdx === featureIndex ? nextText : entryFeature),
+                                            }
+                                          : entry
+                                      )),
+                                    },
+                                  });
+                                },
+                              }),
+                            },
+                            feature,
+                          ),
                         ),
                       ),
                     )
@@ -2697,7 +3483,27 @@ export function renderCreditFunnelBlocks({
                                 }
                               : undefined,
                           },
-                          ctaText,
+                          React.createElement(
+                            "span",
+                            {
+                              ...editableFieldProps({
+                                block: b,
+                                currentText: ctaText,
+                                itemIndex: index,
+                                textTarget: { kind: "cta", shrink: false },
+                                onCommit: (nextText) => {
+                                  editor?.onUpsertBlock?.({
+                                    ...b,
+                                    props: {
+                                      ...b.props,
+                                      items: items.map((entry, entryIndex) => entryIndex === index ? { ...entry, ctaText: nextText } : entry),
+                                    },
+                                  });
+                                },
+                              }),
+                            },
+                            ctaText,
+                          ),
                         )
                       : null,
                 ),
@@ -2715,25 +3521,53 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           b.props.eyebrow
             ? React.createElement(
                 "div",
-                { className: "text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500" },
+                {
+                  className: "text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500",
+                  ...editableFieldProps({
+                    block: b,
+                    currentText: b.props.eyebrow,
+                    onCommit: (nextText) => {
+                      editor?.onUpsertBlock?.({ ...b, props: { ...b.props, eyebrow: nextText } });
+                    },
+                  }),
+                },
                 b.props.eyebrow,
               )
             : null,
           b.props.heading
             ? React.createElement(
                 "h2",
-                { className: "mt-2 text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl" },
+                {
+                  className: "mt-2 text-2xl font-semibold tracking-tight text-zinc-950 sm:text-3xl",
+                  ...editableFieldProps({
+                    block: b,
+                    currentText: b.props.heading,
+                    onCommit: (nextText) => {
+                      editor?.onUpsertBlock?.({ ...b, props: { ...b.props, heading: nextText } });
+                    },
+                  }),
+                },
                 b.props.heading,
               )
             : null,
           b.props.intro
             ? React.createElement(
                 "p",
-                { className: "mt-3 max-w-3xl text-sm leading-7 text-zinc-600 sm:text-base" },
+                {
+                  className: "mt-3 max-w-3xl text-sm leading-7 text-zinc-600 sm:text-base",
+                  ...editableFieldProps({
+                    block: b,
+                    currentText: b.props.intro,
+                    multiline: true,
+                    onCommit: (nextText) => {
+                      editor?.onUpsertBlock?.({ ...b, props: { ...b.props, intro: nextText } });
+                    },
+                  }),
+                },
                 b.props.intro,
               )
             : null,
@@ -2787,7 +3621,7 @@ export function renderCreditFunnelBlocks({
         return React.createElement(
           "div",
           { key: b.id, style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) }, ...wrapProps(b.id) },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           React.createElement(
             "a",
             {
@@ -2818,7 +3652,7 @@ export function renderCreditFunnelBlocks({
               style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
               ...wrapProps(b.id),
             },
-            renderMoveControls(b.id),
+            renderMoveControls(b.id, b.type),
             React.createElement(
               "div",
               {
@@ -2843,7 +3677,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           renderCornerResizeHandle(b),
           React.createElement(
             "div",
@@ -2869,7 +3703,7 @@ export function renderCreditFunnelBlocks({
               style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
               ...wrapProps(b.id),
             },
-            renderMoveControls(b.id),
+            renderMoveControls(b.id, b.type),
             React.createElement(
               "div",
               {
@@ -2926,7 +3760,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           renderCornerResizeHandle(b),
           React.createElement(
             "div",
@@ -2958,7 +3792,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), height: b.props.height ?? 24 },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
         );
       }
 
@@ -2998,7 +3832,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           React.createElement(
             "a",
             {
@@ -3035,7 +3869,7 @@ export function renderCreditFunnelBlocks({
               style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
               ...wrapProps(b.id),
             },
-            renderMoveControls(b.id),
+            renderMoveControls(b.id, b.type),
             React.createElement(
               "div",
               {
@@ -3081,7 +3915,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), position: "relative" },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           isEditor
             ? React.createElement(
                 "div",
@@ -3112,45 +3946,6 @@ export function renderCreditFunnelBlocks({
         );
       }
 
-      if (
-        b.type === "hostedBookingApp" ||
-        b.type === "hostedNewsletterArchive" ||
-        b.type === "hostedReviewsApp" ||
-        b.type === "hostedBlogsArchive" ||
-        b.type === "hostedBlogPostBody"
-      ) {
-        const hostedNode =
-          b.type === "hostedBookingApp"
-            ? context?.hostedRuntimeBlocks?.bookingApp
-            : b.type === "hostedNewsletterArchive"
-              ? context?.hostedRuntimeBlocks?.newsletterArchive
-              : b.type === "hostedReviewsApp"
-                ? context?.hostedRuntimeBlocks?.reviewsApp
-                : b.type === "hostedBlogsArchive"
-                  ? context?.hostedRuntimeBlocks?.blogsArchive
-                  : context?.hostedRuntimeBlocks?.blogPostBody;
-
-        return React.createElement(
-          "div",
-          {
-            key: b.id,
-            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
-            ...wrapProps(b.id),
-          },
-          renderMoveControls(b.id),
-          hostedNode
-            ? hostedNode
-            : React.createElement(
-                "div",
-                {
-                  className:
-                    "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-600",
-                },
-                "Hosted runtime preview will appear here once preview data is ready.",
-              ),
-        );
-      }
-
       if (b.type === "calendarEmbed") {
           const blockCalendarId = String((b.props as any).calendarId || "").trim();
           const inheritedCalendarId = String(context?.defaultBookingCalendarId || "").trim();
@@ -3164,12 +3959,26 @@ export function renderCreditFunnelBlocks({
             );
           const calendarTitleById = context?.bookingCalendarTitleById || {};
           const calendarEnabledById = context?.bookingCalendarEnabledById || {};
+          const resolvedCalendarKnown = calendarId
+            ? Object.prototype.hasOwnProperty.call(calendarTitleById, calendarId) || Object.prototype.hasOwnProperty.call(calendarEnabledById, calendarId)
+            : false;
+          const bookingRouteMissing = Boolean(calendarId && !resolvedCalendarKnown);
+          const bookingHasRoute = Boolean(blockCalendarId || inheritedCalendarId);
+          const matchingBookingBlockCount = calendarId ? bookingBlockCountByCalendarId[calendarId] || 0 : 0;
+          const duplicateBookingRouteWarning = matchingBookingBlockCount > 1
+            ? `This page has ${matchingBookingBlockCount} booking blocks pointed at this same route.`
+            : "";
+          const missingRouteHeading = blockCalendarId
+            ? "Step-linked calendar missing"
+            : inheritedCalendarId
+              ? "Funnel calendar missing"
+              : "Booking route missing";
           const resolvedCalendarTitle = blockCalendarId
             ? String(calendarTitleById[blockCalendarId] || blockCalendarId)
             : inheritedCalendarId
               ? String(context?.defaultBookingCalendarTitle || calendarTitleById[inheritedCalendarId] || inheritedCalendarId)
               : "";
-          const resolvedCalendarEnabled = calendarId ? calendarEnabledById[calendarId] !== false : false;
+          const resolvedCalendarEnabled = calendarId && resolvedCalendarKnown ? calendarEnabledById[calendarId] !== false : false;
           const bookingRouteLabel = blockCalendarId
             ? "Linked to this step"
             : inheritedCalendarId
@@ -3184,13 +3993,17 @@ export function renderCreditFunnelBlocks({
               ? "This step is inheriting the funnel's default calendar."
               : "This step is still waiting for a funnel or step-specific calendar.";
           const bookingRouteDetail = blockCalendarId
-            ? resolvedCalendarEnabled
-              ? "Preview is routed through the calendar pinned directly to this step."
-              : "Preview is routed through this step's calendar, but that calendar is not currently accepting bookings."
+            ? !resolvedCalendarKnown
+              ? "Preview is routed through this step's calendar ID, but that calendar is no longer available. Reconnect this step to a live calendar."
+              : resolvedCalendarEnabled
+                ? "Preview is routed through the calendar pinned directly to this step."
+                : "Preview is routed through this step's calendar, but that calendar is not currently accepting bookings."
             : inheritedCalendarId
-              ? resolvedCalendarEnabled
-                ? "Preview is routed through the funnel-linked calendar for this step."
-                : "Preview is routed through the funnel-linked calendar for this step, but that calendar is not currently accepting bookings."
+              ? !resolvedCalendarKnown
+                ? "Preview is routed through the funnel-linked calendar for this step, but that calendar is no longer available. Reconnect the funnel calendar."
+                : resolvedCalendarEnabled
+                  ? "Preview is routed through the funnel-linked calendar for this step."
+                  : "Preview is routed through the funnel-linked calendar for this step, but that calendar is not currently accepting bookings."
               : bookingFirstPage
                 ? "Create or attach a calendar and this preview will switch from placeholder to a routed booking state automatically."
                 : "This page includes a booking block, but no routed calendar is attached yet.";
@@ -3198,7 +4011,7 @@ export function renderCreditFunnelBlocks({
             ? "Change or configure route"
             : "Choose or create calendar";
           const bookingStatusLabel = blockCalendarId || inheritedCalendarId
-            ? (resolvedCalendarEnabled ? "Accepting bookings" : "Not accepting bookings")
+            ? (!resolvedCalendarKnown ? "Route missing" : (resolvedCalendarEnabled ? "Accepting bookings" : "Not accepting bookings"))
             : (bookingFirstPage ? "Needs setup" : "Missing");
           const pausedCalendarSubtitle = blockCalendarId
             ? "Step-specific calendar"
@@ -3206,16 +4019,22 @@ export function renderCreditFunnelBlocks({
               ? "Funnel-linked calendar"
               : "Booking placeholder";
           const pausedCalendarDetail = blockCalendarId
-            ? `${resolvedCalendarTitle || "This calendar"} is linked directly to this step. The live booking surface stays paused in editor preview so the routing context stays visible while the canvas remains fast.`
+            ? !resolvedCalendarKnown
+              ? `${resolvedCalendarTitle || calendarId || "This calendar"} is pinned directly to this step, but it is no longer available. Reconnect this booking step to a live calendar.`
+              : `${resolvedCalendarTitle || "This calendar"} is linked directly to this step. The live booking surface stays paused in editor preview so the routing context stays visible while the canvas remains fast.`
             : inheritedCalendarId
-              ? `${resolvedCalendarTitle || "This calendar"} is linked at the funnel level, so this step inherits it automatically. The live booking surface stays paused in editor preview so the routing context stays visible while the canvas remains fast.`
+              ? !resolvedCalendarKnown
+                ? `${resolvedCalendarTitle || inheritedCalendarId || "This calendar"} is linked at the funnel level, but it is no longer available. Reconnect the funnel calendar.`
+                : `${resolvedCalendarTitle || "This calendar"} is linked at the funnel level, so this step inherits it automatically. The live booking surface stays paused in editor preview so the routing context stays visible while the canvas remains fast.`
               : "This block is still a booking placeholder with no routed calendar yet. Once you create or attach a calendar, this preview will reflect that route automatically.";
           const bookingStateCard = showBookingState && isEditor
             ? React.createElement(
                 "div",
                 {
                   className:
-                    blockCalendarId || inheritedCalendarId
+                    bookingRouteMissing
+                      ? "mb-3 rounded-2xl border border-amber-300 bg-amber-50/90 px-4 py-3 text-sm text-amber-950"
+                      : bookingHasRoute
                       ? "mb-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-950"
                       : "mb-3 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950",
                 },
@@ -3225,17 +4044,20 @@ export function renderCreditFunnelBlocks({
                   React.createElement(
                     "div",
                     {
-                      className: blockCalendarId || inheritedCalendarId
+                      className: bookingRouteMissing
+                        ? "text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700"
+                        : bookingHasRoute
                         ? "text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700"
                         : "text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700",
                     },
                     bookingRouteLabel,
                   ),
                   React.createElement(
-
                     "div",
                     {
-                      className: blockCalendarId || inheritedCalendarId
+                      className: bookingRouteMissing
+                        ? "rounded-full border border-amber-300 bg-white px-3 py-1 text-[11px] font-semibold text-amber-900"
+                        : bookingHasRoute
                         ? "rounded-full border border-emerald-200 bg-white px-3 py-1 text-[11px] font-semibold text-emerald-900"
                         : "rounded-full border border-amber-200 bg-white px-3 py-1 text-[11px] font-semibold text-amber-900",
                     },
@@ -3255,7 +4077,7 @@ export function renderCreditFunnelBlocks({
                 React.createElement(
                   "div",
                   { className: "mt-2 leading-6 opacity-80" },
-                  bookingRouteDetail,
+                  [bookingRouteDetail, duplicateBookingRouteWarning].filter(Boolean).join(" "),
                 ),
                 editor?.onRequestBookingRouting
                   ? React.createElement(
@@ -3273,7 +4095,9 @@ export function renderCreditFunnelBlocks({
                             editor.onRequestBookingRouting?.(b.id);
                           },
                           className:
-                            blockCalendarId || inheritedCalendarId
+                            bookingRouteMissing
+                              ? "rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                              : bookingHasRoute
                               ? "rounded-xl border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100"
                               : "rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-50",
                         },
@@ -3283,6 +4107,47 @@ export function renderCreditFunnelBlocks({
                   : null,
               )
             : null;
+        if (calendarId && !resolvedCalendarKnown) {
+          return React.createElement(
+            "div",
+            {
+              key: b.id,
+              style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+              ...wrapProps(b.id),
+            },
+            renderMoveControls(b.id, b.type),
+            React.createElement(
+              "div",
+              { className: "funnel-booking-clamp space-y-3" },
+              bookingStateCard || React.createElement(
+                "div",
+                {
+                  className: "rounded-2xl border border-amber-300 bg-amber-50/70 px-4 py-6 text-sm text-amber-950",
+                },
+                React.createElement(
+                  "div",
+                  { className: "text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700" },
+                  missingRouteHeading,
+                ),
+                React.createElement(
+                  "div",
+                  { className: "mt-2 text-base font-semibold text-zinc-900" },
+                  resolvedCalendarTitle || calendarId,
+                ),
+                React.createElement(
+                  "div",
+                  { className: "mt-2 max-w-2xl leading-6 text-zinc-700" },
+                  [
+                    blockCalendarId
+                    ? "This step points at a calendar that is no longer available. Reconnect or remove this booking block before you publish."
+                    : "This page is inheriting a funnel calendar that is no longer available. Reconnect the funnel calendar before you publish.",
+                    duplicateBookingRouteWarning,
+                  ].filter(Boolean).join(" "),
+                ),
+              ),
+            ),
+          );
+        }
         if (!calendarId) {
             if (!isEditor && !showBookingState) return null;
           return React.createElement(
@@ -3292,7 +4157,7 @@ export function renderCreditFunnelBlocks({
               style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
               ...wrapProps(b.id),
             },
-            renderMoveControls(b.id),
+            renderMoveControls(b.id, b.type),
             React.createElement(
               "div",
               { className: "funnel-booking-clamp space-y-3" },
@@ -3365,7 +4230,7 @@ export function renderCreditFunnelBlocks({
               style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
               ...wrapProps(b.id),
             },
-            renderMoveControls(b.id),
+            renderMoveControls(b.id, b.type),
             React.createElement(
               "div",
               { className: "funnel-booking-clamp space-y-3" },
@@ -3382,19 +4247,6 @@ export function renderCreditFunnelBlocks({
           );
         }
 
-        if (previewUsesEmbedPlaceholders) {
-          return renderEmbedPlaceholder({
-            key: b.id,
-            style: (b.props as any).style,
-            blockId: b.id,
-            title: "Calendar embed",
-            subtitle: pausedCalendarSubtitle,
-            detail: pausedCalendarDetail,
-            height: effectiveHeight,
-            preface: bookingStateCard,
-          });
-        }
-
         return React.createElement(
           "div",
           {
@@ -3402,7 +4254,7 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), position: "relative" },
             ...wrapProps(b.id),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           React.createElement(
             "div",
             { className: "funnel-booking-clamp space-y-3" },
@@ -3494,10 +4346,10 @@ export function renderCreditFunnelBlocks({
           "div",
           {
             key: b.id,
-            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
-            ...wrapProps(b.id),
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id, b.type) || {}) },
+            ...wrapProps(b.id, b.type),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           React.createElement(
             "div",
             {
@@ -3511,7 +4363,26 @@ export function renderCreditFunnelBlocks({
               const children = c?.children;
               const content: React.ReactNode = Array.isArray(children) && children.length
                 ? React.createElement("div", { className: "space-y-4" }, renderBlocksInner(children))
-                : renderMarkdown(String(c?.markdown || ""));
+                : renderInlineMarkdownEditor({
+                    block: b,
+                    value: String(c?.markdown || ""),
+                    placeholder: `Column ${idx + 1} copy`,
+                    minHeight: 180,
+                    onChange: (nextValue) => {
+                      const nextColumns = cols.map((column, columnIndex) => (
+                        columnIndex === idx
+                          ? { ...(column || {}), markdown: nextValue }
+                          : column
+                      ));
+                      editor?.onUpsertBlock?.({
+                        ...b,
+                        props: {
+                          ...b.props,
+                          columns: nextColumns,
+                        },
+                      });
+                    },
+                  });
               return React.createElement(
                 "div",
                 { key: `${b.id}_col_${idx}`, style: wrapperStyle(c?.style) },
@@ -3552,7 +4423,21 @@ export function renderCreditFunnelBlocks({
               )
             : leftEmpty
               ? placeholder("Left")
-              : renderMarkdown(b.props.leftMarkdown || "");
+              : renderInlineMarkdownEditor({
+                  block: b,
+                  value: b.props.leftMarkdown || "",
+                  placeholder: "Left column copy",
+                  minHeight: 180,
+                  onChange: (nextValue) => {
+                    editor?.onUpsertBlock?.({
+                      ...b,
+                      props: {
+                        ...b.props,
+                        leftMarkdown: nextValue,
+                      },
+                    });
+                  },
+                });
 
           const rightContent: React.ReactNode = b.props.rightChildren?.length
             ? React.createElement(
@@ -3562,7 +4447,21 @@ export function renderCreditFunnelBlocks({
               )
             : rightEmpty
               ? placeholder("Right")
-              : renderMarkdown(b.props.rightMarkdown || "");
+              : renderInlineMarkdownEditor({
+                  block: b,
+                  value: b.props.rightMarkdown || "",
+                  placeholder: "Right column copy",
+                  minHeight: 180,
+                  onChange: (nextValue) => {
+                    editor?.onUpsertBlock?.({
+                      ...b,
+                      props: {
+                        ...b.props,
+                        rightMarkdown: nextValue,
+                      },
+                    });
+                  },
+                });
           return React.createElement(
             "section",
             {
@@ -3570,12 +4469,12 @@ export function renderCreditFunnelBlocks({
               id: sectionAnchorId,
               style: {
                 ...wrapperStyle(b.props.style),
-                ...(blockWrapStyle(b.id) || {}),
+                ...(blockWrapStyle(b.id, b.type) || {}),
                 ...(hasBgVideo ? { position: "relative", overflow: "hidden" } : null),
               },
-              ...wrapProps(b.id),
+              ...wrapProps(b.id, b.type),
             },
-            renderMoveControls(b.id),
+            renderMoveControls(b.id, b.type),
             hasBgVideo ? backgroundVideoNode(b.props.style) : null,
             React.createElement(
               "div",
@@ -3610,12 +4509,12 @@ export function renderCreditFunnelBlocks({
             id: sectionAnchorId,
             style: {
               ...wrapperStyle(b.props.style),
-              ...(blockWrapStyle(b.id) || {}),
+              ...(blockWrapStyle(b.id, b.type) || {}),
               ...(hasBgVideo ? { position: "relative", overflow: "hidden" } : null),
             },
-            ...wrapProps(b.id),
+            ...wrapProps(b.id, b.type),
           },
-          renderMoveControls(b.id),
+          renderMoveControls(b.id, b.type),
           hasBgVideo ? backgroundVideoNode(b.props.style) : null,
           React.createElement(
             "div",
@@ -3627,7 +4526,21 @@ export function renderCreditFunnelBlocks({
                   renderBlocksInner(b.props.children),
                 )
               : String(b.props.markdown || "").trim()
-                ? renderMarkdown(b.props.markdown || "")
+                ? renderInlineMarkdownEditor({
+                    block: b,
+                    value: b.props.markdown || "",
+                    placeholder: "Section copy",
+                    minHeight: 220,
+                    onChange: (nextValue) => {
+                      editor?.onUpsertBlock?.({
+                        ...b,
+                        props: {
+                          ...b.props,
+                          markdown: nextValue,
+                        },
+                      });
+                    },
+                  })
                 : isEditor
                   ? React.createElement(
                       "div",
@@ -3648,7 +4561,173 @@ export function renderCreditFunnelBlocks({
   return React.createElement(
     React.Fragment,
     null,
-    googleCss || pageCss ? React.createElement("style", null, [googleCss, pageCss].filter(Boolean).join("\n")) : null,
+    googleCss || pageCss || isEditor
+      ? React.createElement(
+          "style",
+          null,
+          [
+            googleCss,
+            pageCss,
+            isEditor
+              ? `
+.funnel-editor-canvas-chrome {
+  isolation: isolate;
+}
+
+.funnel-editor-canvas-chrome::before,
+.funnel-editor-canvas-chrome::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.funnel-editor-canvas-chrome::before {
+  display: none;
+}
+
+.funnel-editor-canvas-chrome::after {
+  inset: var(--funnel-editor-chrome-inset, 4px);
+  border-radius: calc(var(--funnel-editor-chrome-radius, 18px) - 4px);
+  border: 2px dashed var(--funnel-editor-chrome-dash-color, rgba(82, 82, 91, 0.88));
+  background: transparent;
+  box-shadow: var(--funnel-editor-chrome-stroke-shadow, 0 0 0 1px rgba(255,255,255,0.94));
+  transform: scale(0.996);
+  transition:
+    opacity 90ms linear,
+    transform 170ms ease,
+    box-shadow 260ms ease 120ms,
+    border-color 240ms ease 120ms;
+}
+
+.funnel-editor-canvas-chrome[data-canvas-hovered="true"]::after,
+.funnel-editor-canvas-chrome[data-canvas-selected="true"]::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.funnel-editor-canvas-chrome[data-canvas-hovered="true"]::before,
+.funnel-editor-canvas-chrome[data-canvas-selected="true"]::before {
+  opacity: 0;
+  transform: none;
+}
+
+.funnel-editor-canvas-chrome[data-canvas-hovered="true"]::after,
+.funnel-editor-canvas-chrome[data-canvas-selected="true"]::after {
+  border-color: rgba(63, 63, 70, 0.9);
+  background: transparent;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.94);
+}
+
+.funnel-editor-canvas-chrome [contenteditable="true"][data-funnel-editor-interactive="true"] {
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.funnel-editor-canvas-chrome [contenteditable="true"][data-funnel-editor-interactive="true"]:focus,
+.funnel-editor-canvas-chrome [contenteditable="true"][data-funnel-editor-interactive="true"]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+[data-editable-text="true"] {
+  position: relative;
+  z-index: 1;
+  max-width: 100%;
+  box-sizing: border-box;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  transition: outline-color 160ms ease;
+}
+
+[data-editable-text="true"]::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border: 2px dashed transparent;
+  border-radius: 12px;
+  pointer-events: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+[data-editable-text="true"][data-text-target-shrink="true"] {
+  max-width: 100%;
+}
+
+[data-editable-text="true"]:not([data-text-target-shrink="true"]) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+[data-editable-text="true"]:hover,
+[data-editable-text="true"][data-text-target-selected="true"],
+[data-editable-text="true"]:focus,
+[data-editable-text="true"]:focus-visible {
+  outline: none !important;
+}
+
+[data-editable-text="true"]:hover::after,
+[data-editable-text="true"][data-text-target-selected="true"]::after,
+[data-editable-text="true"]:focus::after,
+[data-editable-text="true"]:focus-visible::after {
+  border-color: rgba(63, 63, 70, 0.9);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.94);
+}
+
+.funnel-editor-direct-text-chrome::before,
+.funnel-editor-direct-text-chrome::after {
+  display: none;
+}
+
+.funnel-editor-direct-text-chrome {
+  position: relative;
+  z-index: 1;
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+  border: 0;
+  padding: 0;
+  transition: none;
+}
+
+.funnel-editor-direct-text-chrome > [data-funnel-editor-text-target="true"] {
+  position: relative;
+  z-index: 1;
+  max-width: 100%;
+}
+
+.funnel-editor-direct-text-chrome[data-canvas-hovered="true"],
+.funnel-editor-direct-text-chrome[data-canvas-selected="true"],
+.funnel-editor-direct-text-chrome:focus-within {
+  border-color: transparent;
+  box-shadow: none;
+  background: transparent;
+}
+
+.funnel-editor-inline-copy-window {
+  transition: border-color 160ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.funnel-editor-inline-copy-window:not([data-canvas-selected="true"]) {
+  border: 2px dashed transparent;
+  padding: 2px;
+}
+
+.funnel-editor-inline-copy-window:hover,
+.funnel-editor-inline-copy-window[data-canvas-selected="true"] {
+  border-color: rgba(63, 63, 70, 0.9);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.94);
+}
+`
+              : null,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        )
+      : null,
     React.createElement(
       "div",
       {
@@ -3719,3 +4798,4 @@ export function renderCreditFunnelBlocks({
     ),
   );
 }
+

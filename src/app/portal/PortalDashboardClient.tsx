@@ -8,14 +8,9 @@ import type { ComponentType } from "react";
 import { useToast } from "@/components/ToastProvider";
 import { IconEdit } from "@/app/portal/PortalIcons";
 import { formatSavedTime } from "@/lib/formatSavedTime";
-import { portalWidgetUsesFilledSurface, toneForPortalWidget } from "@/lib/portalWidgetTones";
-import {
-  buildDashboardLayout,
-  dashboardLayoutPresetForWidget,
-  type DashboardLayoutItem as SharedDashboardLayoutItem,
-  type DashboardWidgetId,
-} from "@/lib/portalDashboardLayout";
-import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
+import { buildDashboardLayout, type DashboardLayoutItem as SharedDashboardLayoutItem, type DashboardWidgetId } from "@/lib/portalDashboardLayout";
+import { reportPortalActionFailure } from "@/lib/portalDiagnostics.client";
+import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
 
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
 import type { Layout, LayoutItem, ResponsiveLayouts } from "react-grid-layout";
@@ -37,22 +32,19 @@ function activeDashboardBreakpoint(width: number): DashboardBreakpointKey {
 }
 
 const dashboardPrimaryButtonClass =
-  "inline-flex items-center justify-center rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-xs font-semibold text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)]";
+  "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95";
 
 const dashboardSecondaryButtonClass =
-  "inline-flex items-center justify-center rounded-2xl bg-[rgba(15,23,42,0.06)] px-4 py-2 text-xs font-semibold text-brand-ink shadow-[0_8px_24px_rgba(15,23,42,0.06)] transition-colors duration-150 hover:bg-[rgba(15,23,42,0.10)]";
+  "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink transition-colors duration-100 hover:border-zinc-300 hover:bg-zinc-50";
 
 const dashboardEditPrimaryButtonClass =
-  "rounded-2xl bg-[rgba(29,78,216,0.12)] px-4 py-2 text-sm font-semibold text-brand-blue shadow-[0_8px_24px_rgba(29,78,216,0.14)] transition-colors duration-150 hover:bg-[rgba(29,78,216,0.18)] disabled:opacity-60";
+  "rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-colors duration-150 hover:bg-slate-600 disabled:opacity-60";
 
 const dashboardEditSecondaryButtonClass =
   "rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 transition-colors duration-150 hover:bg-zinc-50 disabled:opacity-60";
 
-const dashboardEditCancelButtonClass =
-  "rounded-2xl bg-amber-100 px-4 py-2 text-sm font-semibold text-amber-800 shadow-[0_8px_24px_rgba(245,158,11,0.12)] transition-colors duration-150 hover:bg-amber-200 disabled:opacity-60";
-
 const dashboardEditResetButtonClass =
-  "rounded-2xl bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 shadow-[0_8px_24px_rgba(244,63,94,0.12)] transition-colors duration-150 hover:bg-rose-100 disabled:opacity-60";
+  "rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors duration-150 hover:bg-rose-100 disabled:opacity-60";
 
 const dashboardSuggestionButtonClass =
   "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-colors duration-150 hover:bg-slate-600 disabled:opacity-60";
@@ -82,6 +74,15 @@ type ReportingPayload = {
   startIso: string;
   endIso: string;
   creditsRemaining: number;
+  diagnostics: {
+    actionFailures: number;
+    runtimeErrors: number;
+    unhandledRejections: number;
+    resourceErrors: number;
+    manualBugReports: number;
+    topPaths: Array<{ path: string; count: number }>;
+    topMessages: Array<{ kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure"; message: string; count: number }>;
+  };
   kpis: {
     automationsRun: number;
     aiCalls: number;
@@ -180,201 +181,49 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-type DashboardPendingLink = {
-  label: string;
-  href: string;
-};
-
-function DashboardPendingState({
-  title,
-  body,
-  links,
-}: {
-  title: string;
-  body: string;
-  links: DashboardPendingLink[];
-}) {
-  return (
-    <div className="rounded-[28px] border border-zinc-200 bg-white p-6 text-sm text-zinc-600 shadow-[0_18px_48px_rgba(15,23,42,0.08)]">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="max-w-2xl">
-          <div className="text-sm font-semibold text-brand-ink">{title}</div>
-          <p className="mt-2 text-sm leading-6 text-zinc-600">{body}</p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {links.map((link) => (
-              <Link key={link.href} href={link.href} className={dashboardSecondaryButtonClass}>
-                {link.label}
-              </Link>
-            ))}
-          </div>
-        </div>
-        <div className="grid min-w-55 gap-3 rounded-3xl bg-zinc-50 p-4 text-xs text-zinc-500">
-          <div>
-            <div className="font-semibold uppercase tracking-[0.18em] text-zinc-400">What belongs here</div>
-            <div className="mt-2 text-sm text-zinc-600">Your daily widgets, shortcuts, reporting summaries, and Pura attention items load here once the dashboard finishes hydrating.</div>
-          </div>
-          <div>
-            <div className="font-semibold uppercase tracking-[0.18em] text-zinc-400">Best next step</div>
-            <div className="mt-2 text-sm text-zinc-600">If you are just getting started, open services or billing first, then come back here when you want the at-a-glance control center.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function accentForWidget(id: string) {
-  if (id === "perfAiReceptionist") {
-    return {
-      card: "bg-white",
-      ring: "shadow-[0_18px_40px_rgba(29,78,216,0.10)] ring-1 ring-[color:rgba(29,78,216,0.14)]",
-    };
-  }
-  if (id === "perfLeadScraping") {
-    return {
-      card: "bg-white",
-      ring: "shadow-[0_18px_40px_rgba(34,197,94,0.10)] ring-1 ring-[color:rgba(34,197,94,0.14)]",
-    };
-  }
-  if (id === "perfReviews") {
-    return {
-      card: "bg-white",
-      ring: "shadow-[0_18px_40px_rgba(147,51,234,0.10)] ring-1 ring-[color:rgba(147,51,234,0.14)]",
-    };
-  }
-  if (id === "perfMissedCallTextBack") {
-    return {
-      card: "bg-white",
-      ring: "shadow-[0_18px_40px_rgba(244,63,94,0.10)] ring-1 ring-[color:rgba(244,63,94,0.14)]",
-    };
-  }
-  if (id === "failures") {
-    return {
-      card: "bg-[linear-gradient(180deg,rgba(255,241,242,0.98),rgba(255,228,230,0.94))]",
-      ring: "shadow-[0_20px_50px_rgba(244,63,94,0.12)] ring-1 ring-[color:rgba(244,63,94,0.14)]",
-    };
-  }
-
-  const tone = toneForPortalWidget(id);
-  const filled = portalWidgetUsesFilledSurface(tone);
-
-  if (filled) {
-    switch (tone) {
-      case "blue":
-        return {
-          card: "bg-[linear-gradient(180deg,rgba(239,246,255,0.98),rgba(219,234,254,0.94))]",
-          ring: "shadow-[0_20px_50px_rgba(29,78,216,0.12)] ring-1 ring-[color:rgba(29,78,216,0.14)]",
-        };
-      case "emerald":
-        return {
-          card: "bg-[linear-gradient(180deg,rgba(240,253,244,0.98),rgba(220,252,231,0.94))]",
-          ring: "shadow-[0_20px_50px_rgba(34,197,94,0.12)] ring-1 ring-[color:rgba(34,197,94,0.14)]",
-        };
-      case "violet":
-        return {
-          card: "bg-[linear-gradient(180deg,rgba(250,245,255,0.98),rgba(243,232,255,0.94))]",
-          ring: "shadow-[0_20px_50px_rgba(147,51,234,0.13)] ring-1 ring-[color:rgba(147,51,234,0.14)]",
-        };
-      case "amber":
-        return {
-          card: "bg-[linear-gradient(180deg,rgba(255,251,235,0.98),rgba(254,243,199,0.94))]",
-          ring: "shadow-[0_20px_50px_rgba(245,158,11,0.14)] ring-1 ring-[color:rgba(245,158,11,0.16)]",
-        };
-    }
-  }
-
   switch (id) {
-    case "billing":
-      return {
-        card: "bg-[linear-gradient(180deg,rgba(239,246,255,0.98),rgba(224,242,254,0.94))]",
-        ring: "shadow-[0_20px_50px_rgba(14,165,233,0.12)] ring-1 ring-[color:rgba(14,165,233,0.14)]",
-      };
-    case "services":
-      return {
-        card: "bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.98))]",
-        ring: "shadow-[0_18px_40px_rgba(15,23,42,0.06)] ring-1 ring-[color:rgba(34,197,94,0.10)]",
-      };
     case "puraAttention":
       return {
-        card: "bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.98))]",
-        ring: "shadow-[0_18px_40px_rgba(15,23,42,0.06)] ring-1 ring-[color:rgba(51,65,85,0.1)]",
+        bar: "bg-[linear-gradient(90deg,rgba(51,65,85,0.95),rgba(29,78,216,0.32))]",
+        ring: "ring-1 ring-[color:rgba(51,65,85,0.16)]",
       };
     case "activityPulse":
       return {
-        card: "bg-white",
-        ring: "shadow-[0_18px_40px_rgba(29,78,216,0.08)] ring-1 ring-[color:rgba(29,78,216,0.12)]",
+        bar: "bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.3))]",
+        ring: "ring-1 ring-[color:rgba(29,78,216,0.16)]",
+      };
+    case "creditsRemaining":
+    case "aiCalls":
+    case "bookingsCreated":
+    case "stripeSales":
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(29,78,216,0.25))]",
+        ring: "ring-1 ring-[color:rgba(29,78,216,0.18)]",
+      };
+    case "creditsUsed":
+    case "blogCreditsUsed":
+    case "missedCalls":
+    case "reviewsCollected":
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(251,113,133,0.9),rgba(251,113,133,0.22))]",
+        ring: "ring-1 ring-[color:rgba(251,113,133,0.18)]",
+      };
+    case "blogGenerations":
+    case "automationsRun":
+    case "leadScrapeRuns":
+    case "leadsCreated":
+    case "contactsCreated":
+      return {
+        bar: "bg-[linear-gradient(90deg,rgba(51,65,85,0.95),rgba(51,65,85,0.25))]",
+        ring: "ring-1 ring-[color:rgba(51,65,85,0.16)]",
       };
     default:
       return {
-        card: "bg-white",
-        ring: "shadow-sm ring-1 ring-[color:rgba(148,163,184,0.22)]",
+        bar: "bg-[linear-gradient(90deg,rgba(29,78,216,0.55),rgba(251,113,133,0.18))]",
+        ring: "ring-1 ring-[color:rgba(148,163,184,0.22)]",
       };
   }
-}
-
-function defaultDashboardDataForVariant(variant: "portal" | "credit"): DashboardPayload["data"] {
-  const widgetIds: DashboardWidgetId[] =
-    variant === "credit"
-      ? ["hoursSaved", "creditsRemaining", "puraAttention", "activityPulse", "billing", "services"]
-      : [
-          "hoursSaved",
-          "puraAttention",
-          "activityPulse",
-          "billing",
-          "stripeSales",
-          "creditsRunway",
-          "successRate",
-          "reliabilitySummary",
-          "dailyActivity",
-          "services",
-        ];
-
-  return {
-    version: 1,
-    widgets: widgetIds.map((id) => ({ id })),
-    layout: buildDashboardLayout(widgetIds),
-  };
-}
-
-function defaultMeResponseForVariant(variant: "portal" | "credit"): MeResponse {
-  return {
-    user: {
-      email: "",
-      name: variant === "credit" ? "Credit client" : "Portal client",
-      role: "CLIENT",
-    },
-    entitlements: {
-      blog: false,
-      booking: false,
-      crm: false,
-      leadOutbound: false,
-    },
-    metrics: {
-      hoursSavedThisWeek: 0,
-      hoursSavedAllTime: 0,
-    },
-    billing: {
-      configured: false,
-    },
-  };
-}
-
-function normalizeDashboardBaseLayout(items: SharedDashboardLayoutItem[]): LayoutItem[] {
-  return items.map((item) => {
-    const preset = dashboardLayoutPresetForWidget(item.i);
-    const minW = Math.max(typeof item.minW === "number" ? item.minW : 1, preset.minW ?? 1);
-    const minH = Math.max(typeof item.minH === "number" ? item.minH : 1, preset.minH ?? 1);
-
-    return {
-      i: item.i,
-      x: item.x,
-      y: item.y,
-      w: Math.max(item.w, minW),
-      h: Math.max(item.h, minH),
-      minW,
-      minH,
-    };
-  });
 }
 
 function AccentCard({
@@ -392,16 +241,16 @@ function AccentCard({
   return (
     <div
       className={classNames(
-        "flex h-full min-w-0 flex-col overflow-visible rounded-3xl border border-zinc-200 p-6",
-        a.card,
+        "flex h-full min-w-0 flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm",
         a.ring,
       )}
     >
+      <div className={classNames("mb-4 h-1.5 w-14 rounded-full", a.bar)} />
       <div className="flex items-start justify-between gap-3">
         <div className="text-sm font-semibold text-zinc-900">{title}</div>
         {showHandle ? <div className="drag-handle cursor-grab select-none text-zinc-400">⋮⋮</div> : null}
       </div>
-      <div className="mt-3 flex-1 text-sm text-zinc-700">{children}</div>
+      <div className="pa-portal-scroll mt-3 min-h-0 flex-1 overflow-x-hidden overflow-y-auto pr-1 text-sm text-zinc-700">{children}</div>
     </div>
   );
 }
@@ -488,34 +337,85 @@ function StatLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function dashboardPerfPanelClass(tone: "blue" | "pink" | "emerald" | "violet") {
-  switch (tone) {
-    case "blue":
-      return "bg-[rgba(219,234,254,0.76)]";
-    case "pink":
-      return "bg-[rgba(255,228,230,0.72)]";
-    case "emerald":
-      return "bg-[rgba(220,252,231,0.78)]";
-    case "violet":
-      return "bg-[rgba(243,232,255,0.8)]";
-  }
-}
+const PREVIEW_WIDGET_IDS: DashboardWidgetId[] = ["hoursSaved", "puraAttention", "activityPulse", "billing", "dailyActivity", "services"];
 
-function PerfMetricTile({ label, value, tone }: { label: string; value: string; tone: "blue" | "pink" | "emerald" | "violet" }) {
-  return (
-    <div className={classNames("rounded-2xl p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]", dashboardPerfPanelClass(tone))}>
-      <div className="text-[11px] font-semibold text-zinc-600">{label}</div>
-      <div className="mt-1 text-sm font-bold text-brand-ink">{value}</div>
-    </div>
-  );
-}
+const PREVIEW_DASHBOARD_DATA: DashboardPayload["data"] = {
+  version: 1,
+  widgets: PREVIEW_WIDGET_IDS.map((id) => ({ id })),
+  layout: buildDashboardLayout(PREVIEW_WIDGET_IDS),
+};
+
+const PREVIEW_ME_RESPONSE: MeResponse = {
+  user: { email: "preview@purelyautomation.dev", name: "Local Preview", role: "CLIENT" },
+  entitlements: { blog: true, booking: true, crm: true, leadOutbound: true },
+  metrics: { hoursSavedThisWeek: 18.5, hoursSavedAllTime: 143.25 },
+  billing: { configured: true },
+};
+
+const PREVIEW_REPORTING: ReportingPayload = {
+  ok: true,
+  startIso: "2026-03-14T00:00:00.000Z",
+  endIso: "2026-04-13T00:00:00.000Z",
+  creditsRemaining: 1240,
+  diagnostics: {
+    actionFailures: 4,
+    runtimeErrors: 2,
+    unhandledRejections: 1,
+    resourceErrors: 3,
+    manualBugReports: 2,
+    topPaths: [{ path: "/portal/app/services/funnel-builder", count: 5 }],
+    topMessages: [{ kind: "action_failure", message: "Unable to save dashboard", count: 2 }],
+  },
+  kpis: {
+    automationsRun: 412,
+    aiCalls: 87,
+    aiCompleted: 79,
+    aiFailed: 8,
+    missedCallAttempts: 31,
+    missedCalls: 19,
+    textsSent: 64,
+    textsFailed: 3,
+    leadScrapeRuns: 14,
+    leadScrapeChargedCredits: 220,
+    leadScrapeRefundedCredits: 18,
+    blogGenerations: 9,
+    blogCreditsUsed: 135,
+    creditsUsed: 386,
+    bookingsCreated: 22,
+    reviewsCollected: 17,
+    avgReviewRating: 4.8,
+    leadsCreated: 146,
+    contactsCreated: 91,
+    aiOutboundQueuedNow: 4,
+    aiOutboundCompleted: 38,
+    aiOutboundFailed: 2,
+    nurtureEnrollmentsCreated: 41,
+    nurtureEnrollmentsActiveNow: 28,
+    nurtureEnrollmentsCompleted: 11,
+    newsletterSendEvents: 6,
+    newsletterSentCount: 1920,
+    newsletterFailedCount: 12,
+    tasksOpenNow: 7,
+    tasksCompleted: 53,
+    inboxMessagesIn: 284,
+    inboxMessagesOut: 247,
+  },
+  daily: [
+    { day: "Mar 31", aiCalls: 4, missedCalls: 1, leadScrapeRuns: 1, bookings: 1, reviews: 0, creditsUsed: 16 },
+    { day: "Apr 03", aiCalls: 7, missedCalls: 2, leadScrapeRuns: 2, bookings: 2, reviews: 1, creditsUsed: 29 },
+    { day: "Apr 07", aiCalls: 6, missedCalls: 3, leadScrapeRuns: 1, bookings: 3, reviews: 2, creditsUsed: 25 },
+    { day: "Apr 10", aiCalls: 9, missedCalls: 2, leadScrapeRuns: 3, bookings: 4, reviews: 2, creditsUsed: 38 },
+    { day: "Apr 13", aiCalls: 5, missedCalls: 1, leadScrapeRuns: 1, bookings: 2, reviews: 1, creditsUsed: 19 },
+  ],
+};
+
+const PREVIEW_MEDIA_STATS: MediaStatsPayload = { ok: true, itemsCount: 44, foldersCount: 3 };
 
 export function PortalDashboardClient() {
   const pathname = usePathname() || "";
   const toast = useToast();
+  const uiPreview = usePortalUiPreview();
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
-  const portalVariant = portalBase === "/credit" ? "credit" : "portal";
-  const variantHeaders = useMemo(() => ({ [PORTAL_VARIANT_HEADER]: portalVariant }), [portalVariant]);
   const [data, setData] = useState<MeResponse | null>(null);
   const [reporting, setReporting] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
@@ -525,15 +425,6 @@ export function PortalDashboardClient() {
   const [salesError, setSalesError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const dashboardPendingLinks = useMemo(
-    () => [
-      { label: "Open services", href: `${portalBase}/app/services` },
-      { label: "Review billing", href: `${portalBase}/app/billing` },
-      { label: "Open sales dashboard", href: `${portalBase}/app/services/reporting/sales` },
-      { label: "Check inbox", href: `${portalBase}/app/services/inbox` },
-    ],
-    [portalBase],
-  );
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -548,11 +439,6 @@ export function PortalDashboardClient() {
 
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
-
-  const applyDashboardData = (nextData: DashboardPayload["data"]) => {
-    setDashboard(nextData);
-    setLayouts(makeResponsiveLayouts(normalizeDashboardBaseLayout(nextData.layout ?? [])));
-  };
 
   useEffect(() => {
     const el = containerEl;
@@ -587,6 +473,25 @@ export function PortalDashboardClient() {
       setLoading(true);
       setError(null);
 
+      if (uiPreview) {
+        setData(PREVIEW_ME_RESPONSE);
+        setReporting(PREVIEW_REPORTING);
+        setMediaStats(PREVIEW_MEDIA_STATS);
+        setDashboard(PREVIEW_DASHBOARD_DATA);
+        const base: LayoutItem[] = PREVIEW_DASHBOARD_DATA.layout.map((l) => ({
+          i: l.i,
+          x: l.x,
+          y: l.y,
+          w: l.w,
+          h: l.h,
+          ...(typeof l.minW === "number" ? { minW: l.minW } : {}),
+          ...(typeof l.minH === "number" ? { minH: l.minH } : {}),
+        }));
+        setLayouts(makeResponsiveLayouts(base));
+        setLoading(false);
+        return;
+      }
+
       const dashboardScope = (() => {
         if (typeof window === "undefined") return "default" as const;
         try {
@@ -603,42 +508,17 @@ export function PortalDashboardClient() {
         return "default" as const;
       })();
 
-      const meController = new AbortController();
-      const dashController = new AbortController();
-      const meTimeout = window.setTimeout(() => meController.abort(), 45000);
-      const dashTimeout = window.setTimeout(() => dashController.abort(), 18000);
+      const requiredController = new AbortController();
+      const requiredTimeout = window.setTimeout(() => requiredController.abort(), 60000);
 
-      const refreshDashboardLayout = async () => {
-        const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, {
-          cache: "no-store",
-          headers: variantHeaders,
-        }).catch(() => null as any);
-
-        if (!mounted || !res?.ok) return;
-
-        const body = (await res.json().catch(() => null)) as DashboardPayload | null;
-        if (body?.ok && body.data) applyDashboardData(body.data);
-      };
-
-      const refreshMeData = async () => {
-        const res = await fetch("/api/customer/me", {
-          cache: "no-store",
-          headers: { "x-pa-app": "portal", ...variantHeaders },
-        }).catch(() => null as any);
-
-        if (!mounted || !res?.ok) return;
-
-        const body = (await res.json().catch(() => null)) as MeResponse | null;
-        if (body) setData(body);
-      };
-
-      const loadOptionalData = async () => {
+      const loadOptionalData = async (variant: "portal" | "credit") => {
         const optionalController = new AbortController();
         const optionalTimeout = window.setTimeout(() => optionalController.abort(), 15000);
+
         try {
           const [repRes, statsRes] = await Promise.all([
-            fetch("/api/portal/reporting?range=30d", { cache: "no-store", signal: optionalController.signal, headers: variantHeaders }).catch(() => null as any),
-            fetch("/api/portal/media/stats", { cache: "no-store", signal: optionalController.signal, headers: variantHeaders }).catch(() => null as any),
+            fetch("/api/portal/reporting?range=30d", { cache: "no-store", signal: optionalController.signal }).catch(() => null as any),
+            fetch("/api/portal/media/stats", { cache: "no-store", signal: optionalController.signal }).catch(() => null as any),
           ]);
 
           if (!mounted) return;
@@ -646,6 +526,14 @@ export function PortalDashboardClient() {
           if (repRes?.ok) {
             const rep = (await repRes.json().catch(() => null)) as ReportingPayload | null;
             if (rep?.ok) setReporting(rep);
+          } else if (repRes) {
+            reportPortalActionFailure({
+              area: "dashboard",
+              action: "load_reporting",
+              status: repRes.status,
+              message: "Unable to load reporting",
+              source: "portal_dashboard",
+            });
           }
 
           if (statsRes?.ok) {
@@ -658,71 +546,76 @@ export function PortalDashboardClient() {
       };
 
       try {
+        const variant = pathname.startsWith("/credit") ? "credit" : "portal";
         const [meRes, dashRes] = await Promise.all([
           fetch("/api/customer/me", {
             cache: "no-store",
-            signal: meController.signal,
-            headers: { "x-pa-app": "portal", ...variantHeaders },
-          }).catch(() => null as any),
-          fetch(`/api/portal/dashboard?scope=${dashboardScope}`, {
+            signal: requiredController.signal,
+            headers: { "x-pa-app": "portal", "x-portal-variant": variant },
+          }),
+          fetch(`/api/portal/dashboard?scope=${dashboardScope}` , {
             cache: "no-store",
-            signal: dashController.signal,
-            headers: variantHeaders,
-          }).catch(() => null as any),
+            signal: requiredController.signal,
+            headers: { "x-portal-variant": variant },
+          }),
         ]);
 
         if (!mounted) return;
 
-        if (!meRes?.ok) {
-          if (meRes?.status === 401 || meRes?.status === 403) {
-            const body = await meRes.json().catch(() => ({}));
-            setError(body?.error ?? "Unable to load dashboard");
-            return;
-          }
-
-          setData(defaultMeResponseForVariant(portalVariant));
-          void refreshMeData();
-        } else {
-          setData((await meRes.json()) as MeResponse);
+        if (!meRes.ok) {
+          const body = await meRes.json().catch(() => ({}));
+          const message = body?.error ?? "Unable to load dashboard";
+          reportPortalActionFailure({ area: "dashboard", action: "load_me", status: meRes.status, message, source: "portal_dashboard" });
+          setError(message);
+          return;
         }
 
-        if (!dashRes?.ok) {
-          applyDashboardData(defaultDashboardDataForVariant(portalVariant));
-          void refreshDashboardLayout();
-        } else {
-          const body = (await dashRes.json().catch(() => null)) as DashboardPayload | null;
-          if (body?.ok && body.data) {
-            applyDashboardData(body.data);
-          } else {
-            applyDashboardData(defaultDashboardDataForVariant(portalVariant));
-            void refreshDashboardLayout();
-          }
+        setData((await meRes.json()) as MeResponse);
+
+        if (!dashRes.ok) {
+          const body = await dashRes.json().catch(() => ({}));
+          const message = body?.error ?? "Unable to load dashboard layout";
+          reportPortalActionFailure({ area: "dashboard", action: "load_layout", status: dashRes.status, message, source: "portal_dashboard" });
+          setError(message);
+          return;
         }
 
-        void loadOptionalData();
-      } catch (errorCaught) {
+        const body = (await dashRes.json().catch(() => null)) as DashboardPayload | null;
+        if (body?.ok && body.data) {
+          setDashboard(body.data);
+
+          const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({
+            i: l.i,
+            x: l.x,
+            y: l.y,
+            w: l.w,
+            h: l.h,
+            ...(typeof l.minW === "number" ? { minW: l.minW } : {}),
+            ...(typeof l.minH === "number" ? { minH: l.minH } : {}),
+          }));
+
+          setLayouts(makeResponsiveLayouts(base));
+        }
+
+        void loadOptionalData(variant);
+      } catch (err) {
         if (!mounted) return;
-        if (errorCaught instanceof DOMException && errorCaught.name === "AbortError") {
-          setData(defaultMeResponseForVariant(portalVariant));
-          applyDashboardData(defaultDashboardDataForVariant(portalVariant));
-          void refreshDashboardLayout();
-          void refreshMeData();
+        if (err instanceof DOMException && err.name === "AbortError") {
+          reportPortalActionFailure({ area: "dashboard", action: "load", message: "Dashboard data is taking too long to load. Please wait a moment and try again.", source: "portal_dashboard", meta: { timedOut: true } });
+          setError("Dashboard data is taking too long to load. Please wait a moment and try again.");
         } else {
-          setData(defaultMeResponseForVariant(portalVariant));
-          applyDashboardData(defaultDashboardDataForVariant(portalVariant));
-          void refreshDashboardLayout();
-          void refreshMeData();
+          reportPortalActionFailure({ area: "dashboard", action: "load", message: "Unable to load dashboard", source: "portal_dashboard" });
+          setError("Unable to load dashboard");
         }
       } finally {
-        window.clearTimeout(meTimeout);
-        window.clearTimeout(dashTimeout);
+        window.clearTimeout(requiredTimeout);
         if (mounted) setLoading(false);
       }
     })();
     return () => {
       mounted = false;
     };
-  }, [pathname, portalVariant, variantHeaders]);
+  }, [pathname, uiPreview]);
 
   const modules = useMemo(
     () =>
@@ -746,16 +639,31 @@ export function PortalDashboardClient() {
   );
 
   useEffect(() => {
+    if (uiPreview) {
+      setSalesStatus({
+        ok: true,
+        encryptionConfigured: true,
+        activeProvider: null,
+        providers: {},
+        stripe: { configured: false, prefix: null, accountId: null, connectedAtIso: null },
+        note: "Preview mode: sales reporting is mocked locally.",
+      });
+      setSalesReport(null);
+      setSalesError(null);
+      return;
+    }
+
     if (!hasStripeSalesWidget) return;
 
     let mounted = true;
     (async () => {
       setSalesError(null);
 
-      const statusRes = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
+      const statusRes = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any);
       if (!mounted) return;
 
       if (!statusRes?.ok) {
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales_status", message: "Unable to load sales status", status: statusRes?.status, source: "portal_dashboard" });
         setSalesError("Unable to load sales status");
         return;
       }
@@ -766,6 +674,7 @@ export function PortalDashboardClient() {
       if (!statusBody?.ok) {
         setSalesStatus(null);
         setSalesReport(null);
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales_status", message: statusBody?.error ?? "Unable to load sales status", source: "portal_dashboard" });
         setSalesError(statusBody?.error ?? "Unable to load sales status");
         return;
       }
@@ -780,12 +689,13 @@ export function PortalDashboardClient() {
         return;
       }
 
-      const salesRes = await fetch("/api/portal/reporting/sales?range=30d", { cache: "no-store", headers: variantHeaders }).catch(() => null as any);
+      const salesRes = await fetch("/api/portal/reporting/sales?range=30d", { cache: "no-store" }).catch(() => null as any);
       if (!mounted) return;
 
       if (!salesRes?.ok) {
         const errBody = (await salesRes?.json().catch(() => ({}))) as { error?: string };
         setSalesReport(null);
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales", message: errBody?.error ?? "Unable to load sales", status: salesRes?.status, source: "portal_dashboard" });
         setSalesError(errBody?.error ?? "Unable to load sales");
         return;
       }
@@ -795,6 +705,7 @@ export function PortalDashboardClient() {
 
       if (!salesBody?.ok) {
         setSalesReport(null);
+        reportPortalActionFailure({ area: "dashboard", action: "load_sales", message: salesBody?.error ?? "Unable to load sales", source: "portal_dashboard" });
         setSalesError(salesBody?.error ?? "Unable to load sales");
         return;
       }
@@ -805,7 +716,7 @@ export function PortalDashboardClient() {
     return () => {
       mounted = false;
     };
-  }, [hasStripeSalesWidget, pathname, variantHeaders]);
+  }, [hasStripeSalesWidget, pathname, uiPreview]);
 
   async function manageBilling() {
     if (!data?.billing?.configured) {
@@ -820,7 +731,9 @@ export function PortalDashboardClient() {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      setError(body?.error ?? "Unable to open billing portal");
+      const message = body?.error ?? "Unable to open billing portal";
+      reportPortalActionFailure({ area: "dashboard", action: "open_billing_portal", status: res.status, message, source: "portal_dashboard" });
+      setError(message);
       return;
     }
     const json = (await res.json()) as { url: string };
@@ -840,7 +753,9 @@ export function PortalDashboardClient() {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      setError(body?.error ?? "Unable to start checkout");
+      const message = body?.error ?? "Unable to start checkout";
+      reportPortalActionFailure({ area: "dashboard", action: `upgrade_${module}`, status: res.status, message, source: "portal_dashboard", meta: { module } });
+      setError(message);
       return;
     }
     const json = (await res.json()) as { url: string };
@@ -849,29 +764,23 @@ export function PortalDashboardClient() {
 
   if (loading) {
     return (
-      <DashboardPendingState
-        title="Loading your dashboard"
-        body="We are pulling together your shortcuts, reporting summaries, and recent activity. You do not need to wait on an empty card to keep working."
-        links={dashboardPendingLinks}
-      />
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
+        Loading…
+      </div>
     );
   }
 
   if (error) {
     return (
-      <DashboardPendingState
-        title="Dashboard is not ready yet"
-        body={`${error} You can still move through services, billing, sales reporting, or inbox while the dashboard catches up.`}
-        links={dashboardPendingLinks}
-      />
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-700">
+        {error}
+      </div>
     );
   }
 
   if (!data) return null;
 
   const me = data;
-
-  const widgetIds: DashboardWidgetId[] = (dashboard?.widgets ?? []).map((w) => w.id);
   const k = reporting?.kpis;
   const derived = (() => {
     if (!reporting?.kpis || !reporting) {
@@ -888,6 +797,12 @@ export function PortalDashboardClient() {
 
     const successes = (reporting.kpis.aiCompleted ?? 0) + (reporting.kpis.textsSent ?? 0);
     const failures = (reporting.kpis.aiFailed ?? 0) + (reporting.kpis.textsFailed ?? 0);
+    const appFailures =
+      (reporting.diagnostics?.actionFailures ?? 0) +
+      (reporting.diagnostics?.runtimeErrors ?? 0) +
+      (reporting.diagnostics?.unhandledRejections ?? 0) +
+      (reporting.diagnostics?.resourceErrors ?? 0) +
+      (reporting.diagnostics?.manualBugReports ?? 0);
     const overall = successes + failures > 0 ? successes / (successes + failures) : null;
 
     const aiDen = (reporting.kpis.aiCompleted ?? 0) + (reporting.kpis.aiFailed ?? 0);
@@ -906,7 +821,9 @@ export function PortalDashboardClient() {
 
     return {
       overallSuccessRate: overall,
-      totalFailures: failures,
+      totalFailures: failures + appFailures,
+      automationFailures: failures,
+      appFailures,
       aiSuccessRate: aiRate,
       textSuccessRate: txtRate,
       missedCaptureRate: missedRate,
@@ -915,6 +832,8 @@ export function PortalDashboardClient() {
     };
   })();
 
+  const widgetIds: DashboardWidgetId[] = (dashboard?.widgets ?? []).map((w) => w.id);
+
   const dashboardAttentionItems = (() => {
     const items: Array<{ label: string; value: string; href: string; tone: "danger" | "warning" | "neutral" }> = [];
 
@@ -922,6 +841,15 @@ export function PortalDashboardClient() {
       items.push({
         label: "Failures to review",
         value: `${derived.totalFailures.toLocaleString()} flagged`,
+        href: `${portalBase}/app/services/reporting`,
+        tone: "danger",
+      });
+    }
+
+    if ((reporting?.diagnostics?.actionFailures ?? 0) > 0) {
+      items.unshift({
+        label: "Portal action failures",
+        value: `${compactNum(reporting?.diagnostics?.actionFailures ?? 0)} recorded`,
         href: `${portalBase}/app/services/reporting`,
         tone: "danger",
       });
@@ -1064,6 +992,31 @@ export function PortalDashboardClient() {
     if (!dashboard) return;
     setSavingLayout(true);
 
+    if (uiPreview) {
+      const bp = activeDashboardBreakpoint(width);
+      const chosen: Layout = Array.isArray((nextLayouts as any)?.[bp])
+        ? (((nextLayouts as any)[bp]) as Layout)
+        : Array.isArray((nextLayouts as any)?.lg)
+          ? (((nextLayouts as any).lg) as Layout)
+          : [];
+      const nextData = {
+        ...dashboard,
+        layout: chosen.map((l: LayoutItem) => ({
+          i: l.i as DashboardWidgetId,
+          x: l.x,
+          y: l.y,
+          w: l.w,
+          h: l.h,
+          ...(typeof l.minW === "number" ? { minW: l.minW } : {}),
+          ...(typeof l.minH === "number" ? { minH: l.minH } : {}),
+        })),
+      };
+      setDashboard(nextData);
+      setLayouts(nextLayouts);
+      setSavingLayout(false);
+      return true;
+    }
+
     const dashboardScope = (() => {
       if (typeof window === "undefined") return "default" as const;
       try {
@@ -1107,7 +1060,17 @@ export function PortalDashboardClient() {
     });
     const body = (await res.json().catch(() => ({}))) as DashboardPayload;
     if (res.ok && body?.ok && body.data) {
-      applyDashboardData(body.data);
+      setDashboard(body.data);
+      const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({
+        i: l.i,
+        x: l.x,
+        y: l.y,
+        w: l.w,
+        h: l.h,
+        ...(typeof l.minW === "number" ? { minW: l.minW } : {}),
+        ...(typeof l.minH === "number" ? { minH: l.minH } : {}),
+      }));
+      setLayouts(makeResponsiveLayouts(base));
       setSavingLayout(false);
       return true;
     }
@@ -1162,6 +1125,19 @@ export function PortalDashboardClient() {
   }
 
   async function removeWidget(id: DashboardWidgetId) {
+    if (uiPreview) {
+      if (!dashboard) return;
+      const nextData = {
+        ...dashboard,
+        widgets: dashboard.widgets.filter((widget) => widget.id !== id),
+        layout: dashboard.layout.filter((item) => item.i !== id),
+      };
+      setDashboard(nextData);
+      const base: LayoutItem[] = nextData.layout.map((l) => ({ i: l.i, x: l.x, y: l.y, w: l.w, h: l.h }));
+      setLayouts(makeResponsiveLayouts(base));
+      return;
+    }
+
     const dashboardScope = (() => {
       if (typeof window === "undefined") return "default" as const;
       try {
@@ -1185,39 +1161,34 @@ export function PortalDashboardClient() {
     });
     const body = (await res.json().catch(() => null)) as DashboardPayload | null;
     if (res.ok && body?.ok && body.data) {
-      applyDashboardData(body.data);
-    }
-  }
-
-  async function resetDashboard() {
-    const dashboardScope = (() => {
-      if (typeof window === "undefined") return "default" as const;
-      try {
-        const sp = new URLSearchParams(window.location.search);
-        if (sp.get("embed") === "1" || sp.get("pa_embed") === "1") return "embedded" as const;
-      } catch {
-        // ignore
-      }
-      try {
-        if (window.sessionStorage.getItem("pa.portal.embed") === "1") return "embedded" as const;
-      } catch {
-        // ignore
-      }
-      return "default" as const;
-    })();
-
-    const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "reset" }),
-    });
-    const body = (await res.json().catch(() => null)) as DashboardPayload | null;
-    if (res.ok && body?.ok && body.data) {
-      applyDashboardData(body.data);
+      setDashboard(body.data);
+      const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({
+        i: l.i,
+        x: l.x,
+        y: l.y,
+        w: l.w,
+        h: l.h,
+        ...(typeof (l as any).minW === "number" ? { minW: (l as any).minW } : {}),
+        ...(typeof (l as any).minH === "number" ? { minH: (l as any).minH } : {}),
+      }));
+      setLayouts(makeResponsiveLayouts(base));
     }
   }
 
   async function addWidget(id: DashboardWidgetId) {
+    if (uiPreview) {
+      if (!dashboard || dashboard.widgets.some((widget) => widget.id === id)) return;
+      const nextData = {
+        ...dashboard,
+        widgets: [...dashboard.widgets, { id }],
+        layout: buildDashboardLayout([...dashboard.widgets.map((widget) => widget.id), id]),
+      };
+      setDashboard(nextData);
+      const base: LayoutItem[] = nextData.layout.map((l) => ({ i: l.i, x: l.x, y: l.y, w: l.w, h: l.h, ...(typeof l.minW === "number" ? { minW: l.minW } : {}), ...(typeof l.minH === "number" ? { minH: l.minH } : {}) }));
+      setLayouts(makeResponsiveLayouts(base));
+      return;
+    }
+
     const dashboardScope = (() => {
       if (typeof window === "undefined") return "default" as const;
       try {
@@ -1241,7 +1212,62 @@ export function PortalDashboardClient() {
     });
     const body = (await res.json().catch(() => null)) as DashboardPayload | null;
     if (res.ok && body?.ok && body.data) {
-      applyDashboardData(body.data);
+      setDashboard(body.data);
+      const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({
+        i: l.i,
+        x: l.x,
+        y: l.y,
+        w: l.w,
+        h: l.h,
+        ...(typeof l.minW === "number" ? { minW: l.minW } : {}),
+        ...(typeof l.minH === "number" ? { minH: l.minH } : {}),
+      }));
+      setLayouts(makeResponsiveLayouts(base));
+    }
+  }
+
+  async function resetDashboard() {
+    if (uiPreview) {
+      setDashboard(PREVIEW_DASHBOARD_DATA);
+      const base: LayoutItem[] = PREVIEW_DASHBOARD_DATA.layout.map((l) => ({ i: l.i, x: l.x, y: l.y, w: l.w, h: l.h }));
+      setLayouts(makeResponsiveLayouts(base));
+      return;
+    }
+
+    const dashboardScope = (() => {
+      if (typeof window === "undefined") return "default" as const;
+      try {
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.get("embed") === "1" || sp.get("pa_embed") === "1") return "embedded" as const;
+      } catch {
+        // ignore
+      }
+      try {
+        if (window.sessionStorage.getItem("pa.portal.embed") === "1") return "embedded" as const;
+      } catch {
+        // ignore
+      }
+      return "default" as const;
+    })();
+
+    const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "reset" }),
+    });
+    const body = (await res.json().catch(() => null)) as DashboardPayload | null;
+    if (res.ok && body?.ok && body.data) {
+      setDashboard(body.data);
+      const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({
+        i: l.i,
+        x: l.x,
+        y: l.y,
+        w: l.w,
+        h: l.h,
+        ...(typeof (l as any).minW === "number" ? { minW: (l as any).minW } : {}),
+        ...(typeof (l as any).minH === "number" ? { minH: (l as any).minH } : {}),
+      }));
+      setLayouts(makeResponsiveLayouts(base));
     }
   }
 
@@ -1266,7 +1292,7 @@ export function PortalDashboardClient() {
                 {me.billing.configured ? "Manage your plan and payment method." : "View billing, credits, and top-ups."}
               </div>
               <button
-                className={dashboardPrimaryButtonClass}
+                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
                 onClick={manageBilling}
               >
                 {me.billing.configured ? "Manage" : "Billing"}
@@ -1279,7 +1305,7 @@ export function PortalDashboardClient() {
         return (
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,0.9fr)]">
-              <div className="rounded-2xl bg-[linear-gradient(135deg,rgba(255,255,255,0.96),rgba(241,245,249,0.98),rgba(219,234,254,0.82))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-sm font-semibold text-zinc-900">Pura can help you work the next move</div>
                 <div className="mt-1 text-sm text-zinc-600">Use Pura when you want the system to explain what changed, what needs attention, or where to focus next.</div>
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -1293,15 +1319,15 @@ export function PortalDashboardClient() {
                     key={item.label}
                     href={item.href}
                     className={classNames(
-                      "block rounded-2xl p-3 shadow-[0_10px_24px_rgba(15,23,42,0.05)] transition-transform duration-150 hover:-translate-y-0.5",
+                      "block rounded-2xl border p-3 transition-colors duration-150 hover:bg-zinc-50",
                       item.tone === "danger"
-                        ? "bg-[linear-gradient(135deg,rgba(255,241,242,0.96),rgba(255,228,230,0.9))]"
+                        ? "border-rose-200 bg-rose-50/70"
                         : item.tone === "warning"
-                          ? "bg-[linear-gradient(135deg,rgba(254,252,232,0.98),rgba(254,243,199,0.96))]"
-                          : "bg-white",
+                          ? "border-amber-200 bg-amber-50/70"
+                          : "border-zinc-200 bg-white",
                     )}
                   >
-                    <div className="inline-flex rounded-full bg-white/75 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">{item.label}</div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{item.label}</div>
                     <div className="mt-1 text-sm font-semibold text-zinc-900">{item.value}</div>
                   </Link>
                 ))}
@@ -1446,7 +1472,7 @@ export function PortalDashboardClient() {
                   key={m.key}
                   className={
                     "rounded-2xl border p-4 " +
-                    (m.enabled ? "border-[rgba(34,197,94,0.14)] bg-white" : "border-zinc-200 bg-zinc-50")
+                    (m.enabled ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-zinc-50")
                   }
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -1473,14 +1499,14 @@ export function PortalDashboardClient() {
               ))}
             </div>
 
-            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-white/70 bg-white/70 p-4 text-sm text-zinc-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] sm:flex-row sm:items-center sm:justify-between">
-              <div>Quick links for setup, billing, reporting, and day-to-day work.</div>
+            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
+              <div>Next step: run the quick setup checklist.</div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Link
                   href={`${portalBase}/app/onboarding`}
                   className={dashboardPrimaryButtonClass}
                 >
-                  Open onboarding
+                  Open setup checklist
                 </Link>
                 {me.entitlements.blog ? (
                   <Link
@@ -1587,11 +1613,11 @@ export function PortalDashboardClient() {
             <div className="text-3xl font-bold text-brand-ink">{formatPct(derived.overallSuccessRate)}</div>
             <div className="mt-2 text-xs text-zinc-500">AI completed + texts sent vs failures (last 30 days)</div>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <div className="rounded-2xl bg-[rgba(255,255,255,0.72)] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                 <div className="text-xs font-semibold text-zinc-600">AI success</div>
                 <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.aiSuccessRate)}</div>
               </div>
-              <div className="rounded-2xl bg-[rgba(255,255,255,0.72)] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                 <div className="text-xs font-semibold text-zinc-600">Text success</div>
                 <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.textSuccessRate)}</div>
               </div>
@@ -1655,23 +1681,40 @@ export function PortalDashboardClient() {
         return (
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
             <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-2xl bg-[rgba(219,234,254,0.86)] p-3">
-                <div className="text-xs font-semibold text-zinc-600">AI success rate</div>
-                <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.aiSuccessRate)}</div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">Action failures</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{compactNum(reporting?.diagnostics?.actionFailures ?? 0)}</div>
               </div>
-              <div className="rounded-2xl bg-[rgba(243,232,255,0.88)] p-3">
-                <div className="text-xs font-semibold text-zinc-600">Text success rate</div>
-                <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.textSuccessRate)}</div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">Runtime errors</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{compactNum(reporting?.diagnostics?.runtimeErrors ?? 0)}</div>
               </div>
-              <div className="rounded-2xl bg-[rgba(254,240,138,0.48)] p-3">
-                <div className="text-xs font-semibold text-zinc-600">Missed call capture</div>
-                <div className="mt-1 text-sm font-bold text-brand-ink">{formatPct(derived.missedCaptureRate)}</div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">Promise failures</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{compactNum(reporting?.diagnostics?.unhandledRejections ?? 0)}</div>
               </div>
-              <div className="rounded-2xl bg-[rgba(220,252,231,0.9)] p-3">
-                <div className="text-xs font-semibold text-zinc-600">Failures</div>
-                <div className="mt-1 text-sm font-bold text-brand-ink">{derived.totalFailures.toLocaleString()}</div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">Resource failures</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{compactNum(reporting?.diagnostics?.resourceErrors ?? 0)}</div>
               </div>
             </div>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">Manual bug reports</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{compactNum(reporting?.diagnostics?.manualBugReports ?? 0)}</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="text-xs font-semibold text-zinc-600">Automation failures</div>
+                <div className="mt-1 text-sm font-bold text-brand-ink">{compactNum(derived.automationFailures ?? 0)}</div>
+              </div>
+            </div>
+            {reporting?.diagnostics?.topPaths?.[0] ? (
+              <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3 text-xs text-zinc-600">
+                <div className="font-semibold text-zinc-800">Top failing path</div>
+                <div className="mt-1 font-mono text-[11px] text-zinc-500">{reporting.diagnostics.topPaths[0].path}</div>
+                <div className="mt-1">{compactNum(reporting.diagnostics.topPaths[0].count)} recorded failures in this range.</div>
+              </div>
+            ) : null}
           </AccentCard>
         );
 
@@ -1808,11 +1851,11 @@ export function PortalDashboardClient() {
       case "perfAiReceptionist":
         return (
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
-            <div className="grid grid-cols-2 gap-3">
-              <PerfMetricTile label="Calls" value={compactNum(k?.aiCalls ?? 0)} tone="blue" />
-              <PerfMetricTile label="Completed" value={compactNum(k?.aiCompleted ?? 0)} tone="blue" />
-              <PerfMetricTile label="Failed" value={compactNum(k?.aiFailed ?? 0)} tone="blue" />
-              <PerfMetricTile label="Success rate" value={formatPct(derived.aiSuccessRate)} tone="blue" />
+            <div className="space-y-2">
+              <StatLine label="Calls" value={compactNum(k?.aiCalls ?? 0)} />
+              <StatLine label="Completed" value={compactNum(k?.aiCompleted ?? 0)} />
+              <StatLine label="Failed" value={compactNum(k?.aiFailed ?? 0)} />
+              <StatLine label="Success rate" value={formatPct(derived.aiSuccessRate)} />
             </div>
             <div className="mt-3">
               <Link href={`${portalBase}/app/services/ai-receptionist`} className="text-sm font-semibold text-brand-ink hover:underline">
@@ -1825,14 +1868,14 @@ export function PortalDashboardClient() {
       case "perfMissedCallTextBack":
         return (
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
-            <div className="grid grid-cols-2 gap-3">
-              <PerfMetricTile label="Missed calls" value={compactNum(k?.missedCalls ?? 0)} tone="pink" />
-              <PerfMetricTile label="Texts sent" value={compactNum(k?.textsSent ?? 0)} tone="pink" />
-              <PerfMetricTile label="Text failures" value={compactNum(k?.textsFailed ?? 0)} tone="pink" />
-              <PerfMetricTile label="Text success" value={formatPct(derived.textSuccessRate)} tone="pink" />
+            <div className="space-y-2">
+              <StatLine label="Missed calls" value={compactNum(k?.missedCalls ?? 0)} />
+              <StatLine label="Texts sent" value={compactNum(k?.textsSent ?? 0)} />
+              <StatLine label="Text failures" value={compactNum(k?.textsFailed ?? 0)} />
+              <StatLine label="Text success" value={formatPct(derived.textSuccessRate)} />
             </div>
             <div className="mt-3">
-              <Link href={`${portalBase}/app/services/missed-call-textback`} className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href={`${portalBase}/app/services/ai-receptionist?tab=missed-call-textback`} className="text-sm font-semibold text-brand-ink hover:underline">
                 Go to Missed-Call Text Back
               </Link>
             </div>
@@ -1842,11 +1885,11 @@ export function PortalDashboardClient() {
       case "perfLeadScraping":
         return (
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
-            <div className="grid grid-cols-2 gap-3">
-              <PerfMetricTile label="Runs" value={compactNum(k?.leadScrapeRuns ?? 0)} tone="emerald" />
-              <PerfMetricTile label="Leads created" value={compactNum(k?.leadsCreated ?? 0)} tone="emerald" />
-              <PerfMetricTile label="Contacts" value={compactNum(k?.contactsCreated ?? 0)} tone="emerald" />
-              <PerfMetricTile label="Credits used" value={compactNum(k?.leadScrapeChargedCredits ?? 0)} tone="emerald" />
+            <div className="space-y-2">
+              <StatLine label="Runs" value={compactNum(k?.leadScrapeRuns ?? 0)} />
+              <StatLine label="Leads created" value={compactNum(k?.leadsCreated ?? 0)} />
+              <StatLine label="Contacts" value={compactNum(k?.contactsCreated ?? 0)} />
+              <StatLine label="Credits used" value={compactNum(k?.leadScrapeChargedCredits ?? 0)} />
             </div>
             <div className="mt-3">
               <Link href={`${portalBase}/app/services/lead-scraping`} className="text-sm font-semibold text-brand-ink hover:underline">
@@ -1859,14 +1902,13 @@ export function PortalDashboardClient() {
       case "perfReviews":
         return (
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
-            <div className="grid grid-cols-2 gap-3">
-              <PerfMetricTile label="Reviews collected" value={compactNum(k?.reviewsCollected ?? 0)} tone="violet" />
-              <PerfMetricTile
+            <div className="space-y-2">
+              <StatLine label="Reviews collected" value={compactNum(k?.reviewsCollected ?? 0)} />
+              <StatLine
                 label="Avg rating"
                 value={typeof k?.avgReviewRating === "number" ? k.avgReviewRating.toFixed(1) : "N/A"}
-                tone="violet"
               />
-              <PerfMetricTile label="Bookings" value={compactNum(k?.bookingsCreated ?? 0)} tone="violet" />
+              <StatLine label="Bookings" value={compactNum(k?.bookingsCreated ?? 0)} />
             </div>
             <div className="mt-3">
               <Link href={`${portalBase}/app/services/reviews`} className="text-sm font-semibold text-brand-ink hover:underline">
@@ -1889,7 +1931,7 @@ export function PortalDashboardClient() {
   const showEditControls = Boolean(dashboard);
 
   return (
-    <div className="-mt-3">
+    <div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="flex-1 text-xs text-zinc-500">{editMode ? "Edit mode: drag cards and resize from the corner." : null}</div>
         {showEditControls ? (
@@ -1906,7 +1948,7 @@ export function PortalDashboardClient() {
                 </button>
                 <button
                   type="button"
-                  className={dashboardEditCancelButtonClass}
+                  className={dashboardEditSecondaryButtonClass}
                   onClick={cancelEdit}
                   disabled={savingLayout}
                 >
@@ -1959,7 +2001,7 @@ export function PortalDashboardClient() {
                   {editMode && id !== "hoursSaved" && id !== "billing" && id !== "services" ? (
                     <button
                       type="button"
-                      className="absolute right-14 top-3 z-10 rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700 shadow-[0_8px_20px_rgba(244,63,94,0.12)] transition-colors duration-150 hover:bg-rose-200"
+                      className="absolute right-3 top-3 z-10 rounded-full border border-zinc-200 bg-white/95 px-2 py-1 text-xs font-semibold text-zinc-700 shadow-sm transition-colors duration-150 hover:bg-zinc-50"
                       onClick={() => void removeWidget(id)}
                     >
                       Remove
@@ -2007,11 +2049,7 @@ export function PortalDashboardClient() {
             ) : null}
           </>
         ) : (
-          <DashboardPendingState
-            title="Preparing your dashboard layout"
-            body="The dashboard container is still measuring itself for widgets. Use these quick links if you want to keep moving while the layout settles."
-            links={dashboardPendingLinks}
-          />
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading dashboard…</div>
         )}
       </div>
     </div>

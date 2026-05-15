@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 const ENSURE_TTL_MS = 60 * 60 * 1000;
-const PORTAL_AI_CHAT_SCHEMA_TIMEOUT_MS = 8_000;
+const PORTAL_AI_CHAT_SCHEMA_TIMEOUT_MS = 15_000;
 
 type PortalAiChatSchemaEnsureState = {
   ensuredAt: number;
@@ -50,30 +50,28 @@ async function withPortalAiChatSchemaTimeout<T>(work: Promise<T>, label?: string
 
 async function aiChatSchemaLooksReady(): Promise<boolean> {
   try {
-    await Promise.all([
-      (prisma as any).portalAiChatThread.findFirst({
-        select: {
-          id: true,
-          isPinned: true,
-          pinnedAt: true,
-          forkedFromThreadId: true,
-          contextJson: true,
-        },
-      }),
-      (prisma as any).portalAiChatMessage.findFirst({
-        select: {
-          id: true,
-          repeatEveryMinutes: true,
-        },
-      }),
-      (prisma as any).portalAiChatRun.findFirst({
-        select: {
-          id: true,
-          aiSummaryText: true,
-          aiSummaryGeneratedAt: true,
-        },
-      }),
-    ]);
+    await (prisma as any).portalAiChatThread.findFirst({
+      select: {
+        id: true,
+        isPinned: true,
+        pinnedAt: true,
+        forkedFromThreadId: true,
+        contextJson: true,
+      },
+    });
+    await (prisma as any).portalAiChatMessage.findFirst({
+      select: {
+        id: true,
+        repeatEveryMinutes: true,
+      },
+    });
+    await (prisma as any).portalAiChatRun.findFirst({
+      select: {
+        id: true,
+        aiSummaryText: true,
+        aiSummaryGeneratedAt: true,
+      },
+    });
     return true;
   } catch (error) {
     if (isMissingPortalAiChatSchemaError(error)) {
@@ -139,7 +137,13 @@ export async function ensurePortalAiChatSchema(): Promise<void> {
     const runStartedAt = Date.now();
     if (state.ensuredAt && runStartedAt - state.ensuredAt < ENSURE_TTL_MS) return;
 
-    if (await withPortalAiChatSchemaTimeout(aiChatSchemaLooksReady(), "Portal AI chat schema readiness check timed out")) {
+    try {
+      if (await withPortalAiChatSchemaTimeout(aiChatSchemaLooksReady(), "Portal AI chat schema readiness check timed out")) {
+        state.ensuredAt = Date.now();
+        return;
+      }
+    } catch (error) {
+      if (!isTransientPortalAiChatSchemaDbError(error)) throw error;
       state.ensuredAt = Date.now();
       return;
     }

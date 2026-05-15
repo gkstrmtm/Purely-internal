@@ -9,6 +9,14 @@ import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
 import { ensureNewsletterSiteForOwner } from "@/lib/portalNewsletter";
 import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
 
+function getHostedPageDocumentDelegate() {
+  const delegate = (prisma as any)?.hostedPageDocument;
+  if (!delegate || typeof delegate.findMany !== "function" || typeof delegate.findFirst !== "function") {
+    return null;
+  }
+  return delegate;
+}
+
 export type HostedPageService = "BOOKING" | "NEWSLETTER" | "REVIEWS" | "BLOGS";
 export type HostedPageDocumentStatus = "DRAFT" | "PUBLISHED";
 export type HostedPageEditorMode = "MARKDOWN" | "BLOCKS" | "CUSTOM_HTML";
@@ -1899,9 +1907,14 @@ export async function bootstrapHostedPageDocuments(ownerId: string, service: Hos
   const cleanOwnerId = String(ownerId || "").trim();
   if (!cleanOwnerId) return [] as HostedPageDocumentDto[];
 
+  const delegate = getHostedPageDocumentDelegate();
+  if (!delegate || typeof delegate.upsert !== "function") {
+    return [] as HostedPageDocumentDto[];
+  }
+
   const seeds = defaultSeedsForService(service);
   for (const seed of seeds) {
-    await (prisma as any).hostedPageDocument.upsert({
+    await delegate.upsert({
       where: {
         ownerId_service_pageKey: {
           ownerId: cleanOwnerId,
@@ -1919,7 +1932,10 @@ export async function bootstrapHostedPageDocuments(ownerId: string, service: Hos
 }
 
 export async function listHostedPageDocuments(ownerId: string, service: HostedPageService) {
-  const rows = await (prisma as any).hostedPageDocument.findMany({
+  const delegate = getHostedPageDocumentDelegate();
+  if (!delegate) return [] as HostedPageDocumentDto[];
+
+  const rows = await delegate.findMany({
     where: { ownerId, service },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: documentSelect,
@@ -1928,7 +1944,10 @@ export async function listHostedPageDocuments(ownerId: string, service: HostedPa
 }
 
 export async function listAllHostedPageDocuments(ownerId: string) {
-  const rows = await (prisma as any).hostedPageDocument.findMany({
+  const delegate = getHostedPageDocumentDelegate();
+  if (!delegate) return [] as HostedPageDocumentDto[];
+
+  const rows = await delegate.findMany({
     where: { ownerId },
     orderBy: [{ service: "asc" }, { createdAt: "asc" }, { id: "asc" }],
     select: documentSelect,
@@ -1937,7 +1956,10 @@ export async function listAllHostedPageDocuments(ownerId: string) {
 }
 
 export async function getHostedPageDocument(ownerId: string, documentId: string) {
-  const row = await (prisma as any).hostedPageDocument.findFirst({
+  const delegate = getHostedPageDocumentDelegate();
+  if (!delegate) return null;
+
+  const row = await delegate.findFirst({
     where: { id: documentId, ownerId },
     select: documentSelect,
   });
@@ -1948,7 +1970,10 @@ export async function getHostedPageDocumentByPageKey(ownerId: string, service: H
   const cleanPageKey = String(pageKey || "").trim();
   if (!cleanPageKey) return null;
 
-  const row = await (prisma as any).hostedPageDocument.findFirst({
+  const delegate = getHostedPageDocumentDelegate();
+  if (!delegate) return null;
+
+  const row = await delegate.findFirst({
     where: { ownerId, service, pageKey: cleanPageKey },
     select: documentSelect,
   });
@@ -1972,7 +1997,10 @@ export async function updateHostedPageDocument(
     seo?: { title?: unknown; description?: unknown } | null;
   },
 ) {
-  const existing = await (prisma as any).hostedPageDocument.findFirst({
+  const delegate = getHostedPageDocumentDelegate();
+  if (!delegate || typeof delegate.update !== "function") return null;
+
+  const existing = await delegate.findFirst({
     where: { id: documentId, ownerId },
     select: documentSelect,
   });
@@ -2008,7 +2036,7 @@ export async function updateHostedPageDocument(
     data.seoDescription = patch.seo ? normalizeSeoText(patch.seo.description, 320) : null;
   }
 
-  const updated = await (prisma as any).hostedPageDocument.update({
+  const updated = await delegate.update({
     where: { id: documentId },
     data,
     select: documentSelect,
@@ -2025,7 +2053,10 @@ export async function exportHostedPageDocumentCustomHtml(opts: {
   setEditorMode?: "BLOCKS" | "CUSTOM_HTML";
   basePath?: string;
 }) {
-  const existing = await (prisma as any).hostedPageDocument.findFirst({
+  const delegate = getHostedPageDocumentDelegate();
+  if (!delegate || typeof delegate.update !== "function") return null;
+
+  const existing = await delegate.findFirst({
     where: { id: opts.documentId, ownerId: opts.ownerId },
     select: documentSelect,
   });
@@ -2042,7 +2073,7 @@ export async function exportHostedPageDocumentCustomHtml(opts: {
     title: opts.title || existing.title || "Hosted page",
   });
 
-  const updated = await (prisma as any).hostedPageDocument.update({
+  const updated = await delegate.update({
     where: { id: existing.id },
     data: {
       ...(blocksFromClient.length ? { blocksJson: blocksFromClient as unknown as Prisma.InputJsonValue } : null),
@@ -2060,7 +2091,10 @@ export async function setHostedPageDocumentStatus(ownerId: string, documentId: s
 }
 
 export async function resetHostedPageDocumentToDefault(ownerId: string, documentId: string) {
-  const existing = await (prisma as any).hostedPageDocument.findFirst({
+  const delegate = getHostedPageDocumentDelegate();
+  if (!delegate || typeof delegate.update !== "function") return null;
+
+  const existing = await delegate.findFirst({
     where: { id: documentId, ownerId },
     select: documentSelect,
   });
@@ -2069,7 +2103,7 @@ export async function resetHostedPageDocumentToDefault(ownerId: string, document
   const seed = defaultSeedForPage(existing.service, existing.pageKey);
   if (!seed) return null;
 
-  const updated = await (prisma as any).hostedPageDocument.update({
+  const updated = await delegate.update({
     where: { id: existing.id },
     data: {
       title: seed.title,

@@ -72,6 +72,25 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function formStatusLabel(status: Form["status"] | null | undefined) {
+  if (status === "ACTIVE") return "LIVE";
+  if (status === "ARCHIVED") return "ARCHIVED";
+  return "DRAFT";
+}
+
+function formStatusHint(status: Form["status"] | null | undefined) {
+  if (status === "ACTIVE") return "Public slug link is live.";
+  if (status === "ARCHIVED") return "Archived forms are hidden from public routes.";
+  return "Draft stays on keyed preview until you switch it live.";
+}
+
+function statusPillClass(label: string) {
+  const s = String(label || "").trim().toUpperCase();
+  if (s === "LIVE" || s === "ACTIVE") return "border-green-200 bg-green-50 text-green-800";
+  if (s === "ARCHIVED") return "border-zinc-200 bg-zinc-50 text-zinc-500";
+  return "border-zinc-200 bg-zinc-50 text-zinc-700";
+}
+
 function slugifyName(raw: string) {
   return raw
     .trim()
@@ -206,6 +225,29 @@ function normalizeHexColor(raw: unknown) {
   return s;
 }
 
+function normalizeFormEditorError(action: "load" | "save" | "delete", error: unknown) {
+  const message = error instanceof Error ? error.message.trim() : String(error || "").trim();
+  const lowered = message.toLowerCase();
+
+  if (lowered === "not found") {
+    if (action === "load") return "This form could not be loaded. It may have been deleted or you may no longer have access.";
+    if (action === "delete") return "This form is already gone or is no longer available to this account.";
+    return "This form is no longer available. Refresh the builder and try again.";
+  }
+
+  if (lowered === "unauthorized" || lowered === "forbidden") {
+    if (action === "load") return "Your session cannot open this form right now. Refresh and try again.";
+    return "Your session cannot change this form right now. Refresh and try again.";
+  }
+
+  if (/invalid slug/.test(lowered)) return "Use only letters, numbers, and dashes for the hosted path.";
+  if (/invalid name/.test(lowered)) return "Add a form name before saving.";
+
+  if (action === "load") return "We could not load this form right now.";
+  if (action === "delete") return "We could not delete this form right now.";
+  return "We could not save this form right now.";
+}
+
 function normalizeStyle(rawSchema: any): FormStyle {
   const raw = rawSchema && typeof rawSchema === "object" && rawSchema.style && typeof rawSchema.style === "object" && !Array.isArray(rawSchema.style)
     ? rawSchema.style
@@ -310,6 +352,16 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   }, [form, fields, style, content, successContent]);
 
   const dirty = Boolean(form && fields && currentSig !== lastSavedSigRef.current);
+  const previewHref = useMemo(() => {
+    if (!form?.slug || !form?.id) return null;
+    return toPurelyHostedUrl(hostedFormPath(form.slug, form.id) || `/forms/${encodeURIComponent(form.slug)}`);
+  }, [form?.id, form?.slug]);
+  const liveHref = useMemo(() => {
+    if (!form?.slug || form.status !== "ACTIVE") return null;
+    return toPurelyHostedUrl(`/forms/${encodeURIComponent(form.slug)}`);
+  }, [form?.slug, form?.status]);
+  const statusLabel = formStatusLabel(form?.status);
+  const statusHint = formStatusHint(form?.status);
 
   const load = async () => {
     setError(null);
@@ -346,7 +398,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
     void load().catch((e) => {
       if (cancelled) return;
-      setError(e?.message ? String(e.message) : "Failed to load");
+      setError(normalizeFormEditorError("load", e));
     });
 
     return () => {
@@ -399,7 +451,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         schemaJson: { fields, style: normalizeStyle({ style }), content: normalizeCreditFormContent(content), success: normalizeCreditFormSuccessContent(successContent) },
       });
     } catch (e) {
-      setError((e as any)?.message ? String((e as any).message) : "Failed to save");
+      setError(normalizeFormEditorError("save", e));
     } finally {
       setBusy(false);
     }
@@ -415,7 +467,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to delete");
       window.location.href = backHref;
     } catch (e) {
-      setError((e as any)?.message ? String((e as any).message) : "Failed to delete");
+      setError(normalizeFormEditorError("delete", e));
     } finally {
       setBusy(false);
     }
@@ -780,45 +832,86 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         }}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 bg-white px-4 py-3 sm:px-6 lg:px-8">
+      <div className="flex flex-col gap-3 border-b border-zinc-200 bg-white px-4 py-3 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <Link href={backHref} className="text-sm font-semibold text-(--color-brand-blue) transition-all duration-100 hover:underline">
             ← Back
           </Link>
           {!dirty ? <div className="text-xs font-semibold text-zinc-500">Saved</div> : null}
+          <span className={classNames("inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide", statusPillClass(statusLabel))}>
+            {statusLabel}
+          </span>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <input
-            value={form?.name || ""}
-            onChange={(e) => setForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
-            placeholder="Internal form name"
-            className="h-10 min-w-55 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-900 outline-none transition-all duration-150 hover:border-zinc-300 focus:border-zinc-300"
-          />
-          <Link
-            href={toPurelyHostedUrl(hostedFormPath(form?.slug || "", form?.id || "") || `/forms/${encodeURIComponent(form?.slug || "")}`)}
-            target="_blank"
-            className={classNames(SECONDARY_BUTTON_CLASS, "inline-flex items-center gap-2")}
-          >
-            <IconEyeGlyph size={16} />
-            Preview
-          </Link>
-          <Link
-            href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(formId)}/responses`}
-            target="_blank"
-            className={SECONDARY_BUTTON_CLASS}
-          >
-            Responses
-          </Link>
-          <button
-            type="button"
-            disabled={busy || !dirty}
-            onClick={() => save()}
-            className={classNames(PRIMARY_BUTTON_CLASS, busy || !dirty ? "bg-zinc-400 hover:bg-zinc-400" : "")}
-          >
-            {busy ? "Saving…" : dirty ? "Save" : "Saved"}
-          </button>
+        <div className="flex flex-col gap-2 xl:items-end">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+            <input
+              value={form?.name || ""}
+              onChange={(e) => setForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+              placeholder="Internal form name"
+              className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-900 outline-none transition-all duration-150 hover:border-zinc-300 focus:border-zinc-300 sm:min-w-55 sm:w-auto"
+            />
+            <PortalListboxDropdown
+              value={form?.status || "DRAFT"}
+              onChange={(next) => setForm((prev) => (prev ? { ...prev, status: next as Form["status"] } : prev))}
+              options={[
+                { value: "DRAFT", label: "Draft" },
+                { value: "ACTIVE", label: "Live" },
+                { value: "ARCHIVED", label: "Archived" },
+              ]}
+              className="w-full sm:min-w-36 sm:w-auto"
+              buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-900 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300 sm:min-w-36"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            <Link
+              href={previewHref || toPurelyHostedUrl(`/forms/${encodeURIComponent(form?.slug || "")}`)}
+              target="_blank"
+              className={classNames(SECONDARY_BUTTON_CLASS, "inline-flex w-full items-center justify-center gap-2 sm:w-auto")}
+            >
+              <IconEyeGlyph size={16} />
+              Preview
+            </Link>
+            {liveHref ? (
+              <Link
+                href={liveHref}
+                target="_blank"
+                className={classNames(SECONDARY_BUTTON_CLASS, "inline-flex w-full items-center justify-center sm:w-auto")}
+              >
+                Live
+              </Link>
+            ) : (
+              <div
+                className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-400 sm:w-auto"
+                title={statusHint}
+              >
+                Live
+              </div>
+            )}
+            <Link
+              href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(formId)}/responses`}
+              target="_blank"
+              className={classNames(SECONDARY_BUTTON_CLASS, "inline-flex w-full items-center justify-center sm:w-auto")}
+            >
+              Responses
+            </Link>
+            <button
+              type="button"
+              disabled={busy || !dirty}
+              onClick={() => save()}
+              className={classNames(PRIMARY_BUTTON_CLASS, "w-full sm:w-auto", busy || !dirty ? "bg-zinc-400 hover:bg-zinc-400" : "")}
+            >
+              {busy ? "Saving…" : dirty ? "Save" : "Saved"}
+            </button>
+          </div>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2 text-xs text-zinc-600 sm:px-6 lg:px-8">
+        <span className="font-semibold text-zinc-800">Hosted path</span>
+        <span className="rounded-full border border-zinc-200 bg-white px-2 py-1 font-mono text-[11px] text-zinc-700">/forms/{form?.slug || "..."}</span>
+        <span>{statusHint}</span>
       </div>
 
       {error ? <div className="mx-4 mb-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:mx-6 lg:mx-8">{error}</div> : null}

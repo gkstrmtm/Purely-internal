@@ -139,6 +139,40 @@ async function inferCheckoutModeFromPrices(secretKey: string, priceIds: string[]
 }
 
 export async function POST(req: Request) {
+  let checkoutFailureContext:
+    | {
+        ownerId: string;
+        funnelId: string;
+        pageId: string;
+        trackingContext: ReturnType<typeof parseCreditFunnelTrackingContext>;
+        requestedItems: Array<{ priceId: string; quantity: number }>;
+      }
+    | null = null;
+
+  const reportCheckoutFailure = async (message: string, extra?: Record<string, unknown>) => {
+    if (!checkoutFailureContext?.ownerId) return;
+    await trackCreditFunnelEvent({
+      ownerId: checkoutFailureContext.ownerId,
+      funnelId: checkoutFailureContext.funnelId,
+      pageId: checkoutFailureContext.pageId,
+      eventType: "checkout_failed",
+      eventPath: checkoutFailureContext.trackingContext?.path || null,
+      source: checkoutFailureContext.trackingContext?.source || "checkout_session",
+      sessionId: checkoutFailureContext.trackingContext?.sessionId || null,
+      referrer: checkoutFailureContext.trackingContext?.referrer || req.headers.get("referer") || null,
+      utmSource: checkoutFailureContext.trackingContext?.utmSource || null,
+      utmMedium: checkoutFailureContext.trackingContext?.utmMedium || null,
+      utmCampaign: checkoutFailureContext.trackingContext?.utmCampaign || null,
+      utmContent: checkoutFailureContext.trackingContext?.utmContent || null,
+      utmTerm: checkoutFailureContext.trackingContext?.utmTerm || null,
+      payloadJson: {
+        message: String(message || "Unable to start checkout").slice(0, 240),
+        items: checkoutFailureContext.requestedItems,
+        ...(extra || {}),
+      },
+    }).catch(() => null);
+  };
+
   try {
     const body = await req.json().catch(() => null);
     const parsed = postSchema.safeParse(body);
@@ -161,6 +195,9 @@ export async function POST(req: Request) {
     if (!page) {
       return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
     }
+
+    const ownerId = page.funnel?.ownerId || "";
+    const trackingContext = parseCreditFunnelTrackingContext(parsed.data.trackingContext);
 
     const blocks = coerceBlocksJson(page.blocksJson);
     const settings = page.funnel?.ownerId
@@ -190,23 +227,36 @@ export async function POST(req: Request) {
           },
         ].filter((it) => it.priceId);
 
+    checkoutFailureContext = {
+      ownerId,
+      funnelId: page.funnelId,
+      pageId: page.id,
+      trackingContext,
+      requestedItems,
+    };
+
     if (!requestedItems.length) {
+      await reportCheckoutFailure("No items", { reason: "no_items" });
       return NextResponse.json({ ok: false, error: "No items" }, { status: 400 });
     }
 
     for (const it of requestedItems) {
       if (!allowed.has(it.priceId)) {
+        await reportCheckoutFailure("This product is not enabled on this page", {
+          reason: "price_not_enabled",
+          priceId: it.priceId,
+        });
         return NextResponse.json({ ok: false, error: "This product is not enabled on this page" }, { status: 400 });
       }
     }
 
-    const ownerId = page.funnel?.ownerId || "";
     if (!ownerId) {
       return NextResponse.json({ ok: false, error: "Invalid funnel" }, { status: 400 });
     }
 
     const secretKey = await getStripeSecretKeyForOwner(ownerId).catch(() => null);
     if (!secretKey) {
+      await reportCheckoutFailure("Stripe is not connected", { reason: "stripe_not_connected" });
       return NextResponse.json({ ok: false, error: "Stripe is not connected" }, { status: 400 });
     }
 
@@ -224,6 +274,7 @@ export async function POST(req: Request) {
       mode = await inferCheckoutModeFromPrices(secretKey, requestedItems.map((it) => it.priceId));
     } catch (e) {
       const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Invalid cart";
+      await reportCheckoutFailure(msg || "Invalid cart", { reason: "invalid_cart" });
       return NextResponse.json({ ok: false, error: msg || "Invalid cart" }, { status: 400 });
     }
 
@@ -246,10 +297,10 @@ export async function POST(req: Request) {
 
     const url = session?.url ? String(session.url) : "";
     if (!url) {
+      await reportCheckoutFailure("Stripe did not return a checkout URL", { reason: "missing_checkout_url" });
       return NextResponse.json({ ok: false, error: "Stripe did not return a checkout URL" }, { status: 502 });
     }
 
-    const trackingContext = parseCreditFunnelTrackingContext(parsed.data.trackingContext);
     await trackCreditFunnelEvent({
       ownerId,
       funnelId: page.funnelId,
@@ -271,6 +322,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, url });
   } catch (e) {
     const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to start checkout";
+    await reportCheckoutFailure(msg || "Unable to start checkout", { reason: "server_error" });
     return NextResponse.json({ ok: false, error: msg || "Unable to start checkout" }, { status: 500 });
   }
 }

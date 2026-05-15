@@ -66,7 +66,19 @@ function parseInlineStyle(styleText: string) {
 function scopeDocumentCss(css: string) {
   return String(css || "")
     .replace(/(^|[^a-zA-Z0-9_-])html(?=\b)/g, "$1[data-pa-custom-html-surface]")
-    .replace(/(^|[^a-zA-Z0-9_-])body(?=\b)/g, "$1[data-pa-custom-html-surface]");
+    .replace(/(^|[^a-zA-Z0-9_-])body(?=\b)/g, "$1[data-pa-custom-html-surface]")
+    .replace(/overflow-wrap\s*:\s*anywhere/gi, "overflow-wrap:break-word")
+    .replace(/word-break\s*:\s*break-all/gi, "word-break:normal");
+}
+
+function repairMalformedBookingHeroMarkup(html: string) {
+  const source = String(html || "");
+  if (!source.trim()) return source;
+
+  return source.replace(
+    /(<div class="hero-actions">\s*<div class="pa-booking-primary-stack">[\s\S]*?<\/div>)(\s*<aside class="proof-ledger">[\s\S]*?<\/aside>\s*<\/section>)/i,
+    "$1</div></div>$2",
+  );
 }
 
 function parseScripts(html: string) {
@@ -274,13 +286,16 @@ export function FunnelCustomHtmlRuntimeSurface({
   );
 
   const normalizedHtml = useMemo(
-    () => withBookingRuntimePlaceholder({
-      html,
-      bookingTarget: derivedBookingTarget,
-      surfaceContext,
-      injectImplicitBooking,
-      bookingLabel,
-    }),
+    () =>
+      repairMalformedBookingHeroMarkup(
+        withBookingRuntimePlaceholder({
+          html,
+          bookingTarget: derivedBookingTarget,
+          surfaceContext,
+          injectImplicitBooking,
+          bookingLabel,
+        }),
+      ),
     [bookingLabel, html, injectImplicitBooking, derivedBookingTarget, surfaceContext],
   );
 

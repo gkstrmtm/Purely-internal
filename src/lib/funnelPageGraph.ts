@@ -110,6 +110,9 @@ export function resolveFunnelPageRenderState(
   const graph = buildFunnelPageGraph(page);
 
   if (graph.sourceMode === "managed") {
+    if (stage === "published") {
+      return { kind: "html", html: graph.html.published };
+    }
     return { kind: "blocks", blocks: graph.managedBlocks };
   }
 

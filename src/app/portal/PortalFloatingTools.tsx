@@ -3,10 +3,9 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { IconSend } from "@/app/portal/PortalIcons";
-import GlassSurface from "@/components/GlassSurface";
-import { portalGlassBackdropClass, portalGlassPanelClass } from "@/components/portalGlass";
+import { IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { buildPortalAiChatThreadHref } from "@/lib/portalAiChatThreadRefs";
+import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
 
 type VersionPayload = {
   ok?: boolean;
@@ -392,26 +391,12 @@ function buildSuggestedSetupMessage(
   };
 }
 
-function ThinkingDots({ className }: { className?: string }) {
+function ThinkingDots() {
   return (
-    <div className={classNames("inline-flex items-center gap-1.5 text-brand-blue", className)} aria-label="Thinking">
-      <span className="inline-block h-1.5 w-1.5 rounded-full bg-current opacity-50 animate-pulse" style={{ animationDelay: "0ms" }} />
-      <span className="inline-block h-1.5 w-1.5 rounded-full bg-current opacity-75 animate-pulse" style={{ animationDelay: "140ms" }} />
-      <span className="inline-block h-1.5 w-1.5 rounded-full bg-current opacity-95 animate-pulse" style={{ animationDelay: "280ms" }} />
-    </div>
-  );
-}
-
-function ThinkingMessageCard({ label }: { label: string }) {
-  return (
-    <div className="rounded-[20px] border border-zinc-900/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(244,247,250,0.96))] px-3.5 py-3 text-zinc-800 shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
-      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-        <ThinkingDots />
-        <span>Pura</span>
-        <span className="rounded-md border border-zinc-200 bg-white/80 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.16em] text-zinc-400">ACTIVE</span>
-      </div>
-      <div className="mt-2 text-sm font-medium text-zinc-900">{label}</div>
-      <div className="mt-1.5 text-xs text-zinc-500">Checking context and drafting the next step.</div>
+    <div className="inline-flex items-center gap-1" aria-label="Thinking">
+      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "0ms" }} />
+      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "100ms" }} />
+      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "200ms" }} />
     </div>
   );
 }
@@ -436,32 +421,17 @@ const defaultWidgetWelcomeMessage = (): SupportChatMessage => ({
   text: "Ask a question, assign tasks, and more!",
 });
 
-const floatingToolsCloseButtonClass =
-  "inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/70 bg-white/78 text-zinc-600 shadow-[0_10px_24px_rgba(15,23,42,0.1)] transition-colors duration-100 hover:bg-white hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]";
+const floatingToolsSecondaryButtonClass =
+  "rounded-2xl border border-transparent bg-white px-3 py-2 text-xs font-semibold text-zinc-500 transition-colors duration-100 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]";
 
 const floatingToolsPrimaryButtonClass =
   "rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60";
 
-const floatingToolsPuraSendButtonClass =
-  "inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-blue text-white transition-all duration-100 hover:scale-105 hover:opacity-95 disabled:opacity-60";
-
-const floatingToolsGlassSurfaceProps = {
-  borderWidth: 0.04,
-  blur: 7,
-  displace: 0.22,
-  distortionScale: -72,
-  redOffset: 0,
-  greenOffset: 2,
-  blueOffset: 6,
-  backgroundOpacity: 0.16,
-  saturation: 1.05,
-  brightness: 46,
-  opacity: 0.985,
-  mixBlendMode: "soft-light" as const,
-  style: { background: "rgba(255,255,255,0.46)", boxShadow: "none" },
-};
+const floatingToolsGradientButtonClass =
+  "rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60";
 
 export function PortalFloatingTools() {
+  const uiPreview = usePortalUiPreview();
   const pathname = usePathname() || "";
   const router = useRouter();
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
@@ -486,8 +456,6 @@ export function PortalFloatingTools() {
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [pageSuggestion, setPageSuggestion] = useState<WidgetSuggestedSetup | null>(null);
-  const [pageSuggestionStatus, setPageSuggestionStatus] = useState<SuggestedSetupCardState>("ready");
-  const [pageSuggestionError, setPageSuggestionError] = useState<string | null>(null);
 
   const chatMessagesRef = useRef<SupportChatMessage[]>(chatMessages);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -495,23 +463,6 @@ export function PortalFloatingTools() {
   const shouldAutoScrollRef = useRef(true);
   const chatScrollRafRef = useRef<number | null>(null);
   const syncingSuggestionKeyRef = useRef<string | null>(null);
-
-  const fetchJsonWithTimeout = useCallback(async <T,>(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 1800) => {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(input, { ...init, signal: controller.signal });
-      const body = (await response.json().catch(() => null)) as T | null;
-      return { ok: response.ok, body, timedOut: false };
-    } catch (error) {
-      if ((error as Error)?.name === "AbortError") {
-        return { ok: false, body: null as T | null, timedOut: true };
-      }
-      return { ok: false, body: null as T | null, timedOut: false };
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-  }, []);
 
   const toolsCardRef = useRef<HTMLDivElement | null>(null);
   const chatPanelRef = useRef<HTMLDivElement | null>(null);
@@ -531,31 +482,24 @@ export function PortalFloatingTools() {
   }, [chatMessages]);
 
   const loadSuggestedSetupPreview = useCallback(async () => {
-    if (typeof pathname === "string" && pathname.includes("/page-editor")) {
+    if (uiPreview) {
       setPageSuggestion(null);
       return;
     }
-    if (typeof pathname === "string" && pathname.includes("/services/lead-scraping")) {
-      setPageSuggestion(null);
-      return;
-    }
-    if (typeof pathname === "string" && pathname.includes("/services/booking")) {
-      setPageSuggestion(null);
-      return;
-    }
+
     const serviceSlug = inferSuggestedSetupServiceSlug(pathname);
     if (!serviceSlug) {
       setPageSuggestion(null);
       return;
     }
 
-    const res = await fetchJsonWithTimeout<{ proposedActions?: SuggestedSetupAction[] }>("/api/portal/suggested-setup/preview", { cache: "no-store" }, 3500);
-    if (!res.ok) {
+    const res = await fetch("/api/portal/suggested-setup/preview", { cache: "no-store" }).catch(() => null as any);
+    if (!res?.ok) {
       setPageSuggestion(null);
       return;
     }
 
-    const json = res.body as { proposedActions?: SuggestedSetupAction[] } | null;
+    const json = (await res.json().catch(() => null)) as { proposedActions?: SuggestedSetupAction[] } | null;
     const proposedActions = Array.isArray(json?.proposedActions)
       ? json.proposedActions
           .filter((action) => action && typeof action.id === "string" && typeof action.serviceSlug === "string")
@@ -568,16 +512,11 @@ export function PortalFloatingTools() {
       : [];
 
     setPageSuggestion(buildWidgetSuggestedSetup(proposedActions.filter((action) => action.serviceSlug === serviceSlug)));
-  }, [fetchJsonWithTimeout, pathname]);
+  }, [pathname, uiPreview]);
 
   useEffect(() => {
     void loadSuggestedSetupPreview();
   }, [loadSuggestedSetupPreview]);
-
-  useEffect(() => {
-    setPageSuggestionStatus("ready");
-    setPageSuggestionError(null);
-  }, [pageSuggestion?.key]);
 
   useEffect(() => {
     if (!chatOpen || !chatThreadId) return;
@@ -632,17 +571,19 @@ export function PortalFloatingTools() {
   }, []);
 
   useEffect(() => {
-    if (typeof pathname === "string" && pathname.includes("/services/lead-scraping")) {
+    if (uiPreview) {
+      setProfileHidden(false);
+      if (typeof document !== "undefined") {
+        document.documentElement.removeAttribute("data-pa-hide-floating-tools-pref");
+      }
       return;
     }
-    if (typeof pathname === "string" && pathname.includes("/services/booking")) {
-      return;
-    }
+
     let mounted = true;
     (async () => {
-      const res = await fetchJsonWithTimeout<{ user?: { hideFloatingTools?: boolean } | null }>("/api/portal/profile", { cache: "no-store" }, 1500);
-      if (!mounted || !res.ok) return;
-      const json = res.body as { user?: { hideFloatingTools?: boolean } | null } | null;
+      const res = await fetch("/api/portal/profile", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted || !res?.ok) return;
+      const json = (await res.json().catch(() => null)) as { user?: { hideFloatingTools?: boolean } | null } | null;
       const nextHidden = Boolean(json?.user?.hideFloatingTools);
       setProfileHidden(nextHidden);
       if (typeof document !== "undefined") {
@@ -662,19 +603,19 @@ export function PortalFloatingTools() {
       mounted = false;
       window.removeEventListener("pa.portal.floating-tools-pref", onPrefChanged as EventListener);
     };
-  }, [fetchJsonWithTimeout, pathname]);
+  }, [uiPreview]);
 
   const hidden = forceHidden || profileHidden || (isSmallScreen && !isDashboardRoute && !isSettingsRoute && !chatOpen && !reportOpen);
   const moveDockToTopRight = false;
   const notePositionClass = moveDockToTopRight
-    ? `fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130103 max-w-[calc(100vw-1.5rem)] rounded-2xl px-4 py-3 text-sm text-zinc-800 sm:top-auto sm:right-4 sm:max-w-sm sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] ${portalGlassPanelClass}`
-    : `fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-130103 max-w-sm rounded-2xl px-4 py-3 text-sm text-zinc-800 ${portalGlassPanelClass}`;
+    ? "fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130103 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] sm:top-auto sm:right-4 sm:max-w-sm sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)]"
+    : "fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-130103 max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)]";
   const reportPanelPositionClass = moveDockToTopRight
-    ? `absolute right-3 top-[calc(env(safe-area-inset-top)+4rem)] w-[min(520px,calc(100vw-1.5rem))] sm:top-auto sm:right-4 sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))]`
-    : `absolute bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 w-[min(520px,calc(100vw-2rem))]`;
+    ? "absolute right-3 top-[calc(env(safe-area-inset-top)+4rem)] w-[min(520px,calc(100vw-1.5rem))] rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl sm:top-auto sm:right-4 sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))]"
+    : "absolute bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 w-[min(520px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl";
   const chatPanelPositionClass = moveDockToTopRight
-    ? `fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130101 w-[min(520px,calc(100vw-1.5rem))] sm:right-4 sm:top-auto sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))]`
-    : `fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-130101 w-[min(520px,calc(100vw-2rem))]`;
+    ? "fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130101 w-[min(520px,calc(100vw-1.5rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl sm:right-4 sm:top-auto sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))]"
+    : "fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-130101 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl";
   const dockPositionClass = moveDockToTopRight
     ? "fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130100 flex justify-end sm:top-auto sm:right-4 sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)]"
     : "fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-130100 flex justify-end";
@@ -795,6 +736,11 @@ export function PortalFloatingTools() {
   }, []);
 
   useEffect(() => {
+    if (uiPreview) {
+      setVersion({ ok: true, buildSha: "preview", commitRef: "localhost-preview" });
+      return;
+    }
+
     let mounted = true;
     (async () => {
       const res = await fetch("/api/version", { cache: "no-store" }).catch(() => null as any);
@@ -810,7 +756,7 @@ export function PortalFloatingTools() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [uiPreview]);
 
   const versionLabel = useMemo(() => {
     const sha = shortSha(version?.buildSha);
@@ -918,6 +864,7 @@ export function PortalFloatingTools() {
     setMinimized(false);
     if (pageSuggestion) {
       setChatMessages((current) => upsertSuggestedSetupMessage(current, pageSuggestion));
+      void ensurePageSuggestionInThread(pageSuggestion);
     }
     shouldAutoScrollRef.current = true;
     scheduleChatScrollToBottom(true);
@@ -947,47 +894,15 @@ export function PortalFloatingTools() {
     void loadSuggestedSetupPreview();
   }
 
-  async function applyPageSuggestionPreview() {
-    if (!pageSuggestion?.actionIds.length) return;
-    setPageSuggestionStatus("applying");
-    setPageSuggestionError(null);
-
-    const res = await fetch("/api/portal/suggested-setup/apply", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ actionIds: pageSuggestion.actionIds }),
-    }).catch(() => null as any);
-
-    const json = (await res?.json?.().catch(() => null)) as { ok?: boolean; error?: string } | null;
-    if (!res?.ok || !json?.ok) {
-      setPageSuggestionStatus("error");
-      setPageSuggestionError(json?.error ?? "Suggested setup could not be applied.");
-      return;
-    }
-
-    setPageSuggestionStatus("applied");
-    setPageSuggestionError(null);
-    setPageSuggestion(null);
-    setNote("Suggested setup applied.");
-    window.setTimeout(() => setNote(null), 3500);
-    router.refresh();
-    void loadSuggestedSetupPreview();
-  }
-
   function persistWidgetThreadId(nextThreadId: string | null) {
     setChatThreadId(nextThreadId);
   }
 
-  async function continueWithPura() {
+  function continueWithPura() {
     if (typeof window === "undefined") return;
-    let threadIdForTarget = chatThreadId;
-    if (pageSuggestion) {
-      const suggestedThreadId = await ensurePageSuggestionInThread(pageSuggestion);
-      if (suggestedThreadId) threadIdForTarget = suggestedThreadId;
-    }
     const target = buildPortalAiChatThreadHref({
       basePath: portalBase,
-      thread: threadIdForTarget ? { id: threadIdForTarget } : null,
+      thread: chatThreadId ? { id: chatThreadId } : null,
     });
     window.dispatchEvent(new CustomEvent("pa.portal.topbar.intent", { detail: { hidden: true } }));
     void router.prefetch(target);
@@ -1155,7 +1070,7 @@ export function PortalFloatingTools() {
         <div className="fixed inset-0 z-130102">
           <button
             type="button"
-            className={classNames("absolute inset-0", portalGlassBackdropClass)}
+            className="absolute inset-0 bg-black/30"
             aria-label="Close"
             onClick={() => (!sending ? setReportOpen(false) : null)}
           />
@@ -1164,49 +1079,44 @@ export function PortalFloatingTools() {
             ref={reportCardRef}
             className={reportPanelPositionClass}
           >
-            <GlassSurface {...floatingToolsGlassSurfaceProps} width="100%" height="auto" borderRadius={24} className="rounded-3xl shadow-2xl">
-              <div className="w-full rounded-3xl bg-[rgba(255,255,255,0.62)] p-5 backdrop-blur-[2px]">
-                <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">Report a bug</div>
-                    <div className="mt-1 text-xs text-zinc-500">{versionLabel}</div>
-                  </div>
-                  <button
-                    type="button"
-                    className={classNames(floatingToolsCloseButtonClass, "text-[1.35rem] leading-none disabled:opacity-60")}
-                    onClick={() => setReportOpen(false)}
-                    disabled={sending}
-                    aria-label="Close"
-                  >
-                    ×
-                  </button>
-                </div>
-
-                <div className="mt-4">
-                  <textarea
-                    className="min-h-30 w-full rounded-2xl border border-white/35 bg-white/55 p-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
-                    placeholder="What happened? What did you expect?"
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    disabled={sending}
-                  />
-                  <div className="mt-2 text-xs text-zinc-500">Includes your current page URL and version automatically.</div>
-                </div>
-
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  <div className="text-xs text-zinc-500">We’ll notify the team by email.</div>
-                  <button
-                    type="button"
-                    className={floatingToolsPrimaryButtonClass}
-                    onClick={() => void submit()}
-                    disabled={sending}
-                  >
-                    {sending ? "Sending…" : "Send"}
-                  </button>
-                </div>
+            <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Report a bug</div>
+                <div className="mt-1 text-xs text-zinc-500">{versionLabel}</div>
               </div>
-            </GlassSurface>
+              <button
+                type="button"
+                className={classNames(floatingToolsSecondaryButtonClass, "disabled:opacity-60")}
+                onClick={() => setReportOpen(false)}
+                disabled={sending}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <textarea
+                className="min-h-30 w-full rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                placeholder="What happened? What did you expect?"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                disabled={sending}
+              />
+              <div className="mt-2 text-xs text-zinc-500">Includes your current page URL and version automatically.</div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <div className="text-xs text-zinc-500">We’ll notify the team by email.</div>
+              <button
+                type="button"
+                className={floatingToolsPrimaryButtonClass}
+                onClick={() => void submit()}
+                disabled={sending}
+              >
+                {sending ? "Sending…" : "Send"}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -1216,301 +1126,246 @@ export function PortalFloatingTools() {
           ref={chatPanelRef}
           className={chatPanelPositionClass}
         >
-          <GlassSurface {...floatingToolsGlassSurfaceProps} width="100%" height="auto" borderRadius={24} className="rounded-3xl shadow-2xl">
-            <div className="w-full rounded-3xl bg-[rgba(255,255,255,0.62)] p-5 backdrop-blur-[2px]">
-              <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">Pura</div>
-                  <div className="mt-1 text-xs text-zinc-500">{versionLabel}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="group inline-flex items-center rounded-2xl bg-transparent text-sm font-semibold text-zinc-700 transition-colors duration-100 hover:text-zinc-900"
-                    onClick={continueWithPura}
-                    aria-label="Continue with Pura"
-                    title="Continue with Pura"
-                  >
-                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-100 group-hover:scale-105 group-hover:bg-zinc-50 group-hover:text-zinc-900">
-                      <IconContinueWithPura />
-                    </span>
-                    <span className="ml-2 max-w-0 overflow-hidden whitespace-nowrap text-sm font-semibold opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-40 group-hover:opacity-100">
-                      Continue with Pura
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className={classNames(floatingToolsCloseButtonClass, "text-[1.35rem] leading-none")}
-                    onClick={() => setChatOpen(false)}
-                    aria-label="Close"
-                  >
-                    ×
-                  </button>
-                </div>
+            <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Pura</div>
+                <div className="mt-1 text-xs text-zinc-500">{versionLabel}</div>
               </div>
-
-              <div
-                ref={chatScrollRef}
-                onScroll={() => {
-                  const el = chatScrollRef.current;
-                  if (!el) return;
-                  const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-                  shouldAutoScrollRef.current = distanceFromBottom < 140;
-                }}
-                className="mt-4 max-h-[55vh] space-y-3 overflow-auto"
-              >
-                {chatMessages.map((m, idx) => (
-                  <div
-                    key={m.id || idx}
-                    className={
-                      "rounded-2xl px-3 py-2 text-sm leading-relaxed " +
-                      (m.role === "user"
-                        ? "ml-10 bg-brand-blue font-semibold text-white"
-                        : "mr-10 border border-zinc-200 bg-white text-zinc-800")
-                    }
-                  >
-                    {m.role === "assistant" && m.id.startsWith("optimistic-assistant-") ? <ThinkingMessageCard label="Thinking through your request" /> : m.role === "assistant" ? renderMarkdownish(m.text) : m.text}
-                    {m.role === "assistant" && m.suggestedSetup ? (
-                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-3">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Suggestion</div>
-                        <div className="mt-1 text-sm font-semibold text-zinc-900">{m.suggestedSetup.title}</div>
-                        {m.suggestedSetup.detailLines.length ? (
-                          <div className="mt-1 space-y-1 text-xs text-zinc-600">
-                            {m.suggestedSetup.detailLines.map((line) => (
-                              <div key={line}>{line}</div>
-                            ))}
-                          </div>
-                        ) : null}
-                        <div className="mt-3 flex items-center gap-2">
-                          <button
-                            type="button"
-                            className={classNames(
-                              "rounded-xl px-3 py-2 text-xs font-semibold text-white transition-transform duration-150",
-                              m.suggestedSetup.status === "applied"
-                                ? "bg-emerald-600"
-                                : m.suggestedSetup.status === "applying"
-                                  ? "bg-zinc-400"
-                                  : "bg-brand-blue hover:opacity-95",
-                            )}
-                            onClick={() => void applySuggestedSetupFromMessage(m.suggestedSetup!.actionIds, m.suggestedSetup!.key)}
-                            disabled={m.suggestedSetup.status === "applying" || m.suggestedSetup.status === "applied"}
-                          >
-                            {m.suggestedSetup.status === "applied"
-                              ? "Applied"
-                              : m.suggestedSetup.status === "applying"
-                                ? "Applying…"
-                                : "Apply now"}
-                          </button>
-                          {m.suggestedSetup.status === "error" && m.suggestedSetup.error ? (
-                            <div className="text-xs text-red-600">{m.suggestedSetup.error}</div>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-                <div ref={chatEndRef} />
-              </div>
-
-              <div className="mt-4 flex gap-2">
-                <input
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder={pageSuggestion ? "Reply to this suggestion…" : "Ask a question, assign tasks, and more!"}
-                  className="h-11 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void sendSupportChat();
-                  }}
-                  disabled={chatSending}
-                />
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  className={classNames(floatingToolsPuraSendButtonClass, (!chatInput.trim() || chatSending) && "opacity-60")}
-                  onClick={() => void sendSupportChat()}
-                  disabled={!chatInput.trim() || chatSending}
-                  aria-label="Send"
+                  className="group inline-flex items-center rounded-2xl bg-transparent text-sm font-semibold text-zinc-700 transition-colors duration-100 hover:text-zinc-900"
+                  onClick={continueWithPura}
+                  aria-label="Continue with Pura"
+                  title="Continue with Pura"
                 >
-                  <IconSend />
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-100 group-hover:scale-105 group-hover:bg-zinc-50 group-hover:text-zinc-900">
+                    <IconContinueWithPura />
+                  </span>
+                  <span className="ml-2 max-w-0 overflow-hidden whitespace-nowrap text-sm font-semibold opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-40 group-hover:opacity-100">
+                    Continue with Pura
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={floatingToolsSecondaryButtonClass}
+                  onClick={() => setChatOpen(false)}
+                >
+                  ×
                 </button>
               </div>
-
-              <div className="mt-2 text-xs text-zinc-500">Continue in Pura anytime, or use Report bug if something is broken.</div>
             </div>
-          </GlassSurface>
+
+            <div
+              ref={chatScrollRef}
+              onScroll={() => {
+                const el = chatScrollRef.current;
+                if (!el) return;
+                const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+                shouldAutoScrollRef.current = distanceFromBottom < 140;
+              }}
+              className="mt-4 max-h-[55vh] space-y-3 overflow-auto"
+            >
+              {chatMessages.map((m, idx) => (
+                <div
+                  key={m.id || idx}
+                  className={
+                    "rounded-2xl px-3 py-2 text-sm leading-relaxed " +
+                    (m.role === "user"
+                      ? "ml-10 bg-brand-blue font-semibold text-white"
+                      : "mr-10 border border-zinc-200 bg-white text-zinc-800")
+                  }
+                >
+                  {m.role === "assistant" && m.id.startsWith("optimistic-assistant-") ? <ThinkingDots /> : m.role === "assistant" ? renderMarkdownish(m.text) : m.text}
+                  {m.role === "assistant" && m.suggestedSetup ? (
+                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Suggestion</div>
+                      <div className="mt-1 text-sm font-semibold text-zinc-900">{m.suggestedSetup.title}</div>
+                      {m.suggestedSetup.detailLines.length ? (
+                        <div className="mt-1 space-y-1 text-xs text-zinc-600">
+                          {m.suggestedSetup.detailLines.map((line) => (
+                            <div key={line}>{line}</div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="mt-3 flex items-center gap-2">
+                        <button
+                          type="button"
+                          className={classNames(
+                            "rounded-xl px-3 py-2 text-xs font-semibold text-white transition-transform duration-150",
+                            m.suggestedSetup.status === "applied"
+                              ? "bg-emerald-600"
+                              : m.suggestedSetup.status === "applying"
+                                ? "bg-zinc-400"
+                                : "bg-brand-blue hover:opacity-95",
+                          )}
+                          onClick={() => void applySuggestedSetupFromMessage(m.suggestedSetup!.actionIds, m.suggestedSetup!.key)}
+                          disabled={m.suggestedSetup.status === "applying" || m.suggestedSetup.status === "applied"}
+                        >
+                          {m.suggestedSetup.status === "applied"
+                            ? "Applied"
+                            : m.suggestedSetup.status === "applying"
+                              ? "Applying…"
+                              : "Apply now"}
+                        </button>
+                        {m.suggestedSetup.status === "error" && m.suggestedSetup.error ? (
+                          <div className="text-xs text-red-600">{m.suggestedSetup.error}</div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder={pageSuggestion ? "Reply to this suggestion…" : "Ask a question, assign tasks, and more!"}
+                className="h-11 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void sendSupportChat();
+                }}
+                disabled={chatSending}
+              />
+              <button
+                type="button"
+                className={classNames(
+                  "group inline-flex h-11 w-11 items-center justify-center rounded-2xl",
+                  floatingToolsGradientButtonClass,
+                  (!chatInput.trim() || chatSending) && "opacity-60",
+                )}
+                onClick={() => void sendSupportChat()}
+                disabled={!chatInput.trim() || chatSending}
+                aria-label="Send"
+              >
+                <span className="group-hover:hidden">
+                  <IconSend />
+                </span>
+                <span className="hidden group-hover:inline">
+                  <IconSendHover />
+                </span>
+              </button>
+            </div>
+
+            <div className="mt-2 text-xs text-zinc-500">Continue in Pura anytime, or use Report bug if something is broken.</div>
         </div>
       ) : null}
 
-      {!reportOpen && !chatOpen ? <div className={dockPositionClass}>
+      <div className={dockPositionClass}>
         {minimized ? (
           compactDock ? (
             <div className="group flex items-center justify-end gap-2">
-              <GlassSurface {...floatingToolsGlassSurfaceProps} width="auto" height={40} borderRadius={20} className="pointer-events-auto rounded-full opacity-0 shadow-lg transition-all duration-150 group-hover:translate-x-0 group-hover:opacity-100">
-                <button
-                  type="button"
-                  className="pointer-events-none h-10 rounded-full bg-[rgba(255,255,255,0.62)] px-3 py-2 text-xs font-semibold text-zinc-700 backdrop-blur-[2px] transition-all duration-150 group-hover:pointer-events-auto hover:bg-[rgba(255,255,255,0.72)]"
-                  onClick={() => setCompactDock(false)}
-                  aria-label="Expand tools"
-                >
-                  Show
-                </button>
-              </GlassSurface>
-              <div className="relative z-130140 h-11 w-11 overflow-visible">
-                {pageSuggestion ? <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-130150 h-3.5 w-3.5 rounded-full bg-brand-pink ring-[2.5px] ring-white shadow-[0_0_0_1px_rgba(255,255,255,0.72),0_8px_18px_rgba(244,114,182,0.52)]" /> : null}
-                <GlassSurface {...floatingToolsGlassSurfaceProps} width={44} height={44} borderRadius={18} className="pointer-events-auto rounded-2xl shadow-lg">
-                  <button
-                    type="button"
-                    className="grid h-11 w-11 place-items-center rounded-2xl bg-[rgba(255,255,255,0.62)] text-zinc-800 backdrop-blur-[2px] transition-all duration-100 hover:scale-105 hover:bg-[rgba(255,255,255,0.72)]"
-                    onClick={() => persistMinimized(false)}
-                    aria-label="Open chat and report tools"
-                  >
-                    <span className="relative z-10 grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path
-                          d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </span>
-                  </button>
-                </GlassSurface>
-              </div>
+              <button
+                type="button"
+                className="pointer-events-none rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 opacity-0 shadow-lg transition-all duration-150 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100"
+                onClick={() => setCompactDock(false)}
+                aria-label="Expand tools"
+              >
+                Show
+              </button>
+              <button
+                type="button"
+                className="relative grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-100 hover:scale-105 hover:bg-zinc-50"
+                onClick={() => persistMinimized(false)}
+                aria-label="Open chat and report tools"
+              >
+                {pageSuggestion ? <span className="absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full bg-brand-pink ring-2 ring-white" /> : null}
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+              </button>
             </div>
           ) : (
             <div className="group flex items-center justify-end gap-2">
-              <GlassSurface {...floatingToolsGlassSurfaceProps} width="auto" height={40} borderRadius={20} className="pointer-events-auto rounded-full opacity-0 shadow-lg transition-all duration-150 group-hover:opacity-100">
-                <button
-                  type="button"
-                  className="pointer-events-none h-10 rounded-full bg-[rgba(255,255,255,0.62)] px-3 py-2 text-xs font-semibold text-zinc-700 backdrop-blur-[2px] transition-all duration-150 group-hover:pointer-events-auto hover:bg-[rgba(255,255,255,0.72)]"
-                  onClick={() => setCompactDock(true)}
-                  aria-label="Hide tools"
-                >
-                  Hide
-                </button>
-              </GlassSurface>
-              <GlassSurface {...floatingToolsGlassSurfaceProps} width="auto" height={44} borderRadius={22} className="pointer-events-auto overflow-visible rounded-full shadow-lg">
-                <button
-                  type="button"
-                  className="relative flex h-11 items-center gap-2 rounded-full bg-[rgba(255,255,255,0.62)] px-3 py-2 text-xs font-semibold text-zinc-800 backdrop-blur-[2px] transition-colors duration-100 hover:bg-[rgba(255,255,255,0.72)]"
-                  onClick={() => persistMinimized(false)}
-                  aria-label="Open tools"
-                >
-                  {pageSuggestion ? <span className="absolute right-1.5 top-1 z-20 h-2.5 w-2.5 rounded-full bg-brand-pink ring-2 ring-white shadow-[0_0_0_1px_rgba(255,255,255,0.65),0_4px_12px_rgba(244,114,182,0.42)]" /> : null}
-                  <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path
-                        d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </span>
-                  <span className="text-sm font-semibold text-zinc-900">{pageSuggestion ? "Setup suggestion" : "Chat and Report"}</span>
-                </button>
-              </GlassSurface>
+              <button
+                type="button"
+                className="pointer-events-none rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 opacity-0 shadow-lg transition-all duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
+                onClick={() => setCompactDock(true)}
+                aria-label="Hide tools"
+              >
+                Hide
+              </button>
+              <button
+                type="button"
+                className="relative flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-colors duration-100 hover:bg-zinc-50"
+                onClick={() => persistMinimized(false)}
+                aria-label="Open tools"
+              >
+                {pageSuggestion ? <span className="absolute right-2 top-1.5 h-2.5 w-2.5 rounded-full bg-brand-pink" /> : null}
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                <span className="text-sm font-semibold text-zinc-900">Chat and Report</span>
+              </button>
             </div>
           )
         ) : (
           <div
             ref={toolsCardRef}
-            className="w-[min(320px,calc(100vw-2rem))]"
+            className="w-[min(320px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl"
           >
-            <GlassSurface {...floatingToolsGlassSurfaceProps} width="100%" height="auto" borderRadius={24} className="overflow-visible rounded-3xl shadow-2xl">
-              <div className="w-full rounded-3xl bg-[rgba(255,255,255,0.62)] p-4 backdrop-blur-[2px]">
-                <div className="mb-3 h-1.5 w-14 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(29,78,216,0.25))]" />
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-xs font-semibold text-zinc-500">Version</div>
-                    <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{versionLabel}</div>
-                  </div>
-                  <button
-                    type="button"
-                    className={classNames(floatingToolsCloseButtonClass, "text-[1.35rem] leading-none")}
-                    onClick={() => persistMinimized(true)}
-                    aria-label="Minimize"
-                  >
-                    ×
-                  </button>
-                </div>
-
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <div />
-                  <button
-                    type="button"
-                    className={classNames(
-                      "rounded-2xl px-3 py-2 text-sm font-semibold",
-                      "bg-(--color-brand-blue) text-white transition-opacity duration-100 hover:opacity-95",
-                    )}
-                    onClick={() => setReportOpen(true)}
-                  >
-                    Report bug
-                  </button>
-
-                  <button
-                    type="button"
-                    className={classNames(
-                      "relative rounded-2xl px-3 py-2 text-sm font-semibold",
-                      "bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white transition-opacity duration-100 hover:opacity-95",
-                    )}
-                    onClick={openChatPanel}
-                  >
-                    {pageSuggestion ? <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-white/95 ring-2 ring-brand-pink" /> : null}
-                    Chat
-                  </button>
-                </div>
-
-                {pageSuggestion ? (
-                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-white/72 p-3" data-widget-suggested-setup-preview>
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Suggested setup</div>
-                    <div className="mt-1 text-sm font-semibold text-zinc-900">{pageSuggestion.title}</div>
-                    {pageSuggestion.detailLines.length ? (
-                      <div className="mt-2 space-y-1 text-xs text-zinc-600">
-                        {pageSuggestion.detailLines.slice(0, 2).map((line) => (
-                          <div key={line}>{line}</div>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        className={classNames(
-                          "rounded-xl px-3 py-2 text-xs font-semibold text-white transition-transform duration-150",
-                          pageSuggestionStatus === "applied"
-                            ? "bg-emerald-600"
-                            : pageSuggestionStatus === "applying"
-                              ? "bg-zinc-400"
-                              : "bg-brand-blue hover:opacity-95",
-                        )}
-                        onClick={() => void applyPageSuggestionPreview()}
-                        disabled={pageSuggestionStatus === "applying" || pageSuggestionStatus === "applied"}
-                      >
-                        {pageSuggestionStatus === "applied"
-                          ? "Applied"
-                          : pageSuggestionStatus === "applying"
-                            ? "Applying…"
-                            : "Apply now"}
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 transition-colors duration-100 hover:bg-zinc-50"
-                        onClick={openChatPanel}
-                      >
-                        Review in chat
-                      </button>
-                      {pageSuggestionStatus === "error" && pageSuggestionError ? (
-                        <div className="text-xs text-red-600">{pageSuggestionError}</div>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : null}
+            <div className="mb-3 h-1.5 w-14 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(29,78,216,0.25))]" />
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-xs font-semibold text-zinc-500">Version</div>
+                <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{versionLabel}</div>
               </div>
-            </GlassSurface>
+              <button
+                type="button"
+                className="rounded-full border border-transparent bg-white px-2 py-1 text-xs font-semibold text-zinc-500 transition-colors duration-100 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
+                onClick={() => persistMinimized(true)}
+                aria-label="Minimize"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div />
+              <button
+                type="button"
+                className={classNames(
+                  "rounded-2xl px-3 py-2 text-sm font-semibold",
+                  "bg-(--color-brand-blue) text-white transition-opacity duration-100 hover:opacity-95",
+                )}
+                onClick={() => setReportOpen(true)}
+              >
+                Report bug
+              </button>
+
+              <button
+                type="button"
+                className={classNames(
+                  "relative rounded-2xl px-3 py-2 text-sm font-semibold",
+                  "bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white transition-opacity duration-100 hover:opacity-95",
+                )}
+                onClick={openChatPanel}
+              >
+                {pageSuggestion ? <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-white/95 ring-2 ring-brand-pink" /> : null}
+                Chat
+              </button>
+            </div>
           </div>
         )}
-      </div> : null}
+      </div>
     </>
   );
 }

@@ -14,6 +14,14 @@ function phoneKey(value) {
   return String(value || '').replace(/[^0-9]/g, '') || null;
 }
 
+function buildDemoSignatureDataUrl(name) {
+  const label = String(name || 'Signature').trim() || 'Signature';
+  const safeLabel = label.replace(/[<&>"]/g, '');
+  return `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="520" height="140" viewBox="0 0 520 140"><rect width="520" height="140" fill="#ffffff"/><path d="M70 96c28-36 49-54 66-54 13 0 18 9 18 20 0 22-16 37-16 37s16-8 31-30c8-11 16-24 31-24 12 0 20 8 20 20 0 28-31 38-31 38s24-8 43-30c10-11 20-22 35-22 10 0 18 6 18 17 0 18-20 31-20 31h168" fill="none" stroke="#111827" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><text x="260" y="124" text-anchor="middle" font-family="Brush Script MT, Lucida Handwriting, cursive" font-size="30" fill="#374151">${safeLabel}</text></svg>`,
+  )}`;
+}
+
 async function upsertContact(ownerId, contact) {
   const existing = await prisma.portalContact.findFirst({
     where: {
@@ -84,7 +92,7 @@ async function main() {
         city: 'Austin',
         state: 'TX',
         postalCode: '78704',
-        signature: 'Jamie Carter',
+        signature: buildDemoSignatureDataUrl('Jamie Carter'),
       },
     }),
     upsertContact(ownerId, {
@@ -96,7 +104,7 @@ async function main() {
         city: 'Tampa',
         state: 'FL',
         postalCode: '33602',
-        signature: 'Marcus Bennett',
+        signature: buildDemoSignatureDataUrl('Marcus Bennett'),
       },
     }),
     upsertContact(ownerId, {
@@ -108,7 +116,7 @@ async function main() {
         city: 'Phoenix',
         state: 'AZ',
         postalCode: '85016',
-        signature: 'Sofia Ramirez',
+        signature: buildDemoSignatureDataUrl('Sofia Ramirez'),
       },
     }),
   ]);

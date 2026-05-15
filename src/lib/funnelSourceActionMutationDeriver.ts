@@ -2,6 +2,10 @@ import type { BlockStyle, CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import type { FunnelPageMutation } from "@/lib/funnelPageMutations";
 import type { SourceActionPlan, SourceActionPlanMove } from "@/lib/funnelSourceActionPlan";
 
+function describeMove(move: SourceActionPlanMove) {
+  return String(move.target || move.key || "this requested change").trim() || "this requested change";
+}
+
 function findFirstBlock(items: CreditFunnelBlock[], predicate: (block: CreditFunnelBlock) => boolean): CreditFunnelBlock | null {
   for (const block of items) {
     if (!block || typeof block !== "object") continue;
@@ -135,6 +139,88 @@ function shouldAutoApplyMove(move: SourceActionPlanMove) {
   if (move.executionMode === "bounded-edit") return true;
   if (move.confidence === "high") return true;
   return hasMoveSignal(move, /background|surface|contrast|headline|body\/?support|cta|button|proof|testimonial|metric|calendar|booking|schedule/i);
+}
+
+function selectAutoApplyMoves(plan: SourceActionPlan) {
+  const boundedPrimaryMoves = plan.moves.filter((move) => move.executionMode === "bounded-edit" && move.priority === "primary");
+  if (boundedPrimaryMoves.length) return boundedPrimaryMoves;
+  return plan.moves.filter(shouldAutoApplyMove);
+}
+
+function isTextTargetWithoutMaterialInstruction(move: SourceActionPlanMove) {
+  const target = String(move.target || "").trim().toLowerCase();
+  if (!/(^|\b)(heading|headline|title|paragraph|text|copy|body support)(\b|$)/.test(target)) return false;
+
+  if (extractQuotedRewrite(move)?.toText) return false;
+
+  return !hasMoveSignal(
+    move,
+    /padding|spacing|space|gap|margin|radius|shadow|border|contrast|color|tone|surface|background|align|alignment|width|height|size|bold|weight|case|uppercase|lowercase|line-height|line height/i,
+  );
+}
+
+export function deriveFunnelPageMutationWarningsFromSourceActionPlan(blocks: CreditFunnelBlock[], plan: SourceActionPlan | null): string[] {
+  if (!plan || !Array.isArray(blocks) || !blocks.length) return [];
+
+  const rootBlocks = blocks.filter((block) => block && typeof block === "object");
+  const firstSection = rootBlocks.find((block) => block.type === "section") as Extract<CreditFunnelBlock, { type: "section" }> | undefined;
+  const secondSection = rootBlocks.filter((block) => block.type === "section")[1] as Extract<CreditFunnelBlock, { type: "section" }> | undefined;
+  const proofRoot = rootBlocks.find((block) => block.type === "testimonialGrid" || block.type === "syncedReviews") || null;
+  const calendarRoot = rootBlocks.find((block) => block.type === "calendarEmbed") || null;
+
+  const autoMoves = selectAutoApplyMoves(plan);
+  if (!autoMoves.length) {
+    return dedupeMutations(buildLegacyHeuristicMutations(rootBlocks, plan)).length
+      ? []
+      : ["Pura needs a clearer on-page target before it can apply this pass."];
+  }
+
+  const warnings: string[] = [];
+  for (const move of autoMoves) {
+    const moveLabel = describeMove(move);
+    if (isTextTargetWithoutMaterialInstruction(move)) {
+      warnings.push(`Pura needs the exact wording or a specific visual change for "${moveLabel}" before it can apply this pass.`);
+      continue;
+    }
+
+    const targetSection = pickTargetSection(rootBlocks, move, firstSection);
+    if (!targetSection) {
+      warnings.push(`Pura could not tell which section or block should change for "${moveLabel}".`);
+      continue;
+    }
+
+    const targetHeading = findFirstBlock([targetSection], (block) => block.type === "heading") as Extract<CreditFunnelBlock, { type: "heading" }> | null;
+    const targetParagraph = findFirstBlock([targetSection], (block) => block.type === "paragraph") as Extract<CreditFunnelBlock, { type: "paragraph" }> | null;
+    const targetButtons = findBlocks([targetSection], (block) => block.type === "button") as Array<Extract<CreditFunnelBlock, { type: "button" }>>;
+
+    const wantsHeroWork = hasMoveSignal(move, /hero|opening|first screen|first serious ask/i);
+    const wantsProofWork = hasMoveSignal(move, /proof|trust|testimonial|review|credibility|authority|metric|portrait|logo cloud|iconography/i);
+    const wantsCtaWork = hasMoveSignal(move, /cta|action|button|convert|handoff|book|schedule/i);
+    const wantsBookingWork = hasMoveSignal(move, /booking|calendar|schedule|handoff/i);
+    const wantsRhythmWork = hasMoveSignal(move, /section|cadence|rhythm|flow|sequence/i);
+    const wantsLightSurfaceWork = hasMoveSignal(move, /background|surface|palette|color|tone|light|lighter|white|off-white|bright|brighter|clean|cleaner|airy|airier/i);
+    const wantsContrastWork = wantsLightSurfaceWork || hasMoveSignal(move, /contrast|readability|legible|clarity|dark ink|mid-gray|low-contrast/i);
+    const wantsLayeredSurface = hasMoveSignal(move, /layered surface|depth|shadow|soft shadow|radius|rounded|border|panel|card/i);
+    const wantsPrimaryButton = hasMoveSignal(move, /filled primary button|primary button|designed conversion object|distinct radius|cta styling/i);
+    const allowStructuralMoves = move.executionMode === "model-led" && move.confidence === "high";
+    const allowAdjacentSurfaceWork = move.executionMode === "model-led" && move.confidence !== "low";
+    const directRewrite = extractQuotedRewrite(move);
+
+    const canRewriteHeading = Boolean(targetHeading && directRewrite?.toText && hasMoveSignal(move, /headline|h1|hero heading|page headline/i));
+    const canStyleSection = wantsHeroWork || wantsLayeredSurface || wantsLightSurfaceWork;
+    const canStyleHeading = Boolean(targetHeading && (wantsHeroWork || wantsContrastWork));
+    const canStyleParagraph = Boolean(targetParagraph && (wantsHeroWork || wantsCtaWork || wantsContrastWork));
+    const canPatchButton = Boolean(targetButtons.length && (wantsCtaWork || wantsPrimaryButton));
+    const canMoveProof = Boolean(proofRoot && wantsProofWork && allowStructuralMoves && proofRoot.id !== targetSection.id);
+    const canMoveCalendar = Boolean(calendarRoot && wantsBookingWork && allowStructuralMoves);
+    const canStyleAdjacentSection = Boolean(secondSection && secondSection.id !== targetSection.id && allowAdjacentSurfaceWork && (wantsRhythmWork || wantsLightSurfaceWork));
+
+    if (!(canRewriteHeading || canStyleSection || canStyleHeading || canStyleParagraph || canPatchButton || canMoveProof || canMoveCalendar || canStyleAdjacentSection)) {
+      warnings.push(`Pura needs a more exact instruction for "${moveLabel}" before it can change this page.`);
+    }
+  }
+
+  return warnings;
 }
 
 function mergeStylePatch(store: Map<string, Partial<BlockStyle>>, blockId: string, patch: Partial<BlockStyle>) {
@@ -295,7 +381,7 @@ export function deriveFunnelPageMutationsFromSourceActionPlan(blocks: CreditFunn
   const proofRoot = rootBlocks.find((block) => block.type === "testimonialGrid" || block.type === "syncedReviews") || null;
   const calendarRoot = rootBlocks.find((block) => block.type === "calendarEmbed") || null;
 
-  const autoMoves = plan.moves.filter(shouldAutoApplyMove);
+  const autoMoves = selectAutoApplyMoves(plan);
   if (!autoMoves.length) return dedupeMutations(buildLegacyHeuristicMutations(rootBlocks, plan));
 
   const styleByBlockId = new Map<string, Partial<BlockStyle>>();
@@ -304,6 +390,8 @@ export function deriveFunnelPageMutationsFromSourceActionPlan(blocks: CreditFunn
   const moveMutations: FunnelPageMutation[] = [];
 
   for (const move of autoMoves) {
+    if (isTextTargetWithoutMaterialInstruction(move)) continue;
+
     const targetSection = pickTargetSection(rootBlocks, move, firstSection);
     const targetHeading = targetSection
       ? findFirstBlock([targetSection], (block) => block.type === "heading") as Extract<CreditFunnelBlock, { type: "heading" }> | null
@@ -419,7 +507,7 @@ export function deriveFunnelPageMutationsFromSourceActionPlan(blocks: CreditFunn
     ...moveMutations,
   ];
 
-  if (!derivedMutations.length) return dedupeMutations(buildLegacyHeuristicMutations(rootBlocks, plan));
+  if (!derivedMutations.length) return [];
 
   return dedupeMutations(derivedMutations);
 }

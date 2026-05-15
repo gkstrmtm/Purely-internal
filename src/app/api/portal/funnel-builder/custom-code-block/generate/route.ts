@@ -3,6 +3,13 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import {
+  consumeFunnelBuilderAiCredits,
+  enforceFunnelBuilderRouteRateLimit,
+  readFunnelBuilderRequestId,
+  recordFunnelBuilderAiFailure,
+} from "@/lib/funnelBuilderGuardrails";
+import { sanitizeTrustedAiAttachmentUrl } from "@/lib/funnelBuilderAttachmentPolicy";
 import { generateText, generateTextWithImages } from "@/lib/ai";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { assessDesignTokenDiscipline, buildDesignTokenContractBlock } from "@/lib/funnelDesignTokenGuard";
@@ -28,12 +35,16 @@ import {
 import { assessFunnelSceneQuality, buildFragmentSceneAnatomy } from "@/lib/funnelSceneQuality";
 import { resolveFunnelShellFrame, type FunnelShellFrame } from "@/lib/funnelShellFrames";
 import { buildFunnelVisualWhyBlock } from "@/lib/funnelVisualWhy";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { stripeGetWithKey } from "@/lib/stripeFetchWithKey.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const CUSTOM_CODE_AI_CREDIT_ERROR = "CUSTOM_CODE_AI_CREDIT_ERROR";
+const CUSTOM_CODE_AI_GUARDRAIL_ERROR = "CUSTOM_CODE_AI_GUARDRAIL_ERROR";
 
 function cleanString(value: unknown, max: number) {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -1263,14 +1274,6 @@ function inferForcedActionsFromIntent(opts: {
   return actions.length ? actions.slice(0, 6) : null;
 }
 
-function toAbsoluteUrl(req: Request, url: string): string {
-  const u = String(url || "").trim();
-  if (!u) return "";
-  if (/^https?:\/\//i.test(u)) return u;
-  const origin = new URL(req.url).origin;
-  return new URL(u, origin).toString();
-}
-
 function pickDefaultFormSlug(forms: Array<{ slug: string; name: string; status: string }>): string {
   const active = forms.find((f) => String(f.status).toUpperCase() === "ACTIVE");
   return (active ?? forms[0])?.slug ?? "";
@@ -1413,6 +1416,21 @@ export async function POST(req: Request) {
   const { funnelId, pageId, prompt, designContext, contextKeys, contextMedia, chatHistory } = body;
   const currentHtml = String(body.currentHtml || "");
   const currentCss = String(body.currentCss || "");
+  const requestId = readFunnelBuilderRequestId(req);
+  const routeGate = await enforceFunnelBuilderRouteRateLimit({
+    ownerId: auth.session.user.id,
+    routeKey: "custom-code-generate",
+    requestId,
+  });
+  if (!routeGate.ok) {
+    return NextResponse.json({ ok: false, error: routeGate.error }, { status: routeGate.status });
+  }
+  const trustedContextMedia = contextMedia
+    .map((item) => {
+      const trustedUrl = sanitizeTrustedAiAttachmentUrl(req, item.url);
+      return trustedUrl ? { ...item, url: trustedUrl } : null;
+    })
+    .filter((item): item is { url: string; fileName?: string; mimeType?: string } => Boolean(item));
 
   // Ensure the funnel/page belongs to the current owner (authorization + context).
   const page = await prisma.creditFunnelPage.findFirst({
@@ -1484,7 +1502,7 @@ export async function POST(req: Request) {
     currentCss,
     designContext,
     contextKeys,
-    contextMedia,
+    contextMedia: trustedContextMedia,
     recentChatHistory: chatHistory,
     recentIterationMemory: buildRecentIterationNotes(chatHistory),
   });
@@ -1561,14 +1579,14 @@ export async function POST(req: Request) {
       ].join("\n")
     : "";
 
-  const contextMediaBlock = contextMedia.length
+  const contextMediaBlock = trustedContextMedia.length
     ? [
         "",
         "SELECTED_MEDIA (use these assets if relevant):",
-        ...contextMedia.map((m) => {
+        ...trustedContextMedia.map((m) => {
           const name = m.fileName ? ` ${m.fileName}` : "";
           const mime = m.mimeType ? ` (${m.mimeType})` : "";
-          return `- ${name}${mime}: ${toAbsoluteUrl(req, m.url)}`.trim();
+          return `- ${name}${mime}: ${m.url}`.trim();
         }),
         "",
       ].join("\n")
@@ -1737,8 +1755,19 @@ export async function POST(req: Request) {
   // Step 1: analyze intent and select assets.
   let analysisRaw = "";
   try {
-    analysisRaw = await generateText({ system: analysisSystem, user: baseUser, history: chatHistory });
-  } catch {
+    analysisRaw = await runMeteredAiCall("Intent analysis", () =>
+      generateText({ system: analysisSystem, user: baseUser, history: chatHistory }),
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message === CUSTOM_CODE_AI_CREDIT_ERROR) {
+      return NextResponse.json({ ok: false, error: "You need more credits to make that change." }, { status: 402 });
+    }
+    if (error instanceof Error && error.message === CUSTOM_CODE_AI_GUARDRAIL_ERROR) {
+      return NextResponse.json(
+        { ok: false, error: "This account hit its current builder AI safety limit. Wait a minute and try again." },
+        { status: 429 },
+      );
+    }
     analysisRaw = "";
   }
 
@@ -1814,21 +1843,58 @@ export async function POST(req: Request) {
 
   const imageUrls = Array.from(
     new Set(
-      contextMedia
-        .map((m) => toAbsoluteUrl(req, String(m?.url || "").trim()))
+      trustedContextMedia
+        .map((m) => String(m?.url || "").trim())
         .filter(Boolean)
         .slice(0, 8),
     ),
   ).slice(0, 6);
 
+  async function runMeteredAiCall(stepLabel: string, runner: () => Promise<string>) {
+    const charged = await consumeFunnelBuilderAiCredits({
+      ownerId,
+      routeKey: "custom-code-generate",
+      requestId,
+      amount: PORTAL_CREDIT_COSTS.aiCallStepGenerate,
+      stepLabel,
+    });
+    if (!charged.ok) {
+      throw new Error(charged.status === 402 ? CUSTOM_CODE_AI_CREDIT_ERROR : CUSTOM_CODE_AI_GUARDRAIL_ERROR);
+    }
+    try {
+      return await runner();
+    } catch (error) {
+      await recordFunnelBuilderAiFailure({
+        ownerId,
+        routeKey: "custom-code-generate",
+        requestId,
+        stepLabel,
+        reason: "ai_step_runner_failed",
+      });
+      throw error;
+    }
+  }
+
   let buildRaw = "";
   try {
-    buildRaw = imageUrls.length
-      ? await generateTextWithImages({ system: buildSystem, user: buildUser, imageUrls, history: chatHistory })
-      : await generateText({ system: buildSystem, user: buildUser, history: chatHistory });
+    buildRaw = await runMeteredAiCall("Build fragment", () =>
+      imageUrls.length
+        ? generateTextWithImages({ system: buildSystem, user: buildUser, imageUrls, history: chatHistory })
+        : generateText({ system: buildSystem, user: buildUser, history: chatHistory }),
+    );
   } catch (e) {
+    if (e instanceof Error && e.message === CUSTOM_CODE_AI_CREDIT_ERROR) {
+      return NextResponse.json({ ok: false, error: "You need more credits to make that change." }, { status: 402 });
+    }
+    if (e instanceof Error && e.message === CUSTOM_CODE_AI_GUARDRAIL_ERROR) {
+      return NextResponse.json(
+        { ok: false, error: "This account hit its current builder AI safety limit. Wait a minute and try again." },
+        { status: 429 },
+      );
+    }
+    console.error("[funnel-builder/custom-code-block/generate] build failed", e);
     return NextResponse.json(
-      { ok: false, error: (e as any)?.message ? String((e as any).message) : "AI generation failed" },
+      { ok: false, error: "We couldn't apply that change right now. Please try again." },
       { status: 500 },
     );
   }
@@ -1875,7 +1941,7 @@ export async function POST(req: Request) {
   let { html, css } = coerceBuildResponse(buildRaw);
 
   if (!html.trim()) {
-    return NextResponse.json({ ok: false, error: "AI returned empty HTML" }, { status: 502 });
+    return NextResponse.json({ ok: false, error: "We couldn't generate a usable update. Please try again." }, { status: 502 });
   }
 
   const shouldRetryMaterialEdit = hasCurrent && prefersInPlaceHtml && !fragmentChanged(currentHtml, html, currentCss, css);
@@ -1903,9 +1969,11 @@ export async function POST(req: Request) {
       .join("\n");
 
     try {
-      const retryRaw = imageUrls.length
-        ? await generateTextWithImages({ system: buildSystem, user: retryUser, imageUrls, history: chatHistory })
-        : await generateText({ system: buildSystem, user: retryUser, history: chatHistory });
+      const retryRaw = await runMeteredAiCall("Retry fragment build", () =>
+        imageUrls.length
+          ? generateTextWithImages({ system: buildSystem, user: retryUser, imageUrls, history: chatHistory })
+          : generateText({ system: buildSystem, user: retryUser, history: chatHistory }),
+      );
       const retried = coerceBuildResponse(retryRaw);
       if (retried.html.trim()) {
         html = retried.html;
@@ -1942,15 +2010,26 @@ export async function POST(req: Request) {
 
     try {
       const question = String(
-        await generateText({
-          system:
-            "You are an assistant in a funnel builder. The user asked for custom HTML/CSS, but the best path is to insert a proper Funnel Builder block instead. Ask one concise question to choose the block type. Offer these options: Form, Calendar, Chatbot, Shop. Keep it to 1-2 sentences.",
-          user: `Context (JSON):\n${JSON.stringify({ prompt }, null, 2)}`,
-        }),
+        await runMeteredAiCall("Fallback question", () =>
+          generateText({
+            system:
+              "You are an assistant in a funnel builder. The user asked for custom HTML/CSS, but the best path is to insert a proper Funnel Builder block instead. Ask one concise question to choose the block type. Offer these options: Form, Calendar, Chatbot, Shop. Keep it to 1-2 sentences.",
+            user: `Context (JSON):\n${JSON.stringify({ prompt }, null, 2)}`,
+          }),
+        ),
       ).trim();
       return NextResponse.json({ ok: true, question: question.slice(0, 800), summary: question.slice(0, 180) });
-    } catch {
-      return NextResponse.json({ ok: false, error: "AI provider not configured" }, { status: 502 });
+    } catch (e) {
+      if (e instanceof Error && e.message === CUSTOM_CODE_AI_CREDIT_ERROR) {
+        return NextResponse.json({ ok: false, error: "You need more credits to make that change." }, { status: 402 });
+      }
+      if (e instanceof Error && e.message === CUSTOM_CODE_AI_GUARDRAIL_ERROR) {
+        return NextResponse.json(
+          { ok: false, error: "This account hit its current builder AI safety limit. Wait a minute and try again." },
+          { status: 429 },
+        );
+      }
+      return NextResponse.json({ ok: false, error: "We couldn't finish that change right now. Please try again." }, { status: 502 });
     }
   }
 
@@ -1987,9 +2066,11 @@ export async function POST(req: Request) {
       .join("\n");
 
     try {
-      const tokenRetryRaw = imageUrls.length
-        ? await generateTextWithImages({ system: buildSystem, user: tokenRetryUser, imageUrls, history: chatHistory })
-        : await generateText({ system: buildSystem, user: tokenRetryUser, history: chatHistory });
+      const tokenRetryRaw = await runMeteredAiCall("Normalize design tokens", () =>
+        imageUrls.length
+          ? generateTextWithImages({ system: buildSystem, user: tokenRetryUser, imageUrls, history: chatHistory })
+          : generateText({ system: buildSystem, user: tokenRetryUser, history: chatHistory }),
+      );
       const retried = coerceBuildResponse(tokenRetryRaw);
       if (retried.html.trim()) {
         html = retried.html;
@@ -2003,7 +2084,7 @@ export async function POST(req: Request) {
 
   if (designTokenIssues.length) {
     return NextResponse.json(
-      { ok: false, error: `Generated fragment violated design-token rules: ${designTokenIssues.join(" ")}` },
+      { ok: false, error: "We couldn't apply that change cleanly. Please try again." },
       { status: 502 },
     );
   }

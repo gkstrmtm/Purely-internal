@@ -12,8 +12,9 @@ import { applyDraftHtmlWriteCompat, dbHasCreditFunnelPageDraftHtmlColumn } from 
 import { buildSuggestedFunnelNaming, buildSuggestedPageNaming, inferFunnelBriefProfile, inferFunnelPageIntentProfile, writeFunnelBrief, writeFunnelPageBrief } from "@/lib/funnelPageIntent";
 import { buildFunnelInitializationScaffold } from "@/lib/funnelStencilRegistry.server";
 import { createFunnelPageMirroredHtmlUpdate } from "@/lib/funnelPageState";
-import { consumeCredits } from "@/lib/credits";
+import { consumeCredits, consumeCreditsOnce } from "@/lib/credits";
 import { addCredits } from "@/lib/credits";
+import { enforceFunnelBuilderRouteRateLimit, readFunnelBuilderRequestId } from "@/lib/funnelBuilderGuardrails";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
 export const dynamic = "force-dynamic";
@@ -73,6 +74,34 @@ function withRandomSuffix(base: string, maxLen = 60) {
   return `${head}${suffix}`;
 }
 
+function hasStructuredInitializationIntent(body: Record<string, unknown> | null) {
+  if (!body) return false;
+
+  const signalKeys = [
+    "pageType",
+    "pageGoal",
+    "funnelGoal",
+    "offer",
+    "offerSummary",
+    "audience",
+    "audienceSummary",
+    "primaryCta",
+    "companyContext",
+    "qualificationFields",
+    "routingDestination",
+    "formStrategy",
+    "heroAssetMode",
+    "shellFrameId",
+    "shellConcept",
+    "sectionPlan",
+  ] as const;
+
+  return signalKeys.some((key) => {
+    const value = body[key];
+    return typeof value === "string" ? Boolean(value.trim()) : value != null;
+  });
+}
+
 export async function GET() {
   const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
@@ -111,9 +140,11 @@ export async function POST(req: Request) {
     }
 
     const ownerId = auth.session.user.id;
-  const basePath = auth.variant === "credit" ? "/credit" : "";
+    const basePath = auth.variant === "credit" ? "/credit" : "";
 
     const body = (await req.json().catch(() => null)) as any;
+    const clientRequestId = typeof body?.requestId === "string" ? body.requestId.trim().slice(0, 120) : "";
+    const requestId = readFunnelBuilderRequestId(req, clientRequestId);
     const explicitSlugRaw = typeof body?.slug === "string" ? body.slug : "";
     const explicitSlug = explicitSlugRaw.trim() ? normalizeSlug(explicitSlugRaw) : null;
     const explicitName = typeof body?.name === "string" ? body.name.trim().slice(0, 120) : "";
@@ -143,6 +174,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Invalid name" }, { status: 400 });
     }
 
+    const routeGate = await enforceFunnelBuilderRouteRateLimit({ ownerId, routeKey: "funnel-create", requestId });
+    if (!routeGate.ok) {
+      return NextResponse.json({ ok: false, error: routeGate.error }, { status: routeGate.status });
+    }
+
     const requestedThemeKey = coerceCreditFunnelThemeKey(body?.themeKey);
     const themeKey = template ? requestedThemeKey || template.defaultThemeKey : null;
     const theme = themeKey ? getCreditFunnelTheme(themeKey) : null;
@@ -169,6 +205,7 @@ export async function POST(req: Request) {
       sectionPlan: body?.sectionPlan,
       askClarifyingQuestions: body?.askClarifyingQuestions,
     });
+    const shouldForceMinimalCustomScaffold = !template && !hasStructuredInitializationIntent(body);
     const initializationScaffold = template
       ? null
       : await buildFunnelInitializationScaffold({
@@ -177,7 +214,7 @@ export async function POST(req: Request) {
           pageGoal: firstPageIntent.pageGoal,
           primaryCta: firstPageIntent.primaryCta,
           offer: firstPageIntent.offer,
-          preferCustomMode: body?.preferCustomMode === true,
+          preferCustomMode: shouldForceMinimalCustomScaffold || body?.preferCustomMode === true,
           shellConcept: firstPageIntent.shellConcept,
           sectionPlan: firstPageIntent.sectionPlan,
           decisionInput: {
@@ -188,7 +225,7 @@ export async function POST(req: Request) {
             primaryCta: body?.primaryCta,
             name,
             slug,
-            preferCustomMode: body?.preferCustomMode,
+            preferCustomMode: shouldForceMinimalCustomScaffold || body?.preferCustomMode === true,
           },
         });
 
@@ -236,9 +273,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "A funnel with that slug already exists. Try a different slug." }, { status: 409 });
     }
 
-    const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.funnelCreate);
+    const charged = clientRequestId
+      ? await consumeCreditsOnce(ownerId, PORTAL_CREDIT_COSTS.funnelCreate, `funnel-create:${ownerId}:${slug}:${clientRequestId}`)
+      : await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.funnelCreate);
     if (!charged.ok) {
-      return NextResponse.json({ ok: false, error: "Insufficient credits" }, { status: 402 });
+      return NextResponse.json({ ok: false, error: "You need more credits to create a funnel." }, { status: 402 });
     }
 
     let funnel: any = null;
@@ -384,11 +423,15 @@ export async function POST(req: Request) {
       }
 
       if (!funnel) {
-        await addCredits(ownerId, PORTAL_CREDIT_COSTS.funnelCreate).catch(() => null);
+        if (!("alreadyConsumed" in charged) || charged.alreadyConsumed !== true) {
+          await addCredits(ownerId, PORTAL_CREDIT_COSTS.funnelCreate).catch(() => null);
+        }
         return NextResponse.json({ ok: false, error: "A funnel with that slug already exists. Try a different slug." }, { status: 409 });
       }
     } catch (e) {
-      await addCredits(ownerId, PORTAL_CREDIT_COSTS.funnelCreate).catch(() => null);
+      if (!("alreadyConsumed" in charged) || charged.alreadyConsumed !== true) {
+        await addCredits(ownerId, PORTAL_CREDIT_COSTS.funnelCreate).catch(() => null);
+      }
       throw e;
     }
 

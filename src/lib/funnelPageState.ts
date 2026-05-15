@@ -70,7 +70,7 @@ export function createFunnelPageBlockSnapshotUpdate(input: FunnelPageBlockSnapsh
 
   return {
     blocksJson: input.blocks as unknown,
-    ...createFunnelPageMirroredHtmlUpdate(html),
+    ...createFunnelPageDraftUpdate(html),
   };
 }
 

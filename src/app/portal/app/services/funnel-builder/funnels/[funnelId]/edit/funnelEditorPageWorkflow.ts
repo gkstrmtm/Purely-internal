@@ -138,7 +138,7 @@ export function getFunnelEditorWorkflowViewModel(opts: {
       ? "Save draft"
       : hasDeployableDraft || customCodeModeActive
         ? "Draft saved"
-        : "Live matches draft";
+        : "Draft saved";
   const saveButtonTitle = customCodeModeActive
     ? sourceHasPendingChanges
       ? "Save the staged source changes as draft. Draft changes do not go live until you publish."
@@ -184,7 +184,7 @@ export function getFunnelEditorWorkflowViewModel(opts: {
         ? "Draft newer than live"
         : "Live matches draft";
   const workflowSummary = !selectedPage
-    ? "Choose a page to edit."
+    ? "Choose a page to start editing."
     : customCodeModeActive
       ? sourceHasPendingChanges
         ? "You have staged source changes. Save draft to keep them, then publish when you want the live page replaced."

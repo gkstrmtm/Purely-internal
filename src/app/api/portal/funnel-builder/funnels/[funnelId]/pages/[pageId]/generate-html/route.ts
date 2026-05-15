@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 
 import { getCreditFunnelBuilderSettings } from "@/lib/creditFunnelBuilderSettingsStore";
-import { consumeCredits } from "@/lib/credits";
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import { sanitizeTrustedAiAttachmentUrl } from "@/lib/funnelBuilderAttachmentPolicy";
+import {
+  consumeFunnelBuilderAiCredits,
+  enforceFunnelBuilderRouteRateLimit,
+  readFunnelBuilderRequestId,
+  recordFunnelBuilderAiFailure,
+} from "@/lib/funnelBuilderGuardrails";
 import { generateText, generateTextWithImages } from "@/lib/ai";
 import type { CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
@@ -59,6 +65,9 @@ import { buildFunnelVisualWhyBlock } from "@/lib/funnelVisualWhy";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const AI_ROUTE_TIME_BUDGET_MS = 120_000;
+const AI_OPTIONAL_STEP_BUFFER_MS = 20_000;
 
 function clampText(s: string, maxLen: number) {
   if (s.length <= maxLen) return s;
@@ -611,6 +620,9 @@ function applyBookingSectionRhythmEnhancement(html: string): string {
 function applyBookingPrimaryGuardrails(html: string, primaryCta?: string | null): string {
   const text = String(html || "")
     .replace(/<style id=["']pa-booking-primary-guardrails["']>[\s\S]*?<\/style>/gi, "")
+    .replace(/<div class="pa-booking-primary-stack">\s*(<(?:a|button)\b[\s\S]*?data-pa-booking-primary=["'][^"']*["'][\s\S]*?<\/(?:a|button)>)\s*<div class="pa-booking-primary-note">[\s\S]*?<\/div>\s*(?:<div class="pa-booking-proof-cluster" data-pa-booking-proof="true">[\s\S]*?<\/div>)?\s*<\/div>/gi, "$1")
+    .replace(/<div class="pa-booking-primary-stack">\s*(<div class="pa-booking-primary-stack">[\s\S]*?<\/div>)\s*<\/div>/gi, "$1")
+    .replace(/<div class="pa-booking-primary-note">[\s\S]*?<\/div>/gi, "")
     .replace(/\sdata-pa-booking-primary=["'][^"']*["']/gi, "")
     .replace(/\sdata-pa-booking-secondary=["'][^"']*["']/gi, "")
     .replace(/<div class="pa-booking-proof-cluster" data-pa-booking-proof="true">[\s\S]*?<\/div>/gi, "");
@@ -646,9 +658,10 @@ function applyBookingPrimaryGuardrails(html: string, primaryCta?: string | null)
     Math.max(0, firstBooking.index - 220),
     Math.min(text.length, firstBooking.index + firstBooking.full.length + 520),
   );
-  const needsAttachedProof = !hasStrongProofSurface(immediateWindow);
+  const hasExplicitAttachedProof = /pa-booking-proof-cluster|support-note\s+proof-callout|hero-proof|micro-proof/i.test(immediateWindow);
+  const needsAttachedProof = !hasExplicitAttachedProof;
   const proofClusterMarkup = needsAttachedProof
-    ? '<div class="pa-booking-proof-cluster" data-pa-booking-proof="true"><strong>Decision support</strong><span>Clear recommendation, visible tradeoffs, and the next step framed before the scheduler opens.</span></div>'
+    ? '<ul class="pa-booking-proof-cluster" data-pa-booking-proof="true"><li><strong>Client-fit proof</strong>Clear recommendation, visible tradeoffs, and grounded client-outcome framing stay attached to the booking ask.</li><li><strong>Session output</strong>Leave with a real next step, not a vague discovery call and no-pressure filler.</li></ul>'
     : "";
 
   let bookingOrdinal = 0;
@@ -697,9 +710,9 @@ function applyBookingPrimaryGuardrails(html: string, primaryCta?: string | null)
     '.cta-row > a:not([data-pa-booking-primary="true"]),.cta-row > button:not([data-pa-booking-primary="true"]),.booking-flow > a:not([data-pa-booking-primary="true"]),.booking-flow > button:not([data-pa-booking-primary="true"]),.hero [data-pa-booking-primary="true"] ~ a,.hero [data-pa-booking-primary="true"] ~ button{background:transparent !important;color:var(--color-muted) !important;border-color:transparent !important;box-shadow:none !important;text-decoration:underline !important;text-underline-offset:0.18em !important;min-height:auto !important;padding:6px 0 !important;opacity:0.72 !important;}',
     '.pa-btn-secondary,.cta-secondary,.btn-secondary,.button-secondary{background:transparent !important;color:currentColor !important;opacity:0.72 !important;border:0 !important;box-shadow:none !important;text-decoration:underline !important;text-underline-offset:0.18em !important;min-height:auto !important;padding:4px 0 !important;}',
     '[data-pa-booking-secondary="true"]{background:transparent !important;color:currentColor !important;opacity:0.72 !important;border:0 !important;box-shadow:none !important;text-decoration:underline !important;text-underline-offset:0.18em !important;min-height:auto !important;padding:4px 0 !important;}',
-    '.pa-booking-proof-cluster{margin-top:14px;max-width:min(34rem,100%);display:grid;gap:6px;padding:14px 16px;border-radius:18px;background:var(--color-background);border:1px solid var(--color-accent);box-shadow:none;color:var(--color-text);}',
-    '.pa-booking-proof-cluster strong{display:block;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:var(--color-accent);}',
-    '.pa-booking-proof-cluster span{font-size:14px;line-height:1.6;color:var(--color-text);}',
+    '.pa-booking-proof-cluster{margin-top:14px;max-width:min(34rem,100%);display:grid;gap:8px;padding:14px 16px;border-radius:18px;background:var(--color-background);border:1px solid var(--color-accent);box-shadow:none;color:var(--color-text);list-style:none;}',
+    '.pa-booking-proof-cluster li{margin:0;padding:0;font-size:14px;line-height:1.6;color:var(--color-text);}',
+    '.pa-booking-proof-cluster strong{display:block;margin-bottom:4px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:var(--color-accent);}',
     '</style>',
   ].join('');
 
@@ -729,6 +742,16 @@ function applyDesignTokenFoundation(html: string): string {
   return `${tokenCss}${source}`;
 }
 
+function repairMalformedBookingHeroMarkup(html: string): string {
+  const source = String(html || "");
+  if (!source.trim()) return source;
+
+  return source.replace(
+    /(<div class="hero-actions">\s*<div class="pa-booking-primary-stack">[\s\S]*?<\/div>)(\s*<aside class="proof-ledger">[\s\S]*?<\/aside>\s*<\/section>)/i,
+    "$1</div></div>$2",
+  );
+}
+
 function postProcessGeneratedPageHtml(html: string, pageType?: string | null, primaryCta?: string | null): string {
   let out = sanitizeGeneratedHtmlVisualAssets(html);
   out = applyDesignTokenFoundation(out);
@@ -738,6 +761,7 @@ function postProcessGeneratedPageHtml(html: string, pageType?: string | null, pr
     if (hasUniformPrimarySectionStyling(out)) {
       out = applyBookingSectionRhythmEnhancement(out);
     }
+    out = repairMalformedBookingHeroMarkup(out);
   }
   return out;
 }
@@ -751,7 +775,7 @@ function applyLayoutSafetyGuardrails(html: string): string {
     'html,body{max-width:100%;overflow-x:hidden;}',
     '*,*::before,*::after{box-sizing:border-box;min-width:0;}',
     'body :where(main,section,article,aside,header,footer,div,form){max-width:100%;}',
-    'body :where(h1,h2,h3,h4,h5,h6,p,li,blockquote,a,button,label,span){max-inline-size:100%;overflow-wrap:anywhere;word-break:normal;}',
+    'body :where(h1,h2,h3,h4,h5,h6,p,li,blockquote,a,button,label,span){max-inline-size:100%;overflow-wrap:break-word;word-break:normal;hyphens:auto;}',
     'body :where(img,svg,video,canvas,iframe){display:block;max-width:100%;height:auto;}',
     'body :where(pre,code){max-width:100%;white-space:pre-wrap;word-break:break-word;}',
     'body :where(button,a,input,textarea,select){max-width:100%;}',
@@ -1105,6 +1129,51 @@ function pickFallbackCtaText(value: string, fallback: string) {
   return text;
 }
 
+function buildBookingFallbackPlanSeed(input: {
+  audience?: string | null;
+  offer?: string | null;
+  pageGoal?: string | null;
+  primaryCta?: string | null;
+  hasEmbeddedBooking: boolean;
+}) {
+  const audience = pickFallbackAudienceCopy(
+    String(input.audience || ""),
+    "operators and founders with a live decision to make",
+  );
+  const offer = pickFallbackAudienceCopy(
+    String(input.offer || ""),
+    "a private strategy consultation",
+  );
+  const cleanOffer = stripLeadingArticle(offer) || "strategy consultation";
+  const pageGoal = pickFallbackAudienceCopy(
+    String(input.pageGoal || ""),
+    "clarify the next move without burning time on vague discovery",
+  );
+  const cta = pickFallbackCtaText(String(input.primaryCta || "Book a call"), "Book a call");
+
+  return {
+    summary: `${capitalizeSentence(cleanOffer)} for ${audience} that turns live pressure into a clearer next move.`,
+    heroApproach: `${capitalizeSentence(cleanOffer)} for ${audience} with one clear booking action and proof attached before the handoff.`,
+    proofStrategy: "Keep proof locked to the first CTA, then repeat reassurance inside the booking handoff so the page asks confidently instead of vaguely.",
+    openingCluster: {
+      promise: `Book the ${cleanOffer}`,
+      qualifier: `Built for ${audience}`,
+      adjacentProof: `Leave with a recommendation, visible tradeoffs, and a next step grounded in ${pageGoal}.`,
+      supportRole: "decision support",
+    },
+    ctaSystem: {
+      dominantCta: cta,
+      secondaryAction: "subdued-text-link",
+      repeatMoments: ["hero", "handoff"],
+    },
+    bookingHandoff: {
+      sectionType: input.hasEmbeddedBooking ? "embedded booking section" : "direct booking handoff",
+      reassurance: "The booking step stays clear and low-friction, with the session fit and next-step framing still in view.",
+      repeatProof: "The handoff repeats fit and outcome reassurance so the booking step feels earned, not abrupt.",
+    },
+  } satisfies Record<string, unknown>;
+}
+
 function buildBookingFallbackHtmlFromPlan(input: {
   funnelName: string;
   pageTitle: string;
@@ -1157,7 +1226,7 @@ function buildBookingFallbackHtmlFromPlan(input: {
   );
   const heroApproach = pickNonGenericFallbackCopy(
     readPlanString(input.generationPlan, "heroApproach", ""),
-    `Lead with the decision ${audience} is trying to make, keep the ${cleanOffer} visibly valuable, and attach reassurance to the first booking action.`,
+    `${capitalizeSentence(cleanOffer)} for ${audience} with a clear next step and proof attached to the first booking action.`,
   );
   const proofStrategy = pickNonGenericFallbackCopy(
     readPlanString(input.generationPlan, "proofStrategy", ""),
@@ -1188,7 +1257,6 @@ function buildBookingFallbackHtmlFromPlan(input: {
   const contextLine = companyContext
     ? `${capitalizeSentence(companyContext)}.`
     : `This page is tuned for ${audience}, with the offer framed around ${cleanOffer}.`;
-  const bestUsedWhen = `You are weighing ${cleanOffer} because the current bottleneck, handoff, or operating gap needs a real decision now.`;
   const leaveWith = `You leave with a clearer recommendation, a tighter sense of fit, and a next move grounded in ${pageGoal}.`;
   const proofAtAsk = handoffProof || `Proof and reassurance stay attached to the booking step so the handoff into ${cleanOffer} feels earned.`;
   const bookingTriggerAttrs = "";
@@ -1238,18 +1306,15 @@ function buildBookingFallbackHtmlFromPlan(input: {
     "    a { color: inherit; text-decoration: none; }",
     "    .page { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 26px 0 88px; }",
     "    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 4px 20px; color: var(--ink-soft); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; }",
-    "    .hero { display: grid; grid-template-columns: minmax(0, 1.14fr) minmax(320px, 0.86fr); gap: 22px; align-items: stretch; }",
+    "    .hero { display: grid; grid-template-columns: minmax(0, 1.14fr) minmax(320px, 0.86fr); gap: 16px; align-items: stretch; }",
     "    .hero-copy { padding: 42px; border-radius: 30px; background: linear-gradient(145deg, rgba(255,250,243,0.96), rgba(243,231,214,0.92)); border: 1px solid var(--line); box-shadow: 0 18px 50px rgba(24, 33, 43, 0.10); }",
     "    .hero-kicker, .section-kicker, .ledger-label, .pill-label { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 700; }",
     "    .hero-kicker { padding: 8px 12px; border-radius: 999px; background: rgba(180, 99, 51, 0.12); color: var(--accent-deep); }",
     "    h1 { margin: 18px 0 16px; max-width: 10ch; font-size: clamp(3rem, 5vw, 5.1rem); line-height: 0.92; letter-spacing: -0.05em; }",
     "    .lede { margin: 0; max-width: 60ch; color: var(--ink-soft); font-size: 18px; line-height: 1.75; }",
-    "    .hero-actions { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; margin-top: 28px; }",
+    "    .hero-actions { display: grid; grid-template-columns: minmax(0, max-content) minmax(220px, 1fr); gap: 16px 18px; align-items: start; margin-top: 28px; }",
     "    .cta-primary { min-height: 62px; padding: 0 32px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(122, 61, 23, 0.38); background: linear-gradient(180deg, #c97842, var(--accent)); color: #fff8f2; font-weight: 700; font-size: 16px; box-shadow: 0 18px 34px rgba(122, 61, 23, 0.22); }",
     "    .cta-secondary { min-height: auto; padding: 2px 0; border: 0; background: transparent; color: var(--ink-soft); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.18em; font-weight: 600; }",
-    "    .hero-note { margin-top: 18px; display: grid; gap: 10px; }",
-    "    .support-card { padding: 16px 18px; border-radius: 20px; background: rgba(255, 252, 246, 0.78); border: 1px solid rgba(24, 33, 43, 0.10); }",
-    "    .support-card strong { display: block; margin-bottom: 6px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }",
     "    .proof-ledger { padding: 28px; border-radius: 30px; background: linear-gradient(180deg, var(--deep), var(--deep-soft)); color: #f7f2ea; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 22px 54px rgba(17, 28, 38, 0.24); display: grid; gap: 18px; }",
     "    .ledger-label { color: rgba(247, 242, 234, 0.66); }",
     "    .proof-ledger h2 { margin: 0; font-size: clamp(1.8rem, 3vw, 2.6rem); line-height: 1.02; letter-spacing: -0.04em; }",
@@ -1257,32 +1322,29 @@ function buildBookingFallbackHtmlFromPlan(input: {
     "    .ledger-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }",
     "    .ledger-list li { padding: 14px 16px; border-radius: 18px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.08); }",
     "    .ledger-list strong { display: block; margin-bottom: 6px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(247, 242, 234, 0.68); }",
-    "    .cred-strip { margin-top: 22px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }",
-    "    .cred-card { padding: 18px; border-radius: 22px; background: rgba(255, 250, 243, 0.86); border: 1px solid var(--line); box-shadow: 0 10px 26px rgba(24, 33, 43, 0.08); }",
-    "    .cred-card strong { display: block; margin-bottom: 8px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-deep); }",
-    "    .section-shell { margin-top: 22px; padding: 30px; border-radius: 30px; border: 1px solid var(--line); box-shadow: 0 18px 48px rgba(24, 33, 43, 0.10); }",
+    "    .section-shell { margin-top: 30px; padding: 30px; border-radius: 30px; border: 1px solid var(--line); box-shadow: 0 18px 48px rgba(24, 33, 43, 0.10); }",
     "    .session-map { background: linear-gradient(180deg, rgba(250, 245, 236, 0.92), rgba(240, 229, 214, 0.90)); }",
     "    .section-kicker { color: var(--ink-soft); margin-bottom: 10px; }",
     "    .section-title { margin: 0 0 12px; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.02; letter-spacing: -0.04em; }",
-    "    .session-grid { margin-top: 18px; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr); gap: 18px; }",
-    "    .process-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }",
-    "    .process-card, .expectation-card { padding: 20px; border-radius: 22px; background: rgba(255, 251, 245, 0.82); border: 1px solid rgba(24, 33, 43, 0.10); }",
+    "    .session-grid { margin-top: 18px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; max-width: 58rem; }",
+    "    .journey-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }",
+    "    .journey-step, .expectation-frame { padding: 20px; border-radius: 22px; background: rgba(255, 251, 245, 0.82); border: 1px solid rgba(24, 33, 43, 0.10); }",
     "    .process-index { width: 40px; height: 40px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: rgba(180, 99, 51, 0.12); color: var(--accent-deep); font-weight: 700; }",
-    "    .process-card strong, .expectation-card strong { display: block; margin: 14px 0 8px; font-size: 15px; }",
-    "    .process-card div, .expectation-card div { color: var(--ink-soft); line-height: 1.72; }",
+    "    .journey-step strong, .expectation-frame strong { display: block; margin: 14px 0 8px; font-size: 15px; }",
+    "    .journey-step div, .expectation-frame div { color: var(--ink-soft); line-height: 1.72; }",
     "    .pill-list { display: grid; gap: 12px; }",
     "    .pill-row { padding: 14px 16px; border-radius: 18px; background: rgba(18, 28, 38, 0.04); border: 1px solid rgba(24, 33, 43, 0.08); }",
     "    .pill-row strong { display: block; margin-bottom: 6px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-deep); }",
-    "    .booking-stage { margin-top: 22px; padding: 30px; border-radius: 32px; background: linear-gradient(180deg, rgba(27, 37, 47, 0.96), rgba(20, 29, 38, 0.98)); color: #f7f2ea; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 12px 30px rgba(17, 28, 38, 0.16); }",
-    "    .booking-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 390px); gap: 24px; align-items: start; }",
+    "    .booking-stage { margin-top: 34px; padding: 32px; border-radius: 32px; background: linear-gradient(180deg, rgba(27, 37, 47, 0.96), rgba(20, 29, 38, 0.98)); color: #f7f2ea; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 22px 54px rgba(17, 28, 38, 0.20); }",
+    "    .booking-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; max-width: 60rem; }",
     "    .booking-stage .section-kicker { color: rgba(247, 242, 234, 0.68); }",
     "    .booking-stage .section-title { color: #f7f2ea; }",
     "    .booking-copy { color: rgba(247, 242, 234, 0.78); line-height: 1.78; }",
     "    .booking-proof { margin-top: 18px; padding: 18px 20px; border-radius: 22px; background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(255, 255, 255, 0.08); }",
     "    .booking-proof strong { display: block; margin-bottom: 8px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(247, 242, 234, 0.68); }",
-    "    .booking-card { padding: 22px; border-radius: 26px; background: linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(246, 239, 229, 0.97)); color: var(--ink); border: 1px solid rgba(24, 33, 43, 0.08); box-shadow: 0 8px 22px rgba(17, 28, 38, 0.10); }",
-    "    .booking-card .hero-kicker { margin-bottom: 10px; }",
-    "    .booking-card-copy { color: var(--ink-soft); line-height: 1.72; }",
+    "    .booking-shell { padding: 22px; border-radius: 26px; background: linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(246, 239, 229, 0.97)); color: var(--ink); border: 1px solid rgba(24, 33, 43, 0.08); box-shadow: 0 8px 22px rgba(17, 28, 38, 0.10); max-width: 34rem; }",
+    "    .booking-shell .hero-kicker { margin-bottom: 10px; }",
+    "    .booking-shell-copy { color: var(--ink-soft); line-height: 1.72; }",
     "    .booking-flow { display: grid; gap: 12px; margin-top: 16px; }",
     "    .booking-status { margin-top: 16px; padding: 12px 14px; border-radius: 18px; display: grid; gap: 6px; background: rgba(180, 99, 51, 0.08); border: 1px solid rgba(180, 99, 51, 0.16); }",
     "    .booking-status[data-booking-ready='false'] { background: rgba(24, 33, 43, 0.05); border-color: rgba(24, 33, 43, 0.10); }",
@@ -1293,7 +1355,7 @@ function buildBookingFallbackHtmlFromPlan(input: {
     "    .booking-status-copy { color: var(--ink-soft); font-size: 14px; line-height: 1.65; }",
     "    .booking-native-shell { margin-top: 16px; padding: 0; border-radius: 0; background: transparent; border: 0; box-shadow: none; }",
     "    .booking-note { margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(24, 33, 43, 0.10); color: var(--ink-soft); font-size: 14px; line-height: 1.65; }",
-    "    @media (max-width: 940px) { .hero, .cred-strip, .session-grid, .process-grid, .booking-grid { grid-template-columns: 1fr; } .hero-copy, .proof-ledger, .section-shell, .booking-stage { padding: 24px; } h1 { max-width: 100%; } .page { width: min(100% - 24px, 1180px); } }",
+    "    @media (max-width: 940px) { .hero, .hero-actions, .session-grid, .journey-grid, .booking-grid { grid-template-columns: 1fr; } .hero-copy, .proof-ledger, .section-shell, .booking-stage { padding: 24px; } h1 { max-width: 100%; } .page { width: min(100% - 24px, 1180px); } }",
     "  </style>",
     "</head>",
     "<body>",
@@ -1308,38 +1370,28 @@ function buildBookingFallbackHtmlFromPlan(input: {
     '          <a class="cta-primary" href="' + escapeHtml(primaryBookingHref) + '"' + bookingTriggerAttrs + '>' + escapeHtml(ctaText) + '</a>',
     '          <a class="cta-secondary" href="#booking-stage">See the booking handoff</a>',
     "        </div>",
-    '        <div class="hero-note">',
-    '          <div class="support-card"><strong>' + escapeHtml(supportLabel) + '</strong>' + escapeHtml(adjacentProof) + '</div>',
-    '          <div class="support-card"><strong>Scheduling posture</strong>' + escapeHtml(bookingStatusCopy) + '</div>',
-    '        </div>',
     "      </div>",
     '      <aside class="proof-ledger">',
-    '        <div class="ledger-label">Decision ledger</div>',
+    '        <div class="ledger-label">Session brief</div>',
     '        <h2>' + escapeHtml(summary) + '</h2>',
     '        <div class="ledger-copy">' + escapeHtml(contextLine) + '</div>',
     '        <ul class="ledger-list">',
-    '          <li><strong>Proof strategy</strong>' + escapeHtml(proofStrategy) + '</li>',
+    '          <li><strong>Best fit</strong>You are evaluating ' + escapeHtml(cleanOffer) + ' and need a grounded decision, not a vague exploratory call.</li>',
     '          <li><strong>What changes after the call</strong>' + escapeHtml(leaveWith) + '</li>',
-    '          <li><strong>Session output</strong>' + escapeHtml(handoffReassurance) + '</li>',
+    '          <li><strong>What happens in session</strong>' + escapeHtml(handoffReassurance) + '</li>',
     "        </ul>",
     "      </aside>",
-    "    </section>",
-    '    <section class="cred-strip" aria-label="Credibility strip">',
-    '      <div class="cred-card"><strong>Best used when</strong>' + escapeHtml(bestUsedWhen) + '</div>',
-    '      <div class="cred-card"><strong>What changes after the call</strong>' + escapeHtml(leaveWith) + '</div>',
-    '      <div class="cred-card"><strong>Proof at the ask</strong>' + escapeHtml(proofAtAsk) + '</div>',
     "    </section>",
     '    <section class="section-shell session-map" id="details">',
     '      <div class="section-kicker">How this booking earns itself</div>',
     '      <h2 class="section-title">One operating thread from pressure to recommendation</h2>',
     '      <p class="lede">' + escapeHtml(summary) + '</p>',
     '      <div class="session-grid">',
-    '        <div class="process-grid">',
-    '          <div class="process-card"><div class="process-index">1</div><strong>Clarify the live pressure</strong><div>Start with the actual bottleneck, handoff gap, or delivery constraint instead of vague improvement language.</div></div>',
-    '          <div class="process-card"><div class="process-index">2</div><strong>Pressure-test the path</strong><div>Turn timing, delivery risk, tradeoffs, and implementation posture into a recommendation that matches ' + escapeHtml(audience) + '.</div></div>',
-    '          <div class="process-card"><div class="process-index">3</div><strong>Leave with the next move</strong><div>You leave with a recommendation and a next step tied to ' + escapeHtml(pageGoal) + '.</div></div>',
+    '        <div class="journey-grid">',
+    '          <div class="journey-step"><div class="process-index">1</div><strong>Clarify the live pressure</strong><div>Start with the actual bottleneck, handoff gap, or delivery constraint instead of vague improvement language.</div></div>',
+    '          <div class="journey-step"><div class="process-index">2</div><strong>Leave with the next move</strong><div>You leave with a recommendation and a next step tied to ' + escapeHtml(pageGoal) + '.</div></div>',
     '        </div>',
-    '        <div class="expectation-card">',
+    '        <div class="expectation-frame">',
     '          <div class="pill-label">Expectation frame</div>',
     '          <div class="pill-list">',
     '            <div class="pill-row"><strong>Who this is for</strong>You are evaluating whether ' + escapeHtml(cleanOffer) + ' is the right next move and need a grounded answer fast.</div>',
@@ -1357,9 +1409,9 @@ function buildBookingFallbackHtmlFromPlan(input: {
     '          <p class="booking-copy">' + escapeHtml(handoffLead + " " + handoffReassurance) + '</p>',
     '          <div class="booking-proof"><strong>Reassurance at the handoff</strong>' + escapeHtml(handoffProof) + '</div>',
     '        </div>',
-    '        <div class="booking-card" id="' + escapeHtml(input.bookingSectionId) + '">',
+    '        <div class="booking-shell" id="' + escapeHtml(input.bookingSectionId) + '">',
     '          <div class="hero-kicker">Primary booking path</div>',
-    '          <p class="booking-card-copy">Choose a time that works, confirm the session, and move into the conversation with the context already anchored around ' + escapeHtml(pageGoal) + '.</p>',
+    '          <p class="booking-shell-copy">Choose a time that works, confirm the session, and move into the conversation with the context already anchored around ' + escapeHtml(pageGoal) + '.</p>',
     '        <div class="booking-flow">',
     '          <a class="cta-primary" href="' + escapeHtml(primaryBookingHref) + '"' + bookingTriggerAttrs + '>' + escapeHtml(ctaText) + '</a>',
     '          <a class="cta-secondary" href="' + escapeHtml(bookingHref) + '" target="_blank" rel="noopener noreferrer">Open the booking page directly</a>',
@@ -2195,7 +2247,7 @@ function buildAiResultMeta(opts: {
     executedSteps: number;
     creditsCharged: number;
     creditsRemaining: number | null;
-    stopReason: "completed" | "question-returned" | "credit-limit-hit" | "ai-step-failed" | "quality-check-failed";
+    stopReason: "completed" | "question-returned" | "credit-limit-hit" | "step-cap-hit" | "ai-step-failed" | "quality-check-failed";
     usedPromptSynthesis: boolean;
     usedGenerationPlan: boolean;
     usedRepair: boolean;
@@ -2226,7 +2278,11 @@ function buildAiResultMeta(opts: {
   }
 
   if (opts.run?.stopReason === "credit-limit-hit") {
-    warnings.push("AI iteration stopped when this run hit the available credit budget.");
+    warnings.push("This update stopped because there were not enough credits to finish it.");
+  }
+
+  if (opts.run?.stopReason === "step-cap-hit") {
+    warnings.push("This update stopped before every requested change could be completed.");
   }
 
   if (opts.run?.usedFallback) {
@@ -2273,6 +2329,30 @@ class AiRunCreditError extends Error {
     this.name = "AiRunCreditError";
     this.stepLabel = stepLabel;
     this.creditsRemaining = creditsRemaining;
+  }
+}
+
+class AiRunStepCapError extends Error {
+  stepLabel: string;
+  maxSteps: number;
+
+  constructor(stepLabel: string, maxSteps: number) {
+    super(`AI step cap reached before ${stepLabel}.`);
+    this.name = "AiRunStepCapError";
+    this.stepLabel = stepLabel;
+    this.maxSteps = maxSteps;
+  }
+}
+
+class AiRunGuardrailError extends Error {
+  stepLabel: string;
+  userMessage: string;
+
+  constructor(stepLabel: string, userMessage: string) {
+    super(`${stepLabel} blocked by builder guardrail.`);
+    this.name = "AiRunGuardrailError";
+    this.stepLabel = stepLabel;
+    this.userMessage = userMessage;
   }
 }
 
@@ -2715,14 +2795,6 @@ async function getStripeProductsForOwner(ownerId: string) {
   return { ok: true as const, products };
 }
 
-function toAbsoluteUrl(req: Request, url: string): string {
-  const u = url.trim();
-  if (!u) return "";
-  if (/^https?:\/\//i.test(u)) return u;
-  const origin = new URL(req.url).origin;
-  return new URL(u, origin).toString();
-}
-
 function coerceContextKeys(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const out: string[] = [];
@@ -2788,6 +2860,7 @@ function buildRecentIterationNotes(rawHistory: unknown, maxItems = 4) {
 
 export async function POST(req: Request, ctx: { params: Promise<{ funnelId: string; pageId: string }> }) {
   const auth = await requireFunnelBuilderSession();
+  const routeStartedAt = Date.now();
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -2805,8 +2878,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   }
 
   const body = (await req.json().catch(() => null)) as any;
+  const requestId = readFunnelBuilderRequestId(req, body?.requestId);
   const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
   if (!prompt) return NextResponse.json({ ok: false, error: "Prompt is required" }, { status: 400 });
+  const routeGate = await enforceFunnelBuilderRouteRateLimit({
+    ownerId: auth.session.user.id,
+    routeKey: "generate-html",
+    requestId,
+  });
+  if (!routeGate.ok) {
+    return NextResponse.json({ ok: false, error: routeGate.error }, { status: routeGate.status });
+  }
   const requestedPrimaryCtaCopy = extractPrimaryCtaCopyEditRequest(prompt);
   const displayPrompt = typeof body?.displayPrompt === "string" ? body.displayPrompt.trim().slice(0, 4000) : "";
   const threadPrompt = displayPrompt || prompt;
@@ -2827,6 +2909,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const attachments = coerceAttachments(body?.attachments);
   const contextKeys = coerceContextKeys(body?.contextKeys);
   const contextMedia = coerceContextMedia(body?.contextMedia);
+  const trustedAttachments = attachments
+    .map((item) => {
+      const trustedUrl = sanitizeTrustedAiAttachmentUrl(req, item.url);
+      return trustedUrl ? { ...item, url: trustedUrl } : null;
+    })
+    .filter((item): item is AiAttachment => Boolean(item));
+  const trustedContextMedia = contextMedia
+    .map((item) => {
+      const trustedUrl = sanitizeTrustedAiAttachmentUrl(req, item.url);
+      return trustedUrl ? { ...item, url: trustedUrl } : null;
+    })
+    .filter((item): item is ContextMedia => Boolean(item));
   const designContext = sanitizeFunnelDesignContext(body?.designContext);
   const hasDraftHtml = await dbHasCreditFunnelPageDraftHtmlColumn();
   const allRegions: Array<{ key: string; label: string; summary: string }> = Array.isArray(body?.allRegions)
@@ -2873,14 +2967,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       },
     })
     .catch(() => null);
-  const [resolvedSettings, businessContext, resolvedBookingCalendars, bookingSite] = await Promise.all([
+  const [loadedSettings, businessContext, loadedBookingCalendars, bookingSite] = await Promise.all([
     settingsPromise,
     businessContextPromise,
     bookingCalendarsPromise,
     bookingSitePromise,
   ]);
-  let settings = resolvedSettings;
-  let bookingCalendars = resolvedBookingCalendars;
+  let settings = loadedSettings;
+  let bookingCalendars = loadedBookingCalendars;
   const effectiveFunnelBrief = inferFunnelBriefProfile({
     existing: body?.funnelBrief || readFunnelBrief(settings, normalizedPage.funnel.id),
     funnelName: normalizedPage.funnel.name,
@@ -2977,8 +3071,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
           title: normalizedPage.title || normalizedPage.funnel.name || "Funnel page",
         })
       : "";
+  const hasClientCurrentHtml = Boolean(currentHtmlFromClient?.trim());
+  const hasExportedBlocksBaselineHtml = Boolean(exportedCurrentHtmlFromBlocks.trim());
   const effectiveCurrentHtml =
-    (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : exportedCurrentHtmlFromBlocks || getFunnelPageCurrentHtml(page)).trim();
+    (hasClientCurrentHtml ? currentHtmlFromClient : exportedCurrentHtmlFromBlocks || getFunnelPageCurrentHtml(page)).trim();
   const isPrimaryCtaCopyEdit = Boolean(requestedPrimaryCtaCopy && effectiveCurrentHtml);
   const wantsDesignRedesign = /\b(header area|header|nav area|navigation|hero area|hero|above the fold|top of page|proof strip|credibility strip|benefits?|testimonials?|cta|call to action|layout|redesign|premium|modern|landing page|sales page|font|fonts|typography|vibe|vibes|mood|art direction|editorial|serif|sans)\b/i.test(prompt);
   const explicitStructuralRebuild = /\b(rebuild|start over|from scratch|replace the whole page|replace the layout|new layout|different layout|new structure|restructure|overhaul)\b/i.test(prompt);
@@ -2993,7 +3089,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     executedSteps: 0,
     creditsCharged: 0,
     creditsRemaining: null as number | null,
-    stopReason: "completed" as "completed" | "question-returned" | "credit-limit-hit" | "ai-step-failed" | "quality-check-failed",
+    stopReason: "completed" as "completed" | "question-returned" | "credit-limit-hit" | "step-cap-hit" | "ai-step-failed" | "quality-check-failed",
     usedPromptSynthesis: false,
     usedGenerationPlan: false,
     usedRepair: false,
@@ -3009,23 +3105,59 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     }>,
   };
 
+  const hasAiTimeBudget = (bufferMs = AI_OPTIONAL_STEP_BUFFER_MS) => {
+    return Date.now() - routeStartedAt < AI_ROUTE_TIME_BUDGET_MS - bufferMs;
+  };
+
+  const noteSkippedOptionalAiStep = (label: string, note: string) => {
+    aiRun.steps.push({
+      label,
+      status: "blocked",
+      creditsCharged: 0,
+      durationMs: 0,
+      notes: note,
+    });
+  };
+
   const trackAiStep = async (
     label: string,
     runner: () => Promise<string>,
     opts: { optional?: boolean; onSuccess?: () => void } = {},
   ) => {
-    const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
-    if (!charged.ok) {
-      aiRun.creditsRemaining = charged.state.balance;
-      aiRun.stopReason = "credit-limit-hit";
+    if (aiRun.executedSteps >= aiRun.plannedMaxSteps) {
+      aiRun.stopReason = "step-cap-hit";
       aiRun.steps.push({
         label,
         status: "blocked",
         creditsCharged: 0,
         durationMs: 0,
-        notes: "Insufficient credits for this AI step.",
+        notes: `Skipped because this request already used its ${aiRun.plannedMaxSteps}-step AI budget.`,
       });
       if (opts.optional) return null;
+      throw new AiRunStepCapError(label, aiRun.plannedMaxSteps);
+    }
+
+    const charged = await consumeFunnelBuilderAiCredits({
+      ownerId,
+      routeKey: "generate-html",
+      requestId,
+      amount: PORTAL_CREDIT_COSTS.aiCallStepGenerate,
+      stepLabel: label,
+    });
+    if (!charged.ok) {
+      aiRun.creditsRemaining = charged.state.balance;
+      aiRun.stopReason = charged.status === 402 ? "credit-limit-hit" : "ai-step-failed";
+      aiRun.steps.push({
+        label,
+        status: "blocked",
+        creditsCharged: 0,
+        durationMs: 0,
+        notes: charged.error,
+      });
+      if (opts.optional) return null;
+      if (charged.status === 429) {
+        throw new AiRunGuardrailError(label, charged.error);
+      }
       throw new AiRunCreditError(label, charged.state.balance);
     }
 
@@ -3044,6 +3176,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       opts.onSuccess?.();
       return result;
     } catch (error) {
+      await recordFunnelBuilderAiFailure({
+        ownerId,
+        routeKey: "generate-html",
+        requestId,
+        stepLabel: label,
+        reason: "ai_step_runner_failed",
+      });
       aiRun.executedSteps += 1;
       aiRun.creditsCharged += PORTAL_CREDIT_COSTS.aiCallStepGenerate;
       aiRun.creditsRemaining = charged.state.balance;
@@ -3175,7 +3314,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         : null,
       designContext,
       contextKeys,
-      contextMedia,
+      contextMedia: trustedContextMedia,
       recentChatHistory: aiHistory,
       recentIterationMemory: recentIterationNotes,
     },
@@ -3383,8 +3522,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       page: normalizeDraftHtml(updated),
     });
   }
-  aiRun.plannedMinSteps = promptStrategy.usedAi ? 3 : 2;
-  aiRun.plannedMaxSteps = (promptStrategy.usedAi ? 1 : 0) + 4 + (effectiveIntentProfile.pageType === "booking" ? 1 : 0);
   const strategicPrompt = promptStrategy.prompt;
   const exhibitPlannerContractBlock = buildExhibitPlannerContractBlock(promptStrategy.exhibitAdvisory);
   const wantsBookingPage = effectiveIntentProfile.pageType === "booking" || effectiveIntentProfile.formStrategy === "booking";
@@ -3392,17 +3529,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const hasStructuredBookingDirection = Boolean(
     String(effectiveIntentProfile.shellConcept || effectiveIntentProfile.sectionPlan || shellFrame?.sectionPlan || "").trim(),
   );
+  const canTreatStructuredScaffoldAsEmptyBookingDraft = wantsBookingPage && hasExportedBlocksBaselineHtml && !hasClientCurrentHtml;
+  const shouldSkipGenerationPlan = wantsBookingPage
+    && !selectedRegion
+    && !intent.any
+    && !hasClientCurrentHtml
+    && attachments.length === 0
+    && contextMedia.length === 0
+    && !hasExplicitDesignDirection
+    && (!hasStructuredBookingDirection || canTreatStructuredScaffoldAsEmptyBookingDraft)
+    && prompt.split(/\s+/).filter(Boolean).length <= 24;
+  aiRun.plannedMinSteps = promptStrategy.usedAi ? (shouldSkipGenerationPlan ? 2 : 3) : (shouldSkipGenerationPlan ? 1 : 2);
+  aiRun.plannedMaxSteps = (promptStrategy.usedAi ? 1 : 0) + (shouldSkipGenerationPlan ? 3 : 4) + (effectiveIntentProfile.pageType === "booking" ? 1 : 0);
   const bookingFallbackFastPathEligible = wantsBookingPage
-    && !currentHtmlFromClient.trim()
-    && (!effectiveCurrentHtml.trim() || Boolean(exportedCurrentHtmlFromBlocks))
+    && !hasClientCurrentHtml
+    && (!effectiveCurrentHtml.trim() || hasExportedBlocksBaselineHtml)
     && !selectedRegion
     && attachments.length === 0
     && contextMedia.length === 0
     && !intent.any
     && allowsStructuralRebuild
-    && !promptStrategy.usedAi
     && !hasExplicitDesignDirection
-    && !hasStructuredBookingDirection
+    && (!hasStructuredBookingDirection || canTreatStructuredScaffoldAsEmptyBookingDraft)
     && prompt.split(/\s+/).filter(Boolean).length <= 32;
   const allowMultipleBookingMounts = requestAllowsMultipleBookingMounts(
     prompt,
@@ -3608,15 +3756,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   ].join("\n");
 
   const recentIterationMemoryBlock = buildRecentIterationMemory(prevChat);
-  const attachmentsBlock = attachments.length
+  const attachmentsBlock = trustedAttachments.length
     ? [
         "",
         "ATTACHMENTS:",
-        ...attachments.map((a) => {
+        ...trustedAttachments.map((a) => {
           const name = a.fileName ? ` ${a.fileName}` : "";
           const mime = a.mimeType ? ` (${a.mimeType})` : "";
-          const url = toAbsoluteUrl(req, a.url);
-          return `- ${name}${mime}: ${url}`.trim();
+          return `- ${name}${mime}: ${a.url}`.trim();
         }),
         "",
       ].join("\n")
@@ -3631,15 +3778,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       ].join("\n")
     : "";
 
-  const contextMediaBlock = contextMedia.length
+  const contextMediaBlock = trustedContextMedia.length
     ? [
         "",
         "SELECTED_MEDIA (use these assets if relevant):",
-        ...contextMedia.map((m) => {
+        ...trustedContextMedia.map((m) => {
           const name = m.fileName ? ` ${m.fileName}` : "";
           const mime = m.mimeType ? ` (${m.mimeType})` : "";
-          const url = toAbsoluteUrl(req, m.url);
-          return `- ${name}${mime}: ${url}`.trim();
+          return `- ${name}${mime}: ${m.url}`.trim();
         }),
         "",
       ].join("\n")
@@ -3681,9 +3827,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   let question: string | null = null;
   let changelog: Record<string, unknown> | null = null;
   let generationPlan: Record<string, unknown> | null = null;
-  if (bookingFallbackFastPathEligible) {
-    aiRun.plannedMinSteps = promptStrategy.usedAi ? 1 : 0;
-    aiRun.plannedMaxSteps = promptStrategy.usedAi ? 1 : 0;
+  const applyBookingFallback = (conversionNote: string, fallbackPlan: Record<string, unknown> | null) => {
     aiRun.usedFallback = true;
     aiRun.stopReason = "completed";
     html = buildBookingFallbackHtmlFromPlan({
@@ -3697,7 +3841,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       offer: effectiveIntentProfile.offer,
       companyContext: effectiveIntentProfile.companyContext || effectiveFunnelBrief?.companyContext || null,
       pageGoal: effectiveIntentProfile.pageGoal,
-      generationPlan: null,
+      generationPlan: fallbackPlan,
     });
     changelog = {
       summary: "Rebuilt the page with a booking-safe fallback shell.",
@@ -3714,10 +3858,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         },
       ],
       preserved: [],
-      conversionNotes: [
-        "Fast-path fallback shell was used for an empty booking draft so the first pass stays business-ready without paying for slow repair loops.",
-      ],
+      conversionNotes: [conversionNote],
     };
+  };
+  if (bookingFallbackFastPathEligible) {
+    aiRun.plannedMinSteps = promptStrategy.usedAi ? 1 : 0;
+    aiRun.plannedMaxSteps = promptStrategy.usedAi ? 1 : 0;
+    applyBookingFallback(
+      "Fast-path fallback shell was used for an empty booking draft so the first pass stays business-ready without paying for slow repair loops.",
+      buildBookingFallbackPlanSeed({
+        audience: effectiveIntentProfile.audience,
+        offer: effectiveIntentProfile.offer,
+        pageGoal: effectiveIntentProfile.pageGoal,
+        primaryCta: effectiveIntentProfile.primaryCta,
+        hasEmbeddedBooking: Boolean(defaultBookingPublicUrl),
+      }),
+    );
   }
   try {
     const pageStructureOutline = hasCurrentHtml ? extractHtmlStructureOutline(effectiveCurrentHtml) : "";
@@ -3776,12 +3932,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     );
 
     const imageUrls = [
-      ...attachments
+      ...trustedAttachments
         .filter((a) => String(a.mimeType || "").toLowerCase().startsWith("image/"))
-        .map((a) => toAbsoluteUrl(req, a.url)),
-      ...contextMedia
+        .map((a) => a.url),
+      ...trustedContextMedia
         .filter((m) => String(m.mimeType || "").toLowerCase().startsWith("image/"))
-        .map((m) => toAbsoluteUrl(req, m.url)),
+        .map((m) => m.url),
     ]
       .filter(Boolean)
       .slice(0, 8);
@@ -3912,50 +4068,57 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       // ── END REGION SPLICE MODE ───────────────────────────────────────────────
 
       if (!html && !question) {
-    const planSystem = [
-      ...baseSystem,
-      "You are the planning pass for funnel page generation.",
-      "Do not write HTML in this pass.",
-      "Return only one fenced ```json block that describes the intended page structure, proof placement, visual system, and risks.",
-      "The plan should be concrete enough that another model call could build the page without improvising generic filler.",
-    ].join("\n");
+    if (!shouldSkipGenerationPlan) {
+      const planSystem = [
+        ...baseSystem,
+        "You are the planning pass for funnel page generation.",
+        "Do not write HTML in this pass.",
+        "Return only one fenced ```json block that describes the intended page structure, proof placement, visual system, and risks.",
+        "The plan should be concrete enough that another model call could build the page without improvising generic filler.",
+      ].join("\n");
 
-    const planUserText = buildGenerationPlanPrompt({
-      wantsBookingPage,
-      pageTitle: `${normalizedPage.title} (slug: ${normalizedPage.slug})`,
-      funnelName: `${normalizedPage.funnel.name} (slug: ${normalizedPage.funnel.slug})`,
-      currentHtmlBlock,
-      pageSectionsBlock,
-      selectedRegionBlock,
-      recentIterationMemoryBlock,
-      businessContextBlock,
-      bookingRuntimeBlock,
-      stripeProductsBlock,
-      contextBlock,
-      contextMediaBlock,
-      attachmentsBlock,
-      exhibitPlannerContractBlock,
-      strategicPrompt,
-      pageEditContextBlock,
-      preservedSourceActionPlanBlock,
-      prompt,
-    });
+      const planUserText = buildGenerationPlanPrompt({
+        wantsBookingPage,
+        pageTitle: `${normalizedPage.title} (slug: ${normalizedPage.slug})`,
+        funnelName: `${normalizedPage.funnel.name} (slug: ${normalizedPage.funnel.slug})`,
+        currentHtmlBlock,
+        pageSectionsBlock,
+        selectedRegionBlock,
+        recentIterationMemoryBlock,
+        businessContextBlock,
+        bookingRuntimeBlock,
+        stripeProductsBlock,
+        contextBlock,
+        contextMediaBlock,
+        attachmentsBlock,
+        exhibitPlannerContractBlock,
+        strategicPrompt,
+        pageEditContextBlock,
+        preservedSourceActionPlanBlock,
+        prompt,
+      });
 
-    const planRaw = await trackRequiredAiStep(
-      "Whole-page generation plan",
-      () =>
-        imageUrls.length
-          ? generateTextWithImages({ system: planSystem, user: planUserText, imageUrls, history: aiHistory })
-          : generateText({ system: planSystem, user: planUserText, history: aiHistory }),
-      {
-        onSuccess: () => {
-          aiRun.usedGenerationPlan = true;
+      const planRaw = await trackRequiredAiStep(
+        "Whole-page generation plan",
+        () =>
+          imageUrls.length
+            ? generateTextWithImages({ system: planSystem, user: planUserText, imageUrls, history: aiHistory })
+            : generateText({ system: planSystem, user: planUserText, history: aiHistory }),
+        {
+          onSuccess: () => {
+            aiRun.usedGenerationPlan = true;
+          },
         },
-      },
-    );
+      );
 
-    generationPlan = extractJsonObjectRecord(planRaw);
-    effectiveSourceActionPlan = mergeSourceActionPlans(readPlanSourceActionPlan(generationPlan), preservedSourceActionPlan);
+      generationPlan = extractJsonObjectRecord(planRaw);
+      effectiveSourceActionPlan = mergeSourceActionPlans(readPlanSourceActionPlan(generationPlan), preservedSourceActionPlan);
+    } else {
+      noteSkippedOptionalAiStep(
+        "Whole-page generation plan",
+        "Skipped separate planning pass for a simple booking generation to keep the route inside the latency budget.",
+      );
+    }
 
     const generationPlanBlock = generationPlan
       ? [
@@ -4012,6 +4175,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
           });
 
       if (html && firstPassIssues.length) {
+        const canAttemptValidationRepair = hasAiTimeBudget(
+          effectiveIntentProfile.pageType === "booking" ? 40_000 : 30_000,
+        );
+
+        if (!canAttemptValidationRepair) {
+          noteSkippedOptionalAiStep(
+            "Validation repair pass",
+            "Skipped optional repair to preserve request budget for a reliable response.",
+          );
+        }
+
+        if (canAttemptValidationRepair) {
         const repairUserText = [
           generationUserText,
           "",
@@ -4090,7 +4265,37 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
           allowMultipleBookingMounts,
         });
 
-        if (html && effectiveIntentProfile.pageType === "booking" && hasBookingClusterFailure(rescueIssues)) {
+        const shouldUseEarlyBookingFallback = Boolean(
+          html
+          && effectiveIntentProfile.pageType === "booking"
+          && !hasClientCurrentHtml
+          && !selectedRegion
+          && attachments.length === 0
+          && contextMedia.length === 0
+          && allowsStructuralRebuild
+          && !hasExplicitDesignDirection
+          && rescueIssues.length,
+        );
+
+        if (shouldUseEarlyBookingFallback) {
+          noteSkippedOptionalAiStep(
+            "Focused booking repair pass",
+            "Skipped optional focused repair because the repaired booking draft still failed validation, so the route switched to the deterministic fallback shell.",
+          );
+          noteSkippedOptionalAiStep(
+            "Rescue redesign pass",
+            "Skipped optional rescue redesign because the route switched to the deterministic booking fallback shell after the first repair pass.",
+          );
+          applyBookingFallback(
+            "Fallback shell was used because the repaired booking draft still failed structural quality checks.",
+            generationPlan,
+          );
+        } else if (
+          html &&
+          effectiveIntentProfile.pageType === "booking" &&
+          hasBookingClusterFailure(rescueIssues) &&
+          hasAiTimeBudget(28_000)
+        ) {
           const focusedBookingRepairUserText = [
             generationUserText,
             "",
@@ -4144,9 +4349,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
               changelog = focusedBookingRepair.changelog ?? changelog;
             }
           }
+        } else if (html && effectiveIntentProfile.pageType === "booking" && hasBookingClusterFailure(rescueIssues)) {
+          noteSkippedOptionalAiStep(
+            "Focused booking repair pass",
+            "Skipped optional focused repair to avoid timing out the booking generation route.",
+          );
         }
 
-        if (html && rescueIssues.some((issue) => /generic starter template|generic enterprise filler|invented or generic proof|placeholder faq scaffolding/i.test(issue))) {
+        if (
+          html &&
+          rescueIssues.some((issue) => /generic starter template|generic enterprise filler|invented or generic proof|placeholder faq scaffolding/i.test(issue)) &&
+          hasAiTimeBudget(24_000)
+        ) {
           const rescueUserText = [
             generationUserText,
             "",
@@ -4208,6 +4422,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
               changelog = rescued.changelog ?? changelog;
             }
           }
+        } else if (html && rescueIssues.some((issue) => /generic starter template|generic enterprise filler|invented or generic proof|placeholder faq scaffolding/i.test(issue))) {
+          noteSkippedOptionalAiStep(
+            "Rescue redesign pass",
+            "Skipped optional rescue pass to preserve response reliability under the route time budget.",
+          );
+        }
         }
       }
     }
@@ -4217,7 +4437,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       return NextResponse.json(
         {
           ok: false,
-          error: `Insufficient credits to continue AI generation at ${e.stepLabel}.`,
+          error: "You need more credits to finish this page update.",
           creditsRemaining: e.creditsRemaining,
           aiResult: buildAiResultMeta({
             mode: question ? "question" : "html-update",
@@ -4233,8 +4453,49 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       );
     }
 
+    if (e instanceof AiRunStepCapError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "This page update was too large to finish in one pass. Try a narrower change and run it again.",
+          maxAiSteps: e.maxSteps,
+          aiResult: buildAiResultMeta({
+            mode: question ? "question" : "html-update",
+            hadCurrentHtml: Boolean(effectiveCurrentHtml),
+            wantsDesignRedesign,
+            contextKeyCount: contextKeys.length,
+            contextMediaCount: contextMedia.length,
+            changelog,
+            run: aiRun,
+          }),
+        },
+        { status: 429 },
+      );
+    }
+
+    if (e instanceof AiRunGuardrailError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: e.userMessage,
+          aiResult: buildAiResultMeta({
+            mode: question ? "question" : "html-update",
+            hadCurrentHtml: Boolean(effectiveCurrentHtml),
+            wantsDesignRedesign,
+            contextKeyCount: contextKeys.length,
+            contextMediaCount: contextMedia.length,
+            changelog,
+            run: aiRun,
+          }),
+        },
+        { status: 429 },
+      );
+    }
+
+    console.error("[funnel-builder/generate-html]", e);
+
     return NextResponse.json(
-      { ok: false, error: (e as any)?.message ? String((e as any).message) : "AI generation failed" },
+      { ok: false, error: "We couldn't finish this page update right now. Please try again." },
       { status: 500 },
     );
   }
@@ -4276,7 +4537,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     });
   }
 
-  if (!html) return NextResponse.json({ ok: false, error: "AI returned empty HTML" }, { status: 502 });
+  if (!html) return NextResponse.json({ ok: false, error: "We couldn't generate a usable page update. Please try again." }, { status: 502 });
 
   html = postProcessGeneratedPageHtml(
     sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html)),
@@ -4291,7 +4552,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
   let designTokenIssues = assessDesignTokenDiscipline({ html });
 
-  if (html && designTokenIssues.length) {
+  if (html && !aiRun.usedFallback && designTokenIssues.length && hasAiTimeBudget(18_000)) {
     const designTokenNormalizationUserText = [
       "CURRENT_HTML:",
       "```html",
@@ -4318,8 +4579,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
     const normalizationImageUrls = Array.from(
       new Set(
-        contextMedia
-          .map((m) => toAbsoluteUrl(req, String(m?.url || "").trim()))
+        trustedContextMedia
+          .map((m) => String(m?.url || "").trim())
           .filter(Boolean)
           .slice(0, 8),
       ),
@@ -4359,6 +4620,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     }
 
     designTokenIssues = assessDesignTokenDiscipline({ html });
+  } else if (html && designTokenIssues.length) {
+    noteSkippedOptionalAiStep(
+      "Design token normalization pass",
+      "Skipped optional normalization to preserve request budget for the final response.",
+    );
   }
 
   let finalQualityIssues = isPrimaryCtaCopyEdit && requestedPrimaryCtaCopy
@@ -4379,42 +4645,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     finalQualityIssues.length &&
     !isPrimaryCtaCopyEdit &&
     effectiveIntentProfile.pageType === "booking" &&
-    hasBookingClusterFailure(finalQualityIssues)
+    (hasBookingClusterFailure(finalQualityIssues) || !hasClientCurrentHtml)
   ) {
-    aiRun.usedFallback = true;
-    const bookingFallbackPlan = generationPlan;
-    html = buildBookingFallbackHtmlFromPlan({
-      funnelName: normalizedPage.funnel.name,
-      pageTitle: normalizedPage.title,
-      prompt,
-      primaryCta: effectiveIntentProfile.primaryCta || "Book a call",
-      bookingHref: defaultBookingPublicUrl || "#book",
-      bookingSectionId: "book",
-      audience: effectiveIntentProfile.audience,
-      offer: effectiveIntentProfile.offer,
-      companyContext: effectiveIntentProfile.companyContext || effectiveFunnelBrief?.companyContext || null,
-      pageGoal: effectiveIntentProfile.pageGoal,
-      generationPlan: bookingFallbackPlan,
-    });
-    changelog = {
-      summary: "Rebuilt the page with a booking-safe fallback shell.",
-      changes: [
-        {
-          section: "hero",
-          what: "Reframed the opening around one clear booking CTA and attached proof.",
-          why: "To keep the first decision moment tight and credible.",
-        },
-        {
-          section: "booking",
-          what: "Restaged the booking handoff with reassurance and a real booking path.",
-          why: "To remove generic filler and preserve a truthful scheduling flow.",
-        },
-      ],
-      preserved: [],
-      conversionNotes: [
-        "Fallback shell was used because the previous booking draft still read as generic or unsupported.",
-      ],
-    };
+    applyBookingFallback(
+      "Fallback shell was used because the previous booking draft still read as generic or unsupported.",
+      generationPlan,
+    );
 
     html = postProcessGeneratedPageHtml(
       sanitizeGeneratedHtmlLinks(normalizePortalHostedPaths(html)),
@@ -4484,7 +4720,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
   const pageUpdatedText = changelog?.summary
     ? buildChangelogAssistantMessage(changelog)
-    : await generatePageUpdatedAssistantText({ pageTitle: page.title, funnelName: page.funnel?.name, prompt, changelog });
+    : hasAiTimeBudget(8_000)
+      ? await generatePageUpdatedAssistantText({ pageTitle: page.title, funnelName: page.funnel?.name, prompt, changelog })
+      : "Page updated. Review the new draft in preview and pressure-test the booking handoff, proof placement, and CTA hierarchy.";
   const assistantMsg = pageUpdatedText.trim()
     ? {
         role: "assistant" as const,

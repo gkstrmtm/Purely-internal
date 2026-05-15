@@ -1,8 +1,14 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
+  "git": {
+    "deploymentEnabled": {
+      "*": false,
+      "main": true
+    }
+  },
   "installCommand": "npm ci",
   "buildCommand": "npm run vercel-build",
-  "ignoreCommand": "if [ \"$VERCEL_GIT_COMMIT_REF\" = \"dev-retro\" ]; then echo Skipping dev-retro deploy; exit 0; fi; exit 1",
   "crons": [
     {
       "path": "/api/blogs/cron",
