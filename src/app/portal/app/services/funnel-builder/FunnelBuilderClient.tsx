@@ -1094,7 +1094,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   }, [domains]);
 
   const funnelPreviewBase = useMemo(() => toPurelyHostedUrl("/f"), []);
-  const formPreviewBase = useMemo(() => toPurelyHostedUrl("/forms"), []);
   const normalizedMetaPixelIdInput = useMemo(
     () => String(metaPixelIdInput || "").trim().replace(/[^0-9]/g, "").slice(0, 32),
     [metaPixelIdInput],
@@ -1111,6 +1110,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     if (typeof window !== "undefined") return window.location.origin || null;
     return null;
   }, []);
+
+  const formPublicBase = useMemo(() => toRuntimeHostedUrl("/forms", runtimeHostedOrigin), [runtimeHostedOrigin]);
 
   const getFunnelLiveHref = useCallback(
     (assignedDomain: string | null | undefined, slug: string, funnelId: string) => {
@@ -1135,14 +1136,16 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     const cleanId = String(formId || "").trim();
     if (!cleanSlug || !cleanId) return null;
     const hostedPath = hostedFormPath(cleanSlug, cleanId);
-    return hostedPath ? toPurelyHostedUrl(hostedPath) : null;
-  }, []);
+    return hostedPath ? toRuntimeHostedUrl(hostedPath, runtimeHostedOrigin) : null;
+  }, [runtimeHostedOrigin]);
 
-  const getFormLiveHref = useCallback((slug: string) => {
+  const getFormLiveHref = useCallback((slug: string, formId: string) => {
     const cleanSlug = String(slug || "").trim();
-    if (!cleanSlug) return null;
-    return toPurelyHostedUrl(`/forms/${encodeURIComponent(cleanSlug)}`);
-  }, []);
+    const cleanId = String(formId || "").trim();
+    if (!cleanSlug || !cleanId) return null;
+    const hostedPath = hostedFormPath(cleanSlug, cleanId);
+    return hostedPath ? toRuntimeHostedUrl(hostedPath, runtimeHostedOrigin) : null;
+  }, [runtimeHostedOrigin]);
 
   const loadFunnels = useCallback(async () => {
     const res = await fetch("/api/portal/funnel-builder/funnels", { cache: "no-store" });
@@ -2368,7 +2371,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               Responses
                             </Link>
                             <Link
-                              href={getFormPreviewHref(f.slug, f.id) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
+                              href={getFormPreviewHref(f.slug, f.id) || toRuntimeHostedUrl(`/forms/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin)}
                               target="_blank"
                               className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-zinc-50"
                               onClick={() => setOpenFormMenuId(null)}
@@ -2378,7 +2381,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
                             {f.status === "ACTIVE" ? (
                               <Link
-                                href={getFormLiveHref(f.slug) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
+                                href={getFormLiveHref(f.slug, f.id) || toRuntimeHostedUrl(`/forms/${encodeURIComponent(f.slug)}`, runtimeHostedOrigin)}
                                 target="_blank"
                                 className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-(--color-brand-blue) transition-colors duration-150 hover:bg-zinc-50"
                                 onClick={() => setOpenFormMenuId(null)}
@@ -2388,7 +2391,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             ) : (
                               <div
                                 className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400"
-                                title={f.status === "ARCHIVED" ? "Archived forms do not expose a public live route." : "Set this form to Live to enable the public slug link."}
+                                title={f.status === "ARCHIVED" ? "Archived forms do not expose a public live route." : "Set this form to Live to enable the public hosted link."}
                               >
                                 Live
                               </div>
@@ -2975,9 +2978,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
                     />
                     <div className="mt-1 text-xs text-zinc-500">
-                      Live URL: {formPreviewBase}/<span className="font-semibold">{normalizeSlug(createSlug) || "…"}</span>
+                      Public slug: {formPublicBase}/<span className="font-semibold">{normalizeSlug(createSlug) || "…"}</span>
                     </div>
-                    <div className="mt-1 text-xs text-zinc-500">The keyed preview link is available after creation.</div>
+                    <div className="mt-1 text-xs text-zinc-500">After creation, Preview and Live use the exact hosted link with the form key.</div>
                   </div>
 
                   <div>

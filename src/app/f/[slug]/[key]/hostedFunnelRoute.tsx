@@ -12,6 +12,7 @@ import { readFunnelOffers } from "@/lib/funnelOffers";
 import { resolveFunnelBookingSurfaceContext } from "@/lib/funnelBookingSurface";
 import { resolveFunnelPageRenderState } from "@/lib/funnelPageGraph";
 import { publicKeyFromId } from "@/lib/publicHostedKeys";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
@@ -189,21 +190,33 @@ export async function fetchHostedFunnelRoute(slug: string, key: string, pageSlug
   return { funnel, page, seo, renderedCustomHtml: renderedHtmlWithRuntime, renderState, tracking, defaultBookingCalendarId, offers };
 }
 
-export function buildHostedFunnelMetadata(loaded: NonNullable<Awaited<ReturnType<typeof fetchHostedFunnelRoute>>>): Metadata {
+export function buildHostedFunnelMetadata(
+  loaded: NonNullable<Awaited<ReturnType<typeof fetchHostedFunnelRoute>>>,
+  opts?: { key?: string | null; pageSlug?: string | null },
+): Metadata {
   const { page, seo } = loaded;
   const title = seo?.title || page?.title || "";
   const description = seo?.description || "";
+  const canonicalKey = String(opts?.key || publicKeyFromId(loaded.funnel.id) || "").trim();
+  const canonicalPageSlug = String(opts?.pageSlug || "").trim();
+  const canonicalPath = canonicalKey
+    ? `/f/${encodeURIComponent(loaded.funnel.slug)}/${encodeURIComponent(canonicalKey)}${canonicalPageSlug ? `/${encodeURIComponent(canonicalPageSlug)}` : ""}`
+    : null;
+  const canonicalUrl = canonicalPath ? toPurelyHostedUrl(canonicalPath) : null;
 
   return {
     title: title || undefined,
     description: description || undefined,
-    openGraph: seo?.imageUrl
-      ? {
-          title: title || undefined,
-          description: description || undefined,
-          images: [{ url: seo.imageUrl }],
-        }
-      : undefined,
+    alternates: canonicalUrl ? { canonical: canonicalUrl } : undefined,
+    openGraph:
+      seo?.imageUrl || canonicalUrl
+        ? {
+            title: title || undefined,
+            description: description || undefined,
+            ...(canonicalUrl ? { url: canonicalUrl } : {}),
+            ...(seo?.imageUrl ? { images: [{ url: seo.imageUrl }] } : {}),
+          }
+        : undefined,
     robots: seo?.noIndex ? { index: false, follow: true } : undefined,
   };
 }

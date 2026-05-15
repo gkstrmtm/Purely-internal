@@ -162,12 +162,18 @@ function reportRoutesFor(pathname: string | null) {
       listHref: "/credit/app/services/credit-reports",
       detailHref: (reportId: string) => `/credit/app/services/credit-reports/${encodeURIComponent(reportId)}`,
       disputeHref: "/credit/app/services/dispute-letters",
+      contactsHref: "/credit/app/people/contacts",
+      tasksHref: "/credit/app/services/tasks",
+      reportingHref: "/credit/app/services/reporting",
     };
   }
   return {
     listHref: "/portal/app/services/credit-reports",
     detailHref: (reportId: string) => `/portal/app/services/credit-reports/${encodeURIComponent(reportId)}`,
     disputeHref: "/portal/app/services/dispute-letters",
+    contactsHref: "/portal/app/people/contacts",
+    tasksHref: "/portal/app/services/tasks",
+    reportingHref: "/portal/app/services/reporting",
   };
 }
 
@@ -247,6 +253,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const searchParams = useSearchParams();
   const toast = useToast();
   const routeSet = useMemo(() => reportRoutesFor(pathname), [pathname]);
+  const isCreditWorkspace = pathname.startsWith("/credit");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -403,6 +410,21 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     const tracked = items.filter((item) => String(item.disputeStatus || "").trim().length > 0).length;
     return { pending, negative, positive, tracked };
   }, [selectedReport]);
+  const workflowNextStep = useMemo(() => {
+    if (!selectedReport) {
+      return "Start from the client record, import the latest JSON report, then work item by item before opening any dispute draft.";
+    }
+    if (selectedReportSummary.negative > 0) {
+      return `${selectedReportSummary.negative} item${selectedReportSummary.negative === 1 ? " needs" : "s need"} dispute drafting or follow-up. Review the details here, then push the work into dispute letters and tasks.`;
+    }
+    if (selectedReportSummary.pending > 0) {
+      return `${selectedReportSummary.pending} item${selectedReportSummary.pending === 1 ? " is" : "s are"} still waiting on review. Clear those before treating the file as ready for the next credit move.`;
+    }
+    if (selectedReportSummary.tracked > 0) {
+      return "The report is already tied to dispute activity. Use letters for mailed-state tracking and tasks for any response deadlines or document collection.";
+    }
+    return "This report reads clean right now. Keep the contact record current, use tasks for any manual follow-up, and use reporting only for shared workspace counts.";
+  }, [selectedReport, selectedReportSummary]);
   const filteredItems = useMemo(() => {
     const items = selectedReport?.items || [];
     const query = itemQuery.trim().toLowerCase();
@@ -608,6 +630,23 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
       {mode === "list" ? (
         <>
+          {isCreditWorkspace ? (
+            <section className="mt-6 rounded-3xl border border-sky-200 bg-sky-50 p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-3xl">
+                  <div className="text-sm font-semibold text-zinc-900">Credit workflow lane</div>
+                  <div className="mt-1 text-sm text-zinc-700">Use this order in the beta workspace: confirm the client record first, import the latest JSON report, review negative and pending items, then move live follow-up into dispute letters and tasks. Reporting stays honest about shared activity only.</div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => { window.location.href = routeSet.contactsHref; }} className={SECONDARY_BUTTON_CLASS}>Contacts</button>
+                  <button type="button" onClick={() => { window.location.href = routeSet.disputeHref; }} className={SECONDARY_BUTTON_CLASS}>Dispute letters</button>
+                  <button type="button" onClick={() => { window.location.href = routeSet.tasksHref; }} className={SECONDARY_BUTTON_CLASS}>Tasks</button>
+                  <button type="button" onClick={() => { window.location.href = routeSet.reportingHref; }} className={SECONDARY_BUTTON_CLASS}>Reporting</button>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
           <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -891,6 +930,21 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <div className="mt-1">{selectedReportSource.helperText}</div>
               </div>
             ) : null}
+
+            <div className="mt-4 rounded-3xl border border-sky-200 bg-sky-50 p-4 text-sm text-zinc-800">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-3xl">
+                  <div className="font-semibold text-zinc-900">Workflow handoff</div>
+                  <div className="mt-1">{workflowNextStep}</div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => { window.location.href = routeSet.contactsHref; }} className={SECONDARY_BUTTON_CLASS}>Contacts</button>
+                  <button type="button" onClick={() => { window.location.href = routeSet.disputeHref; }} className={SECONDARY_BUTTON_CLASS}>Dispute letters</button>
+                  <button type="button" onClick={() => { window.location.href = routeSet.tasksHref; }} className={SECONDARY_BUTTON_CLASS}>Tasks</button>
+                  <button type="button" onClick={() => { window.location.href = routeSet.reportingHref; }} className={SECONDARY_BUTTON_CLASS}>Reporting</button>
+                </div>
+              </div>
+            </div>
 
             <div className="mt-5 flex flex-wrap gap-2">
               {([

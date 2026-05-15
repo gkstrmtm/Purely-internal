@@ -226,11 +226,21 @@ function routesFor(pathname: string | null) {
     return {
       listHref: "/credit/app/services/dispute-letters",
       editorHref: (letterId: string) => `/credit/app/services/dispute-letters/${encodeURIComponent(letterId)}`,
+      reportsHref: "/credit/app/services/credit-reports",
+      reportHref: (reportId: string) => `/credit/app/services/credit-reports/${encodeURIComponent(reportId)}`,
+      tasksHref: "/credit/app/services/tasks",
+      reportingHref: "/credit/app/services/reporting",
+      contactsHref: "/credit/app/people/contacts",
     };
   }
   return {
     listHref: "/portal/app/services/dispute-letters",
     editorHref: (letterId: string) => `/portal/app/services/dispute-letters/${encodeURIComponent(letterId)}`,
+    reportsHref: "/portal/app/services/credit-reports",
+    reportHref: (reportId: string) => `/portal/app/services/credit-reports/${encodeURIComponent(reportId)}`,
+    tasksHref: "/portal/app/services/tasks",
+    reportingHref: "/portal/app/services/reporting",
+    contactsHref: "/portal/app/people/contacts",
   };
 }
 
@@ -353,6 +363,26 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       return [letter.subject, letter.contact.name, letter.contact.email, letter.status].map((value) => String(value || "").toLowerCase()).join(" ").includes(q);
     });
   }, [letters, search, statusFilter]);
+  const pdfExportAt = useMemo(() => {
+    if (!selectedLetter) return null;
+    if (selectedLetter.pdfGeneratedAt) return selectedLetter.pdfGeneratedAt;
+    if (selectedLetter.status === "GENERATED" || selectedLetter.status === "SENT") return selectedLetter.generatedAt || null;
+    return null;
+  }, [selectedLetter]);
+  const pdfExportHelperText = useMemo(() => {
+    if (pdfExportAt) {
+      return pdfDownloadUrl
+        ? "PDF has been generated and is available for download. Purely still does not submit the dispute for you."
+        : "PDF-ready status exists on this letter, but no download link is stored yet. Regenerate the PDF if you need a fresh export from Purely.";
+    }
+    return "Generate PDF to create a downloadable document. This does not file the dispute.";
+  }, [pdfDownloadUrl, pdfExportAt]);
+  const workflowNextStep = useMemo(() => {
+    if (!selectedLetter) return "Open a draft, review the client details, then generate a PDF only when the letter is ready to leave Purely.";
+    if (selectedLetter.status === "DRAFT") return "Review the draft, confirm the recipient and evidence, then generate a PDF before you send anything outside Purely.";
+    if (selectedLetter.status === "GENERATED") return "The PDF step is complete. Send the letter outside Purely, then create a task for response timing and mark mailed manually when that step actually happens.";
+    return "This letter is already marked mailed manually. Use tasks for response deadlines and use reporting only for shared workspace counts, not dispute-milestone reporting.";
+  }, [selectedLetter]);
   const selectedContact = useMemo(() => contacts.find((entry) => entry.id === contactId) || selectedLetter?.contact || null, [contactId, contacts, selectedLetter?.contact]);
   const selectedContactSignature = useMemo(() => readContactCustomValue(selectedContact?.customVariables, "signature"), [selectedContact?.customVariables]);
   const selectedContactSignatureImage = useMemo(() => readContactSignatureImage(selectedLetter?.contact?.customVariables), [selectedLetter?.contact?.customVariables]);
@@ -1025,14 +1055,38 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                 </div>
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">PDF export</div>
-                  <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.pdfGeneratedAt ? formatDateTime(selectedLetter.pdfGeneratedAt) : "Not generated yet"}</div>
-                  <div className="mt-2 text-xs text-zinc-600">Generate PDF to create a downloadable document. This does not file the dispute.</div>
+                  <div className="mt-2 font-medium text-zinc-900">{pdfExportAt ? formatDateTime(pdfExportAt) : "Not generated yet"}</div>
+                  <div className="mt-2 text-xs text-zinc-600">{pdfExportHelperText}</div>
                 </div>
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Marked mailed manually</div>
                   <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.sentAt ? formatDateTime(selectedLetter.sentAt) : "Not marked yet"}</div>
                   <div className="mt-2 text-xs text-zinc-600">Manual status only. This is not proof that a bureau, furnisher, or collector received the letter.</div>
                 </div>
+              </div>
+            </section>
+            <section className="rounded-3xl border border-sky-200 bg-sky-50 p-5">
+              <div className="text-sm font-semibold text-zinc-900">Next handoff</div>
+              <div className="mt-2 text-sm text-zinc-700">{workflowNextStep}</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {sourceReportId ? (
+                  <button type="button" onClick={() => { window.location.href = routeSet.reportHref(sourceReportId); }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">
+                    Source report
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => { window.location.href = routeSet.reportsHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">
+                    Credit reports
+                  </button>
+                )}
+                <button type="button" onClick={() => { window.location.href = routeSet.contactsHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">
+                  Contacts
+                </button>
+                <button type="button" onClick={() => { window.location.href = routeSet.tasksHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">
+                  Tasks
+                </button>
+                <button type="button" onClick={() => { window.location.href = routeSet.reportingHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">
+                  Reporting
+                </button>
               </div>
             </section>
             <section className="rounded-3xl border border-zinc-200 bg-white p-5">
@@ -1102,6 +1156,15 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-zinc-800">
         <div className="font-semibold text-zinc-900">Workflow boundary</div>
         <div className="mt-1">Generating a letter creates a draft for human review. Generating a PDF creates an exportable document. Emailing or mailing happens outside Purely, and marking mailed is only a manual status update.</div>
+      </div>
+      <div className="mt-4 rounded-3xl border border-sky-200 bg-sky-50 p-4 text-sm text-zinc-800">
+        <div className="font-semibold text-zinc-900">Workflow handoff</div>
+        <div className="mt-1 max-w-3xl">Use dispute letters for the draft, PDF, and mailed-manual states only. Use credit reports to review the source items, tasks to track response deadlines or missing documentation, and reporting only for shared workspace activity that is already in the reporting contract.</div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={() => { window.location.href = routeSet.reportsHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Credit reports</button>
+          <button type="button" onClick={() => { window.location.href = routeSet.tasksHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Tasks</button>
+          <button type="button" onClick={() => { window.location.href = routeSet.reportingHref; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Reporting</button>
+        </div>
       </div>
       <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">

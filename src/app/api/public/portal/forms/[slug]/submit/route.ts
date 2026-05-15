@@ -13,7 +13,8 @@ import { parseCreditFunnelTrackingContext, trackCreditFunnelEvent } from "@/lib/
 import { tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
-import { buildPublicIntakeFingerprint, getPublicIntakeIp } from "@/lib/publicIntakeSecurity";
+import { resolvePublicCreditFormFromRequest } from "@/lib/publicFormResolution";
+import { guardPublicFormSubmission, isPublicFormRequestTooLarge } from "@/lib/publicFormSubmitGuards";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -24,17 +25,28 @@ function safeJson(obj: unknown, maxBytes: number): any {
   return { _truncated: true };
 }
 
-async function readRequestBodyBestEffort(req: Request): Promise<any> {
+function getClientIp(req: Request): string | null {
+  const xfwd = req.headers.get("x-forwarded-for");
+  if (xfwd) return xfwd.split(",")[0]?.trim() || null;
+  const realIp = req.headers.get("x-real-ip");
+  return realIp?.trim() || null;
+}
+
+async function readRequestBodyBestEffort(req: Request): Promise<{ body: any; tooLarge: boolean }> {
   const contentType = String(req.headers.get("content-type") || "").toLowerCase();
 
   if (contentType.includes("application/json")) {
-    return (await req.json().catch(() => null)) as any;
+    const text = await req.text().catch(() => "");
+    if (isPublicFormRequestTooLarge(req, text)) return { body: null, tooLarge: true };
+    if (!text) return { body: null, tooLarge: false };
+    return { body: JSON.parse(text), tooLarge: false };
   }
 
   // Support standard HTML form posts.
   if (contentType.includes("multipart/form-data") || contentType.includes("application/x-www-form-urlencoded")) {
+    if (isPublicFormRequestTooLarge(req)) return { body: null, tooLarge: true };
     const fd = await req.formData().catch(() => null);
-    if (!fd) return null;
+    if (!fd) return { body: null, tooLarge: false };
     const data: Record<string, string | string[]> = {};
     for (const key of Array.from(new Set(Array.from(fd.keys())))) {
       const values = fd.getAll(key);
@@ -49,16 +61,17 @@ async function readRequestBodyBestEffort(req: Request): Promise<any> {
       if (asStrings.length > 1) data[key] = asStrings;
       else data[key] = asStrings[0] ?? "";
     }
-    return { data };
+    return { body: { data }, tooLarge: false };
   }
 
   // Last-ditch: try to parse as JSON string.
   const text = await req.text().catch(() => "");
-  if (!text) return null;
+  if (isPublicFormRequestTooLarge(req, text)) return { body: null, tooLarge: true };
+  if (!text) return { body: null, tooLarge: false };
   try {
-    return JSON.parse(text);
+    return { body: JSON.parse(text), tooLarge: false };
   } catch {
-    return null;
+    return { body: null, tooLarge: false };
   }
 }
 
@@ -85,21 +98,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   const slug = slugRaw.trim().toLowerCase();
   if (!slug) return NextResponse.json({ ok: false, error: "Missing slug" }, { status: 400 });
 
-  const form = await prisma.creditForm.findUnique({
-    where: { slug },
-    select: {
-      id: true,
-      slug: true,
-      name: true,
-      ownerId: true,
-      createdAt: true,
-      schemaJson: true,
-    },
-  });
+  const resolved = await resolvePublicCreditFormFromRequest({ request: req, slug });
+  const form = resolved?.form ?? null;
 
   if (!form) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  const body = await readRequestBodyBestEffort(req);
+  const { body, tooLarge } = await readRequestBodyBestEffort(req);
+  if (tooLarge) return NextResponse.json({ ok: false, error: "Submission is too large." }, { status: 413 });
+
   const trackingContext = parseCreditFunnelTrackingContext(body?.trackingContext);
   const normalizedPayload = normalizeCreditFormSubmissionPayload(body?.data ?? body ?? {}, form.schemaJson);
   const validationError = validateCreditFormSubmissionPayload(normalizedPayload, form.schemaJson);
@@ -119,44 +125,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   };
 
   const userAgent = req.headers.get("user-agent") || null;
-  const ip = getPublicIntakeIp(req);
+  const ip = getClientIp(req);
   const payloadObj = payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {};
   const contactEmail = firstString((payloadObj as any).email);
   const contactPhone = firstString((payloadObj as any).phone);
   const contactName = firstString((payloadObj as any).fullName) || firstString((payloadObj as any).name);
-  const submissionFingerprint = buildPublicIntakeFingerprint({
-    email: contactEmail,
-    phone: contactPhone,
-    name: contactName,
-    payload: payloadObj,
-  });
 
-  const minuteWindowStart = new Date(Date.now() - 60_000);
-  if (ip) {
-    const recentFromIp = await prisma.creditFormSubmission.count({
-      where: { formId: form.id, ip, createdAt: { gte: minuteWindowStart } },
-    });
-    if (recentFromIp >= 6) {
-      return NextResponse.json({ ok: false, error: "Too many submissions. Please wait a minute and try again." }, { status: 429 });
-    }
-  }
-
-  const recentWindowStart = new Date(Date.now() - 10 * 60_000);
-  const recentSubmissions = await prisma.creditFormSubmission.findMany({
-    where: { formId: form.id, createdAt: { gte: recentWindowStart } },
-    orderBy: { createdAt: "desc" },
-    take: 25,
-    select: { id: true, dataJson: true },
+  const guard = await guardPublicFormSubmission({
+    formId: form.id,
+    ip,
+    userAgent,
+    normalizedPayload,
   });
-  const duplicateSubmission = recentSubmissions.find((entry) => {
-    const existingPayload = entry.dataJson && typeof entry.dataJson === "object" && !Array.isArray(entry.dataJson)
-      ? (entry.dataJson as Record<string, unknown>)
-      : {};
-    return buildPublicIntakeFingerprint(existingPayload) === submissionFingerprint;
-  });
-  if (duplicateSubmission) {
-    return NextResponse.json({ ok: true, duplicate: true, id: duplicateSubmission.id }, { status: 202 });
-  }
+  if (!guard.ok) return NextResponse.json({ ok: false, error: guard.error }, { status: guard.status });
 
   const submission = await prisma.creditFormSubmission.create({
     data: {

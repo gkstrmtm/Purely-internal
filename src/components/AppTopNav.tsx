@@ -59,7 +59,7 @@ function NavLinksVertical({
     <nav className="grid gap-1">
       {items.map((item) => {
         const active = isActive(pathname, item.href);
-        const label = collapsed ? (item.shortLabel ?? item.label.slice(0, 1)) : item.label;
+        const label = collapsed ? (item.shortLabel ?? item.label.slice(0, 2)) : item.label;
         return (
           <Link
             key={item.href}
@@ -67,22 +67,13 @@ function NavLinksVertical({
             title={collapsed ? item.label : undefined}
             onClick={() => onNavigate?.()}
             className={
-              "flex h-10 items-center gap-3 rounded-2xl px-3 text-sm font-semibold transition " +
+              "flex h-10 items-center rounded-2xl px-3 text-sm font-semibold transition " +
               (active
                 ? "bg-brand-ink text-white"
                 : "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900")
             }
           >
-            <span
-              className={
-                "grid h-7 w-7 place-items-center rounded-xl " +
-                (active ? "bg-white/15" : "bg-brand-ink/5")
-              }
-              aria-hidden
-            >
-              <span className={"text-xs font-extrabold " + (active ? "text-white" : "text-brand-ink")}>{label.slice(0, 2)}</span>
-            </span>
-            {collapsed ? null : <span className="truncate">{item.label}</span>}
+            <span className={collapsed ? "mx-auto truncate text-xs font-bold uppercase tracking-wide" : "truncate"}>{label}</span>
           </Link>
         );
       })}
@@ -169,16 +160,15 @@ function StaffViewSwitcherVertical({ collapsed, onNavigate }: { collapsed: boole
             title={collapsed ? i.label : undefined}
             onClick={() => onNavigate?.()}
             className={
-              "flex h-10 items-center gap-3 rounded-2xl px-3 text-sm font-semibold transition " +
+              "flex h-10 items-center rounded-2xl px-3 text-sm font-semibold transition " +
               (isOn
                 ? "bg-brand-ink text-white"
                 : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
             }
           >
-            <span className={"grid h-7 w-7 place-items-center rounded-xl " + (isOn ? "bg-white/15" : "bg-brand-ink/5")}>
-              <span className={"text-xs font-extrabold " + (isOn ? "text-white" : "text-brand-ink")}>{i.short}</span>
+            <span className={collapsed ? "mx-auto truncate text-xs font-bold uppercase tracking-wide" : "truncate"}>
+              {collapsed ? i.short : i.label}
             </span>
-            {collapsed ? null : <span className="truncate">{i.label}</span>}
           </Link>
         );
       })}

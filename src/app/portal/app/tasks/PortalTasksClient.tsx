@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
@@ -43,6 +44,9 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function PortalTasksClient() {
   const toast = useToast();
+  const pathname = usePathname() || "";
+  const isCreditWorkspace = pathname.startsWith("/credit");
+  const portalBase = isCreditWorkspace ? "/credit" : "/portal";
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [viewerUserId, setViewerUserId] = useState<string>("");
@@ -147,6 +151,13 @@ export function PortalTasksClient() {
     } finally {
       setCreating(false);
     }
+  }
+
+  function openCreditTaskDraft(nextTitle: string, nextDescription: string) {
+    setTitle(nextTitle);
+    setDescription(nextDescription);
+    setAssignedToUserId("");
+    setCreateOpen(true);
   }
 
   const setStatus = useCallback(async (taskId: string, status: "OPEN" | "DONE" | "CANCELED") => {
@@ -283,7 +294,7 @@ export function PortalTasksClient() {
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Tasks</h1>
-          <p className="mt-2 text-sm text-zinc-600">Internal tasks for your portal team.</p>
+          <p className="mt-2 text-sm text-zinc-600">{isCreditWorkspace ? "Internal follow-up for report review, mailed-letter checks, and missing credit client documentation." : "Internal tasks for your portal team."}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -295,6 +306,21 @@ export function PortalTasksClient() {
           </button>
         </div>
       </div>
+
+      {isCreditWorkspace ? (
+        <div className="mt-4 rounded-3xl border border-sky-200 bg-sky-50 p-4 text-sm text-zinc-800">
+          <div className="font-semibold text-zinc-900">Credit workflow handoff</div>
+          <div className="mt-1 max-w-3xl">Use tasks for response deadlines, mailed-letter follow-up, missing identity documents, and internal review work. The reporting page does not yet summarize imported reports or dispute-letter milestones.</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => openCreditTaskDraft("Await bureau or furnisher response", "Set the next follow-up date and track any bureau or furnisher response after the letter leaves Purely.")} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Await response</button>
+            <button type="button" onClick={() => openCreditTaskDraft("Collect missing client documentation", "Request or confirm any missing address, ID, signature, or support documents before the next dispute step.")} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Collect docs</button>
+            <button type="button" onClick={() => openCreditTaskDraft("Confirm mailed status and next check-in", "Update the manual mailed status only after the letter actually leaves Purely, then set the next check-in date here.")} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Check mailed status</button>
+            <button type="button" onClick={() => { window.location.href = `${portalBase}/app/services/credit-reports`; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Credit reports</button>
+            <button type="button" onClick={() => { window.location.href = `${portalBase}/app/services/dispute-letters`; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Dispute letters</button>
+            <button type="button" onClick={() => { window.location.href = `${portalBase}/app/services/reporting`; }} className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100">Reporting</button>
+          </div>
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
@@ -365,7 +391,7 @@ export function PortalTasksClient() {
                 </div>
               ))
             ) : (
-              <div className="text-sm text-zinc-600">No open tasks.</div>
+              <div className="text-sm text-zinc-600">{isCreditWorkspace ? "No open follow-up tasks yet. Add one when a report item needs documentation, a letter needs a mailed check, or you want a timed response reminder." : "No open tasks."}</div>
             )}
           </div>
         </div>
@@ -377,7 +403,7 @@ export function PortalTasksClient() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-base font-semibold text-zinc-900">Create task</div>
-                <div className="mt-1 text-sm text-zinc-600">Add a task for your portal team.</div>
+                <div className="mt-1 text-sm text-zinc-600">{isCreditWorkspace ? "Add a follow-up task for credit review, mailed status, or missing client information." : "Add a task for your portal team."}</div>
               </div>
               <button
                 type="button"

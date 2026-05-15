@@ -2,6 +2,17 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
+import {
+  FEEDBACK_CATEGORY_VALUES,
+  FEEDBACK_PORTAL_VARIANT_VALUES,
+  FEEDBACK_SEVERITY_VALUES,
+  PORTAL_FEEDBACK_SETUP_SLUG,
+  appendPortalFeedbackItem,
+  buildPortalFeedbackTitle,
+  normalizePortalPath,
+  sanitizePortalFeedbackMeta,
+  type StoredPortalFeedbackItem,
+} from "@/lib/betaFeedback";
 import { prisma } from "@/lib/db";
 import { missingOutboundEmailConfigReason, trySendTransactionalEmail } from "@/lib/emailSender";
 
@@ -9,77 +20,27 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const SERVICE_SLUG = "bug-reports";
-const MAX_REPORTS = 200;
+const SERVICE_SLUG = PORTAL_FEEDBACK_SETUP_SLUG;
 
 const bodySchema = z
   .object({
+    title: z.string().trim().max(160).optional(),
     message: z.string().trim().min(1).max(4000),
+    expected: z.string().trim().max(2000).optional(),
+    category: z.enum(FEEDBACK_CATEGORY_VALUES).optional(),
+    severity: z.enum(FEEDBACK_SEVERITY_VALUES).optional(),
     url: z.string().trim().max(2000).optional(),
+    path: z.string().trim().max(2000).optional(),
     area: z.string().trim().max(200).optional(),
+    serviceSlug: z.string().trim().max(120).optional(),
+    portalVariant: z.enum(FEEDBACK_PORTAL_VARIANT_VALUES).optional(),
+    artifactUrl: z.string().trim().max(2000).optional(),
     meta: z.unknown().optional(),
   })
   .strict();
 
-type StoredBugReport = {
-  id: string;
-  createdAtIso: string;
-  title?: string;
-  message: string;
-  url?: string;
-  area?: string;
-  reporterEmail?: string;
-  buildSha?: string | null;
-  commitRef?: string | null;
-  deploymentId?: string | null;
-  meta?: Record<string, unknown>;
-};
-
-type StoredPayload = {
-  version: 1;
-  reports: StoredBugReport[];
-};
-
-function parsePayload(raw: unknown): StoredPayload {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { version: 1, reports: [] };
-  const rec = raw as Record<string, unknown>;
-  const reports = Array.isArray(rec.reports) ? (rec.reports as unknown[]).flatMap((r) => {
-    if (!r || typeof r !== "object" || Array.isArray(r)) return [] as StoredBugReport[];
-    const rr = r as Record<string, unknown>;
-    const id = typeof rr.id === "string" ? rr.id : "";
-    const createdAtIso = typeof rr.createdAtIso === "string" ? rr.createdAtIso : "";
-    const message = typeof rr.message === "string" ? rr.message : "";
-    if (!id || !createdAtIso || !message) return [] as StoredBugReport[];
-    const out: StoredBugReport = {
-      id,
-      createdAtIso,
-      message: message.slice(0, 4000),
-    };
-    if (typeof rr.title === "string" && rr.title.trim()) out.title = rr.title.trim().slice(0, 120);
-    if (typeof rr.url === "string" && rr.url.trim()) out.url = rr.url.trim().slice(0, 2000);
-    if (typeof rr.area === "string" && rr.area.trim()) out.area = rr.area.trim().slice(0, 200);
-    if (typeof rr.reporterEmail === "string" && rr.reporterEmail.trim()) out.reporterEmail = rr.reporterEmail.trim().slice(0, 200);
-    if (typeof rr.buildSha === "string" || rr.buildSha === null) out.buildSha = rr.buildSha as any;
-    if (typeof rr.commitRef === "string" || rr.commitRef === null) out.commitRef = rr.commitRef as any;
-    if (typeof rr.deploymentId === "string" || rr.deploymentId === null) out.deploymentId = rr.deploymentId as any;
-    if (rr.meta && typeof rr.meta === "object" && !Array.isArray(rr.meta)) out.meta = rr.meta as any;
-    return [out];
-  }) : [];
-
-  return { version: 1, reports: reports.slice(0, MAX_REPORTS) };
-}
-
 function nowIso() {
   return new Date().toISOString();
-}
-
-function bugReportTitle(messageRaw: string, areaRaw?: string) {
-  const message = String(messageRaw || "").trim().replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ");
-  const first = message.split(/[.?!]/)[0]?.trim() || message;
-  const short = first.split(" ").filter(Boolean).slice(0, 6).join(" ").trim();
-  const area = String(areaRaw || "").trim();
-  const base = short || "Bug report";
-  return `${area ? `${area} · ` : ""}${base}`.slice(0, 120).trim();
 }
 
 function buildEnvInfo() {
@@ -91,6 +52,7 @@ function buildEnvInfo() {
       null,
     commitRef: process.env.VERCEL_GIT_COMMIT_REF ?? null,
     deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
+    nodeEnv: process.env.NODE_ENV ?? null,
   };
 }
 
@@ -148,32 +110,46 @@ export async function POST(req: Request) {
   const reporterEmail = auth.session.user.email;
   const envInfo = buildEnvInfo();
 
-  const meta =
+  const meta = sanitizePortalFeedbackMeta(
     parsed.data.meta && typeof parsed.data.meta === "object" && !Array.isArray(parsed.data.meta)
-      ? (parsed.data.meta as Record<string, unknown>)
-      : undefined;
+      ? {
+          ...(parsed.data.meta as Record<string, unknown>),
+          nodeEnv: envInfo.nodeEnv,
+        }
+      : { nodeEnv: envInfo.nodeEnv },
+  );
 
-  const report: StoredBugReport = {
+  const normalizedPath = normalizePortalPath(parsed.data.path ?? parsed.data.url);
+
+  const report: StoredPortalFeedbackItem = {
     id: `bug_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
     createdAtIso: nowIso(),
-    title: bugReportTitle(parsed.data.message, parsed.data.area),
+    title: parsed.data.title || buildPortalFeedbackTitle(parsed.data.message, parsed.data.area),
     message: parsed.data.message,
-    ...(parsed.data.url ? { url: parsed.data.url } : {}),
+    ...(parsed.data.expected ? { expected: parsed.data.expected } : {}),
+    category: parsed.data.category ?? "bug",
+    severity: parsed.data.severity ?? "medium",
     ...(parsed.data.area ? { area: parsed.data.area } : {}),
+    ...(normalizedPath ? { path: normalizedPath } : {}),
+    ...(parsed.data.serviceSlug ? { serviceSlug: parsed.data.serviceSlug } : {}),
+    ...(parsed.data.portalVariant ? { portalVariant: parsed.data.portalVariant } : {}),
     ...(reporterEmail ? { reporterEmail } : {}),
-    ...envInfo,
+    ...(parsed.data.artifactUrl ? { artifactUrl: parsed.data.artifactUrl } : {}),
+    buildSha: envInfo.buildSha,
+    commitRef: envInfo.commitRef,
+    deploymentId: envInfo.deploymentId,
     ...(meta ? { meta } : {}),
+    triage: { status: "new", priority: "p2" },
   };
 
-  // Internal notification: persist the last N bug reports for this owner.
+  // Internal notification: persist the last N owner-scoped feedback items.
   try {
     const existing = await prisma.portalServiceSetup.findUnique({
       where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
       select: { dataJson: true },
     });
 
-    const prev = parsePayload(existing?.dataJson ?? null);
-    const next: StoredPayload = { version: 1, reports: [report, ...prev.reports].slice(0, MAX_REPORTS) };
+    const next = appendPortalFeedbackItem(existing?.dataJson ?? null, report);
 
     await prisma.portalServiceSetup.upsert({
       where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
@@ -186,19 +162,24 @@ export async function POST(req: Request) {
     // Do not fail the request if persistence fails.
   }
 
-  const subject = `Bug report: ${report.reporterEmail ?? ownerId}${report.area ? ` (${report.area})` : ""}`;
+  const subject = `Feedback: ${report.reporterEmail ?? ownerId}${report.category ? ` [${report.category}]` : ""}${report.area ? ` (${report.area})` : ""}`;
   const emailBody = [
-    "New portal bug report",
+    "New portal feedback item",
     "",
     `When: ${report.createdAtIso}`,
     `Reporter: ${report.reporterEmail ?? "(unknown)"}`,
     `OwnerId: ${ownerId}`,
-    `URL: ${report.url ?? ""}`,
+    `Category: ${report.category}`,
+    `Severity: ${report.severity}`,
+    `Portal: ${report.portalVariant ?? ""}`,
+    `Service: ${report.serviceSlug ?? ""}`,
+    `Path: ${report.path ?? ""}`,
     `Area: ${report.area ?? ""}`,
     `Build: ${report.buildSha ?? ""}`,
     `Ref: ${report.commitRef ?? ""}`,
     `Deployment: ${report.deploymentId ?? ""}`,
     "",
+    ...(report.expected ? ["Expected:", report.expected, ""] : []),
     "Message:",
     report.message,
     "",
@@ -216,5 +197,5 @@ export async function POST(req: Request) {
     console.error("/api/portal/bug-report: email failed", emailResult);
   }
 
-  return NextResponse.json({ ok: true, reportId: report.id, emailed: emailResult.ok });
+  return NextResponse.json({ ok: true, reportId: report.id, feedbackId: report.id, emailed: emailResult.ok });
 }

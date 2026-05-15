@@ -511,7 +511,7 @@ export function PortalDashboardClient() {
       const requiredController = new AbortController();
       const requiredTimeout = window.setTimeout(() => requiredController.abort(), 60000);
 
-      const loadOptionalData = async (variant: "portal" | "credit") => {
+      const loadOptionalData = async () => {
         const optionalController = new AbortController();
         const optionalTimeout = window.setTimeout(() => optionalController.abort(), 15000);
 
@@ -546,17 +546,17 @@ export function PortalDashboardClient() {
       };
 
       try {
-        const variant = pathname.startsWith("/credit") ? "credit" : "portal";
+        const requestPortalVariant = pathname.startsWith("/credit") ? "credit" : "portal";
         const [meRes, dashRes] = await Promise.all([
           fetch("/api/customer/me", {
             cache: "no-store",
             signal: requiredController.signal,
-            headers: { "x-pa-app": "portal", "x-portal-variant": variant },
+            headers: { "x-pa-app": "portal", "x-portal-variant": requestPortalVariant },
           }),
           fetch(`/api/portal/dashboard?scope=${dashboardScope}` , {
             cache: "no-store",
             signal: requiredController.signal,
-            headers: { "x-portal-variant": variant },
+            headers: { "x-portal-variant": requestPortalVariant },
           }),
         ]);
 
@@ -597,7 +597,7 @@ export function PortalDashboardClient() {
           setLayouts(makeResponsiveLayouts(base));
         }
 
-        void loadOptionalData(variant);
+        void loadOptionalData();
       } catch (err) {
         if (!mounted) return;
         if (err instanceof DOMException && err.name === "AbortError") {
@@ -781,6 +781,7 @@ export function PortalDashboardClient() {
   if (!data) return null;
 
   const me = data;
+  const isCreditWorkspace = portalBase === "/credit";
   const k = reporting?.kpis;
   const derived = (() => {
     if (!reporting?.kpis || !reporting) {
@@ -833,6 +834,43 @@ export function PortalDashboardClient() {
   })();
 
   const widgetIds: DashboardWidgetId[] = (dashboard?.widgets ?? []).map((w) => w.id);
+  const activeModuleCount = modules.filter((module) => module.enabled).length;
+  const firstActiveModule = modules.find((module) => module.enabled) ?? null;
+  const servicesWidgetSummary = (() => {
+    if (!me.billing.configured) {
+      return {
+        headline: isCreditWorkspace ? "Connect billing for this credit workspace" : "Connect billing for this workspace",
+        body: isCreditWorkspace
+          ? "Billing controls paid service access and credit top-ups before operators can treat this as a live client workspace."
+          : "Billing controls paid service access and credit top-ups before services can go fully live.",
+        primaryHref: `${portalBase}/app/billing`,
+        primaryLabel: "Open Billing",
+      };
+    }
+
+    if (activeModuleCount === 0) {
+      return {
+        headline: isCreditWorkspace ? "No credit workflows are active yet" : "No services are active yet",
+        body: isCreditWorkspace
+          ? "Review the Services page to unlock the first live workflow for reports, consultations, or follow-up."
+          : "Review the Services page to unlock the first live service before routing work into it.",
+        primaryHref: `${portalBase}/app/services`,
+        primaryLabel: "Review services",
+      };
+    }
+
+    return {
+      headline:
+        activeModuleCount === 1 && firstActiveModule
+          ? `${firstActiveModule.name} is active in this workspace`
+          : `${activeModuleCount} services are active in this workspace`,
+      body: isCreditWorkspace
+        ? "Check the Services page for anything still marked Needs setup before treating it as a live credit workflow."
+        : "Check the Services page for anything still marked Needs setup before treating it as a live service.",
+      primaryHref: `${portalBase}/app/services`,
+      primaryLabel: "Review services",
+    };
+  })();
 
   const dashboardAttentionItems = (() => {
     const items: Array<{ label: string; value: string; href: string; tone: "danger" | "warning" | "neutral" }> = [];
@@ -1500,11 +1538,20 @@ export function PortalDashboardClient() {
             </div>
 
             <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
-              <div>Next step: run the quick setup checklist.</div>
+              <div>
+                <div className="font-semibold text-zinc-900">{servicesWidgetSummary.headline}</div>
+                <div className="mt-1 text-sm text-zinc-600">{servicesWidgetSummary.body}</div>
+              </div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Link
-                  href={`${portalBase}/app/onboarding`}
+                  href={servicesWidgetSummary.primaryHref}
                   className={dashboardPrimaryButtonClass}
+                >
+                  {servicesWidgetSummary.primaryLabel}
+                </Link>
+                <Link
+                  href={`${portalBase}/app/onboarding`}
+                  className={dashboardSecondaryButtonClass}
                 >
                   Open setup checklist
                 </Link>

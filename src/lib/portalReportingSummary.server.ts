@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getCreditsState } from "@/lib/credits";
 import { listAiReceptionistEvents } from "@/lib/aiReceptionist";
+import { parsePortalFeedbackPayload } from "@/lib/betaFeedback";
 import { listMissedCallTextBackEvents } from "@/lib/missedCallTextBack";
 
 export type PortalReportingRangeKey = "today" | "7d" | "30d" | "90d" | "all";
@@ -109,6 +110,22 @@ export type PortalReportingSummaryPayload = {
   endIso: string;
   creditsRemaining: number;
   warnings?: string[];
+  attention: {
+    tasksOverdueNow: number;
+    inboxNeedsReplyNow: number;
+    creditReportsImported: number;
+    creditReportItemsPendingNow: number;
+    creditReportItemsNegativeNow: number;
+    creditDisputeDraftsNow: number;
+    creditDisputePdfsReadyNow: number;
+    creditDisputeMarkedMailedNow: number;
+    betaFeedbackPortalRecent: number;
+    betaFeedbackPortalUnresolvedNow: number;
+    betaFeedbackPortalHighSeverityNow: number;
+    betaFeedbackCreditRecent: number;
+    betaFeedbackCreditUnresolvedNow: number;
+    betaFeedbackCreditHighSeverityNow: number;
+  };
   diagnostics: {
     actionFailures: number;
     runtimeErrors: number;
@@ -204,9 +221,17 @@ export async function getPortalReportingSummaryForOwner(
     nurtureEnrollmentsCompleted,
     newsletterAgg,
     tasksOpenNow,
+    tasksOverdueNow,
     tasksCompleted,
     inboxMessagesIn,
     inboxMessagesOut,
+    inboxNeedsReplyNow,
+    creditReportsImported,
+    creditReportItemsPendingNow,
+    creditReportItemsNegativeNow,
+    creditDisputeDraftsNow,
+    creditDisputePdfsReadyNow,
+    creditDisputeMarkedMailedNow,
     diagnosticsSetups,
   ] = await Promise.all([
     safe("credits", () => getCreditsState(ownerId), { balance: 0, autoTopUp: false }),
@@ -295,6 +320,14 @@ export async function getPortalReportingSummaryForOwner(
 
     safe("tasksOpenNow", () => prisma.portalTask.count({ where: { ownerId, status: "OPEN" } }), 0),
     safe(
+      "tasksOverdueNow",
+      () =>
+        prisma.portalTask.count({
+          where: { ownerId, status: "OPEN", dueAt: { lt: now } },
+        }),
+      0,
+    ),
+    safe(
       "tasksCompleted",
       () => prisma.portalTask.count({ where: { ownerId, status: "DONE", updatedAt: { gte: start } } }),
       0,
@@ -317,6 +350,53 @@ export async function getPortalReportingSummaryForOwner(
       0,
     ),
     safe(
+      "inboxNeedsReplyNow",
+      () =>
+        prisma.portalInboxThread.count({
+          where: { ownerId, lastMessageDirection: "IN" },
+        }),
+      0,
+    ),
+    safe(
+      "creditReportsImported",
+      () =>
+        prisma.creditReport.count({
+          where: { ownerId, importedAt: { gte: start } },
+        }),
+      0,
+    ),
+    safe(
+      "creditReportItemsPendingNow",
+      () =>
+        prisma.creditReportItem.count({
+          where: { report: { ownerId }, auditTag: "PENDING" },
+        }),
+      0,
+    ),
+    safe(
+      "creditReportItemsNegativeNow",
+      () =>
+        prisma.creditReportItem.count({
+          where: { report: { ownerId }, auditTag: "NEGATIVE" },
+        }),
+      0,
+    ),
+    safe(
+      "creditDisputeDraftsNow",
+      () => prisma.creditDisputeLetter.count({ where: { ownerId, status: "DRAFT" } }),
+      0,
+    ),
+    safe(
+      "creditDisputePdfsReadyNow",
+      () => prisma.creditDisputeLetter.count({ where: { ownerId, status: "GENERATED" } }),
+      0,
+    ),
+    safe(
+      "creditDisputeMarkedMailedNow",
+      () => prisma.creditDisputeLetter.count({ where: { ownerId, status: "SENT" } }),
+      0,
+    ),
+    safe(
       "diagnosticsSetups",
       () =>
         prisma.portalServiceSetup.findMany({
@@ -330,6 +410,7 @@ export async function getPortalReportingSummaryForOwner(
   const diagnosticSetupMap = new Map(
     (diagnosticsSetups as Array<{ serviceSlug: string; dataJson: unknown }>).map((item) => [item.serviceSlug, item.dataJson]),
   );
+  const feedbackItems = parsePortalFeedbackPayload(diagnosticSetupMap.get("bug-reports")).items;
   const diagnosticsInRange = readPortalDiagnosticEvents(diagnosticSetupMap.get("portal_diagnostics")).filter((item) => {
     const seenAt = safeDate(item.lastSeenAtIso || item.createdAtIso);
     return seenAt ? seenAt >= start : false;
@@ -338,6 +419,22 @@ export async function getPortalReportingSummaryForOwner(
     const createdAt = safeDate(item.createdAtIso);
     return createdAt ? createdAt >= start : false;
   });
+  const unresolvedFeedbackStatuses = new Set(["new", "reviewing", "planned"]);
+  const highSeverityFeedback = new Set(["high", "critical"]);
+  const portalFeedbackItems = feedbackItems.filter((item) => item.portalVariant !== "credit");
+  const creditFeedbackItems = feedbackItems.filter((item) => item.portalVariant === "credit");
+  const portalFeedbackRecent = portalFeedbackItems.filter((item) => {
+    const createdAt = safeDate(item.createdAtIso);
+    return createdAt ? createdAt >= start : false;
+  });
+  const creditFeedbackRecent = creditFeedbackItems.filter((item) => {
+    const createdAt = safeDate(item.createdAtIso);
+    return createdAt ? createdAt >= start : false;
+  });
+  const portalFeedbackUnresolved = portalFeedbackItems.filter((item) => unresolvedFeedbackStatuses.has(item.triage.status));
+  const creditFeedbackUnresolved = creditFeedbackItems.filter((item) => unresolvedFeedbackStatuses.has(item.triage.status));
+  const portalFeedbackHighSeverity = portalFeedbackUnresolved.filter((item) => highSeverityFeedback.has(item.severity));
+  const creditFeedbackHighSeverity = creditFeedbackUnresolved.filter((item) => highSeverityFeedback.has(item.severity));
 
   const diagnosticCounts = diagnosticsInRange.reduce(
     (acc, item) => {
@@ -526,6 +623,22 @@ export async function getPortalReportingSummaryForOwner(
     endIso: now.toISOString(),
     creditsRemaining: (credits as any).balance,
     ...(warnings.length ? { warnings } : {}),
+    attention: {
+      tasksOverdueNow: tasksOverdueNow as number,
+      inboxNeedsReplyNow: inboxNeedsReplyNow as number,
+      creditReportsImported: creditReportsImported as number,
+      creditReportItemsPendingNow: creditReportItemsPendingNow as number,
+      creditReportItemsNegativeNow: creditReportItemsNegativeNow as number,
+      creditDisputeDraftsNow: creditDisputeDraftsNow as number,
+      creditDisputePdfsReadyNow: creditDisputePdfsReadyNow as number,
+      creditDisputeMarkedMailedNow: creditDisputeMarkedMailedNow as number,
+      betaFeedbackPortalRecent: portalFeedbackRecent.length,
+      betaFeedbackPortalUnresolvedNow: portalFeedbackUnresolved.length,
+      betaFeedbackPortalHighSeverityNow: portalFeedbackHighSeverity.length,
+      betaFeedbackCreditRecent: creditFeedbackRecent.length,
+      betaFeedbackCreditUnresolvedNow: creditFeedbackUnresolved.length,
+      betaFeedbackCreditHighSeverityNow: creditFeedbackHighSeverity.length,
+    },
     diagnostics: {
       ...diagnosticCounts,
       manualBugReports: bugReportsInRange.length,

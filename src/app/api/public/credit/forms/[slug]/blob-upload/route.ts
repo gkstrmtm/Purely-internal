@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 
-import { prisma } from "@/lib/db";
 import { parseCreditFormFields } from "@/lib/creditFormSchema";
+import { resolvePublicCreditFormFromRequest } from "@/lib/publicFormResolution";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -105,9 +105,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
   const url = new URL(request.url);
   const fieldName = url.searchParams.get("field");
 
-  const form = await prisma.creditForm
-    .findUnique({ where: { slug }, select: { id: true, schemaJson: true } })
-    .catch(() => null);
+  const resolvedForm = await resolvePublicCreditFormFromRequest({ request, slug });
+  const form = resolvedForm?.form ?? null;
 
   if (!form) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -116,8 +115,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  const resolved = resolveBlobReadWriteToken();
-  if (!resolved) {
+  const blobToken = resolveBlobReadWriteToken();
+  if (!blobToken) {
     const payload = isProduction()
       ? {
           error: "Uploads are temporarily unavailable.",
@@ -128,10 +127,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
           hint: "Enable Vercel Blob for this deployment (sets BLOB_READ_WRITE_TOKEN / VERCEL_BLOB_READ_WRITE_TOKEN).",
           diagnostics: getTokenDiagnostics(),
         };
-    return NextResponse.json(
-      payload,
-      { status: 400 },
-    );
+    return NextResponse.json(payload, { status: 400 });
   }
 
   try {
@@ -139,7 +135,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
     const maximumSizeInBytes = resolveMaximumSizeInBytes(form.schemaJson, fieldName);
 
     const jsonResponse = await handleUpload({
-      token: resolved.token,
+      token: blobToken.token,
       body,
       request,
       onBeforeGenerateToken: async () => {
@@ -168,12 +164,9 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
           error: message,
           hint:
             "If the token is set but uploads still fail, the token may be invalid/expired or set on a different Vercel project/environment.",
-          tokenSource: resolved.source,
+          tokenSource: blobToken.source,
           diagnostics: getTokenDiagnostics(),
         };
-    return NextResponse.json(
-      payload,
-      { status: 400 },
-    );
+    return NextResponse.json(payload, { status: 400 });
   }
 }

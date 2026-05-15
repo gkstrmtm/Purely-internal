@@ -4,6 +4,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import {
+  FEEDBACK_CATEGORY_VALUES,
+  FEEDBACK_SEVERITY_VALUES,
+  type FeedbackCategory,
+  type FeedbackSeverity,
+} from "@/lib/betaFeedback";
 import { buildPortalAiChatThreadHref } from "@/lib/portalAiChatThreadRefs";
 import { usePortalUiPreview } from "@/lib/portalUiPreview.client";
 
@@ -17,6 +23,15 @@ type VersionPayload = {
 };
 
 type BugReportResponse = { ok?: boolean; reportId?: string; emailed?: boolean; error?: string };
+
+type FeedbackFormState = {
+  title: string;
+  message: string;
+  expected: string;
+  category: FeedbackCategory;
+  severity: FeedbackSeverity;
+  artifactUrl: string;
+};
 
 type SuggestedSetupAction = {
   id: string;
@@ -430,11 +445,21 @@ const floatingToolsPrimaryButtonClass =
 const floatingToolsGradientButtonClass =
   "rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60";
 
+const defaultFeedbackFormState = (): FeedbackFormState => ({
+  title: "",
+  message: "",
+  expected: "",
+  category: "bug",
+  severity: "medium",
+  artifactUrl: "",
+});
+
 export function PortalFloatingTools() {
   const uiPreview = usePortalUiPreview();
   const pathname = usePathname() || "";
   const router = useRouter();
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  const portalVariant = portalBase === "/credit" ? "credit" : "portal";
   const isDashboardRoute = pathname === `${portalBase}/app`;
   const isSettingsRoute =
     pathname.startsWith(`${portalBase}/app/settings`) ||
@@ -452,7 +477,7 @@ export function PortalFloatingTools() {
   const [chatMessages, setChatMessages] = useState<SupportChatMessage[]>([defaultWidgetWelcomeMessage()]);
   const [chatInput, setChatInput] = useState("");
   const [chatSending, setChatSending] = useState(false);
-  const [message, setMessage] = useState("");
+  const [feedbackForm, setFeedbackForm] = useState<FeedbackFormState>(() => defaultFeedbackFormState());
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [pageSuggestion, setPageSuggestion] = useState<WidgetSuggestedSetup | null>(null);
@@ -763,6 +788,27 @@ export function PortalFloatingTools() {
     return `v ${sha}`;
   }, [version?.buildSha]);
 
+  const feedbackServiceSlug = useMemo(() => inferSuggestedSetupServiceSlug(pathname), [pathname]);
+  const feedbackArea = useMemo(() => {
+    if (feedbackServiceSlug) return feedbackServiceSlug;
+    if (pathname === `${portalBase}/app`) return "dashboard";
+    if (pathname.startsWith(`${portalBase}/app/settings`)) return "settings";
+    if (pathname.startsWith(`${portalBase}/app/profile`)) return "profile";
+    if (pathname.startsWith(`${portalBase}/app/billing`)) return "billing";
+    return portalVariant;
+  }, [feedbackServiceSlug, pathname, portalBase, portalVariant]);
+  const feedbackWorkspaceLabel = portalVariant === "credit" ? "Credit workspace" : "Portal workspace";
+  const feedbackPathLabel = String(pathname || "").replace(/^\/(portal|credit)/, "") || "/app";
+  const feedbackContextItems = useMemo(
+    () => [
+      { label: "Workspace", value: feedbackWorkspaceLabel },
+      { label: "Area", value: formatServiceSlugLabel(feedbackServiceSlug || feedbackArea) },
+      { label: "Page", value: feedbackPathLabel },
+    ],
+    [feedbackArea, feedbackPathLabel, feedbackServiceSlug, feedbackWorkspaceLabel],
+  );
+  const expectedFieldRequired = feedbackForm.category === "bug" || feedbackForm.category === "confusion";
+
   if (hidden) return null;
 
   function persistMinimized(next: boolean) {
@@ -910,20 +956,52 @@ export function PortalFloatingTools() {
   }
 
   async function submit() {
-    const text = message.trim();
-    if (!text) {
-      setNote("Please describe the issue.");
+    const title = feedbackForm.title.trim();
+    const text = feedbackForm.message.trim();
+    const expected = feedbackForm.expected.trim();
+    const artifactUrl = feedbackForm.artifactUrl.trim();
+
+    if (!title) {
+      setNote("Add a short title.");
       window.setTimeout(() => setNote(null), 2000);
       return;
+    }
+
+    if (!text) {
+      setNote("Please describe the feedback.");
+      window.setTimeout(() => setNote(null), 2000);
+      return;
+    }
+
+    if (expectedFieldRequired && !expected) {
+      setNote("Tell us what you expected.");
+      window.setTimeout(() => setNote(null), 2000);
+      return;
+    }
+
+    if (artifactUrl) {
+      const normalizedArtifact = normalizeHref(artifactUrl);
+      if (!/^https?:\/\//i.test(normalizedArtifact) || !isSafeHref(normalizedArtifact)) {
+        setNote("Artifact link must start with http or https.");
+        window.setTimeout(() => setNote(null), 2500);
+        return;
+      }
     }
 
     setSending(true);
     setNote(null);
 
     const payload = {
+      title,
       message: text,
-      url: typeof window !== "undefined" ? window.location.href : undefined,
-      area: "portal",
+      ...(expected ? { expected } : {}),
+      category: feedbackForm.category,
+      severity: feedbackForm.severity,
+      path: pathname,
+      area: feedbackArea,
+      portalVariant,
+      ...(feedbackServiceSlug ? { serviceSlug: feedbackServiceSlug } : {}),
+      ...(artifactUrl ? { artifactUrl: normalizeHref(artifactUrl) } : {}),
       meta: {
         userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
         buildSha: version?.buildSha ?? null,
@@ -931,6 +1009,8 @@ export function PortalFloatingTools() {
         deploymentId: version?.deploymentId ?? null,
         nodeEnv: version?.nodeEnv ?? null,
         clientTime: new Date().toISOString(),
+        host: typeof window !== "undefined" ? window.location.host : undefined,
+        source: "portal_widget",
       },
     };
 
@@ -941,23 +1021,23 @@ export function PortalFloatingTools() {
     }).catch(() => null as any);
 
     if (!res?.ok) {
-      setNote("Could not send bug report.");
+      setNote("Could not send feedback.");
       setSending(false);
       return;
     }
 
     const json = (await res.json().catch(() => ({}))) as BugReportResponse;
     if (!json?.ok) {
-      setNote(json?.error ?? "Could not send bug report.");
+      setNote(json?.error ?? "Could not send feedback.");
       setSending(false);
       return;
     }
 
-    setMessage("");
+    setFeedbackForm(defaultFeedbackFormState());
     setReportOpen(false);
     setSending(false);
 
-    setNote(json.emailed ? "Bug report sent. Thanks!" : "Bug report saved (email not configured).");
+    setNote(json.emailed ? "Feedback sent. Thanks!" : "Feedback saved (email not configured).");
     window.setTimeout(() => setNote(null), 3500);
   }
 
@@ -1082,8 +1162,8 @@ export function PortalFloatingTools() {
             <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Report a bug</div>
-                <div className="mt-1 text-xs text-zinc-500">{versionLabel}</div>
+                <div className="text-sm font-semibold text-zinc-900">Share beta feedback</div>
+                <div className="mt-1 text-xs text-zinc-500">{feedbackWorkspaceLabel} · {versionLabel}</div>
               </div>
               <button
                 type="button"
@@ -1095,26 +1175,107 @@ export function PortalFloatingTools() {
               </button>
             </div>
 
-            <div className="mt-4">
-              <textarea
-                className="min-h-30 w-full rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
-                placeholder="What happened? What did you expect?"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                disabled={sending}
-              />
-              <div className="mt-2 text-xs text-zinc-500">Includes your current page URL and version automatically.</div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              {feedbackContextItems.map((item) => (
+                <div key={item.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{item.label}</div>
+                  <div className="mt-1 text-sm font-semibold text-zinc-900">{item.value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Category</div>
+                  <select
+                    className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                    value={feedbackForm.category}
+                    onChange={(e) => setFeedbackForm((current) => ({ ...current, category: e.target.value as FeedbackCategory }))}
+                    disabled={sending}
+                  >
+                    {FEEDBACK_CATEGORY_VALUES.map((value) => (
+                      <option key={value} value={value}>
+                        {value.slice(0, 1).toUpperCase() + value.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Severity</div>
+                  <select
+                    className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                    value={feedbackForm.severity}
+                    onChange={(e) => setFeedbackForm((current) => ({ ...current, severity: e.target.value as FeedbackSeverity }))}
+                    disabled={sending}
+                  >
+                    {FEEDBACK_SEVERITY_VALUES.map((value) => (
+                      <option key={value} value={value}>
+                        {value.slice(0, 1).toUpperCase() + value.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <label className="block">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Title</div>
+                <input
+                  className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                  placeholder="Short summary"
+                  value={feedbackForm.title}
+                  onChange={(e) => setFeedbackForm((current) => ({ ...current, title: e.target.value }))}
+                  disabled={sending}
+                />
+              </label>
+
+              <label className="block">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">What happened?</div>
+                <textarea
+                  className="min-h-28 w-full rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                  placeholder="What did you click, what blocked you, or what should work better?"
+                  value={feedbackForm.message}
+                  onChange={(e) => setFeedbackForm((current) => ({ ...current, message: e.target.value }))}
+                  disabled={sending}
+                />
+              </label>
+
+              <label className="block">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  {expectedFieldRequired ? "What did you expect?" : "What outcome were you aiming for?"}
+                </div>
+                <textarea
+                  className="min-h-22 w-full rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                  placeholder={expectedFieldRequired ? "Tell us what should have happened instead." : "Optional context for the team."}
+                  value={feedbackForm.expected}
+                  onChange={(e) => setFeedbackForm((current) => ({ ...current, expected: e.target.value }))}
+                  disabled={sending}
+                />
+              </label>
+
+              <label className="block">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Artifact link</div>
+                <input
+                  className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                  placeholder="Optional screenshot or Loom URL"
+                  value={feedbackForm.artifactUrl}
+                  onChange={(e) => setFeedbackForm((current) => ({ ...current, artifactUrl: e.target.value }))}
+                  disabled={sending}
+                />
+              </label>
+
+              <div className="text-xs text-zinc-500">We attach the current workspace, page, account, and build version automatically so triage starts with the right context.</div>
             </div>
 
             <div className="mt-4 flex items-center justify-between gap-3">
-              <div className="text-xs text-zinc-500">We’ll notify the team by email.</div>
+              <div className="text-xs text-zinc-500">Saved to the beta feedback queue and emailed when configured.</div>
               <button
                 type="button"
                 className={floatingToolsPrimaryButtonClass}
                 onClick={() => void submit()}
                 disabled={sending}
               >
-                {sending ? "Sending…" : "Send"}
+                {sending ? "Sending…" : "Send feedback"}
               </button>
             </div>
           </div>
@@ -1251,7 +1412,7 @@ export function PortalFloatingTools() {
               </button>
             </div>
 
-            <div className="mt-2 text-xs text-zinc-500">Continue in Pura anytime, or use Report bug if something is broken.</div>
+            <div className="mt-2 text-xs text-zinc-500">Continue in Pura anytime, or share feedback here if something is broken, unclear, or missing.</div>
         </div>
       ) : null}
 
@@ -1348,7 +1509,7 @@ export function PortalFloatingTools() {
                 )}
                 onClick={() => setReportOpen(true)}
               >
-                Report bug
+                Share feedback
               </button>
 
               <button

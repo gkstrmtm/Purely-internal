@@ -6,6 +6,17 @@ function normalizePath(pathname: string): string {
   return p.startsWith("/") ? p : `/${p}`;
 }
 
+function normalizeOrigin(raw: string): string | null {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return null;
+  }
+}
+
 function readHostname(raw: string): string {
   const value = String(raw || "").trim();
   if (!value) return "";
@@ -26,6 +37,18 @@ export function toRuntimeHostedUrl(pathname: string, runtimeOrigin?: string | nu
   return toPurelyHostedUrl(pathname);
 }
 
+export function toAbsoluteUrl(pathname: string, origin: string): string | null {
+  const absoluteOrigin = normalizeOrigin(origin);
+  if (!absoluteOrigin) return null;
+  return `${absoluteOrigin}${normalizePath(pathname)}`;
+}
+
+export function toCustomDomainUrl(pathname: string, domain: string): string | null {
+  const host = readHostname(domain);
+  if (!host) return null;
+  return `https://${host}${normalizePath(pathname)}`;
+}
+
 export function toPurelyHostedUrl(pathname: string): string {
-  return `${PURELY_HOSTED_ORIGIN}${normalizePath(pathname)}`;
+  return toAbsoluteUrl(pathname, PURELY_HOSTED_ORIGIN) || `${PURELY_HOSTED_ORIGIN}${normalizePath(pathname)}`;
 }

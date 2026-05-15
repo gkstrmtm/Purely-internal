@@ -164,8 +164,10 @@ export function CreditHostedFormClient({
 
   const actionUrl = useMemo(() => {
     const base = submitBasePath === "/portal" ? "/portal" : "/credit";
-    return `/api/public${base}/forms/${encodeURIComponent(slug)}/submit`;
-  }, [slug, submitBasePath]);
+    const url = `/api/public${base}/forms/${encodeURIComponent(slug)}/submit`;
+    const qp = hostedKey ? `?key=${encodeURIComponent(hostedKey)}` : "";
+    return `${url}${qp}`;
+  }, [hostedKey, slug, submitBasePath]);
 
   const blobUploadUrlBase = useMemo(() => {
     const base = submitBasePath === "/portal" ? "/portal" : "/credit";

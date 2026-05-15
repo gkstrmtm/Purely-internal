@@ -1548,10 +1548,42 @@ export function PortalPeopleContactsClient() {
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">People</h1>
-          <p className="mt-2 text-sm text-zinc-600">Contacts and leads across your portal.</p>
+          <p className="mt-2 text-sm text-zinc-600">{isCreditApp ? "Credit client records, intake details, and linked leads." : "Contacts and leads across your portal."}</p>
           <PortalPeopleTabs />
         </div>
       </div>
+
+      {isCreditApp ? (
+        <div className="mt-4 rounded-3xl border border-sky-200 bg-sky-50 p-4 text-sm text-zinc-800">
+          <div className="font-semibold text-zinc-900">Credit intake handoff</div>
+          <div className="mt-1 max-w-3xl">
+            Before you import a report, make sure the client record has the best available name, email or phone, mailing address, birth date, SSN last four, and signature. Credit reports and dispute letters reuse these fields instead of creating a separate intake record.
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => router.push(`${portalBase}/app/services/credit-reports`, { scroll: false })}
+              className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100"
+            >
+              Open credit reports
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`${portalBase}/app/services/dispute-letters`, { scroll: false })}
+              className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100"
+            >
+              Open dispute letters
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(`${portalBase}/app/services/tasks`, { scroll: false })}
+              className="rounded-2xl border border-sky-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-sky-100"
+            >
+              Open follow-up tasks
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <PortalVariablePickerModal
         open={customVarPickerOpen}
@@ -2039,7 +2071,7 @@ export function PortalPeopleContactsClient() {
                     Contacts ({data.contacts.length} of {typeof data.totalContacts === "number" ? data.totalContacts : "N/A"})
                     {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredContacts.length}</span> : null}
                   </div>
-                  <div className="mt-1 text-sm text-zinc-600">Manage and open contact details.</div>
+                  <div className="mt-1 text-sm text-zinc-600">{isCreditApp ? "Manage credit client details before report import, dispute drafting, and mailed follow-up." : "Manage and open contact details."}</div>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   {duplicateGroupsCount > 0 ? (

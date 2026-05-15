@@ -27,7 +27,24 @@ type PortalPricing = {
 type ServiceStatusRes =
   | {
       ok: true;
-      statuses: Record<string, { state: "active" | "needs_setup" | "locked" | "coming_soon" | "paused" | "canceled"; label: string }>;
+      statuses: Record<
+        string,
+        {
+          state: "active" | "needs_setup" | "locked" | "coming_soon" | "paused" | "canceled";
+          label: string;
+          access: {
+            state: "included" | "enabled" | "locked" | "coming_soon" | "paused" | "canceled";
+            label: string;
+          };
+          readiness: {
+            state: "ready" | "needs_setup" | "needs_connection" | "empty" | "blocked";
+            label: string;
+            helper: string;
+            ctaLabel: string;
+            href: string | null;
+          };
+        }
+      >;
     }
   | { ok: false; error?: string };
 
@@ -51,6 +68,40 @@ function statusBadgeClass(state: string) {
     case "coming_soon":
       return "border-zinc-200 bg-white text-zinc-500";
     case "locked":
+    default:
+      return "border-zinc-200 bg-zinc-50 text-zinc-600";
+  }
+}
+
+function accessBadgeClass(state: string) {
+  switch (state) {
+    case "included":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "enabled":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "paused":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "canceled":
+      return "border-red-200 bg-red-50 text-red-700";
+    case "coming_soon":
+      return "border-zinc-200 bg-white text-zinc-500";
+    case "locked":
+    default:
+      return "border-zinc-200 bg-zinc-50 text-zinc-600";
+  }
+}
+
+function readinessBadgeClass(state: string) {
+  switch (state) {
+    case "ready":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "needs_connection":
+      return "border-orange-200 bg-orange-50 text-orange-700";
+    case "needs_setup":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "empty":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "blocked":
     default:
       return "border-zinc-200 bg-zinc-50 text-zinc-600";
   }
@@ -112,6 +163,8 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
   }, [variant]);
 
   const serviceStatus = statusRes && statusRes.ok === true ? statusRes.statuses?.[slug] ?? null : null;
+  const access = serviceStatus?.access ?? null;
+  const readiness = serviceStatus?.readiness ?? null;
   const state = String(serviceStatus?.state || "").toLowerCase();
   const isPaused = state === "paused";
   const isCanceled = state === "canceled";
@@ -139,6 +192,14 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
       : entitlementKey
         ? `${appBase}/billing?buy=${encodeURIComponent(entitlementKey)}&autostart=1`
         : `${appBase}/billing`;
+  const fallbackBlockedHelper = isPaused || isCanceled
+    ? "This service is turned off in Billing. Resume it any time to regain access."
+    : isComingSoon
+      ? "This service isn’t available yet. It will appear here once it’s ready."
+      : "This service isn’t included in your current plan. You can add it any time.";
+  const blockedHelper = readiness?.helper || fallbackBlockedHelper;
+  const blockedCtaHref = readiness?.href || (!isComingSoon ? billingUnlockHref : `${appBase}/services`);
+  const blockedCtaLabel = readiness?.ctaLabel || (isPaused || isCanceled ? "Open Billing" : isComingSoon ? "Back to services" : "Unlock in Billing");
 
   if (!service) {
     return (
@@ -168,11 +229,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               {isPaused || isCanceled ? `${service.title} is ${isPaused ? "paused" : "canceled"}` : `Unlock ${service.title}`}
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            {isPaused || isCanceled
-              ? "This service is turned off in Billing. Resume it any time to regain access."
-              : isComingSoon
-                ? "This service isn’t available yet. It will appear here once it’s ready."
-                : "This service isn’t included in your current plan. You can add it any time."}
+              {blockedHelper}
             </p>
           </div>
           <Link
@@ -227,19 +284,15 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
             <div className="rounded-3xl border border-zinc-200 bg-white p-6">
               <div className="text-sm font-semibold text-zinc-900">Next step</div>
               <div className="mt-2 text-sm text-zinc-600">
-                {isPaused || isCanceled
-                  ? "Open Billing to turn this service back on."
-                  : isComingSoon
-                    ? "Keep using the rest of your services while this one is being prepared."
-                    : "Turn this service on in Billing, then come back here to configure it."}
+                {blockedHelper}
               </div>
               <div className="mt-4 flex flex-col gap-3">
-                {!isComingSoon ? (
+                {blockedCtaHref ? (
                   <Link
-                    href={billingUnlockHref}
+                    href={blockedCtaHref}
                     className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
                   >
-                    {isPaused || isCanceled ? "Open Billing" : "Unlock in Billing"}
+                    {blockedCtaLabel}
                   </Link>
                 ) : null}
                 <Link
@@ -270,6 +323,21 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">{service.title}</h1>
           <p className="mt-1 max-w-2xl text-sm text-zinc-600">{serviceCopy?.description}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(state || "active")}`}>
+              {serviceStatus?.label || "Available"}
+            </span>
+            {access ? (
+              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${accessBadgeClass(access.state)}`}>
+                {access.label}
+              </span>
+            ) : null}
+            {readiness ? (
+              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${readinessBadgeClass(readiness.state)}`}>
+                {readiness.label}
+              </span>
+            ) : null}
+          </div>
         </div>
         <Link
           href={`${appBase}/services`}
@@ -430,8 +498,26 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
           <div className="text-sm font-semibold text-zinc-900">Service details</div>
           <div className="mt-3 space-y-3">
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-              <div className="text-xs text-zinc-500">Status</div>
+              <div className="text-xs text-zinc-500">Workspace status</div>
               <div className="mt-1 text-sm font-semibold text-zinc-900">{serviceStatus?.label || (service.included ? "Included" : "Available")}</div>
+              {readiness?.helper ? <div className="mt-2 text-sm text-zinc-600">{readiness.helper}</div> : null}
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-xs text-zinc-500">Access</div>
+              <div className="mt-1 text-sm font-semibold text-zinc-900">{access?.label || (service.included ? "Included in plan" : "Enabled")}</div>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-xs text-zinc-500">Next action</div>
+              <div className="mt-1 text-sm font-semibold text-zinc-900">{readiness?.label || "Open service"}</div>
+              {readiness?.helper ? <div className="mt-2 text-sm text-zinc-600">{readiness.helper}</div> : null}
+              {readiness?.href ? (
+                <Link
+                  href={readiness.href}
+                  className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  {readiness.ctaLabel}
+                </Link>
+              ) : null}
             </div>
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="text-xs text-zinc-500">Billing</div>

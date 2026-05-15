@@ -18,6 +18,7 @@ import { getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.s
 import { AiSparkIcon } from "@/components/AiSparkIcon";
 import { FunnelCustomHtmlRuntimeSurface } from "@/components/funnel/FunnelCustomHtmlRuntimeSurface";
 import { HostedFunnelTracker } from "@/components/funnel/HostedFunnelTracker";
+import { buildHostedFunnelMetadata } from "./hostedFunnelRoute";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -202,24 +203,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug, key } = await params;
   const loaded = await fetchHostedFunnelRoute(slug, key);
-  if (!loaded) return {};
-
-  const { page, seo } = loaded;
-  const title = seo?.title || page?.title || "";
-  const description = seo?.description || "";
-
-  return {
-    title: title || undefined,
-    description: description || undefined,
-    openGraph: seo?.imageUrl
-      ? {
-          title: title || undefined,
-          description: description || undefined,
-          images: [{ url: seo.imageUrl }],
-        }
-      : undefined,
-    robots: seo?.noIndex ? { index: false, follow: true } : undefined,
-  };
+  return loaded ? buildHostedFunnelMetadata(loaded, { key }) : {};
 }
 
 async function renderHostedFunnelRoute(opts: {

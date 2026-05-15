@@ -17,6 +17,7 @@ import { resolveFunnelPageRenderState } from "@/lib/funnelPageGraph";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
+import { toCustomDomainUrl } from "@/lib/publicHostedOrigin";
 import { renderTextTemplate } from "@/lib/textTemplate";
 
 import { CreditHostedFormClient } from "@/app/credit/forms/[slug]/CreditHostedFormClient";
@@ -483,9 +484,41 @@ export async function generateMetadata({
   const first = segments[0] || "";
   const second = segments[1] || "";
   const third = segments[2] || "";
+  const canonicalDomain = normalizeDomain(mapping.matchedDomain) || host;
+
+  if (!first || first === "api") return { title: host };
+
+  if (first === "forms") {
+    const formSlug = safeSlug(second);
+    if (!formSlug || segments.length > 2) return { title: host };
+
+    const form = await prisma.creditForm
+      .findFirst({ where: { ownerId: mapping.ownerId, slug: formSlug }, select: { name: true, slug: true, schemaJson: true } })
+      .catch(() => null);
+
+    if (!form) return { title: host };
+
+    const content = parseCreditFormContent(form.schemaJson);
+    const title = content?.displayTitle?.trim() || form.name || "";
+    const description = content?.description?.trim() || "";
+    const canonicalUrl = toCustomDomainUrl(`/forms/${encodeURIComponent(form.slug)}`, canonicalDomain);
+
+    return {
+      title: title || undefined,
+      description: description || undefined,
+      alternates: canonicalUrl ? { canonical: canonicalUrl } : undefined,
+      openGraph: canonicalUrl
+        ? {
+            title: title || undefined,
+            description: description || undefined,
+            url: canonicalUrl,
+          }
+        : undefined,
+    };
+  }
 
   // Only handle funnel metadata for /{slug} and /f/{slug}.
-  if (!first || first === "forms" || first === "form" || first === "api") return { title: host };
+  if (first === "form") return { title: host };
   const funnelSlug = first === "f" && second ? second : first;
   if (!funnelSlug) return { title: host };
 
@@ -530,17 +563,25 @@ export async function generateMetadata({
 
   const title = seo?.title || page?.title || "";
   const description = seo?.description || "";
+  const canonicalPath = first === "f"
+    ? `/f/${encodeURIComponent(funnelSlug)}${funnelPageSlug ? `/${encodeURIComponent(funnelPageSlug)}` : ""}`
+    : `/${encodeURIComponent(funnelSlug)}${funnelPageSlug ? `/${encodeURIComponent(funnelPageSlug)}` : ""}`;
+  const canonicalHost = normalizeDomain(assignedDomain) || canonicalDomain;
+  const canonicalUrl = toCustomDomainUrl(canonicalPath, canonicalHost);
 
   return {
     title: title || undefined,
     description: description || undefined,
-    openGraph: seo?.imageUrl
-      ? {
-          title: title || undefined,
-          description: description || undefined,
-          images: [{ url: seo.imageUrl }],
-        }
-      : undefined,
+    alternates: canonicalUrl ? { canonical: canonicalUrl } : undefined,
+    openGraph:
+      seo?.imageUrl || canonicalUrl
+        ? {
+            title: title || undefined,
+            description: description || undefined,
+            ...(canonicalUrl ? { url: canonicalUrl } : {}),
+            ...(seo?.imageUrl ? { images: [{ url: seo.imageUrl }] } : {}),
+          }
+        : undefined,
     icons: faviconUrl ? { icon: faviconUrl, shortcut: faviconUrl } : undefined,
     robots: seo?.noIndex ? { index: false, follow: true } : undefined,
   };

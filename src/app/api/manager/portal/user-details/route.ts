@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 
 import { authOptions } from "@/lib/auth";
+import { bugReportSummariesFromFeedback, parsePortalFeedbackPayload } from "@/lib/betaFeedback";
 import { prisma } from "@/lib/db";
 import { hasPublicTable } from "@/lib/dbSchema";
 import { MODULE_KEYS, type ModuleKey } from "@/lib/entitlements.shared";
@@ -164,6 +165,24 @@ function bucketLabelForSurface(key: string) {
 function bucketLabelForAudience(key: string) {
   if (key === "internal_operator") return "Internal operator";
   if (key === "customer_surface") return "Customer-facing";
+  return "Unknown";
+}
+
+function feedbackCategoryLabel(key: string) {
+  if (key === "bug") return "Bug";
+  if (key === "request") return "Request";
+  if (key === "idea") return "Idea";
+  if (key === "confusion") return "Confusion";
+  if (key === "praise") return "Praise";
+  return "Unknown";
+}
+
+function feedbackStatusLabel(key: string) {
+  if (key === "new") return "New";
+  if (key === "reviewing") return "Reviewing";
+  if (key === "planned") return "Planned";
+  if (key === "shipped") return "Shipped";
+  if (key === "closed") return "Closed";
   return "Unknown";
 }
 
@@ -387,7 +406,8 @@ export async function GET(req: Request) {
   const topPages = topEntriesByValue(pathTimeSec, 12);
   const topServicesByTime = topEntriesByValue(serviceTimeSec, 8);
   const portalDiagnostics = readPortalDiagnostics(getSetup(DIAGNOSTICS_SETUP_SLUG));
-  const bugReports = readBugReports(getSetup(BUG_REPORT_SETUP_SLUG));
+  const feedbackItems = parsePortalFeedbackPayload(getSetup(BUG_REPORT_SETUP_SLUG)).items;
+  const bugReports = bugReportSummariesFromFeedback(feedbackItems);
   const diagnosticsLastSeenAt = portalDiagnostics.length
     ? portalDiagnostics
         .map((item) => Date.parse(item.lastSeenAtIso || item.createdAtIso))
@@ -411,6 +431,8 @@ export async function GET(req: Request) {
   const diagnosticsHostMap = new Map<string, number>();
   const diagnosticsPathMap = new Map<string, number>();
   const diagnosticsActionMap = new Map<string, { area: string; action: string; count: number }>();
+  const feedbackCategoryMap = new Map<string, number>();
+  const feedbackStatusMap = new Map<string, number>();
 
   for (const item of portalDiagnostics) {
     const environment = readMetaString(item.meta, "viewEnvironment") || "unknown";
@@ -438,6 +460,11 @@ export async function GET(req: Request) {
       if (prev) prev.count += item.count;
       else diagnosticsActionMap.set(key, { area, action, count: item.count });
     }
+  }
+
+  for (const item of feedbackItems) {
+    incrementMap(feedbackCategoryMap, item.category, 1);
+    incrementMap(feedbackStatusMap, item.triage.status, 1);
   }
 
   const deletedTombstone = parseDeletedAccountTombstone(getSetup(DELETED_ACCOUNT_SETUP_SLUG));
@@ -819,6 +846,38 @@ export async function GET(req: Request) {
           bugReports: {
             count: bugReports.length,
             lastReportedAt: bugReports[0]?.createdAtIso ?? null,
+          },
+          betaFeedback: {
+            count: feedbackItems.length,
+            lastSubmittedAt: feedbackItems[0]?.createdAtIso ?? null,
+            categories: topBuckets(feedbackCategoryMap, feedbackCategoryLabel, 8),
+            statuses: topBuckets(feedbackStatusMap, feedbackStatusLabel, 8),
+            recentItems: feedbackItems.slice(0, 40).map((item) => ({
+              id: item.id,
+              createdAtIso: item.createdAtIso,
+              updatedAtIso: item.updatedAtIso ?? null,
+              title: item.title,
+              message: item.message,
+              expected: item.expected ?? null,
+              category: item.category,
+              severity: item.severity,
+              area: item.area ?? null,
+              path: item.path ?? null,
+              serviceSlug: item.serviceSlug ?? null,
+              portalVariant: item.portalVariant ?? null,
+              reporterEmail: item.reporterEmail ?? null,
+              artifactUrl: item.artifactUrl ?? null,
+              triage: {
+                status: item.triage.status,
+                priority: item.triage.priority,
+                backlogRef: item.triage.backlogRef ?? null,
+                promptRef: item.triage.promptRef ?? null,
+                exportBucket: item.triage.exportBucket ?? null,
+                notes: item.triage.notes ?? null,
+                reviewerEmail: item.triage.reviewerEmail ?? null,
+                lastReviewedAtIso: item.triage.lastReviewedAtIso ?? null,
+              },
+            })),
           },
         },
         blog: {

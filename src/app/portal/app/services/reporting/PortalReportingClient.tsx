@@ -16,6 +16,31 @@ type ReportingPayload = {
   startIso: string;
   endIso: string;
   creditsRemaining: number;
+  diagnostics: {
+    actionFailures: number;
+    runtimeErrors: number;
+    unhandledRejections: number;
+    resourceErrors: number;
+    manualBugReports: number;
+    topPaths: Array<{ path: string; count: number }>;
+    topMessages: Array<{ kind: "runtime_error" | "unhandled_rejection" | "resource_error" | "action_failure"; message: string; count: number }>;
+  };
+  attention: {
+    tasksOverdueNow: number;
+    inboxNeedsReplyNow: number;
+    creditReportsImported: number;
+    creditReportItemsPendingNow: number;
+    creditReportItemsNegativeNow: number;
+    creditDisputeDraftsNow: number;
+    creditDisputePdfsReadyNow: number;
+    creditDisputeMarkedMailedNow: number;
+    betaFeedbackPortalRecent: number;
+    betaFeedbackPortalUnresolvedNow: number;
+    betaFeedbackPortalHighSeverityNow: number;
+    betaFeedbackCreditRecent: number;
+    betaFeedbackCreditUnresolvedNow: number;
+    betaFeedbackCreditHighSeverityNow: number;
+  };
   kpis: {
     automationsRun: number;
     aiCalls: number;
@@ -144,6 +169,16 @@ type ReportingCoverage = {
   notIncluded: ReportingCoverageItem[];
 };
 
+type ReportingInsightCard = {
+  id: string;
+  tone: "danger" | "warning" | "neutral";
+  title: string;
+  value: string;
+  detail: string;
+  actionLabel?: string;
+  actionHref?: string | null;
+};
+
 function currentPortalBase(pathname: string | null | undefined): "/portal" | "/credit" {
   return String(pathname || "").startsWith("/credit") ? "/credit" : "/portal";
 }
@@ -193,6 +228,10 @@ function getReportingCoverage(variant: ReportingWorkspaceVariant): ReportingCove
           detail: "This dashboard shows tracked lead records and contacts created in Purely, plus lead-scraping run counts where that service is active.",
         },
         {
+          label: "Imported credit reports and review queues",
+          detail: "When reports and dispute letters exist, reporting can show imported report volume, report items that still need review, dispute drafts, PDFs ready, and letters marked mailed manually.",
+        },
+        {
           label: "Conversation and follow-up activity",
           detail: "Inbox message volume, AI receptionist calls, missed-call text-back activity, newsletter sends, nurture enrollments, and task counts are included when those services record events.",
         },
@@ -205,12 +244,12 @@ function getReportingCoverage(variant: ReportingWorkspaceVariant): ReportingCove
         "Not included yet: credit workflow milestones that are not part of the current reporting summary contract.",
       notIncluded: [
         {
-          label: "Imported reports and reviewed report items",
-          detail: "The reporting dashboard does not yet count imported credit reports, item review decisions, or bureau-by-bureau review throughput.",
+          label: "Bureau pull or score outcome tracking",
+          detail: "This page does not claim bureau pull completion, score-change outcomes, or lender decisions unless those events are explicitly stored elsewhere.",
         },
         {
-          label: "Dispute draft workflow",
-          detail: "Dispute drafts created, PDFs generated, and letters marked mailed manually are not summarized on this reporting page yet.",
+          label: "External dispute delivery proof",
+          detail: "Marked mailed is only a manual state inside Purely. Reporting does not prove delivery, bureau receipt, or external submission progress.",
         },
         {
           label: "All funnel and nurture attribution",
@@ -252,7 +291,7 @@ function getReportingCoverage(variant: ReportingWorkspaceVariant): ReportingCove
       },
       {
         label: "Every workflow-specific milestone",
-        detail: "Service-specific internal milestones beyond the counts listed here are not guaranteed unless a service already records them into the reporting summary.",
+        detail: "Lead follow-up gaps, form submissions without a tracked next step, and booking review states are not inferred unless Purely stores a concrete task, reply-needed thread, or other explicit status for them.",
       },
       {
         label: "Audited labor tracking",
@@ -377,6 +416,25 @@ function formatMoneyFromCents(cents: number, currency: string) {
     return new Intl.NumberFormat(undefined, { style: "currency", currency: c }).format(amount);
   } catch {
     return `$${amount.toFixed(2)}`;
+  }
+}
+
+function reportingActionHref(pathname: string | null | undefined, route: "reporting" | "billing" | "tasks" | "inbox" | "creditReports" | "disputeLetters") {
+  const portalBase = currentPortalBase(pathname);
+  switch (route) {
+    case "billing":
+      return `${portalBase}/app/billing`;
+    case "tasks":
+      return `${portalBase}/app/services/tasks`;
+    case "inbox":
+      return `${portalBase}/app/services/inbox/email`;
+    case "creditReports":
+      return `${portalBase}/app/services/credit-reports`;
+    case "disputeLetters":
+      return `${portalBase}/app/services/dispute-letters`;
+    case "reporting":
+    default:
+      return `${portalBase}/app/services/reporting`;
   }
 }
 
@@ -565,6 +623,97 @@ function ServicePerfCard({
         ))}
       </div>
     </div>
+  );
+}
+
+function insightToneClasses(tone: ReportingInsightCard["tone"]) {
+  if (tone === "danger") {
+    return {
+      shell: "border-rose-200 bg-rose-50",
+      value: "text-rose-700",
+      badge: "bg-rose-100 text-rose-700",
+      button: "border-rose-200 bg-white text-rose-700 hover:bg-rose-100",
+    };
+  }
+  if (tone === "warning") {
+    return {
+      shell: "border-amber-200 bg-amber-50",
+      value: "text-amber-700",
+      badge: "bg-amber-100 text-amber-700",
+      button: "border-amber-200 bg-white text-amber-700 hover:bg-amber-100",
+    };
+  }
+  return {
+    shell: "border-sky-200 bg-sky-50",
+    value: "text-sky-700",
+    badge: "bg-sky-100 text-sky-700",
+    button: "border-sky-200 bg-white text-sky-700 hover:bg-sky-100",
+  };
+}
+
+function ReportingInsightSection({
+  cards,
+  pathname,
+  workspaceVariant,
+}: {
+  cards: ReportingInsightCard[];
+  pathname: string | null | undefined;
+  workspaceVariant: ReportingWorkspaceVariant;
+}) {
+  const emptyActionHref = reportingActionHref(pathname, workspaceVariant === "credit" ? "creditReports" : "tasks");
+  const emptyActionLabel = workspaceVariant === "credit" ? "Open credit reports" : "Open tasks";
+
+  return (
+    <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-zinc-900">Action insights</div>
+          <div className="mt-2 max-w-3xl text-sm text-zinc-600">
+            {workspaceVariant === "credit"
+              ? "These cues only use stored task, inbox, diagnostics, report, and dispute-letter data. They do not imply bureau pulls, submission proof, or score outcomes."
+              : "These cues only use stored task, inbox, diagnostics, feedback, and shared reporting data. They do not infer follow-up that Purely is not explicitly tracking yet."}
+          </div>
+        </div>
+      </div>
+
+      {cards.length ? (
+        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          {cards.map((card) => {
+            const tone = insightToneClasses(card.tone);
+            return (
+              <div key={card.id} className={classNames("rounded-3xl border p-5", tone.shell)}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="text-sm font-semibold text-zinc-900">{card.title}</div>
+                  <span className={classNames("rounded-full px-2.5 py-1 text-xs font-semibold", tone.badge)}>{card.value}</span>
+                </div>
+                <div className={classNames("mt-3 text-sm font-semibold", tone.value)}>{card.detail}</div>
+                {card.actionHref && card.actionLabel ? (
+                  <div className="mt-4">
+                    <Link href={card.actionHref} className={classNames("inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm font-semibold", tone.button)}>
+                      {card.actionLabel}
+                    </Link>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-5">
+          <div className="text-sm font-semibold text-zinc-900">No tracked bottlenecks in this view right now</div>
+          <div className="mt-2 max-w-3xl text-sm text-zinc-600">
+            {workspaceVariant === "credit"
+              ? "This empty state only means Purely has no current tasks, reply-needed conversations, report review queue, or dispute-letter queue for this workspace. Imported reports, mailed delivery proof, and score outcomes are still excluded unless they are explicitly stored."
+              : "This empty state only means Purely has no current tasks, reply-needed conversations, action failures, or feedback queue flagged here. It does not imply lead follow-up, form next steps, or booking review are fully tracked."}
+          </div>
+          <div className="mt-4">
+            <Link href={emptyActionHref} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-100">
+              {emptyActionLabel}
+            </Link>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -955,6 +1104,142 @@ export function PortalReportingClient() {
     };
   }, [data]);
 
+  const insightCards = useMemo<ReportingInsightCard[]>(() => {
+    if (!data) return [];
+
+    const cards: ReportingInsightCard[] = [];
+    const actionFailures = data.diagnostics?.actionFailures ?? 0;
+    const overdueTasks = data.attention?.tasksOverdueNow ?? 0;
+    const openTasks = data.kpis?.tasksOpenNow ?? 0;
+    const needsReply = data.attention?.inboxNeedsReplyNow ?? 0;
+    const portalFeedbackRecent = data.attention?.betaFeedbackPortalRecent ?? 0;
+    const portalFeedbackHigh = data.attention?.betaFeedbackPortalHighSeverityNow ?? 0;
+    const creditFeedbackRecent = data.attention?.betaFeedbackCreditRecent ?? 0;
+    const creditFeedbackHigh = data.attention?.betaFeedbackCreditHighSeverityNow ?? 0;
+
+    if (actionFailures > 0) {
+      cards.push({
+        id: "action-failures",
+        tone: "danger",
+        title: "Portal action failures",
+        value: `${actionFailures.toLocaleString()} flagged`,
+        detail: "Recent tracked failures need review before operators trust the related workflow.",
+        actionLabel: "Open reporting",
+        actionHref: reportingActionHref(pathname, "reporting"),
+      });
+    }
+
+    if (overdueTasks > 0) {
+      cards.push({
+        id: "overdue-tasks",
+        tone: "danger",
+        title: "Overdue tasks",
+        value: `${overdueTasks.toLocaleString()} overdue`,
+        detail: `There are ${openTasks.toLocaleString()} open tasks in the workspace, and overdue work is the clearest stored follow-up gap today.`,
+        actionLabel: "Review tasks",
+        actionHref: reportingActionHref(pathname, "tasks"),
+      });
+    } else if (openTasks > 0) {
+      cards.push({
+        id: "open-tasks",
+        tone: "warning",
+        title: "Open tasks still waiting",
+        value: `${openTasks.toLocaleString()} open`,
+        detail: "Purely is tracking follow-up tasks here, so this is a real queue rather than a guessed bottleneck.",
+        actionLabel: "Open tasks",
+        actionHref: reportingActionHref(pathname, "tasks"),
+      });
+    }
+
+    if (needsReply > 0) {
+      cards.push({
+        id: "needs-reply",
+        tone: "warning",
+        title: "Conversations need a reply",
+        value: `${needsReply.toLocaleString()} threads`,
+        detail: "This uses the inbox thread state where the latest message is inbound, so it stays grounded in stored conversation data.",
+        actionLabel: "Open inbox",
+        actionHref: reportingActionHref(pathname, "inbox"),
+      });
+    }
+
+    if (typeof derived.creditRunwayDays === "number" && Number.isFinite(derived.creditRunwayDays) && derived.creditRunwayDays < 14) {
+      cards.push({
+        id: "credit-runway",
+        tone: "warning",
+        title: "Credits runway is getting short",
+        value: `~${Math.max(0, Math.round(derived.creditRunwayDays))} days`,
+        detail: "This is a safe estimate from stored credits remaining and recent credits used. It is not an audited utilization forecast.",
+        actionLabel: "Open billing",
+        actionHref: reportingActionHref(pathname, "billing"),
+      });
+    }
+
+    if (workspaceVariant === "credit") {
+      const reportsImported = data.attention?.creditReportsImported ?? 0;
+      const pendingReview = data.attention?.creditReportItemsPendingNow ?? 0;
+      const negativeItems = data.attention?.creditReportItemsNegativeNow ?? 0;
+      const draftLetters = data.attention?.creditDisputeDraftsNow ?? 0;
+      const pdfReady = data.attention?.creditDisputePdfsReadyNow ?? 0;
+      const mailed = data.attention?.creditDisputeMarkedMailedNow ?? 0;
+
+      if (pendingReview > 0 || negativeItems > 0 || reportsImported > 0) {
+        cards.push({
+          id: "credit-report-review",
+          tone: pendingReview > 0 ? "danger" : "neutral",
+          title: "Credit report review queue",
+          value: `${pendingReview.toLocaleString()} pending`,
+          detail:
+            pendingReview > 0
+              ? `${reportsImported.toLocaleString()} reports imported in ${rangeLabel.toLowerCase()} and ${negativeItems.toLocaleString()} items already marked as dispute priorities.`
+              : `${reportsImported.toLocaleString()} reports were imported in ${rangeLabel.toLowerCase()}, and ${negativeItems.toLocaleString()} items are marked as dispute priorities.` ,
+          actionLabel: "Review report items",
+          actionHref: reportingActionHref(pathname, "creditReports"),
+        });
+      }
+
+      if (draftLetters > 0 || pdfReady > 0 || mailed > 0) {
+        cards.push({
+          id: "credit-dispute-workflow",
+          tone: draftLetters > 0 ? "warning" : "neutral",
+          title: "Dispute letter workflow",
+          value: `${draftLetters.toLocaleString()} drafts`,
+          detail: `${pdfReady.toLocaleString()} PDFs ready and ${mailed.toLocaleString()} letters marked mailed manually. Reporting does not claim external delivery proof.`,
+          actionLabel: draftLetters > 0 ? "Review drafts" : "Open dispute letters",
+          actionHref: reportingActionHref(pathname, "disputeLetters"),
+        });
+      }
+
+      if (creditFeedbackHigh > 0 || creditFeedbackRecent > 0) {
+        cards.push({
+          id: "credit-feedback",
+          tone: creditFeedbackHigh > 0 ? "danger" : "neutral",
+          title: "Credit beta feedback",
+          value: `${creditFeedbackRecent.toLocaleString()} recent`,
+          detail:
+            creditFeedbackHigh > 0
+              ? `${creditFeedbackHigh.toLocaleString()} high-severity credit feedback items are still unresolved in the stored queue.`
+              : "Structured credit beta feedback exists for this workspace, but reporting only shows queue volume and severity that Purely already stores.",
+        });
+      }
+    } else {
+      if (portalFeedbackHigh > 0 || portalFeedbackRecent > 0) {
+        cards.push({
+          id: "portal-feedback",
+          tone: portalFeedbackHigh > 0 ? "danger" : "neutral",
+          title: "Beta feedback queue",
+          value: `${portalFeedbackRecent.toLocaleString()} recent`,
+          detail:
+            portalFeedbackHigh > 0
+              ? `${portalFeedbackHigh.toLocaleString()} high-severity feedback items are still unresolved in the stored queue.`
+              : "Structured beta feedback exists for this workspace, but this page only reports saved volume and unresolved severity where Purely stores it.",
+        });
+      }
+    }
+
+    return cards.slice(0, 6);
+  }, [data, derived.creditRunwayDays, pathname, rangeLabel, workspaceVariant]);
+
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
       <div className="flex items-start justify-between gap-4">
@@ -1007,6 +1292,24 @@ export function PortalReportingClient() {
           </ul>
         </section>
       </div>
+
+      {workspaceVariant === "credit" ? (
+        <section className="mt-4 rounded-3xl border border-sky-200 bg-sky-50 p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="text-sm font-semibold text-zinc-900">Credit workflow handoff</div>
+              <div className="mt-2 text-sm text-zinc-700">Use reporting for shared activity counts and connected service metrics only. Use credit reports for item review throughput, dispute letters for draft, PDF, and mailed-manual states, and tasks for the operational follow-up that sits between those steps.</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link href="/credit/app/services/credit-reports" className="inline-flex items-center justify-center rounded-2xl border border-sky-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-sky-100">Credit reports</Link>
+              <Link href="/credit/app/services/dispute-letters" className="inline-flex items-center justify-center rounded-2xl border border-sky-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-sky-100">Dispute letters</Link>
+              <Link href="/credit/app/services/tasks" className="inline-flex items-center justify-center rounded-2xl border border-sky-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-sky-100">Tasks</Link>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      <ReportingInsightSection cards={insightCards} pathname={pathname} workspaceVariant={workspaceVariant} />
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm font-semibold text-zinc-900">{rangeLabel}</div>

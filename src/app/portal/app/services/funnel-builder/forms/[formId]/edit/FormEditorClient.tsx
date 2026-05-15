@@ -10,7 +10,7 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { normalizeCreditFormContent, normalizeCreditFormSuccessContent, parseCreditFormContent, parseCreditFormSuccessContent, type CreditFormContent, type CreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
 import { hostedFormPath } from "@/lib/publicHostedKeys";
-import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+import { toRuntimeHostedUrl } from "@/lib/publicHostedOrigin";
 
 type Form = {
   id: string;
@@ -352,14 +352,18 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   }, [form, fields, style, content, successContent]);
 
   const dirty = Boolean(form && fields && currentSig !== lastSavedSigRef.current);
+  const runtimeHostedOrigin = useMemo(() => {
+    if (typeof window !== "undefined") return window.location.origin || null;
+    return null;
+  }, []);
   const previewHref = useMemo(() => {
     if (!form?.slug || !form?.id) return null;
-    return toPurelyHostedUrl(hostedFormPath(form.slug, form.id) || `/forms/${encodeURIComponent(form.slug)}`);
-  }, [form?.id, form?.slug]);
+    return toRuntimeHostedUrl(hostedFormPath(form.slug, form.id) || `/forms/${encodeURIComponent(form.slug)}`, runtimeHostedOrigin);
+  }, [form?.id, form?.slug, runtimeHostedOrigin]);
   const liveHref = useMemo(() => {
-    if (!form?.slug || form.status !== "ACTIVE") return null;
-    return toPurelyHostedUrl(`/forms/${encodeURIComponent(form.slug)}`);
-  }, [form?.slug, form?.status]);
+    if (!form?.slug || !form?.id || form.status !== "ACTIVE") return null;
+    return toRuntimeHostedUrl(hostedFormPath(form.slug, form.id) || `/forms/${encodeURIComponent(form.slug)}`, runtimeHostedOrigin);
+  }, [form?.id, form?.slug, form?.status, runtimeHostedOrigin]);
   const statusLabel = formStatusLabel(form?.status);
   const statusHint = formStatusHint(form?.status);
 
@@ -866,7 +870,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
           <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             <Link
-              href={previewHref || toPurelyHostedUrl(`/forms/${encodeURIComponent(form?.slug || "")}`)}
+              href={previewHref || toRuntimeHostedUrl(`/forms/${encodeURIComponent(form?.slug || "")}`, runtimeHostedOrigin)}
               target="_blank"
               className={classNames(SECONDARY_BUTTON_CLASS, "inline-flex w-full items-center justify-center gap-2 sm:w-auto")}
             >
@@ -909,9 +913,10 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 bg-zinc-50 px-4 py-2 text-xs text-zinc-600 sm:px-6 lg:px-8">
-        <span className="font-semibold text-zinc-800">Hosted path</span>
+        <span className="font-semibold text-zinc-800">Public slug</span>
         <span className="rounded-full border border-zinc-200 bg-white px-2 py-1 font-mono text-[11px] text-zinc-700">/forms/{form?.slug || "..."}</span>
         <span>{statusHint}</span>
+        <span>The shared Preview/Live buttons use the exact hosted link with the form key.</span>
       </div>
 
       {error ? <div className="mx-4 mb-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:mx-6 lg:mx-8">{error}</div> : null}

@@ -191,6 +191,30 @@ export function PortalServicesClient() {
   const canViewBilling = canViewFromPermissions(portalMe, "billing");
 
   const statuses = statusRes && statusRes.ok === true ? statusRes.statuses : null;
+  const servicesSummary = useMemo(() => {
+    const visibleStatuses = services
+      .map((service) => ({ service, status: statuses?.[service.slug] ?? null }))
+      .filter((entry): entry is { service: (typeof services)[number]; status: ServiceStatus } => Boolean(entry.status));
+
+    const needsAttention = visibleStatuses.filter((entry) => {
+      const readinessState = entry.status.readiness.state;
+      return readinessState === "needs_setup" || readinessState === "needs_connection" || readinessState === "empty";
+    });
+    const unavailable = visibleStatuses.filter((entry) => {
+      const state = entry.status.state;
+      return state === "locked" || state === "paused" || state === "canceled" || state === "coming_soon";
+    });
+    const ready = visibleStatuses.filter((entry) => entry.status.readiness.state === "ready");
+    const primaryAction = needsAttention[0] ?? unavailable.find((entry) => Boolean(entry.status.readiness.href)) ?? null;
+
+    return {
+      readyCount: ready.length,
+      needsAttentionCount: needsAttention.length,
+      unavailableCount: unavailable.length,
+      primaryAction,
+      hasLoadedStatuses: visibleStatuses.length > 0,
+    };
+  }, [services, statuses]);
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -210,6 +234,63 @@ export function PortalServicesClient() {
             Billing
           </Link>
         ) : null}
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[0.8fr_0.8fr_0.8fr_1.4fr]">
+        <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Ready now</div>
+          <div className="mt-2 text-3xl font-bold text-brand-ink">{servicesSummary.readyCount}</div>
+          <div className="mt-1 text-sm text-zinc-600">
+            {variant === "credit" ? "Credit tools operators can work in immediately." : "Services the workspace can open immediately."}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
+          <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Needs setup</div>
+          <div className="mt-2 text-3xl font-bold text-amber-900">{servicesSummary.needsAttentionCount}</div>
+          <div className="mt-1 text-sm text-amber-900/80">
+            {variant === "credit"
+              ? "Unlocked tools that still need reports, intake, or live workflow setup."
+              : "Unlocked services that still need setup before they are truly live."}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-5">
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Unavailable</div>
+          <div className="mt-2 text-3xl font-bold text-brand-ink">{servicesSummary.unavailableCount}</div>
+          <div className="mt-1 text-sm text-zinc-600">Locked, paused, canceled, or still waiting for release.</div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Next move</div>
+          {servicesSummary.primaryAction ? (
+            <>
+              <div className="mt-2 text-lg font-semibold text-zinc-900">{servicesSummary.primaryAction.service.title}</div>
+              <div className="mt-1 text-sm text-zinc-600">{servicesSummary.primaryAction.status.readiness.helper}</div>
+              {servicesSummary.primaryAction.status.readiness.href ? (
+                <Link
+                  href={servicesSummary.primaryAction.status.readiness.href}
+                  className="mt-4 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  {servicesSummary.primaryAction.status.readiness.ctaLabel}
+                </Link>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <div className="mt-2 text-lg font-semibold text-zinc-900">
+                {servicesSummary.hasLoadedStatuses ? "Workspace looks clear" : "Checking workspace status"}
+              </div>
+              <div className="mt-1 text-sm text-zinc-600">
+                {servicesSummary.hasLoadedStatuses
+                  ? variant === "credit"
+                    ? "Use the cards below to open live credit workflows or review anything that still needs setup."
+                    : "Use the cards below to open live services or review anything that still needs setup."
+                  : "We are loading service readiness so the first next action is accurate for this workspace."}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="mt-6 space-y-8">

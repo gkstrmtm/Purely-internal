@@ -22,7 +22,7 @@ export async function generateMetadata({
   if (!pageSlug) return {};
 
   const loaded = await fetchHostedFunnelRoute(slug, key, pageSlug);
-  return loaded ? buildHostedFunnelMetadata(loaded) : {};
+  return loaded ? buildHostedFunnelMetadata(loaded, { key, pageSlug }) : {};
 }
 
 export default async function HostedFunnelSubpage({
