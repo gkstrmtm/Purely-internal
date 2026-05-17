@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 
 import { authOptions } from "@/lib/auth";
+import { isPlatformAdminGranted } from "@/lib/platformAdminGrants";
 import ManagerInvitesClient from "./ManagerInvitesClient";
 
 export default async function ManagerInvitesPage() {
@@ -10,6 +11,9 @@ export default async function ManagerInvitesPage() {
 
   const role = session.user.role;
   if (role !== "MANAGER" && role !== "HR" && role !== "ADMIN") redirect("/app");
+  const canCreateElevatedInviteRoles = session.user.id
+    ? await isPlatformAdminGranted(session.user.id).catch(() => false)
+    : false;
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
@@ -19,7 +23,7 @@ export default async function ManagerInvitesPage() {
           Create one-time invite codes for new employees. Share the signup link or the code directly.
         </p>
         <div className="mt-6">
-          <ManagerInvitesClient />
+          <ManagerInvitesClient currentRole={role} canCreateElevatedInviteRoles={role === "ADMIN" || canCreateElevatedInviteRoles} />
         </div>
       </div>
     </div>

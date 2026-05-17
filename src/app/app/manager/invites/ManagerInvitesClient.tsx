@@ -2,12 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  EMPLOYEE_INVITE_ROLE_LABELS,
+  EMPLOYEE_INVITE_ROLES,
+  canCreateEmployeeInviteRole,
+  type EmployeeInviteRole,
+} from "@/lib/employeeInviteRoles";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type InviteRow = {
   id: string;
   code: string;
+  invitedRole: EmployeeInviteRole;
   createdAt: string;
   expiresAt: string | null;
   usedAt: string | null;
@@ -22,12 +29,19 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleString();
 }
 
-export default function ManagerInvitesClient() {
+export default function ManagerInvitesClient({
+  currentRole,
+  canCreateElevatedInviteRoles,
+}: {
+  currentRole: string;
+  canCreateElevatedInviteRoles: boolean;
+}) {
   const [invites, setInvites] = useState<InviteRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expiresInDays, setExpiresInDays] = useState<number>(30);
+  const [inviteRole, setInviteRole] = useState<EmployeeInviteRole>("DIALER");
   const [emailModal, setEmailModal] = useState<null | {
     invite: InviteRow;
     toEmail: string;
@@ -73,7 +87,7 @@ export default function ManagerInvitesClient() {
     const res = await fetch("/api/manager/invites", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ expiresInDays }),
+      body: JSON.stringify({ expiresInDays, role: inviteRole }),
     });
 
     const body = await res.json().catch(() => ({}));
@@ -112,6 +126,17 @@ export default function ManagerInvitesClient() {
     return true;
   }, [emailModal]);
 
+  const availableRoleOptions = useMemo(
+    () =>
+      EMPLOYEE_INVITE_ROLES.filter((value) =>
+        canCreateEmployeeInviteRole(currentRole, value, canCreateElevatedInviteRoles),
+      ).map((value) => ({
+        value,
+        label: EMPLOYEE_INVITE_ROLE_LABELS[value],
+      })),
+    [canCreateElevatedInviteRoles, currentRole],
+  );
+
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border border-zinc-200 bg-brand-mist p-6">
@@ -124,6 +149,18 @@ export default function ManagerInvitesClient() {
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div>
+              <label className="text-sm font-semibold text-zinc-700">Role</label>
+              <div className="mt-2">
+                <PortalSelectDropdown<EmployeeInviteRole>
+                  value={inviteRole}
+                  onChange={setInviteRole}
+                  options={availableRoleOptions}
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="text-sm font-semibold text-zinc-700">Expires in</label>
               <div className="mt-2">
@@ -181,6 +218,7 @@ export default function ManagerInvitesClient() {
             <thead>
               <tr className="text-left text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 <th className="border-b border-zinc-200 px-3 py-2">Code</th>
+                <th className="border-b border-zinc-200 px-3 py-2">Role</th>
                 <th className="hidden border-b border-zinc-200 px-3 py-2 md:table-cell">Created</th>
                 <th className="hidden border-b border-zinc-200 px-3 py-2 md:table-cell">Expires</th>
                 <th className="hidden border-b border-zinc-200 px-3 py-2 md:table-cell">Used</th>
@@ -192,6 +230,7 @@ export default function ManagerInvitesClient() {
               {invites.map((i) => (
                 <tr key={i.id} className="text-sm text-zinc-700">
                   <td className="border-b border-zinc-100 px-3 py-3 font-mono text-xs text-zinc-900">{i.code}</td>
+                  <td className="border-b border-zinc-100 px-3 py-3">{EMPLOYEE_INVITE_ROLE_LABELS[i.invitedRole]}</td>
                   <td className="hidden border-b border-zinc-100 px-3 py-3 md:table-cell">{fmtDate(i.createdAt)}</td>
                   <td className="hidden border-b border-zinc-100 px-3 py-3 md:table-cell">{fmtDate(i.expiresAt)}</td>
                   <td className="hidden border-b border-zinc-100 px-3 py-3 md:table-cell">{fmtDate(i.usedAt)}</td>
@@ -277,6 +316,9 @@ export default function ManagerInvitesClient() {
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-sm text-zinc-700">
                   Invite code: <span className="font-mono font-semibold text-zinc-900">{emailModal.invite.code}</span>
+                </div>
+                <div className="text-sm text-zinc-700">
+                  Role: <span className="font-semibold text-zinc-900">{EMPLOYEE_INVITE_ROLE_LABELS[emailModal.invite.invitedRole]}</span>
                 </div>
                 <div className="text-xs font-semibold text-zinc-600">
                   {emailModal.invite.usedAt ? "Already used" : "One-time use"}

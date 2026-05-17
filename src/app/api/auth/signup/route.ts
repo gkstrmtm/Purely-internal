@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
+import { getEmployeeInviteRoleByCode } from "@/lib/employeeInvitesSchema";
 import { hashPassword } from "@/lib/password";
 import { ensureEmployeeInvitesSchema } from "@/lib/employeeInvitesSchema";
 
@@ -9,7 +10,6 @@ const bodySchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
   password: z.string().min(6),
-  role: z.enum(["DIALER", "CLOSER"]).optional(),
   inviteCode: z.string().min(1),
 });
 
@@ -47,10 +47,13 @@ export async function POST(req: Request) {
 
   try {
     const user = await prisma.$transaction(async (tx) => {
+      let invitedRole: "DIALER" | "CLOSER" | "MANAGER" | "HR" | "ADMIN" = "DIALER";
+
       if (!allowLegacyEnvCode) {
         const invite = await tx.employeeInvite.findUnique({ where: { code: inviteCode } });
         if (!invite || invite.usedAt) throw new Error("INVITE_INVALID");
         if (invite.expiresAt && invite.expiresAt.getTime() <= now.getTime()) throw new Error("INVITE_EXPIRED");
+        invitedRole = await getEmployeeInviteRoleByCode(inviteCode, tx as any);
       }
 
       const existing = await tx.user.findUnique({ where: { email } });
@@ -61,7 +64,7 @@ export async function POST(req: Request) {
           email,
           name: parsed.data.name,
           passwordHash,
-          role: parsed.data.role ?? "DIALER",
+          role: invitedRole,
         },
         select: { id: true, email: true, name: true, role: true },
       });

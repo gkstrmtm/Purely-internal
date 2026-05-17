@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { canAccessTeamOpsWorkspace, hasPlatformAdminCapability } from "@/lib/internalCapabilities";
+
 type Role = "DIALER" | "CLOSER" | "MANAGER" | "HR" | "ADMIN";
 
 type NavItem = {
@@ -185,24 +187,33 @@ function toRole(role?: string): Role | undefined {
   return undefined;
 }
 
-export function AppTopNav({ role }: { role?: string }) {
+export function AppTopNav({ role, platformAdminGranted }: { role?: string; platformAdminGranted?: boolean }) {
   const pathname = usePathname();
   const effectiveRole: Role | undefined = toRole(role);
+  const canUsePlatformAdmin = hasPlatformAdminCapability(effectiveRole, platformAdminGranted);
+  const platformAdminItems: NavItem[] = canUsePlatformAdmin
+    ? [
+        { href: "/app/manager/admin", label: "Platform admin" },
+        { href: "/app/manager/portal-overrides", label: "Portal overrides" },
+      ]
+    : [];
 
   const dialerItems: NavItem[] = [
     { href: "/app/dialer/leads", label: "Leads" },
     { href: "/app/dialer/calls", label: "Calls" },
     { href: "/app/dialer/appointments", label: "Appointments" },
+    ...platformAdminItems,
   ];
 
   const closerItems: NavItem[] = [
     { href: "/app/closer/appointments", label: "Meetings" },
     { href: "/app/closer/availability", label: "Availability" },
+    ...platformAdminItems,
   ];
 
   const managerItemsFull: NavItem[] = [
     { href: "/app/manager", label: "Dashboard" },
-    { href: "/app/manager/admin", label: "Admin" },
+    ...platformAdminItems,
     { href: "/app/manager/invites", label: "Employee invites" },
     { href: "/app/manager/blogs", label: "Blogs" },
     { href: "/app/manager/campaigns", label: "Campaigns" },
@@ -210,11 +221,11 @@ export function AppTopNav({ role }: { role?: string }) {
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
     { href: "/app/manager/appointments", label: "Appointments" },
-    { href: "/app/manager/portal-overrides", label: "Portal overrides" },
   ];
 
   const managerItemsStaff: NavItem[] = [
     { href: "/app/manager", label: "Dashboard" },
+    ...platformAdminItems,
     { href: "/app/manager/invites", label: "Employee invites" },
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
@@ -231,10 +242,11 @@ export function AppTopNav({ role }: { role?: string }) {
     { href: "/app/hr/appointments", label: "Appointments" },
     { href: "/app/hr/invites", label: "Employee invites" },
     { href: "/app/hr/availability", label: "Availability" },
+    ...platformAdminItems,
   ];
 
 
-  if (effectiveRole === "MANAGER" || effectiveRole === "HR" || effectiveRole === "ADMIN") {
+  if (canAccessTeamOpsWorkspace(effectiveRole)) {
     const managerItems = effectiveRole === "HR" ? managerItemsStaff : managerItemsFull;
     const sectionItems = pathname.startsWith("/app/dialer")
       ? dialerItems
@@ -258,41 +270,52 @@ export function AppTopNav({ role }: { role?: string }) {
 
 export function AppSidebarNav({
   role,
+  platformAdminGranted,
   collapsed,
   onNavigate,
 }: {
   role?: string;
+  platformAdminGranted?: boolean;
   collapsed: boolean;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
   const effectiveRole: Role | undefined = toRole(role);
+  const canUsePlatformAdmin = hasPlatformAdminCapability(effectiveRole, platformAdminGranted);
+  const platformAdminItems: NavItem[] = canUsePlatformAdmin
+    ? [
+        { href: "/app/manager/admin", label: "Platform admin", shortLabel: "Pa" },
+        { href: "/app/manager/portal-overrides", label: "Portal overrides", shortLabel: "Po" },
+      ]
+    : [];
 
   const dialerItems: NavItem[] = [
     { href: "/app/dialer/leads", label: "Leads" },
     { href: "/app/dialer/calls", label: "Calls" },
     { href: "/app/dialer/appointments", label: "Appointments", shortLabel: "Ap" },
+    ...platformAdminItems,
   ];
 
   const closerItems: NavItem[] = [
     { href: "/app/closer/appointments", label: "Meetings", shortLabel: "Mt" },
     { href: "/app/closer/availability", label: "Availability", shortLabel: "Av" },
+    ...platformAdminItems,
   ];
 
   const managerItemsFull: NavItem[] = [
     { href: "/app/manager", label: "Dashboard", shortLabel: "Db" },
-    { href: "/app/manager/admin", label: "Admin", shortLabel: "Ad" },
+    ...platformAdminItems,
     { href: "/app/manager/invites", label: "Employee invites", shortLabel: "In" },
     { href: "/app/manager/blogs", label: "Blogs", shortLabel: "Bl" },
     { href: "/app/manager/campaigns", label: "Campaigns", shortLabel: "Cp" },
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
     { href: "/app/manager/appointments", label: "Appointments", shortLabel: "Ap" },
-    { href: "/app/manager/portal-overrides", label: "Portal overrides", shortLabel: "Po" },
   ];
 
   const managerItemsStaff: NavItem[] = [
     { href: "/app/manager", label: "Dashboard", shortLabel: "Db" },
+    ...platformAdminItems,
     { href: "/app/manager/invites", label: "Employee invites", shortLabel: "In" },
     { href: "/app/manager/leads", label: "Leads" },
     { href: "/app/manager/calls", label: "Calls" },
@@ -309,9 +332,10 @@ export function AppSidebarNav({
     { href: "/app/hr/appointments", label: "Appointments", shortLabel: "Ap" },
     { href: "/app/hr/invites", label: "Employee invites", shortLabel: "In" },
     { href: "/app/hr/availability", label: "Availability", shortLabel: "Av" },
+    ...platformAdminItems,
   ];
 
-  if (effectiveRole === "MANAGER" || effectiveRole === "HR" || effectiveRole === "ADMIN") {
+  if (canAccessTeamOpsWorkspace(effectiveRole)) {
     const managerItems = effectiveRole === "HR" ? managerItemsStaff : managerItemsFull;
     const sectionItems = pathname.startsWith("/app/dialer")
       ? dialerItems

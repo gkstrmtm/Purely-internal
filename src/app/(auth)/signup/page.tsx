@@ -5,10 +5,7 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
-
-type RoleChoice = "DIALER" | "CLOSER";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -17,7 +14,6 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [inviteCode, setInviteCode] = useState("");
-  const [role, setRole] = useState<RoleChoice>("DIALER");
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -45,7 +41,7 @@ export default function SignupPage() {
     const res = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name, email, password, inviteCode, role }),
+      body: JSON.stringify({ name, email, password, inviteCode }),
     });
 
     if (!res.ok) {
@@ -125,21 +121,6 @@ export default function SignupPage() {
             </div>
 
             <div>
-              <label className="text-base font-medium">Role</label>
-              <div className="mt-2">
-                <PortalListboxDropdown<RoleChoice>
-                  value={role}
-                  onChange={setRole}
-                  options={[
-                    { value: "DIALER", label: "Dialer / Setter" },
-                    { value: "CLOSER", label: "Closer" },
-                  ]}
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400 hover:bg-zinc-50"
-                />
-              </div>
-            </div>
-
-            <div>
               <label className="text-base font-medium">Invite code</label>
               <input
                 className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
@@ -147,6 +128,9 @@ export default function SignupPage() {
                 onChange={(e) => setInviteCode(e.target.value)}
                 required
               />
+              <div className="mt-2 text-sm text-zinc-600">
+                Your employee role is assigned by the invite code.
+              </div>
             </div>
 
             <button

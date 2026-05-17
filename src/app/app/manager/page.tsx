@@ -402,7 +402,10 @@ export default async function ManagerHome() {
             Last updated: {now.toLocaleString()} (week range starts {weekAgo.toLocaleDateString()})
           </div>
           <div className="mt-2 text-sm text-zinc-600">
-            Dev tools moved to <Link className="font-semibold text-(--color-brand-blue)" href="/app/manager/admin">Admin</Link>.
+            Dev tools moved to <Link className="font-semibold text-(--color-brand-blue)" href="/app/manager/admin">Platform admin</Link>.
+          </div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Platform overrides and other Platform admin options only show up when you are signed in as an admin or an admin has granted your account platform admin access.
           </div>
         </div>
 

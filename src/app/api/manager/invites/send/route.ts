@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import { requireStaffSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
-import { ensureEmployeeInvitesSchema } from "@/lib/employeeInvitesSchema";
+import { EMPLOYEE_INVITE_ROLE_LABELS } from "@/lib/employeeInviteRoles";
+import { ensureEmployeeInvitesSchema, getEmployeeInviteRoleById } from "@/lib/employeeInvitesSchema";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
 import { baseUrlFromRequest } from "@/lib/leadOutbound";
 import { extractAllEmailAddresses } from "@/lib/portalMailbox";
@@ -35,7 +36,7 @@ function escapeHtml(s: string) {
 		.replace(/'/g, "&#039;");
 }
 
-function buildInviteEmailHtml(opts: { inviteCode: string; signupUrl: string; note?: string | null }) {
+function buildInviteEmailHtml(opts: { inviteCode: string; signupUrl: string; roleLabel: string; note?: string | null }) {
 	const note = safeOneLine(opts.note || "");
 	const noteHtml = note
 		? `<tr><td style="padding:0 0 14px 0;color:#3f3f46;font-size:14px;line-height:20px;">${escapeHtml(note)}</td></tr>`
@@ -63,7 +64,7 @@ function buildInviteEmailHtml(opts: { inviteCode: string; signupUrl: string; not
 								${noteHtml}
 								<tr>
 									<td style="padding:0 0 14px 0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:#18181b;font-size:14px;line-height:20px;">
-										You’ve been invited to join the Purely Automation employee app. Use the code below to sign up.
+										You’ve been invited to join the Purely Automation employee app as <strong>${escapeHtml(opts.roleLabel)}</strong>. Use the code below to sign up.
 									</td>
 								</tr>
 
@@ -133,6 +134,8 @@ export async function POST(req: Request) {
 			where: { id: parsed.data.inviteId },
 			select: { id: true, code: true, expiresAt: true, usedAt: true },
 		});
+		const invitedRole = await getEmployeeInviteRoleById(parsed.data.inviteId);
+		const roleLabel = EMPLOYEE_INVITE_ROLE_LABELS[invitedRole];
 
 		if (!invite) return NextResponse.json({ ok: false, error: "Invite not found" }, { status: 404 });
 
@@ -153,7 +156,7 @@ export async function POST(req: Request) {
 		const textLines: string[] = [];
 		if (note) textLines.push(note, "");
 		textLines.push(
-			"You're invited to join the Purely Automation employee app.",
+			`You're invited to join the Purely Automation employee app as ${roleLabel}.`,
 			"",
 			`Invite code: ${invite.code}`,
 			`Sign up: ${signupUrl}`,
@@ -161,7 +164,7 @@ export async function POST(req: Request) {
 			"This invite code is one-time use.",
 		);
 
-		const html = buildInviteEmailHtml({ inviteCode: invite.code, signupUrl, note: note || null });
+		const html = buildInviteEmailHtml({ inviteCode: invite.code, signupUrl, roleLabel, note: note || null });
 
 		const sendResult = await trySendTransactionalEmail({
 			to: toEmail,

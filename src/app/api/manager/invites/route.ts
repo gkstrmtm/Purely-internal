@@ -4,7 +4,8 @@ import { randomBytes } from "crypto";
 
 import { requireStaffSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
-import { ensureEmployeeInvitesSchema } from "@/lib/employeeInvitesSchema";
+import { canCreateEmployeeInviteRole, type EmployeeInviteRole } from "@/lib/employeeInviteRoles";
+import { ensureEmployeeInvitesSchema, getEmployeeInviteRolesByIds } from "@/lib/employeeInvitesSchema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -17,6 +18,7 @@ function makeInviteCode() {
 
 const createSchema = z.object({
   expiresInDays: z.number().int().min(1).max(365).optional(),
+  role: z.enum(["DIALER", "CLOSER", "MANAGER", "HR", "ADMIN"]),
 });
 
 export async function GET() {
@@ -44,7 +46,15 @@ export async function GET() {
       },
     });
 
-    return NextResponse.json({ ok: true, invites });
+    const roleByInviteId = await getEmployeeInviteRolesByIds(invites.map((invite) => invite.id));
+
+    return NextResponse.json({
+      ok: true,
+      invites: invites.map((invite) => ({
+        ...invite,
+        invitedRole: roleByInviteId.get(invite.id) ?? "DIALER",
+      })),
+    });
   } catch (e) {
     return NextResponse.json(
       {
@@ -73,8 +83,16 @@ export async function POST(req: Request) {
   const expiresAt = parsed.data.expiresInDays
     ? new Date(Date.now() + parsed.data.expiresInDays * 24 * 60 * 60 * 1000)
     : null;
+  const invitedRole = parsed.data.role as EmployeeInviteRole;
 
   const createdById = auth.session.user.id;
+
+  if (!canCreateEmployeeInviteRole(auth.role, invitedRole, auth.platformAdminGranted)) {
+    return NextResponse.json(
+      { ok: false, error: "Forbidden", details: "Only admins can invite manager, HR, or admin roles." },
+      { status: 403 },
+    );
+  }
 
   await ensureEmployeeInvitesSchema();
 
@@ -96,7 +114,13 @@ export async function POST(req: Request) {
         },
       });
 
-      return NextResponse.json({ ok: true, invite });
+      await prisma.$executeRawUnsafe(
+        `UPDATE "EmployeeInvite" SET "invitedRole" = $2 WHERE "id" = $1`,
+        invite.id,
+        invitedRole,
+      );
+
+      return NextResponse.json({ ok: true, invite: { ...invite, invitedRole } });
     } catch (e) {
       const message = e instanceof Error ? e.message : "";
       const isUnique = message.includes("Unique constraint") || message.includes("unique") || message.includes("P2002");
