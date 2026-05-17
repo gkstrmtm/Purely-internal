@@ -536,7 +536,7 @@ export default function PortalOverridesClient() {
   const [twilioFilter, setTwilioFilter] = useState<TwilioFilter>("all");
   const [overrideFilter, setOverrideFilter] = useState<OverrideFilter>("all");
   const [balanceFilter, setBalanceFilter] = useState<BalanceFilter>("all");
-  const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
+  const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("active");
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [giftingOwnerId, setGiftingOwnerId] = useState<string | null>(null);
@@ -599,7 +599,7 @@ export default function PortalOverridesClient() {
 
   const showLoadingShell = loading && users.length === 0 && !error;
   const statusLabel = showLoadingShell ? "Loading accounts" : loading ? "Refreshing…" : `${filteredUsers.length}${filteredUsers.length === users.length ? "" : ` / ${users.length}`} account${filteredUsers.length === 1 ? "" : "s"}`;
-  const hasActiveFilters = creditsFilter !== "all" || twilioFilter !== "all" || overrideFilter !== "all" || balanceFilter !== "all" || lifecycleFilter !== "all";
+  const hasActiveFilters = creditsFilter !== "all" || twilioFilter !== "all" || overrideFilter !== "all" || balanceFilter !== "all" || lifecycleFilter !== "active";
   const filterSelectButtonClassName = "flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400";
   const compactSelectButtonClassName = "flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-zinc-400";
   const testingAiReceptionistAgentId = testingUser?.voiceAgentIds?.aiReceptionist ?? testingUser?.voiceAgentIds?.profile ?? null;
