@@ -9,7 +9,16 @@ import { RichTextMarkdownEditor, type RichTextMarkdownEditorHandle } from "@/com
 import { SignatureDisplay } from "@/components/SignatureDisplay";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
-import { CONTACT_SIGNATURE_MARKDOWN, normalizeDisputeLetterText, readContactAddress, readContactCustomValue, readContactSignature, readContactSignatureImage } from "@/lib/creditDisputeLetters";
+import {
+  CONTACT_SIGNATURE_MARKDOWN,
+  DISPUTE_LETTER_PLACEHOLDER_DEFS,
+  inspectDisputeLetterPlaceholders,
+  normalizeDisputeLetterText,
+  readContactAddress,
+  readContactCustomValue,
+  readContactSignature,
+  readContactSignatureImage,
+} from "@/lib/creditDisputeLetters";
 import { extractCreditInquiryDate } from "@/lib/creditReports";
 
 type ContactLite = {
@@ -36,6 +45,8 @@ type LetterLite = {
 
 type LetterFull = LetterLite & {
   bodyText: string;
+  promptText?: string | null;
+  businessName?: string | null;
   pdfMediaItemId?: string | null;
   pdfGeneratedAt?: string | null;
   pdfMediaItem?: { id: string; publicToken: string } | null;
@@ -81,8 +92,35 @@ type TemplateConfig = {
 };
 
 type FixedMenuStyle = { left: number; top: number; maxHeight: number };
+type ComposerMode = "AI" | "CUSTOM";
 
 const DISPUTE_SOURCE_STORAGE_PREFIX = "creditDisputeLetterSource:";
+const BLANK_DRAFT_TEMPLATE = [
+  "Date: {{report_date}}",
+  "",
+  "{{bureau_name}}",
+  "",
+  "Re: {{account_name}} {{account_number_masked}}",
+  "",
+  "To whom it may concern,",
+  "",
+  "I am writing to dispute how the following item appears on the credit report for {{client_name}}.",
+  "",
+  "Client mailing address:",
+  "{{client_address}}",
+  "",
+  "Current item status:",
+  "{{item_status}}",
+  "",
+  "Reason for dispute:",
+  "{{dispute_reason}}",
+  "",
+  "Please investigate this item and correct or delete any information that cannot be fully verified.",
+  "",
+  "Sincerely,",
+  "",
+  "{{client_name}}",
+].join("\n");
 
 function formatDisputeLetterListTitle(subject: string) {
   const raw = String(subject || "").trim();
@@ -203,7 +241,7 @@ function statusClasses(status: LetterLite["status"]) {
 function statusHelperText(status: LetterLite["status"]) {
   if (status === "GENERATED") return "PDF exported for download or sharing. This still does not file the dispute automatically.";
   if (status === "SENT") return "Marked mailed manually inside Purely. This is not proof of delivery.";
-  return "AI draft created. Review the content before generating a PDF, emailing it, or mailing it.";
+  return "Draft ready for review. Confirm the content before generating a PDF, emailing it, or mailing it.";
 }
 
 function computeFixedMenuStyle(rect: DOMRect, width = 288, estHeight = 320): FixedMenuStyle {
@@ -329,12 +367,15 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const [statusFiltersMenu, setStatusFiltersMenu] = useState<FixedMenuStyle | null>(null);
   const [contactQuery, setContactQuery] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
+  const [draftMode, setDraftMode] = useState<ComposerMode>("AI");
   const [contactId, setContactId] = useState("");
   const [round, setRound] = useState("1");
   const [followUpDays, setFollowUpDays] = useState(TEMPLATES[0].cadenceDays);
   const [recipientName, setRecipientName] = useState("");
   const [recipientAddress, setRecipientAddress] = useState("");
   const [recipientAddressManual, setRecipientAddressManual] = useState(false);
+  const [customSubject, setCustomSubject] = useState("");
+  const [customBodyText, setCustomBodyText] = useState(BLANK_DRAFT_TEMPLATE);
   const [items, setItems] = useState([""]);
   const [composerReportItems, setComposerReportItems] = useState<CreditReportItem[]>([]);
   const [composerReportLabel, setComposerReportLabel] = useState("");
@@ -415,7 +456,33 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     hint: [item.bureau, item.kind].filter(Boolean).join(" • "),
     keywords: [item.label, item.bureau || "", item.kind || ""],
   })), [composerReportItems]);
-  const canGenerate = Boolean(contactId && recipientName.trim() && cleanItems.length);
+  const canGenerate = draftMode === "AI"
+    ? Boolean(contactId && recipientName.trim() && cleanItems.length)
+    : Boolean(contactId && customBodyText.trim());
+
+  const placeholderInspection = useMemo(() => inspectDisputeLetterPlaceholders(bodyText, {
+    contactName: selectedLetter?.contact?.name || "",
+    contactAddress: readContactAddress(selectedLetter?.contact?.customVariables),
+    promptText: selectedLetter?.promptText || "",
+    createdAt: selectedLetter?.createdAt || null,
+    businessName: selectedLetter?.businessName || null,
+  }), [bodyText, selectedLetter?.businessName, selectedLetter?.contact?.customVariables, selectedLetter?.contact?.name, selectedLetter?.createdAt, selectedLetter?.promptText]);
+
+  const placeholderWarningText = useMemo(() => {
+    const issues: string[] = [];
+    if (placeholderInspection.unresolvedTokens.length) {
+      issues.push(`Resolve these merge fields before PDF export: ${placeholderInspection.unresolvedTokens.join(", ")}.`);
+    }
+    if (placeholderInspection.unsupportedTokens.length) {
+      issues.push(`Remove or replace unsupported merge fields before PDF export: ${placeholderInspection.unsupportedTokens.join(", ")}.`);
+    }
+    return issues.join(" ");
+  }, [placeholderInspection.unresolvedTokens, placeholderInspection.unsupportedTokens]);
+
+  const activePlaceholderUsages = useMemo(
+    () => placeholderInspection.usedPlaceholders.filter((entry): entry is NonNullable<(typeof placeholderInspection.usedPlaceholders)[number]> => entry !== null),
+    [placeholderInspection],
+  );
 
   const loadContacts = useCallback(async (query = "") => {
     setContactsLoading(true);
@@ -545,8 +612,10 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     void loadComposerReportItems(contactId);
   }, [composerOpen, contactId, loadComposerReportItems]);
 
-  const openComposer = useCallback((preset?: { contactId?: string; recipientName?: string; items?: string[] }) => {
+  const openComposer = useCallback((preset?: { contactId?: string; recipientName?: string; items?: string[]; mode?: ComposerMode }) => {
+    const nextMode = preset?.mode || "AI";
     setComposerOpen(true);
+    setDraftMode(nextMode);
     const nextContactId = preset?.contactId ?? selectedLetter?.contactId ?? "";
     setContactId(nextContactId);
     const matchedContact = contacts.find((entry) => entry.id === nextContactId) || selectedLetter?.contact || null;
@@ -556,6 +625,8 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     setRecipientName(preset?.recipientName || "");
     setRecipientAddress("");
     setRecipientAddressManual(false);
+    setCustomSubject("");
+    setCustomBodyText(BLANK_DRAFT_TEMPLATE);
     setItems(preset?.items?.length ? preset.items : [""]);
     setReportItemQuery("");
   }, [contacts, selectedLetter?.contact, selectedLetter?.contactId]);
@@ -609,7 +680,11 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   }, [selectedLetterId]);
 
   const handleOpenComposer = useCallback(() => {
-    openComposer();
+    openComposer({ mode: "AI" });
+  }, [openComposer]);
+
+  const handleOpenBlankComposer = useCallback(() => {
+    openComposer({ mode: "CUSTOM" });
   }, [openComposer]);
 
   const addComposerReportItem = useCallback((option: PortalSearchableOption) => {
@@ -642,19 +717,25 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     try {
       const contactLabel = selectedContact?.name || contacts.find((entry) => entry.id === contactId)?.name || "Unknown";
       const baseRecipient = recipientName.trim() || "Recipient";
-      const subjectLine = `Round ${roundNumber} - ${contactLabel} - ${baseRecipient}`.trim();
+      const subjectLine = draftMode === "CUSTOM"
+        ? (customSubject.trim() || `Round ${roundNumber} - ${contactLabel} - ${baseRecipient}`.trim())
+        : `Round ${roundNumber} - ${contactLabel} - ${baseRecipient}`.trim();
       const data = await fetchJson<{ ok: true; letter: LetterFull }>("/api/portal/credit/disputes", {
         method: "POST",
         body: JSON.stringify({
+          draftMode,
           contactId,
           recipientName: recipientName.trim(),
           recipientAddress: recipientAddress.trim(),
           disputesText: cleanItems.map((item) => `- ${item}`).join("\n"),
-          templateLabel: template.label,
-          templatePrompt: toPrompt(template, roundNumber, followUpDays, nextTemplate.label, recipientName.trim()),
-          templateBodyStarter: template.starter,
+          templateLabel: draftMode === "AI" ? template.label : "Blank/custom draft",
+          templatePrompt: draftMode === "AI" ? toPrompt(template, roundNumber, followUpDays, nextTemplate.label, recipientName.trim()) : undefined,
+          templateBodyStarter: draftMode === "AI" ? template.starter : undefined,
+          bodyText: draftMode === "CUSTOM" ? customBodyText : undefined,
           subjectLine,
           roundNumber,
+          sourceReportId: sourceReportId || undefined,
+          sourceReportItemId: sourceReportItemId || undefined,
         }),
       });
       await loadLetters();
@@ -690,22 +771,27 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     } finally {
       setWorking(null);
     }
-  }, [cleanItems, contactId, contacts, followUpDays, loadLetters, nextTemplate.label, recipientAddress, recipientName, roundNumber, routeSet, selectedContact?.name, sourceReportId, sourceReportItemId, template]);
+  }, [cleanItems, contactId, contacts, customBodyText, customSubject, draftMode, followUpDays, loadLetters, nextTemplate.label, recipientAddress, recipientName, roundNumber, routeSet, selectedContact?.name, sourceReportId, sourceReportItemId, template]);
+
+  const persistCurrentDraft = useCallback(async () => {
+    if (!selectedLetterId) return;
+    await fetchJson(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ subject: subject.trim(), bodyText }),
+    });
+    await loadLetter(selectedLetterId);
+    await loadLetters();
+  }, [bodyText, loadLetter, loadLetters, selectedLetterId, subject]);
 
   const saveLetter = useCallback(async () => {
     if (!selectedLetterId) return;
     setWorking("save");
     try {
-      await fetchJson(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ subject: subject.trim(), bodyText }),
-      });
-      await loadLetter(selectedLetterId);
-      await loadLetters();
+      await persistCurrentDraft();
     } finally {
       setWorking(null);
     }
-  }, [bodyText, loadLetter, loadLetters, selectedLetterId, subject]);
+  }, [persistCurrentDraft, selectedLetterId]);
 
   const markLetterMailed = useCallback(async () => {
     if (!selectedLetterId) return;
@@ -743,8 +829,13 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
 
   const refreshPdf = useCallback(async (options?: { force?: boolean }) => {
     if (!selectedLetterId) return;
+    if (placeholderInspection.unresolvedTokens.length || placeholderInspection.unsupportedTokens.length) {
+      setError(placeholderWarningText || "Resolve all merge fields before generating the PDF.");
+      return;
+    }
     setWorking("pdf");
     try {
+      await persistCurrentDraft();
       const data = await fetchJson<{ ok: true; pdf: { downloadUrl: string } }>(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/pdf`, {
         method: "POST",
         body: JSON.stringify({ force: Boolean(options?.force) }),
@@ -755,7 +846,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     } finally {
       setWorking(null);
     }
-  }, [loadLetter, loadLetters, selectedLetterId]);
+  }, [loadLetter, loadLetters, persistCurrentDraft, placeholderInspection.unresolvedTokens.length, placeholderInspection.unsupportedTokens.length, placeholderWarningText, selectedLetterId]);
 
   const composer = composerOpen ? (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => working !== "generate" && closeComposer()}>
@@ -763,14 +854,34 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-lg font-semibold text-zinc-900">New dispute letter draft</div>
-            <div className="mt-1 text-sm text-zinc-600">Pick the contact, choose the recipient, load the disputed items, and generate a draft for human review. This does not submit anything to a bureau or furnisher.</div>
+            <div className="mt-1 text-sm text-zinc-600">
+              {draftMode === "AI"
+                ? "Pick the contact, choose the recipient, load the disputed items, and generate an AI draft for human review. This does not submit anything to a bureau or furnisher."
+                : "Start a blank/custom draft, use supported merge fields where they help, and review the letter before you generate a PDF. This does not submit anything to a bureau or furnisher."}
+            </div>
           </div>
           <button type="button" onClick={closeComposer} aria-label="Close dispute letter composer" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 text-lg font-semibold text-zinc-700 hover:bg-zinc-50">×</button>
+        </div>
+        <div className="mt-5 inline-flex rounded-full border border-zinc-200 bg-zinc-50 p-1 text-sm font-semibold text-zinc-700">
+          <button
+            type="button"
+            onClick={() => setDraftMode("AI")}
+            className={classNames("rounded-full px-4 py-2 transition", draftMode === "AI" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600")}
+          >
+            AI draft
+          </button>
+          <button
+            type="button"
+            onClick={() => setDraftMode("CUSTOM")}
+            className={classNames("rounded-full px-4 py-2 transition", draftMode === "CUSTOM" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-600")}
+          >
+            Blank/custom draft
+          </button>
         </div>
         <div className="mt-6 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
           <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">1 Contact</span>
           <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">2 Recipient</span>
-          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">3 Issues</span>
+          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">3 {draftMode === "AI" ? "Issues" : "Draft body"}</span>
           <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">4 Review</span>
         </div>
         <div className="mt-5 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-zinc-800">
@@ -855,17 +966,55 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
               </label>
             </div>
             <div className="mt-4 rounded-2xl border border-brand-blue/20 bg-brand-blue/5 px-4 py-3 text-sm text-zinc-700">
-              <div className="font-semibold text-zinc-900">Auto letter strategy: {template.label}</div>
-              <div className="mt-1">{template.summary}</div>
-              <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Next follow-up: {nextTemplate.label} in about {followUpDays} days</div>
+              <div className="font-semibold text-zinc-900">{draftMode === "AI" ? `Auto letter strategy: ${template.label}` : "Blank/custom draft"}</div>
+              <div className="mt-1">{draftMode === "AI" ? template.summary : "Create the first version yourself, then review, save, and export only when the wording is ready to leave Purely."}</div>
+              <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">{draftMode === "AI" ? `Next follow-up: ${nextTemplate.label} in about ${followUpDays} days` : "Merge fields stay editable until you save or export"}</div>
             </div>
           </section>
+
+          {draftMode === "CUSTOM" ? (
+            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Blank/custom draft</div>
+                  <div className="mt-1 text-sm text-zinc-600">Start from a custom body, then use merge fields only where they help. Unsupported or unresolved fields will block PDF export.</div>
+                </div>
+                <button type="button" onClick={() => setCustomBodyText(BLANK_DRAFT_TEMPLATE)} className="rounded-2xl border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50">Reset starter</button>
+              </div>
+              <div className="mt-4 space-y-4">
+                <label className="block">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Draft title</div>
+                  <input value={customSubject} onChange={(event) => setCustomSubject(event.target.value)} className="w-full rounded-2xl border border-zinc-200 bg-zinc-50/40 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder="Round 1 - Client - Recipient" />
+                </label>
+                <label className="block">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Draft body</div>
+                  <textarea value={customBodyText} onChange={(event) => setCustomBodyText(event.target.value)} className="min-h-72 w-full rounded-3xl border border-zinc-200 bg-zinc-50/40 px-4 py-4 text-sm outline-none focus:border-zinc-300" />
+                </label>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Supported merge fields</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {DISPUTE_LETTER_PLACEHOLDER_DEFS.map((entry) => (
+                      <button
+                        key={entry.key}
+                        type="button"
+                        onClick={() => setCustomBodyText((current) => `${current}${current.endsWith("\n") || !current ? "" : "\n"}${entry.token}`)}
+                        className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-100"
+                        title={entry.description}
+                      >
+                        {entry.token}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           <section className="rounded-3xl border border-zinc-200 bg-white p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Issues</div>
-                <div className="mt-1 text-sm text-zinc-600">Add the exact items you want in the letter.</div>
+                <div className="mt-1 text-sm text-zinc-600">{draftMode === "AI" ? "Add the exact items you want in the letter." : "Optional source issues help fill merge fields like dispute reason or account details."}</div>
               </div>
               <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">{cleanItems.length} issue{cleanItems.length === 1 ? "" : "s"}</div>
             </div>
@@ -930,7 +1079,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             )}
           >
             <AiSparkIcon className="h-4 w-4" />
-            <span>{working === "generate" ? "Drafting…" : "Draft with AI"}</span>
+            <span>{working === "generate" ? (draftMode === "AI" ? "Drafting…" : "Creating draft…") : (draftMode === "AI" ? "Draft with AI" : "Create blank/custom draft")}</span>
           </button>
         </div>
       </div>
@@ -1021,9 +1170,10 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
           </div>
         </div>
         {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+        {placeholderWarningText ? <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{placeholderWarningText}</div> : null}
         <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-zinc-800">
           <div className="font-semibold text-zinc-900">Workflow boundary</div>
-          <div className="mt-1">This letter stays a draft until you review it. Generating a PDF creates an exportable document only. If you need to email or mail the letter, do that outside Purely. Purely does not submit the dispute to a bureau or furnisher for you.</div>
+          <div className="mt-1">Every letter stays a draft until you review it. Generating a PDF creates an exportable document from the saved draft only. If you need to email or mail the letter, do that outside Purely. Purely does not submit the dispute to a bureau or furnisher for you.</div>
         </div>
         <div className="mt-6 grid gap-4 xl:grid-cols-[1fr_320px]">
           <section className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -1041,6 +1191,42 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
           </section>
           <aside className="space-y-4">
             <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+              <div className="text-sm font-semibold text-zinc-900">Merge fields</div>
+              <div className="mt-2 text-sm text-zinc-600">Insert supported placeholders into the draft. Purely resolves them only when the source data actually exists.</div>
+              {activePlaceholderUsages.length ? (
+                <div className="mt-3 space-y-2 text-sm text-zinc-700">
+                  {activePlaceholderUsages.map((entry) => (
+                    <div key={entry.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="font-semibold text-zinc-900">{entry.token}</div>
+                        <div className={classNames("rounded-full px-2.5 py-1 text-[11px] font-semibold", entry.unresolved ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800")}>{entry.unresolved ? "Needs data" : "Ready"}</div>
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">{entry.description}</div>
+                      <div className="mt-2 text-xs text-zinc-700">{entry.value || "No value available yet for this draft."}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">No merge fields in this draft yet.</div>
+              )}
+              {placeholderInspection.unsupportedTokens.length ? (
+                <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">Unsupported merge fields: {placeholderInspection.unsupportedTokens.join(", ")}</div>
+              ) : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {DISPUTE_LETTER_PLACEHOLDER_DEFS.map((entry) => (
+                  <button
+                    key={entry.key}
+                    type="button"
+                    onClick={() => editorRef.current?.insertMarkdown(`${entry.token} `)}
+                    className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-100"
+                    title={entry.description}
+                  >
+                    {entry.token}
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
               <div className="text-sm font-semibold text-zinc-900">Workflow status</div>
               <div className="mt-2 text-sm text-zinc-600">Drafting, PDF export, manual mailed tracking, and external submission are separate steps.</div>
               <div className="mt-3 grid gap-3 text-sm text-zinc-700">
@@ -1050,7 +1236,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                   <div className="mt-2 text-xs text-zinc-600">{selectedLetter ? statusHelperText(selectedLetter.status) : "No letter loaded."}</div>
                 </div>
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">AI draft created</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Draft created</div>
                   <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.generatedAt ? formatDateTime(selectedLetter.generatedAt) : "Not available"}</div>
                 </div>
                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -1148,9 +1334,12 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Dispute letters</h1>
-          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Create AI draft dispute letters, review them, export PDFs, and manually track when you email or mail them. Purely does not submit disputes to bureaus or furnishers.</p>
+          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Create AI or blank/custom dispute letter drafts, review them, export PDFs, and manually track when you email or mail them. Purely does not submit disputes to bureaus or furnishers.</p>
         </div>
-        <button type="button" onClick={handleOpenComposer} className={PRIMARY_BUTTON_CLASS}>+ New draft</button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={handleOpenComposer} className={PRIMARY_BUTTON_CLASS}>+ AI draft</button>
+          <button type="button" onClick={handleOpenBlankComposer} className={SECONDARY_BUTTON_CLASS}>+ Blank/custom draft</button>
+        </div>
       </div>
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
       <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-zinc-800">

@@ -29,6 +29,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ letterId: stri
       status: true,
       subject: true,
       bodyText: true,
+      promptText: true,
       createdAt: true,
       updatedAt: true,
       generatedAt: true,
@@ -44,7 +45,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ letterId: stri
   });
 
   if (!letter) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
-  return NextResponse.json({ ok: true, letter });
+  const businessProfile = await prisma.businessProfile.findUnique({
+    where: { ownerId: session.session.user.id },
+    select: { businessName: true },
+  }).catch(() => null);
+  return NextResponse.json({ ok: true, letter: { ...letter, businessName: businessProfile?.businessName || null } });
 }
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: string }> }) {
@@ -113,6 +118,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: str
       status: true,
       subject: true,
       bodyText: true,
+      promptText: true,
       createdAt: true,
       updatedAt: true,
       generatedAt: true,
@@ -127,5 +133,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: str
   });
 
   if (!letter) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
-  return NextResponse.json({ ok: true, letter });
+  const businessProfile = await prisma.businessProfile.findUnique({
+    where: { ownerId: session.session.user.id },
+    select: { businessName: true },
+  }).catch(() => null);
+  return NextResponse.json({ ok: true, letter: { ...letter, businessName: businessProfile?.businessName || null } });
 }

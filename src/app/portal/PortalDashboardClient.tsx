@@ -272,6 +272,124 @@ function AccentCard({
   );
 }
 
+function widgetEditDescription(id: DashboardWidgetId): string {
+  switch (id) {
+    case "services":
+      return "Service coverage summary, quick links, and live-plan status for the workspace.";
+    case "puraAttention":
+      return "Priority issues and the fastest path into Pura or the right service.";
+    case "activityPulse":
+      return "Recent activity signal so the dashboard feels active instead of static.";
+    case "dailyActivity":
+      return "Day-by-day reporting detail for recent workspace activity.";
+    case "billing":
+      return "Billing posture, credits, and payment-state context for this workspace.";
+    default:
+      return "Resize and place this widget where it best supports the resting dashboard.";
+  }
+}
+
+function DashboardEditPreviewCard({ id, title, active }: { id: DashboardWidgetId; title: string; active: boolean }) {
+  const shellClass = classNames(
+    "flex h-full flex-col justify-between rounded-3xl border border-dashed border-zinc-200 bg-zinc-50/80 p-4",
+    active && "border-brand-ink/25 bg-white shadow-sm",
+  );
+
+  const previewBody = (() => {
+    switch (id) {
+      case "services":
+        return (
+          <div className={shellClass}>
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-zinc-900">Layout preview</div>
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-700">Services</span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className="rounded-2xl border border-zinc-200 bg-white p-3">
+                    <div className="h-3 w-20 rounded-full bg-zinc-200/90" />
+                    <div className="mt-2 h-2.5 w-16 rounded-full bg-zinc-100" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-xs text-zinc-600">Summary footer and quick links stay anchored at the bottom.</div>
+          </div>
+        );
+      case "activityPulse":
+      case "dailyActivity":
+        return (
+          <div className={shellClass}>
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Layout preview</div>
+              <div className="mt-2 text-sm leading-relaxed text-zinc-600">Resize this chart block without redrawing the full live reporting surface on every frame.</div>
+            </div>
+            <div className="mt-4 flex h-24 items-end gap-2">
+              {[28, 54, 38, 70, 46, 62, 34].map((height, index) => (
+                <div key={index} className="flex-1 rounded-t-2xl bg-zinc-300/80" style={{ height: `${height}%` }} />
+              ))}
+            </div>
+          </div>
+        );
+      case "puraAttention":
+        return (
+          <div className={shellClass}>
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Layout preview</div>
+              <div className="mt-3 space-y-2">
+                <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-3">
+                  <div className="h-3 w-28 rounded-full bg-rose-200" />
+                  <div className="mt-2 h-2.5 w-full rounded-full bg-white/80" />
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                  <div className="h-3 w-24 rounded-full bg-zinc-200" />
+                  <div className="mt-2 h-2.5 w-4/5 rounded-full bg-zinc-100" />
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 text-xs text-zinc-600">Attention items and routing actions keep their hierarchy once you drop the widget.</div>
+          </div>
+        );
+      case "billing":
+        return (
+          <div className={shellClass}>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                <div className="h-3 w-16 rounded-full bg-zinc-200" />
+                <div className="mt-3 h-6 w-20 rounded-full bg-zinc-100" />
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                <div className="h-3 w-14 rounded-full bg-zinc-200" />
+                <div className="mt-3 h-6 w-16 rounded-full bg-zinc-100" />
+              </div>
+            </div>
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-xs text-zinc-600">Billing actions and credit context return after resize ends.</div>
+          </div>
+        );
+      default:
+        return (
+          <div className={shellClass}>
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Layout preview</div>
+              <div className="mt-2 text-sm leading-relaxed text-zinc-600">{widgetEditDescription(id)}</div>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1">Drag by handle</span>
+              <span className="rounded-full border border-zinc-200 bg-white px-2.5 py-1">Resize from corner</span>
+            </div>
+          </div>
+        );
+    }
+  })();
+
+  return (
+    <AccentCard title={title} widgetId={id} showHandle={true}>
+      {previewBody}
+    </AccentCard>
+  );
+}
+
 function compactNum(n: number) {
   const v = typeof n === "number" && Number.isFinite(n) ? n : 0;
   return v.toLocaleString();
@@ -452,11 +570,22 @@ export function PortalDashboardClient() {
   const [savingLayout, setSavingLayout] = useState(false);
 
   const [editSnapshot, setEditSnapshot] = useState<ResponsiveLayouts | null>(null);
+  const [activeEditWidgetId, setActiveEditWidgetId] = useState<DashboardWidgetId | null>(null);
 
   const [layouts, setLayouts] = useState<ResponsiveLayouts>({} as ResponsiveLayouts);
 
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (editMode) root.setAttribute("data-pa-hide-floating-tools", "1");
+    else root.removeAttribute("data-pa-hide-floating-tools");
+    return () => {
+      root.removeAttribute("data-pa-hide-floating-tools");
+    };
+  }, [editMode]);
 
   useEffect(() => {
     const el = containerEl;
@@ -959,6 +1088,16 @@ export function PortalDashboardClient() {
     };
   })();
 
+  const serviceQuickLinks = [
+    { href: `${portalBase}/app/onboarding`, label: "Setup checklist" },
+    me.entitlements.blog ? { href: `${portalBase}/app/services/blogs`, label: "Blogs" } : null,
+    { href: `${portalBase}/app/billing`, label: "Billing" },
+    { href: `${portalBase}/app/services/reporting`, label: "Reporting" },
+    { href: `${portalBase}/app/ai-chat`, label: "Pura" },
+    { href: `${portalBase}/app/services/inbox/email`, label: "Inbox" },
+    { href: `${portalBase}/app/services/media-library`, label: "Media library" },
+  ].filter((item): item is { href: string; label: string } => Boolean(item));
+
   const dashboardAttentionItems = (() => {
     const items: Array<{ label: string; value: string; href: string; tone: "danger" | "warning" | "neutral" }> = [];
 
@@ -1205,6 +1344,7 @@ export function PortalDashboardClient() {
 
   function beginEdit() {
     setEditSnapshot(layouts);
+    setActiveEditWidgetId(null);
     setEditMode(true);
     try {
       window.dispatchEvent(new CustomEvent("pa.portal.dashboard.edit", { detail: { editing: true } }));
@@ -1216,6 +1356,7 @@ export function PortalDashboardClient() {
   function cancelEdit() {
     if (editSnapshot) setLayouts(editSnapshot);
     setEditSnapshot(null);
+    setActiveEditWidgetId(null);
     setEditMode(false);
     try {
       window.dispatchEvent(new CustomEvent("pa.portal.dashboard.edit", { detail: { editing: false } }));
@@ -1228,6 +1369,7 @@ export function PortalDashboardClient() {
     const ok = await saveDashboard(layouts);
     if (ok) {
       setEditSnapshot(null);
+      setActiveEditWidgetId(null);
       setEditMode(false);
 
       try {
@@ -1394,6 +1536,15 @@ export function PortalDashboardClient() {
       }));
       setLayouts(makeResponsiveLayouts(base));
     }
+  }
+
+  function handleEditInteractionStart(item: LayoutItem | null | undefined) {
+    const nextId = typeof item?.i === "string" ? (item.i as DashboardWidgetId) : null;
+    setActiveEditWidgetId(nextId);
+  }
+
+  function handleEditInteractionStop() {
+    setActiveEditWidgetId(null);
   }
 
   function renderWidget(id: DashboardWidgetId) {
@@ -1591,95 +1742,85 @@ export function PortalDashboardClient() {
       case "services":
         return (
           <AccentCard title={widgetTitle(id)} widgetId={id} showHandle={editMode}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {modules.map((m) => (
-                <div
-                  key={m.key}
-                  className={
-                    "rounded-2xl border p-4 " +
-                    (m.enabled ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-zinc-50")
-                  }
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-900">{m.name}</div>
-                      <div className="mt-1 text-xs text-zinc-600">{m.enabled ? "Included in your plan" : "Not active"}</div>
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Workspace coverage</div>
+                  <div className="mt-2 text-sm font-semibold text-zinc-900">{activeModuleCount} of {modules.length} services are active</div>
+                </div>
+                <div className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                  {activeModuleCount}/{modules.length} live now
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {modules.map((m) => (
+                  <div
+                    key={m.key}
+                    className={
+                      "flex min-h-27 flex-col justify-between rounded-3xl border p-4 shadow-sm transition-transform duration-150 hover:-translate-y-0.5 " +
+                      (m.enabled ? "border-emerald-200 bg-white" : "border-zinc-200 bg-zinc-50")
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">{m.name}</div>
+                        <div className="mt-1 text-xs text-zinc-600">{m.enabled ? "Included in your plan" : "Available to unlock"}</div>
+                      </div>
+                      <span className={m.enabled ? "rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700" : "rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500"}>
+                        {m.enabled ? "Live" : "Upgrade"}
+                      </span>
                     </div>
+
+                    <div className="mt-3 text-xs leading-relaxed text-zinc-600">
+                      {m.enabled
+                        ? "Ready to use in this workspace."
+                        : me.billing.configured
+                          ? "Unlock this service when you want it in the live stack."
+                          : "Connect billing before unlocking paid services."}
+                    </div>
+
                     {!m.enabled ? (
-                      <button
-                        className="shrink-0 rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
-                        onClick={() => upgrade(m.key)}
-                      >
-                        Upgrade
-                      </button>
+                      <div className="mt-3">
+                        <button
+                          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-opacity duration-100 hover:opacity-95 disabled:opacity-60"
+                          onClick={() => upgrade(m.key)}
+                        >
+                          Unlock service
+                        </button>
+                      </div>
                     ) : null}
                   </div>
-
-                  {!m.enabled ? (
-                    <div className="mt-3 text-xs text-zinc-600">
-                      {me.billing.configured ? "Upgrade to unlock this service." : "Upgrade from the Billing page."}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="font-semibold text-zinc-900">{servicesWidgetSummary.headline}</div>
-                <div className="mt-1 text-sm text-zinc-600">{servicesWidgetSummary.body}</div>
+                ))}
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Link
-                  href={servicesWidgetSummary.primaryHref}
-                  className={dashboardPrimaryButtonClass}
-                >
-                  {servicesWidgetSummary.primaryLabel}
-                </Link>
-                <Link
-                  href={`${portalBase}/app/onboarding`}
-                  className={dashboardSecondaryButtonClass}
-                >
-                  Open setup checklist
-                </Link>
-                {me.entitlements.blog ? (
-                  <Link
-                    href={`${portalBase}/app/services/blogs`}
-                    className={dashboardSecondaryButtonClass}
-                  >
-                    Open blogs
-                  </Link>
-                ) : null}
-                <Link
-                  href={`${portalBase}/app/billing`}
-                  className={dashboardSecondaryButtonClass}
-                >
-                  Billing
-                </Link>
-                <Link
-                  href={`${portalBase}/app/services/reporting`}
-                  className={dashboardSecondaryButtonClass}
-                >
-                  Reporting
-                </Link>
-                <Link
-                  href={`${portalBase}/app/ai-chat`}
-                  className={dashboardSecondaryButtonClass}
-                >
-                  Pura
-                </Link>
-                <Link
-                  href={`${portalBase}/app/services/inbox/email`}
-                  className={dashboardSecondaryButtonClass}
-                >
-                  Inbox
-                </Link>
-                <Link
-                  href={`${portalBase}/app/services/media-library`}
-                  className={dashboardSecondaryButtonClass}
-                >
-                  Media library
-                </Link>
+
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-4 shadow-sm">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-base font-semibold text-zinc-900">{servicesWidgetSummary.headline}</div>
+                    <div className="mt-1 text-sm leading-relaxed text-zinc-600">{servicesWidgetSummary.body}</div>
+                  </div>
+                  <div className="flex shrink-0 items-start">
+                    <Link
+                      href={servicesWidgetSummary.primaryHref}
+                      className={dashboardPrimaryButtonClass}
+                    >
+                      {servicesWidgetSummary.primaryLabel}
+                    </Link>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2 border-t border-zinc-200/80 pt-4">
+                  {serviceQuickLinks.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className="inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors duration-100 hover:border-zinc-300 hover:bg-zinc-50"
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
               </div>
             </div>
           </AccentCard>
@@ -2072,9 +2213,11 @@ export function PortalDashboardClient() {
     const topItem = visible[0];
     if (!topItem) return null;
     const topColors = guidanceStatusColors(topItem.status);
+    const secondaryItems = visible.slice(1);
+    const secondaryGridClass = secondaryItems.length >= 3 ? "sm:grid-cols-3" : "sm:grid-cols-2";
 
     return (
-      <div className="mb-5 rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="mb-5 rounded-3xl border border-zinc-200 bg-linear-to-b from-white to-zinc-50/40 p-5 shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -2093,7 +2236,7 @@ export function PortalDashboardClient() {
         </div>
 
         {/* Top item — featured */}
-        <div className={`rounded-2xl border p-4 ${topColors.border} ${topColors.bg}`}>
+        <div className={`rounded-[26px] border p-5 shadow-sm ${topColors.border} ${topColors.bg}`}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -2114,21 +2257,24 @@ export function PortalDashboardClient() {
         </div>
 
         {/* Secondary items — compact row */}
-        {visible.length > 1 ? (
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-            {visible.slice(1).map((item) => {
+        {secondaryItems.length > 0 ? (
+          <div className={`mt-3 grid grid-cols-1 gap-3 ${secondaryGridClass}`}>
+            {secondaryItems.map((item) => {
               const colors = guidanceStatusColors(item.status);
               return (
                 <Link
                   key={item.id}
                   href={item.href}
-                  className={`rounded-2xl border p-3 transition-colors duration-100 hover:bg-zinc-50 ${colors.border}`}
+                  className={`flex h-full min-h-33 flex-col justify-between rounded-3xl border p-4 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md ${colors.border} ${colors.bg}`}
                 >
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${colors.badge}`}>
-                    {guidanceStatusLabel(item.status)}
-                  </span>
-                  <div className="mt-1.5 text-xs font-semibold text-zinc-900 leading-snug">{item.title}</div>
-                  <div className="mt-1 text-xs font-semibold text-brand-ink">{item.nextActionLabel} →</div>
+                  <div>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${colors.badge}`}>
+                      {guidanceStatusLabel(item.status)}
+                    </span>
+                    <div className="mt-2 text-sm font-semibold leading-snug text-zinc-900">{item.title}</div>
+                    <div className="mt-1 text-xs leading-relaxed text-zinc-600">{item.reason}</div>
+                  </div>
+                  <div className="mt-3 text-xs font-semibold text-brand-ink">{item.nextActionLabel} →</div>
                 </Link>
               );
             })}
@@ -2204,6 +2350,10 @@ export function PortalDashboardClient() {
               preventCollision={true}
               dragConfig={{ enabled: editMode, handle: ".drag-handle" }}
               resizeConfig={{ enabled: editMode, handles: ["se"] }}
+              onDragStart={(_layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => handleEditInteractionStart(newItem)}
+              onDragStop={() => handleEditInteractionStop()}
+              onResizeStart={(_layout: Layout, _oldItem: LayoutItem, newItem: LayoutItem) => handleEditInteractionStart(newItem)}
+              onResizeStop={() => handleEditInteractionStop()}
               onLayoutChange={(_current: Layout, all: ResponsiveLayouts) => setLayouts(all)}
             >
               {widgetIds.map((id) => (
@@ -2217,7 +2367,9 @@ export function PortalDashboardClient() {
                       Remove
                     </button>
                   ) : null}
-                  {renderWidget(id)}
+                  {editMode && activeEditWidgetId
+                    ? <DashboardEditPreviewCard id={id} title={widgetTitle(id)} active={id === activeEditWidgetId} />
+                    : renderWidget(id)}
                 </div>
               ))}
             </ResponsiveGridLayoutAny>

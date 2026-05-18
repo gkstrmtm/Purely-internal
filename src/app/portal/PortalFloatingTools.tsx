@@ -631,6 +631,8 @@ export function PortalFloatingTools() {
   }, [uiPreview]);
 
   const hidden = forceHidden || profileHidden || (isSmallScreen && !isDashboardRoute && !isSettingsRoute && !chatOpen && !reportOpen);
+  const [dockVisibility, setDockVisibility] = useState<"visible" | "fading" | "hidden">(hidden ? "hidden" : "visible");
+  const dockFadeTimeoutRef = useRef<number | null>(null);
   const moveDockToTopRight = false;
   const notePositionClass = moveDockToTopRight
     ? "fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130103 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] sm:top-auto sm:right-4 sm:max-w-sm sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)]"
@@ -651,6 +653,38 @@ export function PortalFloatingTools() {
     setChatOpen(false);
     setMinimized(true);
   }, [hidden]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setDockVisibility(hidden ? "hidden" : "visible");
+      return;
+    }
+
+    if (dockFadeTimeoutRef.current) {
+      window.clearTimeout(dockFadeTimeoutRef.current);
+      dockFadeTimeoutRef.current = null;
+    }
+
+    if (hidden) {
+      setDockVisibility((current) => (current === "hidden" ? "hidden" : "fading"));
+      dockFadeTimeoutRef.current = window.setTimeout(() => {
+        setDockVisibility("hidden");
+        dockFadeTimeoutRef.current = null;
+      }, 180);
+      return;
+    }
+
+    setDockVisibility("visible");
+  }, [hidden]);
+
+  useEffect(() => {
+    return () => {
+      if (dockFadeTimeoutRef.current) {
+        window.clearTimeout(dockFadeTimeoutRef.current);
+        dockFadeTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   function scheduleChatScrollToBottom(force = false) {
     if (typeof window === "undefined") return;
@@ -808,8 +842,14 @@ export function PortalFloatingTools() {
     [feedbackArea, feedbackPathLabel, feedbackServiceSlug, feedbackWorkspaceLabel],
   );
   const expectedFieldRequired = feedbackForm.category === "bug" || feedbackForm.category === "confusion";
+  const showFloatingDock = !hidden || dockVisibility !== "hidden";
+  const showFloatingPanels = !hidden;
+  const effectiveMinimized = hidden ? true : minimized;
+  const dockVisibilityClass = hidden
+    ? "pointer-events-none translate-y-2 opacity-0"
+    : "translate-y-0 opacity-100";
 
-  if (hidden) return null;
+  if (!showFloatingDock) return null;
 
   function persistMinimized(next: boolean) {
     setMinimized(next);
@@ -1146,7 +1186,7 @@ export function PortalFloatingTools() {
         </div>
       ) : null}
 
-      {reportOpen ? (
+      {showFloatingPanels && reportOpen ? (
         <div className="fixed inset-0 z-130102">
           <button
             type="button"
@@ -1282,7 +1322,7 @@ export function PortalFloatingTools() {
         </div>
       ) : null}
 
-      {chatOpen ? (
+      {showFloatingPanels && chatOpen ? (
         <div
           ref={chatPanelRef}
           className={chatPanelPositionClass}
@@ -1416,8 +1456,8 @@ export function PortalFloatingTools() {
         </div>
       ) : null}
 
-      <div className={dockPositionClass}>
-        {minimized ? (
+      <div className={`${dockPositionClass} transition-all duration-200 ease-out ${dockVisibilityClass}`}>
+        {effectiveMinimized ? (
           compactDock ? (
             <div className="group flex items-center justify-end gap-2">
               <button

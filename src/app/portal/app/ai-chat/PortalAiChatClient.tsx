@@ -1066,6 +1066,31 @@ function newClientId() {
   return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
 }
 
+function createOptimisticThinkingMessage(id: string, createdAt: string): Message {
+  return {
+    id: `optimistic-assistant-${id}`,
+    role: "assistant",
+    text: "",
+    attachmentsJson: null,
+    createdAt,
+    sendAt: null,
+    sentAt: createdAt,
+  };
+}
+
+function createClientFailureAssistantMessage(id: string, createdAt: string, text: string, displayMode: ChatMode): Message {
+  return {
+    id: `client-assistant-${id}`,
+    role: "assistant",
+    text,
+    attachmentsJson: null,
+    displayMode,
+    createdAt,
+    sendAt: null,
+    sentAt: createdAt,
+  };
+}
+
 function ThinkingDots() {
   return (
     <div className="inline-flex items-center gap-1" aria-label="Thinking">
@@ -3985,8 +4010,9 @@ export function PortalAiChatClient({
       };
 
       const optimisticUserWithContext = attachVisibleContextBadges(optimisticUser, visibleContextBadges);
+      const optimisticAssistant = createOptimisticThinkingMessage(optimisticId, nowIso);
 
-      updateThreadMessages(threadIdForSend, (prev) => [...prev, optimisticUserWithContext]);
+      updateThreadMessages(threadIdForSend, (prev) => [...prev, optimisticUserWithContext, optimisticAssistant]);
       setThreadDraftState(draftRestoreKey, (prev) => ({
         input: typeof overrideText === "string" ? prev.input : "",
         pendingAttachments: [],
@@ -4011,7 +4037,37 @@ export function PortalAiChatClient({
           }),
         });
         const json = await res.json().catch(() => null);
-        if (!json?.ok) throw new Error(json?.error || "Send failed");
+        if (!json?.ok) {
+          const canRenderFailureState = Boolean(json?.userMessage) || json?.code === "AI_UNAVAILABLE" || json?.code === "NO_ASSISTANT_REPLY";
+          if (!canRenderFailureState) throw new Error(json?.error || "Send failed");
+
+          const failureText = typeof json?.error === "string" && json.error.trim() ? json.error.trim() : "Run ended without a reply.";
+          const failureAssistantMessage = createClientFailureAssistantMessage(newClientId(), new Date().toISOString(), failureText, modeAtSend);
+          rememberMessageDisplayMode(failureAssistantMessage.id, failureAssistantMessage.displayMode);
+
+          updateThreadMessages(threadIdForSend, (prev) => {
+            const cleaned = prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id);
+            const next: Message[] = [...cleaned];
+            if (json.userMessage) {
+              next.push(mergeVisibleContextBadges(json.userMessage as Message, optimisticUserWithContext, visibleContextBadges));
+            }
+            next.push(failureAssistantMessage);
+            return next;
+          });
+
+          setThreadUiState(threadIdForSend, (prev) => ({
+            ...prev,
+            ambiguousContacts: null,
+            assistantChoices: null,
+            canvasUiAmbiguity: null,
+            canvasUiResumeActions: null,
+          }));
+
+          void loadThreads();
+          void loadThreadStatus(threadIdForSend);
+          toast.error(failureText);
+          return;
+        }
 
         if (createdThread) {
           // Thread was already inserted + selected right after creation.
@@ -4030,7 +4086,7 @@ export function PortalAiChatClient({
           const message = String(json.needsConfirm.message || "").trim() || "Continue?";
 
           updateThreadMessages(threadIdForSend, (prev) => {
-            const cleaned = prev.filter((m) => m.id !== optimisticUser.id);
+            const cleaned = prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id);
             const next: Message[] = [...cleaned];
             if (json.userMessage) next.push(mergeVisibleContextBadges(json.userMessage as Message, optimisticUserWithContext, visibleContextBadges));
             if (json.assistantMessage) {
@@ -4122,7 +4178,7 @@ export function PortalAiChatClient({
 
 
         updateThreadMessages(threadIdForSend, (prev) => {
-          const cleaned = prev.filter((m) => m.id !== optimisticUser.id);
+          const cleaned = prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id);
           const next: Message[] = [...cleaned];
           if (json.userMessage) next.push(mergeVisibleContextBadges(json.userMessage as Message, optimisticUserWithContext, visibleContextBadges));
           if (json.assistantMessage) {
@@ -4143,7 +4199,7 @@ export function PortalAiChatClient({
         void loadThreads();
         void loadThreadStatus(threadIdForSend);
       } catch (e) {
-        updateThreadMessages(threadIdForSend, (prev) => prev.filter((m) => m.id !== optimisticUser.id));
+        updateThreadMessages(threadIdForSend, (prev) => prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id));
         setThreadDraftState(draftRestoreKey, (prev) => ({
           ...prev,
           input: typeof overrideText === "string" ? prev.input : text,

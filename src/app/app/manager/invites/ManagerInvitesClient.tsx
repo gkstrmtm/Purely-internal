@@ -50,6 +50,7 @@ export default function ManagerInvitesClient({
     sending: boolean;
     error: string | null;
     success: string | null;
+    providerMessageId: string | null;
   }>(null);
 
   async function load() {
@@ -264,6 +265,7 @@ export default function ManagerInvitesClient({
                             sending: false,
                             error: null,
                             success: null,
+                            providerMessageId: null,
                           });
                         }}
                       >
@@ -356,7 +358,7 @@ export default function ManagerInvitesClient({
                   onChange={(e) =>
                     setEmailModal((prev) =>
                       prev
-                        ? { ...prev, toEmail: e.target.value, error: null, success: null }
+                        ? { ...prev, toEmail: e.target.value, error: null, success: null, providerMessageId: null }
                         : prev,
                     )
                   }
@@ -373,7 +375,7 @@ export default function ManagerInvitesClient({
                   onChange={(e) =>
                     setEmailModal((prev) =>
                       prev
-                        ? { ...prev, subject: e.target.value, error: null, success: null }
+                        ? { ...prev, subject: e.target.value, error: null, success: null, providerMessageId: null }
                         : prev,
                     )
                   }
@@ -391,7 +393,7 @@ export default function ManagerInvitesClient({
                   onChange={(e) =>
                     setEmailModal((prev) =>
                       prev
-                        ? { ...prev, note: e.target.value, error: null, success: null }
+                        ? { ...prev, note: e.target.value, error: null, success: null, providerMessageId: null }
                         : prev,
                     )
                   }
@@ -444,6 +446,7 @@ export default function ManagerInvitesClient({
                         ? {
                             ...prev,
                             sending: false,
+                            providerMessageId: null,
                             error: [body?.error ?? "Failed to send email", body?.details].filter(Boolean).join(" • "),
                           }
                         : prev,
@@ -452,12 +455,14 @@ export default function ManagerInvitesClient({
                   }
 
                   const provider = typeof body?.provider === "string" ? body.provider : "email";
+                  const providerMessageId = typeof body?.providerMessageId === "string" && body.providerMessageId.trim() ? body.providerMessageId.trim() : null;
                   setEmailModal((prev) =>
                     prev
                       ? {
                           ...prev,
                           sending: false,
-                          success: `Sent via ${provider}.`,
+                          success: `Sent via ${provider}.${providerMessageId ? ` Provider message id: ${providerMessageId}.` : ""}`,
+                          providerMessageId,
                         }
                       : prev,
                   );

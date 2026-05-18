@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { parseDisputeLetterPromptMeta, readContactAddress, readContactSignature, readContactSignatureImage } from "@/lib/creditDisputeLetters";
+import { inspectDisputeLetterPlaceholders, parseDisputeLetterPromptMeta, readContactAddress, readContactSignature, readContactSignatureImage } from "@/lib/creditDisputeLetters";
 import { prisma } from "@/lib/db";
 import { renderDisputeLetterPdfBytes } from "@/lib/disputeLetterPdf";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
@@ -28,9 +28,11 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
       subject: true,
       bodyText: true,
       promptText: true,
+      createdAt: true,
       pdfMediaItemId: true,
       pdfGeneratedAt: true,
       contact: { select: { id: true, name: true, customVariables: true } },
+      creditPull: { select: { rawJson: true } },
       pdfMediaItem: { select: { id: true, publicToken: true } },
     },
   });
@@ -67,9 +69,33 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
   const parsedMeta = parseDisputeLetterPromptMeta(letter.promptText || "");
   const senderName = parsedMeta.consumerName || letter.contact?.name || "";
   const senderAddress = parsedMeta.consumerAddress || readContactAddress(letter.contact?.customVariables) || "";
+  const businessProfile = await prisma.businessProfile.findUnique({
+    where: { ownerId },
+    select: { businessName: true },
+  }).catch(() => null);
+  const placeholderInspection = inspectDisputeLetterPlaceholders(letter.bodyText || "(empty)", {
+    contactName: senderName,
+    contactAddress: senderAddress,
+    promptText: letter.promptText || "",
+    createdAt: letter.createdAt,
+    creditPullRawJson: letter.creditPull?.rawJson,
+    businessName: businessProfile?.businessName || null,
+  });
+
+  if (placeholderInspection.unsupportedTokens.length || placeholderInspection.unresolvedTokens.length) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Resolve all dispute letter merge fields before generating the PDF.",
+        unsupportedTokens: placeholderInspection.unsupportedTokens,
+        unresolvedTokens: placeholderInspection.unresolvedTokens,
+      },
+      { status: 400 },
+    );
+  }
 
   const pdfBytes = await renderDisputeLetterPdfBytes({
-    text: letter.bodyText || "(empty)",
+    text: placeholderInspection.text || "(empty)",
     meta: {
       dateIso: parsedMeta.dateIso || null,
       senderName,

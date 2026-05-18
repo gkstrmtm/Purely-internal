@@ -160,7 +160,7 @@ export function PortalSalesReportingClient() {
             {backLabel}
           </Link>
           <Link
-            href={`${portalBase}/app/profile`}
+            href={`${portalBase}/app/settings/integrations`}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
             Sales settings
@@ -303,7 +303,7 @@ export function PortalSalesReportingClient() {
           <div className="mt-2 text-sm text-zinc-600">Connect a payment processor in Profile to enable sales reporting.</div>
           <div className="mt-4">
             <Link
-              href={`${portalBase}/app/profile`}
+              href={`${portalBase}/app/settings/integrations`}
               className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Connect a provider
